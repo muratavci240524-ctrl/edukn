@@ -1,0 +1,52 @@
+name: edukn
+description: "A new Flutter project."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.8.1
+
+dependencies:
+  url_launcher: ^6.3.2
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  google_fonts: ^6.3.2
+  firebase_core: ^4.2.0
+  firebase_auth: ^6.1.1
+  cloud_firestore: ^6.0.3
+  cloud_functions: ^6.0.3
+  intl: ^0.20.2
+  shared_preferences: ^2.3.3
+  pdf: ^3.11.3
+  printing: ^5.14.2
+  share_plus: ^12.0.1
+  path_provider: ^2.1.5
+  file_picker: ^10.3.7
+  file_saver: ^0.2.13
+  firebase_storage: ^13.0.4
+  http: ^1.6.0
+  excel: ^4.0.6
+  fl_chart: ^1.1.1
+  flutter_image_compress: ^2.4.0
+  image: ^4.5.4
+  record: ^6.1.2
+  audioplayers: ^6.5.1
+  google_generative_ai: ^0.4.7
+  archive: ^3.6.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+dependency_overrides:
+  archive: 3.6.1
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/

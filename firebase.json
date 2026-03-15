@@ -1,0 +1,60 @@
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "edukn-23036",
+          "appId": "1:158619513037:android:1ac596fbfd2d1bf80eb984",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "edukn-23036",
+          "configurations": {
+            "android": "1:158619513037:android:1ac596fbfd2d1bf80eb984",
+            "ios": "1:158619513037:ios:8cc1dc123e894f720eb984",
+            "macos": "1:158619513037:ios:8cc1dc123e894f720eb984",
+            "web": "1:158619513037:web:72ea508d1c57c6a50eb984",
+            "windows": "1:158619513037:web:7241056b372bda010eb984"
+          }
+        }
+      }
+    }
+  },
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "disallowLegacyRuntimeConfig": true,
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "*.local"
+      ]
+    }
+  ],
+  "hosting": {
+    "public": "build/web",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}

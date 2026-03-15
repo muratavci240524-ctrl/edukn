@@ -1,0 +1,47 @@
+# Flutter/Dart
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+
+# Web related
+build/web/
+
+# Android related
+android/**/generated/
+android/app/src/main/res/generated/
+android/gradle/
+android/local.properties
+android/key.properties
+android/*.keystore
+android/*.jks
+*.apk
+*.aab
+
+# iOS related
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+ios/ServiceDefinitions.json
+ios/Runner/GeneratedPluginRegistrant.h
+ios/Runner/GeneratedPluginRegistrant.m
+ios/Pods/
+ios/.symlinks/
+*.ipa
+
+# Firebase related
+google-services.json
+GoogleService-Info.plist
+.firebase/
+.firebaserc
+
+# IDE related
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+
+# OS related
+.DS_Store
+Thumbs.db

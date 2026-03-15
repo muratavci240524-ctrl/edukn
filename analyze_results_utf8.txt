@@ -1,0 +1,43 @@
+﻿Analyzing study_program_printing_helper.dart...                 
+
+   info - The import of 'dart:typed_data' is unnecessary because all of the used elements are also provided by the import of 'package:flutter/foundation.dart' - lib\screens\school\guidance\study_program_printing_helper.dart:1:8 - unnecessary_import
+   info - The imported package 'archive' isn't a dependency of the importing package - lib\screens\school\guidance\study_program_printing_helper.dart:6:8 - depend_on_referenced_packages
+   info - Don't use 'BuildContext's across async gaps - lib\screens\school\guidance\study_program_printing_helper.dart:87:30 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\screens\school\guidance\study_program_printing_helper.dart:87:54 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\screens\school\guidance\study_program_printing_helper.dart:94:28 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\screens\school\guidance\study_program_printing_helper.dart:94:52 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\screens\school\guidance\study_program_printing_helper.dart:101:28 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\screens\school\guidance\study_program_printing_helper.dart:101:52 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\screens\school\guidance\study_program_printing_helper.dart:103:9 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\screens\school\guidance\study_program_printing_helper.dart:167:30 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\screens\school\guidance\study_program_printing_helper.dart:167:54 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\screens\school\guidance\study_program_printing_helper.dart:176:28 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\screens\school\guidance\study_program_printing_helper.dart:176:52 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\screens\school\guidance\study_program_printing_helper.dart:185:28 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\screens\school\guidance\study_program_printing_helper.dart:185:52 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\screens\school\guidance\study_program_printing_helper.dart:187:9 - use_build_context_synchronously
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\screens\school\guidance\study_program_printing_helper.dart:213:41 - deprecated_member_use
+   info - String literals shouldn't be concatenated by the '+' operator - lib\screens\school\guidance\study_program_printing_helper.dart:331:122 - prefer_adjacent_string_concatenation
+
+flutter : 18 issues f
+ound. (ran in 7.1s)
+At line:1 char:1
++ flutter analyze lib
+/screens/school/guida
+nce/study_program_pri
+nting_he ...
++ ~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~
+    + CategoryInfo   
+           : NotSpe  
+  cified: (18 issu   
+ es found. (ran i    
+n 7.1s):String)     [
+], RemoteExcept    io
+n
+    + FullyQualified 
+   ErrorId : Native  
+  CommandError
+ 

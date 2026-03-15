@@ -1,0 +1,32 @@
+﻿Analyzing saved_study_programs_screen.dart...                   
+
+   info - Parameter 'key' could be a super parameter - lib\screens\school\guidance\saved_study_programs_screen.dart:11:9 - use_super_parameters
+   info - Invalid use of a private type in a public API - lib\screens\school\guidance\saved_study_programs_screen.dart:18:3 - library_private_types_in_public_api
+   info - The private field _selectedProgramIds could be 'final' - lib\screens\school\guidance\saved_study_programs_screen.dart:28:15 - prefer_final_fields
+   info - Don't use 'BuildContext's across async gaps - lib\screens\school\guidance\saved_study_programs_screen.dart:53:9 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\screens\school\guidance\saved_study_programs_screen.dart:147:9 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\screens\school\guidance\saved_study_programs_screen.dart:152:9 - use_build_context_synchronously
+   info - The 'child' argument should be last in widget constructor invocations - lib\screens\school\guidance\saved_study_programs_screen.dart:656:35 - sort_child_properties_last
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\screens\school\guidance\saved_study_programs_screen.dart:798:26 - deprecated_member_use
+
+flutter : 8 issues fo
+und. (ran in 6.9s)
+At line:1 char:1
++ flutter analyze lib
+/screens/school/guida
+nce/saved_study_progr
+ams_scre ...
++ ~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~
+    + CategoryInfo   
+           : NotSpe  
+  cified: (8 issue   
+ s found. (ran in    
+ 6.9s):String) [    ]
+, RemoteExcepti    on
+    + FullyQualified 
+   ErrorId : Native  
+  CommandError
+ 

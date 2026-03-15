@@ -1,0 +1,542 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isSameInstitution(resourceData) {
+      return getUserData().get('institutionId', '').lower() == resourceData.get('institutionId', '').lower();
+    }
+
+    function isAdminOrManager() {
+      return getUserData().role in ['admin', 'manager', 'genel_mudur', 'mudur'];
+    }
+
+    // Default deny for everything else NOT explicitly matched
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isActiveWorkPeriod(periodId, institutionId, schoolTypeId) {
+      return periodId != null
+        && exists(/databases/$(database)/documents/workPeriods/$(periodId))
+        && get(/databases/$(database)/documents/workPeriods/$(periodId)).data.isActive == true
+        && get(/databases/$(database)/documents/workPeriods/$(periodId)).data.institutionId == institutionId
+        && get(/databases/$(database)/documents/workPeriods/$(periodId)).data.schoolTypeId == schoolTypeId;
+    }
+    
+    // Schools collection
+    match /schools/{schoolId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+      
+      match /announcements/{announcementId} {
+        allow read: if isAuthenticated();
+        allow create, update: if isAuthenticated();
+        allow delete: if isAuthenticated();
+      }
+      
+      match /announcementGroups/{groupId} {
+        allow read: if isAuthenticated();
+        allow write: if isAuthenticated();
+      }
+
+      // Support Services Rules
+      match /mealPeriods/{periodId} {
+        allow read: if isAuthenticated();
+        allow write: if isAuthenticated();
+        
+        match /menus/{menuId} {
+          allow read: if isAuthenticated();
+          allow write: if isAuthenticated();
+        }
+      }
+
+      match /vehicles/{vehicleId} {
+        allow read: if isAuthenticated();
+        allow write: if isAuthenticated();
+      }
+
+      match /healthVisits/{visitId} {
+        allow read: if isAuthenticated();
+        allow write: if isAuthenticated();
+      }
+
+      match /libraryBooks/{bookId} {
+        allow read: if isAuthenticated();
+        allow write: if isAuthenticated();
+      }
+
+      match /bookLendings/{lendingId} {
+        allow read: if isAuthenticated();
+        allow write: if isAuthenticated();
+      }
+
+      match /cleaningStaff/{staffId} {
+        allow read: if isAuthenticated();
+        allow write: if isAuthenticated();
+      }
+
+      match /cleaningAreas/{areaId} {
+        allow read: if isAuthenticated();
+        allow write: if isAuthenticated();
+      }
+
+      match /cleaningLeaves/{leaveId} {
+        allow read: if isAuthenticated();
+        allow write: if isAuthenticated();
+      }
+    }
+    
+    // Students
+    match /students/{studentId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated();
+      allow delete: if isAuthenticated();
+    }
+    
+    // Users
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (
+        userId == request.auth.uid || 
+        isSameInstitution(resource.data) ||
+        isAdminOrManager()
+      );
+      allow write: if isAuthenticated() && (
+        userId == request.auth.uid || 
+        isAdminOrManager()
+      );
+    }
+    
+    // Work Periods
+    match /workPeriods/{periodId} {
+      allow read: if isAuthenticated() && (
+        resource == null || isSameInstitution(resource.data) || isAdminOrManager()
+      );
+      allow write: if isAuthenticated() && isAdminOrManager();
+    }
+    
+    // School Types
+    match /school_types/{typeId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    
+    // SchoolTypes (CamelCase - likely used by app)
+    match /schoolTypes/{typeId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    
+    // Trial Exams (Ensure this is deployed)
+    match /trial_exams/{examId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    
+    // Global Announcements
+    match /announcements/{announcementId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated();
+      allow delete: if isAuthenticated();
+    }
+    
+    // Attendance
+    match /attendance/{attendanceId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Lesson Attendance
+    match /lessonAttendance/{docId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated()
+        && isActiveWorkPeriod(
+          request.resource.data.periodId,
+          request.resource.data.institutionId,
+          request.resource.data.schoolTypeId
+        );
+      allow delete: if false;
+    }
+
+    match /notificationRequests/{requestId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated()
+        && (
+          (request.resource.data.type == 'agm_assignment' && isSameInstitution(request.resource.data))
+          ||
+          isActiveWorkPeriod(
+            request.resource.data.periodId,
+            request.resource.data.institutionId,
+            request.resource.data.schoolTypeId
+          )
+        );
+      allow update, delete: if false;
+    }
+
+    match /parentWeeklyUpdates/{docId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated()
+        && (
+          request.resource.data.periodId == null
+          || isActiveWorkPeriod(
+            request.resource.data.periodId,
+            request.resource.data.institutionId,
+            request.resource.data.schoolTypeId
+          )
+        );
+      allow delete: if false;
+    }
+    
+    match /grades/{gradeId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    
+    match /class_exams/{examId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    
+    match /classes/{classId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    
+    match /classTypes/{typeId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    
+    match /classrooms/{classroomId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    
+    match /subjects/{subjectId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    
+    match /dutyHistory/{historyId} {
+      allow read: if isAuthenticated() && (
+        resource == null || isSameInstitution(resource.data) || isAdminOrManager()
+      );
+      allow write: if isAuthenticated() && isAdminOrManager();
+    }
+    
+    match /terms/{termId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    
+    match /branches/{branchId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    
+    match /lessons/{lessonId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    
+    match /lessonAssignments/{assignmentId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    
+    match /staff/{staffId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    
+    match /classroomLessons/{assignmentId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    
+    match /yearlyPlans/{planId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+
+      match /weeklyPlans/{weekId} {
+        allow read: if isAuthenticated();
+        allow write: if isAuthenticated();
+      }
+    }
+    
+    match /classSchedules/{scheduleId} {
+      allow read: if isAuthenticated() && (
+        resource == null || isSameInstitution(resource.data) || isAdminOrManager()
+      );
+      allow write: if isAuthenticated() && isAdminOrManager();
+    }
+
+    match /surveys/{surveyId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /survey_responses/{responseId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /exam_types/{examTypeId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    
+    match /optical_forms/{formId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    
+    match /trial_exams/{examId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /outcome_lists/{listId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /tasks/{taskId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /temporaryTeacherAssignments/{assignmentId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /dutyLocations/{locationId} {
+      allow read: if isAuthenticated() && (
+        resource == null || isSameInstitution(resource.data) || isAdminOrManager()
+      );
+      allow write: if isAuthenticated() && isAdminOrManager();
+    }
+
+    match /dutyRules/{ruleId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /dutyEligibilities/{eligibilityId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    
+    match /teacherDutyPreferences/{prefId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /dutyMap/{assignmentId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /dutyPrograms/{programId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /dutyScheduleItems/{itemId} {
+      allow read: if isAuthenticated() && (
+        resource == null || isSameInstitution(resource.data) || isAdminOrManager()
+      );
+      allow write: if isAuthenticated() && isAdminOrManager();
+    }
+
+    match /field_trips/{tripId} {
+      allow read: if isAuthenticated() && (
+        resource == null || isSameInstitution(resource.data)
+      );
+      allow write: if isAuthenticated() && isAdminOrManager();
+    }
+
+    match /project_assignments/{assignmentId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /classLessonPlans/{planId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    
+    match /guidance_interviews/{interviewId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    
+    match /homeworks/{homeworkId} {
+      allow read: if isAuthenticated() && (
+        resource == null || isSameInstitution(resource.data)
+      );
+      allow write: if isAuthenticated(); // Teachers can write
+    }
+    
+    // Social Media Posts: Authenticated Users Only
+    match /social_media_posts/{postId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Chat Conversations and Messages
+    match /conversations/{conversationId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+      
+      match /messages/{messageId} {
+        allow read: if isAuthenticated();
+        allow write: if isAuthenticated();
+      }
+    }
+
+    match /institutions/{institutionId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+      
+      match /study_templates/{templateId} {
+        allow read: if isAuthenticated();
+        allow write: if isAuthenticated();
+      }
+
+      match /study_programs/{programId} {
+        allow read: if isAuthenticated();
+        allow write: if isAuthenticated();
+      }
+    }
+
+    match /leave_requests/{requestId} {
+      allow read: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid || 
+        (isAdminOrManager() && isSameInstitution(resource.data))
+      );
+      allow create: if isAuthenticated() && (
+        request.resource.data.userId == request.auth.uid ||
+        (isAdminOrManager() && isSameInstitution(request.resource.data))
+      );
+      allow update: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid || 
+        (isAdminOrManager() && isSameInstitution(resource.data))
+      );
+      allow delete: if isAuthenticated() && isAdminOrManager() && isSameInstitution(resource.data);
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // Book Management System
+    match /books/{bookId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /book_assignments/{assignmentId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /etut_requests/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /etut_settings/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /etut_teacher_availability/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Activity & Observation Module
+    match /activities/{activityId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /activity_evaluations/{evaluationId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // 360 Degree Development Report System
+    match /development_report_sessions/{sessionId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /development_reports/{reportId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /development_criteria/{criterionId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /development_evaluations/{evaluationId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // ─── AGM – Akademik Güçlendirme Merkezi ───────────────────────────────────
+    // AGM koleksiyonları kurumsal düzeyde erişim kontrolü ile korunur.
+    // Okuma: Tüm kimliği doğrulanmış kullanıcılar
+    // Yazma: Admin / Manager rolleri
+    match /agm_cycles/{cycleId} {
+      allow read: if isAuthenticated() && (resource == null || isSameInstitution(resource.data));
+      allow create: if isAuthenticated() && isAdminOrManager() && isSameInstitution(request.resource.data);
+      allow update: if isAuthenticated() && isAdminOrManager() && isSameInstitution(resource.data);
+      allow delete: if isAuthenticated() && isAdminOrManager() && isSameInstitution(resource.data);
+    }
+
+    match /agm_groups/{groupId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isAdminOrManager();
+    }
+
+    match /agm_assignments/{assignmentId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isAdminOrManager();
+    }
+
+    match /agm_assignment_logs/{logId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if false;
+    }
+
+    match /agm_time_slots/{slotId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isAdminOrManager();
+    }
+
+    match /student_preferences/{prefId} {
+      allow read: if isAuthenticated() && isSameInstitution(resource.data);
+      allow write: if isAuthenticated();
+    }
+  }
+}
