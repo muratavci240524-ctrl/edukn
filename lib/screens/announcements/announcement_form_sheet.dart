@@ -38,6 +38,8 @@ class _AnnouncementFormSheetState extends State<AnnouncementFormSheet> {
   bool _isAnonymous = false;
   bool _schedulePublish = false;
   List<Map<String, dynamic>> _reminders = [];
+  String _repeatMode = 'none';
+  DateTime _repeatUntil = DateTime.now().add(const Duration(days: 30));
 
   // Firebase'den gelen veriler
   List<Map<String, dynamic>> _allUsers = [];
@@ -190,6 +192,16 @@ class _AnnouncementFormSheetState extends State<AnnouncementFormSheet> {
       initialTime: _publishTime,
     );
     if (picked != null) setState(() => _publishTime = picked);
+  }
+
+  Future<void> _pickRepeatUntil() async {
+    final picked = await showDatePicker(
+      context: context,
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      initialDate: _repeatUntil,
+    );
+    if (picked != null) setState(() => _repeatUntil = picked);
   }
 
   void _addRecipient(String recipientId) {
@@ -1443,6 +1455,121 @@ class _AnnouncementFormSheetState extends State<AnnouncementFormSheet> {
 
                 const SizedBox(height: 16),
 
+                // Tekrarla ve Hatırlatıcı (Integrated UI)
+                Card(
+                  elevation: 0,
+                  color: Colors.indigo[50],
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.repeat, color: Colors.indigo[700], size: 20),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Tekrarla ve Hatırlatıcı',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.indigo[900],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        // Repeat Mode Settings
+                        Row(
+                          children: [
+                            const Text('Tekrar: ', style: TextStyle(fontSize: 13)),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: DropdownButton<String>(
+                                value: _repeatMode,
+                                isExpanded: true,
+                                style: TextStyle(color: Colors.indigo[900], fontSize: 13),
+                                items: const [
+                                  DropdownMenuItem(value: 'none', child: Text('Tekrarlama')),
+                                  DropdownMenuItem(value: 'daily', child: Text('Her Gün')),
+                                  DropdownMenuItem(value: 'weekly', child: Text('Her Hafta')),
+                                  DropdownMenuItem(value: 'biweekly', child: Text('2 Haftada Bir')),
+                                  DropdownMenuItem(value: 'monthly', child: Text('Her Ay')),
+                                ],
+                                onChanged: (val) => setState(() => _repeatMode = val ?? 'none'),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (_repeatMode != 'none') ...[
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              const Text('Bitiş: ', style: TextStyle(fontSize: 13)),
+                              const SizedBox(width: 8),
+                              TextButton.icon(
+                                onPressed: _pickRepeatUntil,
+                                icon: const Icon(Icons.calendar_today, size: 16),
+                                label: Text(
+                                  '${_repeatUntil.day}/${_repeatUntil.month}/${_repeatUntil.year}',
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                        const Divider(height: 24),
+                        // Reminder Settings (Already existing list logic but in this card)
+                        Row(
+                          children: [
+                            const Icon(Icons.notifications_active, size: 18, color: Colors.orange),
+                            const SizedBox(width: 8),
+                            const Text('Hatırlatmalar', style: TextStyle(fontWeight: FontWeight.w600)),
+                            const Spacer(),
+                            IconButton(
+                              onPressed: () async {
+                                final date = await showDatePicker(
+                                  context: context,
+                                  firstDate: DateTime.now(),
+                                  lastDate: DateTime(DateTime.now().year + 2),
+                                  initialDate: DateTime.now().add(const Duration(days: 1)),
+                                );
+                                if (date == null || !mounted) return;
+
+                                final time = await showTimePicker(
+                                  context: context,
+                                  initialTime: TimeOfDay.now(),
+                                );
+                                if (time == null || !mounted) return;
+
+                                setState(() {
+                                  _reminders.add({'date': date, 'time': time});
+                                });
+                              },
+                              icon: const Icon(Icons.add_alarm, size: 20),
+                              color: Colors.orange[700],
+                            ),
+                          ],
+                        ),
+                        if (_reminders.isNotEmpty) 
+                          ..._reminders.asMap().entries.map((entry) {
+                            final index = entry.key;
+                            final reminder = entry.value;
+                            final date = reminder['date'] as DateTime;
+                            final time = reminder['time'] as TimeOfDay;
+                            return Chip(
+                              label: Text('${date.day}/${date.month}/${date.year} ${time.format(context)}'),
+                              onDeleted: () => setState(() => _reminders.removeAt(index)),
+                              deleteIconColor: Colors.red,
+                              backgroundColor: Colors.white,
+                            );
+                          }).toList(),
+                      ],
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
                 // Action Buttons
                 Row(
                   children: [
@@ -1558,6 +1685,8 @@ class _AnnouncementFormSheetState extends State<AnnouncementFormSheet> {
                                       schedulePublish: _schedulePublish,
                                       reminders: _reminders,
                                       schoolTypeId: widget.schoolTypeId,
+                                      repeatMode: _repeatMode == 'none' ? null : _repeatMode,
+                                      repeatUntil: _repeatMode == 'none' ? null : _repeatUntil,
                                     );
                                   }
 

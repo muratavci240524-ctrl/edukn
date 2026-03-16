@@ -34,8 +34,8 @@ class StylishBottomNav extends StatelessWidget {
                 Expanded(child: _buildNavItem(0, Icons.campaign, 'Duyurular')),
                 Expanded(child: _buildNavItem(1, Icons.share, 'Sosyal')),
                 const SizedBox(width: 48), // Gap for center button
-                Expanded(child: _buildNavItem(2, Icons.message, 'Mesajlar')),
-                Expanded(child: _buildNavItem(3, Icons.grid_view, 'İşlemler')),
+                Expanded(child: _buildNavItem(3, Icons.message, 'Mesajlar')),
+                Expanded(child: _buildNavItem(4, Icons.grid_view, 'İşlemler')),
               ],
             ),
           ),
@@ -45,7 +45,7 @@ class StylishBottomNav extends StatelessWidget {
             top: -25, // Adjusted slightly to sit nicely in the new curve
             child: GestureDetector(
               onTap: () {
-                onTap(4);
+                onTap(2);
               },
               child: Container(
                 width:

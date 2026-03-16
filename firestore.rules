@@ -118,9 +118,7 @@ service cloud.firestore {
     
     // Work Periods
     match /workPeriods/{periodId} {
-      allow read: if isAuthenticated() && (
-        resource == null || isSameInstitution(resource.data) || isAdminOrManager()
-      );
+      allow read: if isAuthenticated();
       allow write: if isAuthenticated() && isAdminOrManager();
     }
     
@@ -227,9 +225,7 @@ service cloud.firestore {
     }
     
     match /dutyHistory/{historyId} {
-      allow read: if isAuthenticated() && (
-        resource == null || isSameInstitution(resource.data) || isAdminOrManager()
-      );
+      allow read: if isAuthenticated();
       allow write: if isAuthenticated() && isAdminOrManager();
     }
     
@@ -274,9 +270,7 @@ service cloud.firestore {
     }
     
     match /classSchedules/{scheduleId} {
-      allow read: if isAuthenticated() && (
-        resource == null || isSameInstitution(resource.data) || isAdminOrManager()
-      );
+      allow read: if isAuthenticated();
       allow write: if isAuthenticated() && isAdminOrManager();
     }
 
@@ -353,16 +347,12 @@ service cloud.firestore {
     }
 
     match /dutyScheduleItems/{itemId} {
-      allow read: if isAuthenticated() && (
-        resource == null || isSameInstitution(resource.data) || isAdminOrManager()
-      );
+      allow read: if isAuthenticated();
       allow write: if isAuthenticated() && isAdminOrManager();
     }
 
     match /field_trips/{tripId} {
-      allow read: if isAuthenticated() && (
-        resource == null || isSameInstitution(resource.data)
-      );
+      allow read: if isAuthenticated();
       allow write: if isAuthenticated() && isAdminOrManager();
     }
 
@@ -383,9 +373,7 @@ service cloud.firestore {
 
     
     match /homeworks/{homeworkId} {
-      allow read: if isAuthenticated() && (
-        resource == null || isSameInstitution(resource.data)
-      );
+      allow read: if isAuthenticated();
       allow write: if isAuthenticated(); // Teachers can write
     }
     
@@ -507,7 +495,7 @@ service cloud.firestore {
     // Okuma: Tüm kimliği doğrulanmış kullanıcılar
     // Yazma: Admin / Manager rolleri
     match /agm_cycles/{cycleId} {
-      allow read: if isAuthenticated() && (resource == null || isSameInstitution(resource.data));
+      allow read: if isAuthenticated();
       allow create: if isAuthenticated() && isAdminOrManager() && isSameInstitution(request.resource.data);
       allow update: if isAuthenticated() && isAdminOrManager() && isSameInstitution(resource.data);
       allow delete: if isAuthenticated() && isAdminOrManager() && isSameInstitution(resource.data);

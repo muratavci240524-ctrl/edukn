@@ -86,17 +86,17 @@ class _SchoolTypeDetailScreenState extends State<SchoolTypeDetailScreen> {
         schoolTypeName: widget.schoolTypeName,
         institutionId: widget.institutionId,
       ),
+      _DashboardTab(
+        schoolTypeId: widget.schoolTypeId,
+        schoolTypeName: widget.schoolTypeName,
+        institutionId: widget.institutionId,
+      ),
       _MessagesTab(
         schoolTypeId: widget.schoolTypeId,
         schoolTypeName: widget.schoolTypeName,
         institutionId: widget.institutionId,
       ),
       _OperationsTab(
-        schoolTypeId: widget.schoolTypeId,
-        schoolTypeName: widget.schoolTypeName,
-        institutionId: widget.institutionId,
-      ),
-      _DashboardTab(
         schoolTypeId: widget.schoolTypeId,
         schoolTypeName: widget.schoolTypeName,
         institutionId: widget.institutionId,

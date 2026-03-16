@@ -31,6 +31,7 @@ class _TeacherAnnouncementsScreenState extends State<TeacherAnnouncementsScreen>
   bool _isLoadingPermissions = true;
   Timer? _scheduledCheckTimer;
   Set<String> _assignedClassIds = {};
+  Set<String> _assignedStudentIds = {};
   bool _isLoadingClasses = true;
 
   @override
@@ -75,9 +76,12 @@ class _TeacherAnnouncementsScreenState extends State<TeacherAnnouncementsScreen>
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
 
+      final instId = widget.institutionId.toUpperCase();
+
+      // 1. Atanmış sınıfları bul
       final snapshot = await FirebaseFirestore.instance
           .collection('lessonAssignments')
-          .where('institutionId', isEqualTo: widget.institutionId)
+          .where('institutionId', isEqualTo: instId)
           .where('teacherIds', arrayContains: user.uid)
           .where('isActive', isEqualTo: true)
           .get();
@@ -88,9 +92,28 @@ class _TeacherAnnouncementsScreenState extends State<TeacherAnnouncementsScreen>
           .cast<String>()
           .toSet();
 
+      // 2. Bu sınıflardaki öğrencileri bul
+      Set<String> studentIds = {};
+      if (classIds.isNotEmpty) {
+        final classIdList = classIds.toList();
+        for (var i = 0; i < classIdList.length; i += 10) {
+          final chunk = classIdList.skip(i).take(10).toList();
+          final studentSnap = await FirebaseFirestore.instance
+              .collection('students')
+              .where('institutionId', isEqualTo: instId)
+              .where('classId', whereIn: chunk)
+              .get();
+          
+          for (var doc in studentSnap.docs) {
+            studentIds.add(doc.id);
+          }
+        }
+      }
+
       if (mounted) {
         setState(() {
           _assignedClassIds = classIds;
+          _assignedStudentIds = studentIds;
           _isLoadingClasses = false;
         });
       }
@@ -133,8 +156,16 @@ class _TeacherAnnouncementsScreenState extends State<TeacherAnnouncementsScreen>
       final currentUser = FirebaseAuth.instance.currentUser;
       if (currentUser == null) return;
       final currentUserEmail = currentUser.email ?? '';
-      final schoolId = await _announcementService.getSchoolId();
-      if (schoolId == null) return;
+      
+      final instId = widget.institutionId.toUpperCase();
+      final schoolQuery = await FirebaseFirestore.instance
+          .collection('schools')
+          .where('institutionId', isEqualTo: instId)
+          .limit(1)
+          .get();
+
+      if (schoolQuery.docs.isEmpty) return;
+      final schoolId = schoolQuery.docs.first.id;
 
       await FirebaseFirestore.instance
           .collection('schools')
@@ -518,6 +549,13 @@ class _TeacherAnnouncementsScreenState extends State<TeacherAnnouncementsScreen>
         // Sınıf bazlı kontrol
         for (final classId in _assignedClassIds) {
           if (recipients.contains(classId)) {
+            return true;
+          }
+        }
+
+        // Öğrenci bazlı kontrol (Tanımlı öğrencilere giden duyuruları öğretmen de görür)
+        for (final studentId in _assignedStudentIds) {
+          if (recipients.contains(studentId)) {
             return true;
           }
         }

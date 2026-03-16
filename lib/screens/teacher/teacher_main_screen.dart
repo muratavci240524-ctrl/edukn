@@ -26,9 +26,9 @@ class _TeacherMainScreenState extends State<TeacherMainScreen> {
     _pages = [
       TeacherAnnouncementsScreen(institutionId: widget.institutionId), // 0: Duyurular
       TeacherSocialMediaScreen(institutionId: widget.institutionId),   // 1: Sosyal
-      TeacherMessagesScreen(institutionId: widget.institutionId),      // 2: Mesajlar
-      TeacherOperationsScreen(institutionId: widget.institutionId),    // 3: İşlemler
-      TeacherDashboardTab(institutionId: widget.institutionId),       // 4: Dashboard (Orta)
+      TeacherDashboardTab(institutionId: widget.institutionId),       // 2: Dashboard (Center)
+      TeacherMessagesScreen(institutionId: widget.institutionId),      // 3: Mesajlar
+      TeacherOperationsScreen(institutionId: widget.institutionId),    // 4: İşlemler
     ];
   }
 

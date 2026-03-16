@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -5385,6 +5385,10 @@ class __StudentRegistrationFormScreenState
               DropdownMenuItem(value: 'yedek', child: Text('Yedek Kayıt')),
               DropdownMenuItem(value: 'misafir', child: Text('Misafir Kaydı')),
               DropdownMenuItem(value: 'demo', child: Text('Demo Kayıt')),
+              DropdownMenuItem(
+                value: 'excel_import',
+                child: Text('Excel Aktarımı'),
+              ),
             ],
 
             value: _selectedRegistrationType,
@@ -6091,6 +6095,10 @@ class __StudentRegistrationFormScreenState
                     DropdownMenuItem(
                       value: 'yenileme',
                       child: Text('Kayıt Yenileme'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'excel_import',
+                      child: Text('Excel Aktarımı'),
                     ),
                   ],
                   value: _selectedEntryType,

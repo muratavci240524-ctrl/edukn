@@ -652,6 +652,8 @@ class AnnouncementService {
     List<Map<String, dynamic>> reminders = const [],
     String? schoolTypeId,
     Map<String, String> recipientNames = const {},
+    String? repeatMode, // none, daily, weekly, biweekly, monthly
+    DateTime? repeatUntil,
   }) async {
     try {
       await _getSchoolInfo();
@@ -762,6 +764,8 @@ class AnnouncementService {
         if (schoolTypeId != null)
           'schoolTypeId': schoolTypeId, // Okul türü ID'si
         'recipientNames': recipientNames,
+        if (repeatMode != null && repeatMode != 'none') 'repeatMode': repeatMode,
+        if (repeatUntil != null) 'repeatUntil': Timestamp.fromDate(repeatUntil),
       };
 
       final docRef = await _firestore
@@ -771,6 +775,16 @@ class AnnouncementService {
           .add(announcementData);
 
       print('Duyuru başarıyla kaydedildi. Doküman ID: ${docRef.id}');
+
+      // Tekrarlayan duyuruları oluştur
+      if (repeatMode != null && repeatMode != 'none' && repeatUntil != null) {
+        await _createRepeatedAnnouncements(
+          docRef.id,
+          announcementData,
+          repeatMode,
+          repeatUntil,
+        );
+      }
 
       // Eğer duyuru hemen yayınlanıyorsa (scheduled değilse), hatırlatmaları hemen oluştur
       if (!schedulePublish && remindersList.isNotEmpty) {
@@ -1441,6 +1455,62 @@ class AnnouncementService {
     } catch (e) {
       print('Sınıflar alınırken hata: $e');
       return [];
+    }
+  }
+
+  // Tekrarlayan duyuruları oluştur
+  Future<void> _createRepeatedAnnouncements(
+    String originalId,
+    Map<String, dynamic> data,
+    String mode,
+    DateTime until,
+  ) async {
+    try {
+      DateTime nextDate = (data['publishDate'] as Timestamp).toDate();
+      int count = 0;
+
+      while (count < 24) {
+        // Limit to 24 repetitions to avoid infinite loops/too many docs
+        if (mode == 'daily') {
+          nextDate = nextDate.add(const Duration(days: 1));
+        } else if (mode == 'weekly') {
+          nextDate = nextDate.add(const Duration(days: 7));
+        } else if (mode == 'biweekly') {
+          nextDate = nextDate.add(const Duration(days: 14));
+        } else if (mode == 'monthly') {
+          nextDate = DateTime(
+            nextDate.year,
+            nextDate.month + 1,
+            nextDate.day,
+            nextDate.hour,
+            nextDate.minute,
+          );
+        } else {
+          break;
+        }
+
+        if (nextDate.isAfter(until)) break;
+
+        final repeatedData = Map<String, dynamic>.from(data);
+        repeatedData['publishDate'] = Timestamp.fromDate(nextDate);
+        repeatedData['status'] = 'scheduled';
+        repeatedData['isRepeatedInstance'] = true;
+        repeatedData['parentAnnouncementId'] = originalId;
+        repeatedData['createdAt'] = FieldValue.serverTimestamp();
+        repeatedData.remove('repeatMode'); // Repeated instances don't repeat further
+        repeatedData.remove('repeatUntil');
+
+        await _firestore
+            .collection('schools')
+            .doc(_schoolId)
+            .collection('announcements')
+            .add(repeatedData);
+
+        count++;
+      }
+      print('✅ $count adet tekrarlayan duyuru oluşturuldu');
+    } catch (e) {
+      print('❌ Tekrarlayan duyuru oluşturma hatası: $e');
     }
   }
 }

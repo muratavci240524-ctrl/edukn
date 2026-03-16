@@ -21,6 +21,7 @@ class _TeacherSocialMediaScreenState extends State<TeacherSocialMediaScreen> {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   Map<String, dynamic>? userData;
   Set<String> _assignedClassIds = {};
+  Set<String> _assignedStudentIds = {};
   bool _isLoading = true;
 
   @override
@@ -39,26 +40,38 @@ class _TeacherSocialMediaScreenState extends State<TeacherSocialMediaScreen> {
 
     if (teacherId != null && teacherId.isNotEmpty) {
       try {
-        // Index hatasını önlemek için sadece en kritik filtreyle ara
+        // 1. Atanmış sınıfları bul
         final snapshot = await FirebaseFirestore.instance
             .collection('lessonAssignments')
+            .where('institutionId', isEqualTo: instId)
             .where('teacherIds', arrayContains: teacherId)
+            .where('isActive', isEqualTo: true)
             .get();
 
         _assignedClassIds = snapshot.docs
-            .where((doc) {
-              final d = doc.data();
-              // Client-side filtreleme
-              final docInstId = (d['institutionId'] ?? "").toString().toUpperCase();
-              final active = d['isActive'] ?? false;
-              return active && (instId.isEmpty || docInstId == instId);
-            })
             .map((doc) => doc.data()['classId']?.toString())
             .where((id) => id != null)
             .cast<String>()
             .toSet();
+
+        // 2. Bu sınıflardaki öğrencileri bul
+        if (_assignedClassIds.isNotEmpty) {
+          final classIdList = _assignedClassIds.toList();
+          for (var i = 0; i < classIdList.length; i += 10) {
+            final chunk = classIdList.skip(i).take(10).toList();
+            final studentSnap = await FirebaseFirestore.instance
+                .collection('students')
+                .where('institutionId', isEqualTo: instId)
+                .where('classId', whereIn: chunk)
+                .get();
+            
+            for (var doc in studentSnap.docs) {
+              _assignedStudentIds.add(doc.id);
+            }
+          }
+        }
       } catch (e) {
-        debugPrint('Social Media Class Loading Error: $e');
+        debugPrint('Social Media Data Loading Error: $e');
       }
     }
 
@@ -89,8 +102,7 @@ class _TeacherSocialMediaScreenState extends State<TeacherSocialMediaScreen> {
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('social_media_posts')
-            .where('institutionId', isEqualTo: widget.institutionId)
-            // Removed orderBy('createdAt') to avoid index requirement
+            .where('institutionId', isEqualTo: widget.institutionId.toUpperCase())
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -143,6 +155,12 @@ class _TeacherSocialMediaScreenState extends State<TeacherSocialMediaScreen> {
 
             for (final classId in _assignedClassIds) {
               if (recipients.contains(classId)) {
+                return true;
+              }
+            }
+
+            for (final studentId in _assignedStudentIds) {
+              if (recipients.contains(studentId)) {
                 return true;
               }
             }

@@ -1,6 +1,19 @@
 superadmin@edukn.com
 123456
 
+# 1. Değişen dosyaları seç (Hepsini seçmek için nokta koyuyoruz)
+git add .
+
+# 2. Yapılan değişikliğe bir isim ver (Kısa bir not)
+git commit -m "Duyuru filtreleme özellikleri eklendi"
+
+# 3. GitHub'a gönder
+git push
+
+
 Öğrenci Kayıt ta filtrede sınıf seviyesi şube okul türünden gelecek.
 
 duyurulara Tekrarla ve Hatırlatıcı ekle
+
+
+

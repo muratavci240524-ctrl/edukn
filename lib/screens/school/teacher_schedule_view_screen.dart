@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import 'class_lesson_hub_screen.dart';
 import '../../services/term_service.dart';
+import '../../services/user_permission_service.dart';
 
 class TeacherScheduleViewScreen extends StatefulWidget {
   final String schoolTypeId;
@@ -252,6 +253,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
             .get();
       }
 
+      final userData = await UserPermissionService.loadUserData();
       final currentUid = FirebaseAuth.instance.currentUser?.uid;
 
       List<Map<String, dynamic>> teachers = teachersQuerySnapshot.docs
@@ -336,19 +338,6 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
       final activeTermId = await TermService().getActiveTermId();
       final effectiveTermId = selectedTermId ?? activeTermId;
 
-      final lessonQueries = [
-        FirebaseFirestore.instance.collection('lessons')
-            .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
-            .where('institutionId', isEqualTo: instId)
-            .where('isActive', isEqualTo: true).get(),
-        FirebaseFirestore.instance.collection('lessons')
-            .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
-            .where('institutionId', isEqualTo: instId.toLowerCase())
-            .where('isActive', isEqualTo: true).get(),
-      ];
-      final lessonSnaps = await Future.wait(lessonQueries);
-      final activeLessonIds = lessonSnaps.expand((s) => s.docs).map((d) => d.id).toSet();
-
       final Map<String, int> lessonCounts = {};
       final assignQueries = [
         FirebaseFirestore.instance.collection('lessonAssignments')
@@ -366,13 +355,18 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
       for (final doc in assignmentsDocs) {
         final data = doc.data();
 
+        // Dönem kontrolünü biraz esnetelim: 
+        // Eğer atamanın dönemi boşsa veya mevcut dönemle eşleşiyorsa sayalım.
         final assignmentTermId = (data['termId'] ?? '').toString();
-        if (effectiveTermId != null && assignmentTermId != effectiveTermId) {
+        if (effectiveTermId != null && 
+            assignmentTermId.isNotEmpty && 
+            assignmentTermId != effectiveTermId) {
           continue;
         }
 
         final lessonId = (data['lessonId'] ?? '').toString();
-        if (lessonId.isEmpty || !activeLessonIds.contains(lessonId)) {
+        // Saat hesaplamasında ders aktiflik kontrolünü biraz esnetelim (Atama varsa saat vardır)
+        if (lessonId.isEmpty) {
           continue;
         }
 
@@ -400,25 +394,27 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
         _teacherLessonCounts = lessonCounts;
         
         // Mevcut kullanıcı bir öğretmen ise otomatik seç
-        final currentUid = FirebaseAuth.instance.currentUser?.uid;
-        if (currentUid != null && _selectedTeacher == null) {
+        final resolvedTeacherId = userData?['id'] ?? userData?['teacherId'] ?? currentUid;
+        
+        if (resolvedTeacherId != null && _selectedTeacher == null) {
           try {
             final self = _allTeachers.firstWhere(
-              (t) => t['id'] == currentUid,
+              (t) => t['id'] == resolvedTeacherId || t['id'] == currentUid,
               orElse: () => {},
             );
+            
             if (self.isNotEmpty) {
               _selectedTeacher = self;
               _loadTeacherSchedule(self['id']);
             } else if (widget.isTeacherView) {
               // Failsafe: Listede bulunmasa bile programını çekmeye çalış
-              _selectedTeacher = {'id': currentUid, 'name': 'Öğretmen'};
-              _loadTeacherSchedule(currentUid);
+              _selectedTeacher = {'id': resolvedTeacherId, 'name': 'Öğretmen'};
+              _loadTeacherSchedule(resolvedTeacherId);
             }
           } catch (_) {
             if (widget.isTeacherView) {
-              _selectedTeacher = {'id': currentUid, 'name': 'Öğretmen'};
-              _loadTeacherSchedule(currentUid);
+              _selectedTeacher = {'id': resolvedTeacherId, 'name': 'Öğretmen'};
+              _loadTeacherSchedule(resolvedTeacherId);
             }
           }
         }
@@ -426,7 +422,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
         _isLoading = false;
       });
     } catch (e) {
-      print('Veri yükleme hatası: $e');
+      debugPrint('Veri yükleme hatası: $e');
       setState(() => _isLoading = false);
     }
   }
@@ -1453,6 +1449,51 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
     );
   }
 
+  void _onLessonTap(Map<String, dynamic> assignment, String day, int hourIndex) {
+    debugPrint('DEBUG: _onLessonTap called for $day - $hourIndex');
+    final classId = (assignment['classId'] ?? '').toString();
+    final lessonId = (assignment['lessonId'] ?? '').toString();
+    if (classId.isEmpty || lessonId.isEmpty) {
+      debugPrint('⚠️ Ders detayı açılamadı: classId veya lessonId eksik.');
+      return;
+    }
+
+    final dayIndex = _days.indexOf(day);
+    final initialDate = dayIndex >= 0
+        ? _weekStart.add(Duration(days: dayIndex))
+        : null;
+
+    final List<int> availableLessonHours = [];
+    final dayHourCount = _dailyLessonCounts[day] ?? 8;
+    for (int i = 0; i < dayHourCount; i++) {
+        final checkKey = '${day}_$i';
+        final a = _scheduleData[checkKey];
+        final aClassId = (a?['classId'] ?? '').toString();
+        final aLessonId = (a?['lessonId'] ?? '').toString();
+        if (aClassId == classId && aLessonId == lessonId) {
+            availableLessonHours.add(i + 1);
+        }
+    }
+
+    Navigator.push(
+        context,
+        MaterialPageRoute(
+            builder: (context) => ClassLessonHubScreen(
+                institutionId: (assignment['institutionId'] ?? '').toString(),
+                schoolTypeId: (assignment['schoolTypeId'] ?? '').toString(),
+                periodId: _activePeriodId,
+                classId: classId,
+                lessonId: lessonId,
+                className: (assignment['className'] ?? '').toString(),
+                lessonName: (assignment['lessonName'] ?? '').toString(),
+                initialDate: initialDate,
+                initialLessonHour: hourIndex + 1,
+                availableLessonHours: availableLessonHours,
+            ),
+        ),
+    );
+  }
+
   Widget _buildTabToggle() {
     return Container(
       margin: EdgeInsets.symmetric(vertical: 8, horizontal: 16),
@@ -2394,6 +2435,15 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                                               )
                                       : null,
                                 ),
+                                if (assignment != null)
+                                  Positioned.fill(
+                                    child: Material(
+                                      color: Colors.transparent,
+                                      child: InkWell(
+                                        onTap: () => _onLessonTap(assignment, day, hourIndex),
+                                      ),
+                                    ),
+                                  ),
                                 if (etut != null)
                                   Positioned.fill(
                                     child: Material(
@@ -2564,55 +2614,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                     return InkWell(
                       onTap: assignment == null
                           ? null
-                          : () {
-                              final classId = (assignment['classId'] ?? '')
-                                  .toString();
-                              final lessonId = (assignment['lessonId'] ?? '')
-                                  .toString();
-                              if (classId.isEmpty || lessonId.isEmpty) return;
-
-                              final dayIndex = _days.indexOf(day);
-                              final initialDate = dayIndex >= 0
-                                  ? _weekStart.add(Duration(days: dayIndex))
-                                  : null;
-                              final List<int> availableLessonHours = [];
-                              for (int i = 0; i < dayHourCount; i++) {
-                                final checkKey = '${day}_$i';
-                                final a = _scheduleData[checkKey];
-                                final aClassId = (a?['classId'] ?? '')
-                                    .toString();
-                                final aLessonId = (a?['lessonId'] ?? '')
-                                    .toString();
-                                if (aClassId == classId &&
-                                    aLessonId == lessonId) {
-                                  availableLessonHours.add(i + 1);
-                                }
-                              }
-
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => ClassLessonHubScreen(
-                                    institutionId:
-                                        (assignment['institutionId'] ?? '')
-                                            .toString(),
-                                    schoolTypeId:
-                                        (assignment['schoolTypeId'] ?? '')
-                                            .toString(),
-                                    periodId: _activePeriodId,
-                                    classId: classId,
-                                    lessonId: lessonId,
-                                    className: (assignment['className'] ?? '')
-                                        .toString(),
-                                    lessonName: (assignment['lessonName'] ?? '')
-                                        .toString(),
-                                    initialDate: initialDate,
-                                    initialLessonHour: hourIndex + 1,
-                                    availableLessonHours: availableLessonHours,
-                                  ),
-                                ),
-                              );
-                            },
+                          : () => _onLessonTap(assignment, day, hourIndex),
                       child: Container(
                         padding: EdgeInsets.symmetric(
                           horizontal: 16,
@@ -2876,6 +2878,48 @@ class _TeacherScheduleDetailViewState
       return '${start.day} - ${end.day} ${_monthNameTr(end.month)} ${end.year}';
     }
     return '${start.day} ${_monthNameTr(start.month)} - ${end.day} ${_monthNameTr(end.month)} ${end.year}';
+  }
+
+  void _onLessonTap(Map<String, dynamic> assignment, String day, int hourIndex) {
+    debugPrint('DEBUG: _onLessonTap (Detail) called for $day - $hourIndex');
+    final classId = (assignment['classId'] ?? '').toString();
+    final lessonId = (assignment['lessonId'] ?? '').toString();
+    if (classId.isEmpty || lessonId.isEmpty) return;
+
+    final dayIndex = widget.days.indexOf(day);
+    final initialDate = dayIndex >= 0
+        ? _weekStart.add(Duration(days: dayIndex))
+        : null;
+
+    final List<int> availableLessonHours = [];
+    final dayHourCount = widget.dailyLessonCounts[day] ?? 8;
+    for (int i = 0; i < dayHourCount; i++) {
+        final checkKey = '${day}_$i';
+        final a = _scheduleData[checkKey];
+        final aClassId = (a?['classId'] ?? '').toString();
+        final aLessonId = (a?['lessonId'] ?? '').toString();
+        if (aClassId == classId && aLessonId == lessonId) {
+            availableLessonHours.add(i + 1);
+        }
+    }
+
+    Navigator.push(
+        context,
+        MaterialPageRoute(
+            builder: (context) => ClassLessonHubScreen(
+                institutionId: (assignment['institutionId'] ?? '').toString(),
+                schoolTypeId: (assignment['schoolTypeId'] ?? '').toString(),
+                periodId: widget.activePeriodId,
+                classId: classId,
+                lessonId: lessonId,
+                className: (assignment['className'] ?? '').toString(),
+                lessonName: (assignment['lessonName'] ?? '').toString(),
+                initialDate: initialDate,
+                initialLessonHour: hourIndex + 1,
+                availableLessonHours: availableLessonHours,
+            ),
+        ),
+    );
   }
 
   Future<void> _loadSchedule() async {
@@ -3970,78 +4014,7 @@ class _TeacherScheduleDetailViewState
                                   return InkWell(
                                     onTap: assignment == null
                                         ? null
-                                        : () {
-                                            final classId =
-                                                (assignment['classId'] ?? '')
-                                                    .toString();
-                                            final lessonId =
-                                                (assignment['lessonId'] ?? '')
-                                                    .toString();
-                                            if (classId.isEmpty ||
-                                                lessonId.isEmpty)
-                                              return;
-
-                                            final dayIndex = widget.days
-                                                .indexOf(day);
-                                            final initialDate = dayIndex >= 0
-                                                ? _weekStart.add(
-                                                    Duration(days: dayIndex),
-                                                  )
-                                                : null;
-                                            final List<int>
-                                            availableLessonHours = [];
-                                            for (
-                                              int i = 0;
-                                              i < dayHourCount;
-                                              i++
-                                            ) {
-                                              final checkKey = '${day}_$i';
-                                              final a = _scheduleData[checkKey];
-                                              final aClassId =
-                                                  (a?['classId'] ?? '')
-                                                      .toString();
-                                              final aLessonId =
-                                                  (a?['lessonId'] ?? '')
-                                                      .toString();
-                                              if (aClassId == classId &&
-                                                  aLessonId == lessonId) {
-                                                availableLessonHours.add(i + 1);
-                                              }
-                                            }
-
-                                            Navigator.push(
-                                              context,
-                                              MaterialPageRoute(
-                                                builder: (context) => ClassLessonHubScreen(
-                                                  institutionId:
-                                                      (assignment['institutionId'] ??
-                                                              '')
-                                                          .toString(),
-                                                  schoolTypeId:
-                                                      (assignment['schoolTypeId'] ??
-                                                              '')
-                                                          .toString(),
-                                                  periodId:
-                                                      widget.activePeriodId,
-                                                  classId: classId,
-                                                  lessonId: lessonId,
-                                                  className:
-                                                      (assignment['className'] ??
-                                                              '')
-                                                          .toString(),
-                                                  lessonName:
-                                                      (assignment['lessonName'] ??
-                                                              '')
-                                                          .toString(),
-                                                  initialDate: initialDate,
-                                                  initialLessonHour:
-                                                      hourIndex + 1,
-                                                  availableLessonHours:
-                                                      availableLessonHours,
-                                                ),
-                                              ),
-                                            );
-                                          },
+                                        : () => _onLessonTap(assignment, day, hourIndex),
                                     child: Container(
                                       width: 75,
                                       height: 80,
@@ -4253,55 +4226,7 @@ class _TeacherScheduleDetailViewState
                     return InkWell(
                       onTap: assignment == null
                           ? null
-                          : () {
-                              final classId = (assignment['classId'] ?? '')
-                                  .toString();
-                              final lessonId = (assignment['lessonId'] ?? '')
-                                  .toString();
-                              if (classId.isEmpty || lessonId.isEmpty) return;
-
-                              final dayIndex = widget.days.indexOf(day);
-                              final initialDate = dayIndex >= 0
-                                  ? _weekStart.add(Duration(days: dayIndex))
-                                  : null;
-                              final List<int> availableLessonHours = [];
-                              for (int i = 0; i < dayHourCount; i++) {
-                                final checkKey = '${day}_$i';
-                                final a = _scheduleData[checkKey];
-                                final aClassId = (a?['classId'] ?? '')
-                                    .toString();
-                                final aLessonId = (a?['lessonId'] ?? '')
-                                    .toString();
-                                if (aClassId == classId &&
-                                    aLessonId == lessonId) {
-                                  availableLessonHours.add(i + 1);
-                                }
-                              }
-
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => ClassLessonHubScreen(
-                                    institutionId:
-                                        (assignment['institutionId'] ?? '')
-                                            .toString(),
-                                    schoolTypeId:
-                                        (assignment['schoolTypeId'] ?? '')
-                                            .toString(),
-                                    periodId: widget.activePeriodId,
-                                    classId: classId,
-                                    lessonId: lessonId,
-                                    className: (assignment['className'] ?? '')
-                                        .toString(),
-                                    lessonName: (assignment['lessonName'] ?? '')
-                                        .toString(),
-                                    initialDate: initialDate,
-                                    initialLessonHour: hourIndex + 1,
-                                    availableLessonHours: availableLessonHours,
-                                  ),
-                                ),
-                              );
-                            },
+                          : () => _onLessonTap(assignment, day, hourIndex),
                       child: Container(
                         padding: EdgeInsets.symmetric(
                           horizontal: 16,
