@@ -152,10 +152,10 @@ class ChatListWidget extends StatelessWidget {
                                   _formatDate(lastMsg.timestamp),
                                   style: TextStyle(
                                     fontSize: 12,
-                                    color: conversation.unreadCount > 0
+                                    color: (conversation.unreadCounts[currentUserId] ?? 0) > 0
                                         ? const Color(0xFF25D366)
                                         : const Color(0xFF667781),
-                                    fontWeight: conversation.unreadCount > 0
+                                    fontWeight: (conversation.unreadCounts[currentUserId] ?? 0) > 0
                                         ? FontWeight.w500
                                         : FontWeight.normal,
                                   ),
@@ -190,7 +190,7 @@ class ChatListWidget extends StatelessWidget {
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                            if (conversation.unreadCount > 0 &&
+                            if ((conversation.unreadCounts[currentUserId] ?? 0) > 0 &&
                                 lastMsg?.senderId != currentUserId)
                               Container(
                                 margin: const EdgeInsets.only(left: 8),

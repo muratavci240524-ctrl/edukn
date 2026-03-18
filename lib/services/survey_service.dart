@@ -125,6 +125,45 @@ class SurveyService {
         );
   }
 
+  // Anketleri Filtreli Getir (Öğretmenler için)
+  Stream<List<Survey>> getFilteredSurveys({
+    required String institutionId,
+    String? authorId,
+    List<String>? targetedClassIds,
+  }) {
+    // Firestore supports multiple 'where' but 'orderBy' must be consistent.
+    // Given the complexity of OR logic (author OR class), we'll do a broader fetch and filter in map.
+    return _firestore
+        .collection('surveys')
+        .where('institutionId', isEqualTo: institutionId)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      final list = snapshot.docs.map((doc) => Survey.fromMap(doc.data(), doc.id)).toList();
+      
+      if (authorId == null && targetedClassIds == null) return list;
+
+      return list.where((survey) {
+        // 1. I authored it
+        if (authorId != null && survey.authorId == authorId) return true;
+
+        // 2. Targets my classes
+        if (targetedClassIds != null && targetedClassIds.isNotEmpty) {
+           if (survey.targetType == SurveyTargetType.specific_classes) {
+             return survey.targetIds.any((id) => targetedClassIds.contains(id));
+           }
+        }
+        
+        // 3. Targets all teachers (if I am a teacher)
+        if (authorId != null && (survey.targetType == SurveyTargetType.teachers || survey.targetType == SurveyTargetType.all)) {
+           return true; 
+        }
+
+        return false;
+      }).toList();
+    });
+  }
+
   // Tek bir anket getir
   Future<Survey?> getSurvey(String surveyId) async {
     final doc = await _firestore.collection('surveys').doc(surveyId).get();

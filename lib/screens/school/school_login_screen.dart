@@ -1,172 +1,142 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../teacher/teacher_main_screen.dart';
 
 class SchoolLoginScreen extends StatefulWidget {
   const SchoolLoginScreen({Key? key}) : super(key: key);
 
   @override
-  _SchoolLoginScreenState createState() => _SchoolLoginScreenState();
+  State<SchoolLoginScreen> createState() => _SchoolLoginScreenState();
 }
 
 class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _institutionIdController = TextEditingController();
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
-
+  final _institutionController = TextEditingController();
   bool _isLoading = false;
   bool _obscurePassword = true;
   bool _kvkkAccepted = false;
 
-  @override
-  void dispose() {
-    _institutionIdController.dispose();
-    _usernameController.dispose();
-    _passwordController.dispose();
-    super.dispose();
-  }
-
   Future<void> _login() async {
+    if (!_formKey.currentState!.validate()) return;
     if (!_kvkkAccepted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Lütfen KVKK metnini onaylayın.'),
+        const SnackBar(
+          content: Text('Lütfen KVKK Aydınlatma Metni\'ni kabul edin.'),
           backgroundColor: Colors.orange,
         ),
       );
       return;
     }
 
-    if (!_formKey.currentState!.validate()) return;
-
     setState(() => _isLoading = true);
 
-    try {
-      final institutionId = _institutionIdController.text.trim().toUpperCase();
-      final username = _usernameController.text.trim().toLowerCase();
-      final password = _passwordController.text;
+    final username = _usernameController.text.trim();
+    final password = _passwordController.text.trim();
+    final institutionId = _institutionController.text.trim().toUpperCase();
 
-      // Kullanıcı adı ve kurum ID'den email oluştur
+    try {
       final email = '$username@$institutionId.edukn';
 
       print('🔐 Okul girişi deneniyor...');
       print('🆔 Kurum ID: $institutionId');
-      print('👤 Kullanıcı Adı: $username');
-      print('📧 Oluşturulan Email: $email');
+      print('📧 Email: $email');
 
-      // 1. Kurum ID ile okulu bul
+      // 1. Kurum bilgilerini kontrol et
       final schoolQuery = await FirebaseFirestore.instance
           .collection('schools')
           .where('institutionId', isEqualTo: institutionId)
           .limit(1)
-          .get();
+          .get()
+          .timeout(
+            const Duration(seconds: 15),
+            onTimeout: () =>
+                throw 'Okul bilgileri alınırken zaman aşımı oluştu.',
+          );
 
       if (schoolQuery.docs.isEmpty) {
         throw 'Bu kurum ID ile kayıtlı okul bulunamadı!';
       }
 
-      final schoolDoc = schoolQuery.docs.first;
-      final schoolData = schoolDoc.data();
-
-      // 2. Okul aktif mi kontrol et
+      final schoolData = schoolQuery.docs.first.data();
       if (schoolData['isActive'] != true) {
-        throw 'Bu okul şu an pasif durumda! Lütfen yöneticinizle iletişime geçin.';
+        throw 'Bu okul şu an pasif durumda!';
       }
 
-      // 3. Lisans süresi kontrol et
-      if (schoolData['licenseExpiresAt'] != null) {
-        final expiresAt = (schoolData['licenseExpiresAt'] as Timestamp)
-            .toDate();
-        if (expiresAt.isBefore(DateTime.now())) {
-          throw 'Okul lisansı sona ermiş! Lütfen yöneticinizle iletişime geçin.';
-        }
-      }
+      // 2. Firebase Auth ile giriş yap
+      print('🔐 Firebase Auth giriş denemesi: $email');
+      final userCredential = await FirebaseAuth.instance
+          .signInWithEmailAndPassword(email: email, password: password)
+          .timeout(
+            const Duration(seconds: 20),
+            onTimeout: () {
+              print('❌ FirebaseAuth Timeout!');
+              throw 'Giriş işlemi zaman aşımına uğradı. Lütfen internetinizi kontrol edin.';
+            },
+          );
 
-      // 4. Önce Firebase Authentication ile giriş yap
-      print('🔐 Firebase Auth ile giriş yapılıyor...');
-      final userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
-      final String uid = userCredential.user?.uid ?? '';
+      final uid = userCredential.user?.uid;
+      if (uid == null) throw 'Kullanıcı kimliği alınamadı.';
 
-      print('✅ Firebase Auth başarılı! UID: $uid');
+      print('✅ Auth başarılı. UID: $uid');
 
-      // 5. Giriş yaptıktan SONRA kullanıcı kontrolü yap
-      // ÖNCELİK: Doğrudan UID ile dokümanı çek (Rules için en güvenli yol)
-      Map<String, dynamic>? loggedUserData;
-      final docSnap = await FirebaseFirestore.instance.collection('users').doc(uid).get();
-      
-      if (docSnap.exists) {
-        loggedUserData = docSnap.data();
-        print('✅ Kullanıcı dokümanı UID ile bulundu.');
+      // 3. Kullanıcı verisini doğrula
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get()
+          .timeout(
+            const Duration(seconds: 15),
+            onTimeout: () =>
+                throw 'Kullanıcı verisi alınırken zaman aşımı oluştu.',
+          );
+
+      Map<String, dynamic>? userData;
+      if (userDoc.exists) {
+        userData = userDoc.data();
       } else {
-        // FALLBACK: Kullanıcı adı ve kurum ID ile sorgula (Eski kayıtlar veya admin için)
-        final userQuery = await FirebaseFirestore.instance
+        // Fallback search
+        final fallbackQuery = await FirebaseFirestore.instance
             .collection('users')
             .where('institutionId', isEqualTo: institutionId)
             .where('username', isEqualTo: username)
             .limit(1)
             .get();
-            
-        if (userQuery.docs.isNotEmpty) {
-          loggedUserData = userQuery.docs.first.data();
-          print('✅ Kullanıcı dokümanı sorgu ile bulundu.');
+        if (fallbackQuery.docs.isNotEmpty) {
+          userData = fallbackQuery.docs.first.data();
         }
       }
 
-      // Admin kontrolü yap (adminUsername varsa)
-      final isAdmin = schoolData['adminUsername'] == username;
-
-      if (loggedUserData == null && !isAdmin) {
-        // Giriş yapıldı ama kullanıcı bulunamadı, çıkış yap
+      if (userData == null && schoolData['adminUsername'] != username) {
         await FirebaseAuth.instance.signOut();
-        throw 'Bu kurum için kullanıcı kaydı bulunamadı!';
+        throw 'Kullanıcı kaydı bulunamadı!';
       }
 
-      // Kullanıcı varsa aktif mi kontrol et
-      if (loggedUserData != null) {
-        if (loggedUserData['isActive'] != true) {
-          // Kullanıcı pasif, çıkış yap
-          await FirebaseAuth.instance.signOut();
-          throw 'Kullanıcı hesabınız pasif durumda! Lütfen yöneticinizle iletişime geçin.';
-        }
+      if (userData != null && userData['isActive'] != true) {
+        await FirebaseAuth.instance.signOut();
+        throw 'Hesabınız pasif durumda!';
       }
 
-      print('✅ Giriş başarılı!');
-      print('🏫 Okul: ${schoolData['schoolName']}');
+      print('✅ Giriş başarılı, yönlendiriliyor...');
 
       if (mounted) {
-        // Rol kontrolü: Öğretmen mi?
-        final role = loggedUserData?['role']?.toString().toLowerCase();
-        if (role == 'ogretmen' || role == 'teacher') {
-            Navigator.pushReplacement(
-              context, 
-              MaterialPageRoute(
-                builder: (context) => TeacherMainScreen(institutionId: institutionId)
-              )
-            );
+        final role = userData?['role']?.toString().toLowerCase() ?? '';
+        if (role.contains('ogretmen') ||
+            role.contains('teacher') ||
+            role.contains('öğretmen')) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) =>
+                  TeacherMainScreen(institutionId: institutionId),
+            ),
+          );
         } else {
-            // Normal okul dashboard'a yönlendir
-            Navigator.pushReplacementNamed(context, '/school-dashboard');
+          Navigator.pushReplacementNamed(context, '/school-dashboard');
         }
-      }
-    } on FirebaseAuthException catch (e) {
-      String message = 'Giriş başarısız!';
-      if (e.code == 'user-not-found') {
-        message = 'Bu email ile kayıtlı kullanıcı bulunamadı!';
-      } else if (e.code == 'wrong-password') {
-        message = 'Hatalı şifre!';
-      } else if (e.code == 'invalid-email') {
-        message = 'Geçersiz email formatı!';
-      }
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message), backgroundColor: Colors.red),
-        );
       }
     } catch (e) {
       if (mounted) {
@@ -175,540 +145,606 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         );
       }
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  void _showKvkkDialog() {
+  void _forgotPassword() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('KVKK Aydınlatma Metni'),
-        content: SingleChildScrollView(
-          child: Text(
-            '6698 Sayılı Kişisel Verilerin Korunması Kanunu ("KVKK") Kapsamında Aydınlatma Metni\n\n'
-            'Bu aydınlatma metni, 6698 sayılı Kişisel Verilerin Korunması Kanunu\'nun '
-            '10. maddesi ile Aydınlatma Yükümlülüğünün Yerine Getirilmesinde Uyulacak '
-            'Usul ve Esaslar Hakkında Tebliğ kapsamında veri sorumlusu sıfatıyla '
-            'hazırlanmıştır.\n\n'
-            '1. Kişisel Verilerin İşlenme Amacı\n'
-            'Kişisel verileriniz; eğitim hizmetlerinin yürütülmesi, öğrenci takibi, '
-            'rehberlik faaliyetleri, iletişim ve bilgilendirme amaçlarıyla işlenmektedir.\n\n'
-            '2. İşlenen Kişisel Veriler\n'
-            'Ad, soyad, kullanıcı adı, e-posta adresi, kurum bilgileri ve '
-            'eğitim süreçlerine ilişkin veriler işlenmektedir.\n\n'
-            '3. Kişisel Verilerin Aktarılması\n'
-            'Kişisel verileriniz, yasal yükümlülükler ve hizmet gereksinimleri '
-            'doğrultusunda yetkili kurum ve kuruluşlara aktarılabilir.\n\n'
-            '4. Kişisel Veri Toplamanın Yöntemi ve Hukuki Sebebi\n'
-            'Kişisel verileriniz, elektronik ortamda bu platform aracılığıyla '
-            'toplanmakta olup, KVKK\'nın 5. ve 6. maddelerinde belirtilen hukuki '
-            'sebeplere dayanılarak işlenmektedir.\n\n'
-            '5. Kişisel Veri Sahibinin Hakları\n'
-            'KVKK\'nın 11. maddesi kapsamında; kişisel verilerinizin işlenip '
-            'işlenmediğini öğrenme, işlenmişse buna ilişkin bilgi talep etme, '
-            'işlenme amacını ve bunların amacına uygun kullanılıp kullanılmadığını '
-            'öğrenme, eksik veya yanlış işlenmiş olması halinde düzeltilmesini '
-            'isteme ve silinmesini veya yok edilmesini talep etme haklarına '
-            'sahipsiniz.',
-          ),
+        title: const Text('Şifremi Unuttum'),
+        content: const Text(
+          'Lütfen okul yönetiminizle iletişime geçin veya kurum yöneticisinden şifre sıfırlama talep edin.',
         ),
         actions: [
           TextButton(
-            child: Text('Kapat'),
             onPressed: () => Navigator.pop(context),
+            child: const Text('Tamam'),
           ),
         ],
       ),
     );
   }
 
+  Future<void> _showKvkkDialog() async {
+    final accepted = await Navigator.pushNamed(context, '/kvkk-detail');
+    if (accepted == true) {
+      setState(() => _kvkkAccepted = true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: false, // İlk sayfada geri tuşunu engelle
-      child: Scaffold(
-        body: LayoutBuilder(
-          builder: (context, constraints) {
-            final isMobile = constraints.maxWidth < 600;
+    final size = MediaQuery.of(context).size;
+    final isMobile = size.width < 600;
+    final isShortScreen = size.height < 700;
 
-            // Dinamik ölçeklendirme faktörü
-            double scale = 1.0;
-            if (isMobile) {
-              // Mobilde genişliğe göre orantıla (Min 375 referans)
-              scale = (constraints.maxWidth / 375.0).clamp(0.85, 1.1);
-            } else {
-              // Web'de yüksekliğe göre orantıla ki kaydırma gerekmesin (Ref 850px)
-              scale = (constraints.maxHeight / 850.0).clamp(0.85, 1.0);
-            }
-
-            // Mobil için boyut ve boşlukları ayarla (Scale ile çarpıldı)
-            final double paddingValue = (isMobile ? 20.0 : 32.0) * scale;
-            final double titleSize = (isMobile ? 24.0 : 28.0) * scale;
-            final double iconSize = (isMobile ? 48.0 : 64.0) * scale;
-            final double spaceSmall = (isMobile ? 12.0 : 16.0) * scale;
-            final double spaceMedium = (isMobile ? 20.0 : 24.0) * scale;
-            final double spaceLarge = (isMobile ? 24.0 : 32.0) * scale;
-            final double inputIconSize = 24.0 * scale;
-
-            return Container(
-              height: constraints.maxHeight,
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: Stack(
+        children: [
+          // Full-screen background image
+          Positioned.fill(
+            child: Image.asset(
+              'assets/images/login_bg.png',
+              fit: BoxFit.cover,
+              filterQuality: FilterQuality.high,
+            ),
+          ),
+          // Soft gradient overlay for premium feel
+          Positioned.fill(
+            child: Container(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
                   colors: [
-                    Colors.indigo.shade700,
-                    Colors.indigo.shade400,
-                    Colors.blue.shade300,
+                    Colors.white.withOpacity(0.85),
+                    Colors.white.withOpacity(0.4),
+                    Colors.white.withOpacity(0.85),
                   ],
                 ),
               ),
-              child: Center(
-                child: SingleChildScrollView(
-                  physics: isMobile ? const ClampingScrollPhysics() : null,
-                  child: Container(
+            ),
+          ),
+
+          SafeArea(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return SingleChildScrollView(
+                  physics: isShortScreen
+                      ? const ClampingScrollPhysics()
+                      : const NeverScrollableScrollPhysics(),
+                  child: ConstrainedBox(
                     constraints: BoxConstraints(
-                      maxWidth: isMobile ? double.infinity : 450 * scale,
-                      minHeight: isMobile ? constraints.maxHeight : 0,
+                      minHeight: constraints.maxHeight,
+                      maxHeight: isShortScreen
+                          ? double.infinity
+                          : constraints.maxHeight,
                     ),
-                    color: isMobile ? Colors.white : null,
-                    margin: isMobile ? EdgeInsets.zero : EdgeInsets.all(24),
-                    child: Card(
-                      elevation: isMobile ? 0 : 8,
-                      color: isMobile ? Colors.transparent : null,
-                      margin: EdgeInsets.zero,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(isMobile ? 0 : 16),
-                      ),
-                      child: Padding(
-                        padding: EdgeInsets.all(paddingValue),
-                        child: Form(
-                          key: _formKey,
+                    child: Center(
+                      child: IntrinsicHeight(
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: isMobile ? 20 : 24,
+                            vertical: isMobile ? 10 : 20,
+                          ),
                           child: Column(
-                            mainAxisAlignment: isMobile
-                                ? MainAxisAlignment.center
-                                : MainAxisAlignment.start,
-                            mainAxisSize: isMobile
-                                ? MainAxisSize.max
-                                : MainAxisSize.min,
+                            mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              // Logo ve Başlık
+                              const Spacer(flex: 1),
+                              // Logo & Header
                               Container(
-                                padding: EdgeInsets.all(
-                                  (isMobile ? 12 : 16) * scale,
-                                ),
+                                width: isMobile ? 56 : 70,
+                                height: isMobile ? 56 : 70,
                                 decoration: BoxDecoration(
-                                  color: Colors.indigo.shade50,
-                                  shape: BoxShape.circle,
+                                  color: const Color(0xFF4C59BC),
+                                  borderRadius: BorderRadius.circular(
+                                    isMobile ? 16 : 20,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(
+                                        0xFF4C59BC,
+                                      ).withOpacity(0.3),
+                                      blurRadius: 20,
+                                      offset: const Offset(0, 10),
+                                    ),
+                                  ],
                                 ),
                                 child: Icon(
-                                  Icons.school,
-                                  size: iconSize,
-                                  color: Colors.indigo,
+                                  Icons.school_rounded,
+                                  color: Colors.white,
+                                  size: isMobile ? 28 : 35,
                                 ),
                               ),
-                              SizedBox(height: spaceMedium),
-                              Text(
-                                'Okul Giriş Paneli',
-                                style: TextStyle(
-                                  fontSize: titleSize,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.indigo.shade900,
+                              SizedBox(height: isMobile ? 12 : 20),
+                              GestureDetector(
+                                onLongPress: () {
+                                  Navigator.pushNamed(context, '/admin-login');
+                                },
+                                child: Text(
+                                  'eduKN Giriş',
+                                  style: GoogleFonts.inter(
+                                    fontSize: isMobile ? 26 : 32,
+                                    fontWeight: FontWeight.w800,
+                                    color: const Color(0xFF1E2661),
+                                    letterSpacing: -0.5,
+                                  ),
                                 ),
                               ),
-                              SizedBox(height: 8 * scale),
+                              const SizedBox(height: 4),
                               Text(
-                                'Kurum bilgilerinizle giriş yapın',
-                                style: TextStyle(
-                                  fontSize: 14 * scale,
+                                'Eğitim Yönetim Sistemine Hoş Geldiniz',
+                                textAlign: TextAlign.center,
+                                style: GoogleFonts.inter(
+                                  fontSize: isMobile ? 12 : 14,
                                   color: Colors.grey.shade600,
+                                  fontWeight: FontWeight.w500,
                                 ),
                               ),
-                              SizedBox(height: spaceLarge),
+                              SizedBox(height: isMobile ? 24 : 40),
 
-                              // Kurum ID
-                              TextFormField(
-                                controller: _institutionIdController,
-                                decoration: InputDecoration(
-                                  labelText: 'Kurum ID',
-                                  labelStyle: TextStyle(
-                                    color: Colors.indigo.shade700,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                  prefixIcon: Icon(
-                                    Icons.business_rounded,
-                                    color: Colors.indigo.shade400,
-                                    size: inputIconSize,
-                                  ),
-                                  hintText: 'Örn: ANKA2024',
-                                  hintStyle: TextStyle(
-                                    color: Colors.grey.shade400,
-                                    fontSize: 14 * scale,
-                                  ),
-                                  filled: true,
-                                  fillColor: Colors.grey.shade50,
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                      16 * scale,
-                                    ),
-                                    borderSide: BorderSide(
-                                      color: Colors.grey.shade200,
-                                      width: 1.5,
-                                    ),
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                      16 * scale,
-                                    ),
-                                    borderSide: BorderSide(
-                                      color: Colors.indigo,
-                                      width: 2,
-                                    ),
-                                  ),
-                                  errorBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                      16 * scale,
-                                    ),
-                                    borderSide: BorderSide(
-                                      color: Colors.red.shade200,
-                                      width: 1.5,
-                                    ),
-                                  ),
-                                  focusedErrorBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                      16 * scale,
-                                    ),
-                                    borderSide: BorderSide(
-                                      color: Colors.red.shade400,
-                                      width: 2,
-                                    ),
-                                  ),
-                                  contentPadding: EdgeInsets.symmetric(
-                                    horizontal: 20 * scale,
-                                    vertical: (isMobile ? 16 : 20) * scale,
-                                  ),
+                              // Login Card
+                              Container(
+                                constraints: const BoxConstraints(
+                                  maxWidth: 420,
                                 ),
-                                textCapitalization:
-                                    TextCapitalization.characters,
-                                onChanged: (value) {
-                                  // Kullanıcı yazarken müdahale etmiyoruz,
-                                  // giriş butonuna basıldığında işleyeceğiz.
-                                },
-                                validator: (v) {
-                                  if (v == null || v.isEmpty) {
-                                    return 'Kurum ID gerekli';
-                                  }
-                                  return null;
-                                },
-                              ),
-                              SizedBox(height: spaceSmall),
-
-                              // Kullanıcı Adı
-                              TextFormField(
-                                controller: _usernameController,
-                                decoration: InputDecoration(
-                                  labelText: 'Kullanıcı Adı',
-                                  labelStyle: TextStyle(
-                                    color: Colors.indigo.shade700,
-                                    fontWeight: FontWeight.w500,
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(
+                                    isMobile ? 24 : 32,
                                   ),
-                                  prefixIcon: Icon(
-                                    Icons.person_rounded,
-                                    color: Colors.indigo.shade400,
-                                    size: inputIconSize,
-                                  ),
-                                  hintText: 'ahmetyilmaz',
-                                  hintStyle: TextStyle(
-                                    color: Colors.grey.shade400,
-                                    fontSize: 14 * scale,
-                                  ),
-                                  filled: true,
-                                  fillColor: Colors.grey.shade50,
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                      16 * scale,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.04),
+                                      blurRadius: 40,
+                                      offset: const Offset(0, 20),
                                     ),
-                                    borderSide: BorderSide(
-                                      color: Colors.grey.shade200,
-                                      width: 1.5,
-                                    ),
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                      16 * scale,
-                                    ),
-                                    borderSide: BorderSide(
-                                      color: Colors.indigo,
-                                      width: 2,
-                                    ),
-                                  ),
-                                  errorBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                      16 * scale,
-                                    ),
-                                    borderSide: BorderSide(
-                                      color: Colors.red.shade200,
-                                      width: 1.5,
-                                    ),
-                                  ),
-                                  focusedErrorBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                      16 * scale,
-                                    ),
-                                    borderSide: BorderSide(
-                                      color: Colors.red.shade400,
-                                      width: 2,
-                                    ),
-                                  ),
-                                  contentPadding: EdgeInsets.symmetric(
-                                    horizontal: 20 * scale,
-                                    vertical: (isMobile ? 16 : 20) * scale,
-                                  ),
+                                  ],
                                 ),
-                                onChanged: (value) {
-                                  // Kullanıcı yazarken müdahale etmiyoruz,
-                                  // giriş butonuna basıldığında işleyeceğiz.
-                                },
-                                validator: (v) {
-                                  if (v == null || v.isEmpty) {
-                                    return 'Kullanıcı adı gerekli';
-                                  }
-                                  return null;
-                                },
-                              ),
-                              SizedBox(height: spaceSmall),
-
-                              // Şifre
-                              TextFormField(
-                                controller: _passwordController,
-                                obscureText: _obscurePassword,
-                                decoration: InputDecoration(
-                                  labelText: 'Şifre',
-                                  labelStyle: TextStyle(
-                                    color: Colors.indigo.shade700,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                  prefixIcon: Icon(
-                                    Icons.lock_rounded,
-                                    color: Colors.indigo.shade400,
-                                    size: inputIconSize,
-                                  ),
-                                  suffixIcon: IconButton(
-                                    icon: Icon(
-                                      _obscurePassword
-                                          ? Icons.visibility_off_rounded
-                                          : Icons.visibility_rounded,
-                                      color: Colors.indigo.shade300,
-                                      size: inputIconSize,
-                                    ),
-                                    onPressed: () {
-                                      setState(() {
-                                        _obscurePassword = !_obscurePassword;
-                                      });
-                                    },
-                                  ),
-                                  filled: true,
-                                  fillColor: Colors.grey.shade50,
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                      16 * scale,
-                                    ),
-                                    borderSide: BorderSide(
-                                      color: Colors.grey.shade200,
-                                      width: 1.5,
-                                    ),
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                      16 * scale,
-                                    ),
-                                    borderSide: BorderSide(
-                                      color: Colors.indigo,
-                                      width: 2,
-                                    ),
-                                  ),
-                                  errorBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                      16 * scale,
-                                    ),
-                                    borderSide: BorderSide(
-                                      color: Colors.red.shade200,
-                                      width: 1.5,
-                                    ),
-                                  ),
-                                  focusedErrorBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                      16 * scale,
-                                    ),
-                                    borderSide: BorderSide(
-                                      color: Colors.red.shade400,
-                                      width: 2,
-                                    ),
-                                  ),
-                                  contentPadding: EdgeInsets.symmetric(
-                                    horizontal: 20 * scale,
-                                    vertical: (isMobile ? 16 : 20) * scale,
-                                  ),
-                                ),
-                                validator: (v) {
-                                  if (v == null || v.isEmpty) {
-                                    return 'Şifre gerekli';
-                                  }
-                                  return null;
-                                },
-                              ),
-                              SizedBox(height: spaceSmall),
-
-                              // KVKK Checkbox
-                              Row(
-                                children: [
-                                  SizedBox(
-                                    width: 24 * scale,
-                                    height: 24 * scale,
-                                    child: Checkbox(
-                                      value: _kvkkAccepted,
-                                      onChanged: (val) {
-                                        setState(() {
-                                          _kvkkAccepted = val ?? false;
-                                        });
-                                      },
-                                      activeColor: Colors.indigo,
-                                    ),
-                                  ),
-                                  SizedBox(width: 8 * scale),
-                                  Expanded(
-                                    child: GestureDetector(
-                                      onTap: _showKvkkDialog,
-                                      child: RichText(
-                                        text: TextSpan(
-                                          style: TextStyle(
-                                            fontSize: 13 * scale,
-                                            color: Colors.grey.shade700,
+                                child: Padding(
+                                  padding: EdgeInsets.all(isMobile ? 24 : 40),
+                                  child: Form(
+                                    key: _formKey,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Center(
+                                          child: Text(
+                                            'Kurumunuza Giriş Yapın',
+                                            style: GoogleFonts.inter(
+                                              fontSize: isMobile ? 16 : 18,
+                                              fontWeight: FontWeight.w700,
+                                              color: const Color(0xFF1E2661),
+                                            ),
                                           ),
+                                        ),
+                                        SizedBox(height: isMobile ? 20 : 32),
+
+                                        _buildLabel('Kurum ID'),
+                                        _buildInputField(
+                                          controller: _institutionController,
+                                          hint: 'Kurum numarası',
+                                          icon: Icons.business_rounded,
+                                          isMobile: isMobile,
+                                        ),
+                                        SizedBox(height: isMobile ? 12 : 20),
+
+                                        _buildLabel('Kullanıcı Adı'),
+                                        _buildInputField(
+                                          controller: _usernameController,
+                                          hint: 'Kullanıcı adı',
+                                          icon: Icons.person_outline_rounded,
+                                          isMobile: isMobile,
+                                        ),
+                                        SizedBox(height: isMobile ? 12 : 20),
+
+                                        Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceBetween,
                                           children: [
-                                            TextSpan(
-                                              text: 'KVKK Aydınlatma Metni',
-                                              style: TextStyle(
-                                                color: Colors.indigo,
-                                                decoration:
-                                                    TextDecoration.underline,
-                                                fontWeight: FontWeight.w600,
+                                            _buildLabel('Şifre'),
+                                            GestureDetector(
+                                              onTap: _forgotPassword,
+                                              child: Text(
+                                                'Şifremi Unuttum',
+                                                style: GoogleFonts.inter(
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: const Color(
+                                                    0xFF4C59BC,
+                                                  ),
+                                                ),
                                               ),
                                             ),
-                                            TextSpan(
-                                              text:
-                                                  '\'ni okudum ve kabul ediyorum.',
+                                          ],
+                                        ),
+                                        _buildInputField(
+                                          controller: _passwordController,
+                                          hint: '********',
+                                          icon: Icons.lock_outline_rounded,
+                                          isPassword: true,
+                                          isMobile: isMobile,
+                                        ),
+                                        SizedBox(height: isMobile ? 16 : 24),
+
+                                        // KVKK
+                                        _buildKvkkRow(isMobile),
+                                        SizedBox(height: isMobile ? 24 : 40),
+
+                                        // Submit Button
+                                        SizedBox(
+                                          width: double.infinity,
+                                          height: isMobile ? 50 : 56,
+                                          child: ElevatedButton(
+                                            onPressed: _isLoading
+                                                ? null
+                                                : _login,
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: const Color(
+                                                0xFF4C59BC,
+                                              ),
+                                              foregroundColor: Colors.white,
+                                              elevation: 0,
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(14),
+                                              ),
+                                            ),
+                                            child: _isLoading
+                                                ? const SizedBox(
+                                                    width: 20,
+                                                    height: 20,
+                                                    child:
+                                                        CircularProgressIndicator(
+                                                          color: Colors.white,
+                                                          strokeWidth: 2,
+                                                        ),
+                                                  )
+                                                : Row(
+                                                    mainAxisAlignment:
+                                                        MainAxisAlignment
+                                                            .center,
+                                                    children: [
+                                                      Text(
+                                                        'Giriş Yap',
+                                                        style: TextStyle(
+                                                          fontSize: isMobile
+                                                              ? 15
+                                                              : 16,
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 8),
+                                                      const Icon(
+                                                        Icons.login_rounded,
+                                                        size: 18,
+                                                      ),
+                                                    ],
+                                                  ),
+                                          ),
+                                        ),
+
+                                        const SizedBox(height: 24),
+
+                                        // --- ALTERNATIVE LOGINS ---
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: Divider(
+                                                color: Colors.grey.shade300,
+                                              ),
+                                            ),
+                                            Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 16,
+                                                  ),
+                                              child: Text(
+                                                'Veya şununla devam et',
+                                                style: GoogleFonts.inter(
+                                                  fontSize: 12,
+                                                  color: Colors.grey.shade500,
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            ),
+                                            Expanded(
+                                              child: Divider(
+                                                color: Colors.grey.shade300,
+                                              ),
                                             ),
                                           ],
                                         ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              SizedBox(height: spaceMedium),
+                                        const SizedBox(height: 20),
 
-                              // Giriş Butonu
-                              SizedBox(
-                                width: double.infinity,
-                                height: 50 * scale,
-                                child: ElevatedButton(
-                                  onPressed: _isLoading ? null : _login,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.indigo,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(
-                                        12 * scale,
-                                      ),
-                                    ),
-                                  ),
-                                  child: _isLoading
-                                      ? SizedBox(
-                                          height: 24 * scale,
-                                          width: 24 * scale,
-                                          child: CircularProgressIndicator(
-                                            color: Colors.white,
-                                            strokeWidth: 2,
-                                          ),
-                                        )
-                                      : Text(
-                                          'Giriş Yap',
-                                          style: TextStyle(
-                                            fontSize: 16 * scale,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.white,
-                                          ),
-                                        ),
-                                ),
-                              ),
-                              SizedBox(height: spaceSmall),
-
-                              // Yardım Linkleri
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  TextButton(
-                                    onPressed: () {
-                                      showDialog(
-                                        context: context,
-                                        builder: (context) => AlertDialog(
-                                          title: Text(
-                                            'Şifrenizi mi unuttunuz?',
-                                          ),
-                                          content: Text(
-                                            'Lütfen sistem yöneticinizle iletişime geçin.',
-                                          ),
-                                          actions: [
-                                            TextButton(
-                                              child: Text('Tamam'),
-                                              onPressed: () =>
-                                                  Navigator.pop(context),
+                                        Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceEvenly,
+                                          children: [
+                                            // Gmail Login
+                                            _buildSocialButton(
+                                              icon:
+                                                  'https://cdn-icons-png.flaticon.com/512/2991/2991148.png',
+                                              label: 'Google',
+                                              onTap: _loginWithGmail,
+                                            ),
+                                            const SizedBox(width: 16),
+                                            // QR Login
+                                            _buildSocialButton(
+                                              icon: 'qr_code',
+                                              label: 'QR Kod',
+                                              onTap: _showQrLoginDialog,
                                             ),
                                           ],
                                         ),
-                                      );
-                                    },
-                                    child: Text(
-                                      'Şifremi Unuttum',
-                                      style: TextStyle(fontSize: 14 * scale),
+                                      ],
                                     ),
                                   ),
-                                ],
-                              ),
-
-                              // Süper Admin Girişi
-                              SizedBox(height: spaceSmall),
-                              Divider(),
-                              TextButton.icon(
-                                icon: Icon(
-                                  Icons.admin_panel_settings,
-                                  size: 24 * scale,
                                 ),
-                                label: Text(
-                                  'Süper Admin Girişi',
-                                  style: TextStyle(fontSize: 14 * scale),
-                                ),
-                                onPressed: () {
-                                  Navigator.pushReplacementNamed(
-                                    context,
-                                    '/admin-login',
-                                  );
-                                },
                               ),
+                              const Spacer(flex: 3),
                             ],
                           ),
                         ),
                       ),
                     ),
                   ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildKvkkRow(bool isMobile) {
+    return GestureDetector(
+      onTap: () => setState(() => _kvkkAccepted = !_kvkkAccepted),
+      child: Row(
+        children: [
+          Container(
+            width: 16,
+            height: 16,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: _kvkkAccepted
+                    ? const Color(0xFF4C59BC)
+                    : Colors.grey.shade300,
+                width: 1.5,
+              ),
+              color: _kvkkAccepted
+                  ? const Color(0xFF4C59BC)
+                  : Colors.transparent,
+            ),
+            child: _kvkkAccepted
+                ? const Icon(Icons.check, size: 10, color: Colors.white)
+                : null,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: GestureDetector(
+              onTap: _showKvkkDialog,
+              child: RichText(
+                text: TextSpan(
+                  style: GoogleFonts.inter(
+                    fontSize: 11,
+                    color: Colors.grey.shade600,
+                  ),
+                  children: [
+                    TextSpan(
+                      text: 'KVKK Metnini',
+                      style: TextStyle(
+                        decoration: TextDecoration.underline,
+                        color: Colors.grey.shade800,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const TextSpan(text: ' okudum ve kabul ediyorum.'),
+                  ],
                 ),
               ),
-            );
-          },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLabel(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Text(
+        text,
+        style: GoogleFonts.inter(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: Colors.grey.shade700,
         ),
+      ),
+    );
+  }
+
+  Widget _buildInputField({
+    required TextEditingController controller,
+    required String hint,
+    required IconData icon,
+    bool isPassword = false,
+    bool isMobile = false,
+  }) {
+    return TextFormField(
+      controller: controller,
+      obscureText: isPassword && _obscurePassword,
+      style: GoogleFonts.inter(
+        fontSize: 13,
+        color: Colors.indigo.shade900,
+        fontWeight: FontWeight.w500,
+      ),
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade400),
+        prefixIcon: Icon(icon, size: 18, color: Colors.grey.shade400),
+        suffixIcon: isPassword
+            ? IconButton(
+                icon: Icon(
+                  _obscurePassword
+                      ? Icons.visibility_off_rounded
+                      : Icons.visibility_rounded,
+                  size: 18,
+                ),
+                color: Colors.grey.shade400,
+                onPressed: () =>
+                    setState(() => _obscurePassword = !_obscurePassword),
+              )
+            : null,
+        filled: true,
+        fillColor: Colors.grey.shade50,
+        contentPadding: EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: isMobile ? 14 : 18,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.grey.shade200),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.grey.shade200),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFF4C59BC), width: 1.5),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Colors.redAccent, width: 1.2),
+        ),
+      ),
+      validator: (v) => v == null || v.isEmpty ? 'Gerekli' : null,
+    );
+  }
+
+  Widget _buildSocialButton({
+    required String icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    final isQr = icon == 'qr_code';
+
+    return Expanded(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey.shade200),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (isQr)
+                  Icon(
+                    Icons.qr_code_2_rounded,
+                    color: Colors.indigo.shade700,
+                    size: 22,
+                  )
+                else
+                  Image.network(icon, width: 22, height: 22),
+                const SizedBox(width: 8),
+                Text(
+                  label,
+                  style: GoogleFonts.inter(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFF1E2661),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _loginWithGmail() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Google ile giriş şu an aktif değil. Kurum Mail tanımlaması bekleniyor.',
+        ),
+      ),
+    );
+  }
+
+  void _showQrLoginDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: Center(
+          child: Text(
+            'QR Kod ile Giriş Yap',
+            style: GoogleFonts.inter(fontWeight: FontWeight.bold),
+          ),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Mobil uygulamadan "QR Giriş" özelliğini açarak bu kodu taratın.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: Colors.indigo.shade50, width: 2),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.indigo.shade100.withOpacity(0.3),
+                    blurRadius: 40,
+                  ),
+                ],
+              ),
+              child: Image.network(
+                'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=edukn_login_session_demo_12345',
+                width: 200,
+                height: 200,
+              ), // Demo QR
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'Oturum Bekleniyor...',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: Colors.indigo,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const LinearProgressIndicator(minHeight: 2),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Kapat'),
+          ),
+        ],
       ),
     );
   }

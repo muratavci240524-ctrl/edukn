@@ -9,11 +9,17 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class SavedStudyProgramsScreen extends StatefulWidget {
   final String institutionId;
   final String schoolTypeId;
+  final bool isTeacher;
+  final List<String>? allowedClassNames;
+  final List<String>? allowedStudentIds;
 
   const SavedStudyProgramsScreen({
     super.key,
     required this.institutionId,
     required this.schoolTypeId,
+    this.isTeacher = false,
+    this.allowedClassNames,
+    this.allowedStudentIds,
   });
 
   @override
@@ -152,6 +158,36 @@ class _SavedStudyProgramsScreenState extends State<SavedStudyProgramsScreen> {
 
   List<Map<String, dynamic>> get _filteredPrograms {
     return _programs.where((p) {
+      if (widget.isTeacher) {
+        bool branchMatch = true;
+        bool studentMatch = true;
+
+        if (widget.allowedClassNames != null) {
+          final branch = _getBranchName(p);
+          bool found = false;
+          for (var allowed in widget.allowedClassNames!) {
+            if (branch == allowed || branch.contains(allowed)) {
+              found = true;
+              break;
+            }
+          }
+          branchMatch = found;
+        }
+
+        if (widget.allowedStudentIds != null) {
+          final sId = p['studentId']?.toString();
+          studentMatch = widget.allowedStudentIds!.contains(sId);
+        }
+
+        if (!branchMatch && !studentMatch) return false;
+        // If both provided, usually we want students who are in those branches AND are the specific students, 
+        // but often it's "OR" or just one of them is provided. 
+        // Given the request "subeleri ve ogrencileri", it's safer to say if any check fails, return false if we want strict.
+        // But usually "allowedStudentIds" is a subset of students in "allowedClassNames".
+        if (widget.allowedStudentIds != null && !studentMatch) return false;
+        if (widget.allowedClassNames != null && !branchMatch) return false;
+      }
+
       // 1. Text Search
       final name = (p['studentName'] ?? '').toString().toLowerCase();
       if (_searchQuery.isNotEmpty &&

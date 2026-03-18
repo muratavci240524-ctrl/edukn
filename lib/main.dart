@@ -19,6 +19,7 @@ import 'screens/announcements/announcements_screen.dart';
 import 'screens/support_services/support_services_hub_screen.dart';
 import 'screens/school/settings/permission_definition_screen.dart';
 import 'screens/school/settings/app_settings_screen.dart';
+import 'screens/school/kvkk_detail_screen.dart';
 // --- 1. FIREBASE CORE PAKETLERİNİ IMPORT ET ---
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart'; // FlutterFire CLI'nin oluşturduğu dosya
@@ -193,6 +194,7 @@ class MyApp extends StatelessWidget {
         '/permission-definition': (context) =>
             const PermissionDefinitionScreen(),
         '/app-settings': (context) => const AppSettingsScreen(),
+        '/kvkk-detail': (context) => const KvkkDetailScreen(),
       },
     );
   }

@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
@@ -13,11 +14,13 @@ import 'homework_detail_screen.dart';
 class HomeworkOperationsScreen extends StatefulWidget {
   final String institutionId;
   final String schoolTypeId;
+  final bool isTeacher;
 
   const HomeworkOperationsScreen({
     super.key,
     required this.institutionId,
     required this.schoolTypeId,
+    this.isTeacher = false,
   });
 
   @override
@@ -66,7 +69,7 @@ class _HomeworkOperationsScreenState extends State<HomeworkOperationsScreen>
   void initState() {
     super.initState();
     initializeDateFormatting('tr_TR', null);
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: widget.isTeacher ? 2 : 3, vsync: this);
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) setState(() {});
     });
@@ -285,10 +288,10 @@ class _HomeworkOperationsScreenState extends State<HomeworkOperationsScreen>
           labelColor: Colors.deepPurple,
           unselectedLabelColor: Colors.grey,
           indicatorColor: Colors.deepPurple,
-          tabs: const [
-            Tab(text: 'Genel Bakış'),
-            Tab(text: 'Öğretmenler'),
-            Tab(text: 'Risk Analizi'),
+          tabs: [
+            const Tab(text: 'Genel Bakış'),
+            if (!widget.isTeacher) const Tab(text: 'Öğretmenler'),
+            const Tab(text: 'Risk Analizi'),
           ],
         ),
       ),
@@ -302,7 +305,7 @@ class _HomeworkOperationsScreenState extends State<HomeworkOperationsScreen>
                     controller: _tabController,
                     children: [
                       _buildOverviewTab(),
-                      _buildTeacherStatsTab(),
+                      if (!widget.isTeacher) _buildTeacherStatsTab(),
                       _buildRiskAnalysisTab(),
                     ],
                   ),
@@ -667,32 +670,39 @@ class _HomeworkOperationsScreenState extends State<HomeworkOperationsScreen>
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: Colors.grey.shade200),
             ),
-            child: Column(
-              children: [
-                // Header
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade50,
-                    borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(12),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      _buildResponsiveHeaderCell('Ders', 0, 2),
-                      _buildResponsiveHeaderCell('Sınıf', 1, 1),
-                      _buildResponsiveHeaderCell('Ödev Adı', 2, 3),
-                      _buildResponsiveHeaderCell('Veriliş T.', 3, 2),
-                      _buildResponsiveHeaderCell('Son Kontrol', 4, 2),
-                      _buildResponsiveHeaderCell('Durum', 5, 2),
-                      const SizedBox(width: 24),
-                    ],
-                  ),
-                ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Scrollbar(
+                child: ScrollConfiguration(
+                  behavior: const _MouseDraggableScrollBehavior(),
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    child: SizedBox(
+                      width: 900, // Minimum width for the table to prevent overflow
+                    child: Column(
+                      children: [
+                        // Header
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade50,
+                          ),
+                          child: Row(
+                            children: [
+                              _buildResponsiveHeaderCell('Ders', 0, 2),
+                              _buildResponsiveHeaderCell('Sınıf', 1, 1),
+                              _buildResponsiveHeaderCell('Ödev Adı', 2, 3),
+                              _buildResponsiveHeaderCell('Veriliş T.', 3, 2),
+                              _buildResponsiveHeaderCell('Son Kontrol', 4, 2),
+                              _buildResponsiveHeaderCell('Durum', 5, 2),
+                              const SizedBox(width: 24),
+                            ],
+                          ),
+                        ),
                 const Divider(height: 1),
                 // Rows
                 if (filteredHomeworks.isEmpty)
@@ -703,124 +713,148 @@ class _HomeworkOperationsScreenState extends State<HomeworkOperationsScreen>
                       style: TextStyle(color: Colors.grey),
                     ),
                   ),
-                if (filteredHomeworks.isNotEmpty)
-                  ListView.separated(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: filteredHomeworks.length,
-                    separatorBuilder: (context, index) =>
-                        const Divider(height: 1),
-                    itemBuilder: (context, index) {
-                      final hw = filteredHomeworks[index];
-                      final lessonName = _lessonNames[hw.lessonId] ?? '-';
-                      final className = _classNames[hw.classId] ?? '-';
-                      final now = DateTime.now();
+                        if (filteredHomeworks.isNotEmpty)
+                          ListView.separated(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: filteredHomeworks.length,
+                            separatorBuilder: (context, index) =>
+                                const Divider(height: 1),
+                            itemBuilder: (context, index) {
+                              final hw = filteredHomeworks[index];
+                              final lessonName = _lessonNames[hw.lessonId] ?? '-';
+                              final className = _classNames[hw.classId] ?? '-';
+                              final now = DateTime.now();
 
-                      int graded = hw.studentStatuses.length;
-                      int target = hw.targetStudentIds.length;
-                      bool isExpired = now.isAfter(hw.dueDate);
+                              int graded = hw.studentStatuses.length;
+                              int target = hw.targetStudentIds.length;
+                              bool isExpired = now.isAfter(hw.dueDate);
 
-                      Color statusColor = Colors.blue;
-                      if (isExpired)
-                        statusColor = Colors.red;
-                      else if (graded > 0)
-                        statusColor = Colors.orange;
-                      if (graded > 0 && graded == target)
-                        statusColor = Colors.green;
+                              Color statusColor = Colors.blue;
+                              if (isExpired)
+                                statusColor = Colors.red;
+                              else if (graded > 0)
+                                statusColor = Colors.orange;
+                              if (graded > 0 && graded == target)
+                                statusColor = Colors.green;
 
-                      return InkWell(
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  HomeworkDetailScreen(homework: hw),
-                            ),
-                          );
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 12,
-                          ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                flex: 2,
-                                child: Text(
-                                  lessonName,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
+                              return InkWell(
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          HomeworkDetailScreen(homework: hw),
+                                    ),
+                                  );
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 12,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        flex: 2,
+                                        child: Text(
+                                          lessonName,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      Expanded(
+                                        flex: 1, 
+                                        child: Text(
+                                          className,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      Expanded(
+                                        flex: 3,
+                                        child: Text(
+                                          hw.title,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      Expanded(
+                                        flex: 2,
+                                        child: Text(
+                                          DateFormat(
+                                            'dd MMM yy',
+                                            'tr_TR',
+                                          ).format(hw.assignedDate),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      Expanded(
+                                        flex: 2,
+                                        child: Text(
+                                          DateFormat(
+                                            'dd MMM yy',
+                                            'tr_TR',
+                                          ).format(hw.dueDate),
+                                          style: TextStyle(
+                                            color: isExpired
+                                                ? Colors.red
+                                                : Colors.black,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      Expanded(
+                                        flex: 2,
+                                        child: Row(
+                                          children: [
+                                            Container(
+                                              width: 8,
+                                              height: 8,
+                                              decoration: BoxDecoration(
+                                                color: statusColor,
+                                                shape: BoxShape.circle,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: Text(
+                                                '$graded / $target Kişi',
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w500,
+                                                  fontSize: 12,
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const Icon(
+                                        Icons.chevron_right,
+                                        size: 18,
+                                        color: Colors.grey,
+                                      ),
+                                    ],
                                   ),
                                 ),
-                              ),
-                              Expanded(flex: 1, child: Text(className)),
-                              Expanded(
-                                flex: 3,
-                                child: Text(
-                                  hw.title,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              Expanded(
-                                flex: 2,
-                                child: Text(
-                                  DateFormat(
-                                    'dd MMM yy',
-                                    'tr_TR',
-                                  ).format(hw.assignedDate),
-                                ),
-                              ),
-                              Expanded(
-                                flex: 2,
-                                child: Text(
-                                  DateFormat(
-                                    'dd MMM yy',
-                                    'tr_TR',
-                                  ).format(hw.dueDate),
-                                  style: TextStyle(
-                                    color: isExpired
-                                        ? Colors.red
-                                        : Colors.black,
-                                  ),
-                                ),
-                              ),
-                              Expanded(
-                                flex: 2,
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      width: 8,
-                                      height: 8,
-                                      decoration: BoxDecoration(
-                                        color: statusColor,
-                                        shape: BoxShape.circle,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      '$graded / $target Kişi',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const Icon(
-                                Icons.chevron_right,
-                                size: 18,
-                                color: Colors.grey,
-                              ),
-                            ],
+                              );
+                            },
                           ),
-                        ),
-                      );
-                    },
+                      ],
+                    ),
                   ),
-              ],
+                ),
+              ),
             ),
           ),
+        ),
         ],
       ),
     );
@@ -896,6 +930,8 @@ class _HomeworkOperationsScreenState extends State<HomeworkOperationsScreen>
                   fontWeight: FontWeight.bold,
                   fontSize: 13,
                 ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
               if (_sortColumnIndex == index) ...[
                 const SizedBox(width: 4),
@@ -1431,4 +1467,15 @@ class _HomeworkOperationsScreenState extends State<HomeworkOperationsScreen>
       },
     );
   }
+}
+
+class _MouseDraggableScrollBehavior extends MaterialScrollBehavior {
+  const _MouseDraggableScrollBehavior();
+
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+        PointerDeviceKind.touch,
+        PointerDeviceKind.mouse,
+        PointerDeviceKind.trackpad,
+      };
 }

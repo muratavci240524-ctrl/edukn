@@ -8,12 +8,16 @@ class EtutProcessScreen extends StatefulWidget {
   final String schoolTypeId;
   final String schoolTypeName;
   final String institutionId;
+  final bool isTeacher;
+  final String? teacherId;
 
   const EtutProcessScreen({
     Key? key,
     required this.schoolTypeId,
     required this.schoolTypeName,
     required this.institutionId,
+    this.isTeacher = false,
+    this.teacherId,
   }) : super(key: key);
 
   @override
@@ -51,6 +55,9 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.isTeacher && widget.teacherId != null) {
+      _selectedTeacherId = widget.teacherId;
+    }
     _loadData();
   }
 
@@ -105,13 +112,48 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
       _allStudents = reqs[0].docs
           .map((doc) => {'id': doc.id, ...doc.data()})
           .toList();
-      _allTeachers = reqs[1].docs
-          .map((doc) => {'id': doc.id, ...doc.data()})
-          .where((t) {
-            final title = (t['title'] ?? '').toString().toLowerCase();
-            return title == 'ogretmen' || title == 'teacher';
-          })
-          .toList();
+
+      if (widget.isTeacher && widget.teacherId != null) {
+        // Teacher Mode: Filter students by assigned classes
+        final assignmentsSnap = await FirebaseFirestore.instance
+            .collection('lessonAssignments')
+            .where('institutionId', isEqualTo: widget.institutionId)
+            .where('teacherIds', arrayContains: widget.teacherId)
+            .where('isActive', isEqualTo: true)
+            .get();
+
+        final classIds = assignmentsSnap.docs
+            .map((doc) => doc.data()['classId']?.toString())
+            .where((id) => id != null)
+            .cast<String>()
+            .toSet();
+
+        _allStudents = _allStudents.where((s) => classIds.contains(s['classId'])).toList();
+        
+        // Teacher Mode: Only show self in teacher list
+        _allTeachers = reqs[1].docs
+            .map((doc) => {'id': doc.id, ...doc.data()})
+            .where((t) => t['id'] == widget.teacherId || t['uid'] == widget.teacherId)
+            .toList();
+            
+        if (_allTeachers.isEmpty) {
+           _allTeachers = reqs[1].docs
+            .map((doc) => {'id': doc.id, ...doc.data()})
+            .where((t) {
+              final title = (t['title'] ?? '').toString().toLowerCase();
+              return title == 'ogretmen' || title == 'teacher';
+            })
+            .toList();
+        }
+      } else {
+        _allTeachers = reqs[1].docs
+            .map((doc) => {'id': doc.id, ...doc.data()})
+            .where((t) {
+              final title = (t['title'] ?? '').toString().toLowerCase();
+              return title == 'ogretmen' || title == 'teacher';
+            })
+            .toList();
+      }
 
       if (reqs[2].docs.isNotEmpty) {
         _schoolId = reqs[2].docs.first.id;
@@ -125,7 +167,7 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
   }
 
   List<Map<String, dynamic>> get _filteredStudents {
-    return _allStudents.where((s) {
+    final list = _allStudents.where((s) {
       final name = (s['fullName'] ?? '').toString().toLowerCase();
       final matchesSearch = name.contains(_studentSearch.toLowerCase());
       final matchesClass =
@@ -133,6 +175,20 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
           s['className'] == _selectedClassFilter;
       return matchesSearch && matchesClass;
     }).toList();
+
+    // Sort by className (A-Z), then by fullName (A-Z)
+    list.sort((a, b) {
+      final classA = (a['className'] ?? '').toString();
+      final classB = (b['className'] ?? '').toString();
+      final classCmp = classA.compareTo(classB);
+      if (classCmp != 0) return classCmp;
+
+      final nameA = (a['fullName'] ?? '').toString();
+      final nameB = (b['fullName'] ?? '').toString();
+      return nameA.compareTo(nameB);
+    });
+
+    return list;
   }
 
   List<Map<String, dynamic>> get _filteredTeachers {
@@ -175,22 +231,23 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
           ],
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.settings_outlined, color: Colors.indigo),
-            onPressed: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => EtutSettingsScreen(
-                    institutionId: widget.institutionId,
-                    schoolTypeId: widget.schoolTypeId,
+          if (!widget.isTeacher)
+            IconButton(
+              icon: const Icon(Icons.settings_outlined, color: Colors.indigo),
+              onPressed: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => EtutSettingsScreen(
+                      institutionId: widget.institutionId,
+                      schoolTypeId: widget.schoolTypeId,
+                    ),
                   ),
-                ),
-              );
-              _loadSettings();
-              _loadClashData();
-            },
-          ),
+                );
+                _loadSettings();
+                _loadClashData();
+              },
+            ),
           const SizedBox(width: 16),
         ],
       ),
@@ -518,7 +575,7 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            if (_selectedTeacherId != null)
+            if (_selectedTeacherId != null && !widget.isTeacher)
               InkWell(
                 onTap: () {
                   setState(() {
@@ -540,30 +597,34 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
           ],
         ),
         const SizedBox(height: 12),
-        TextField(
-          decoration: InputDecoration(
-            hintText: 'Öğretmen / Branş...',
-            prefixIcon: const Icon(Icons.search, size: 18, color: Colors.grey),
-            isDense: true,
-            contentPadding: const EdgeInsets.symmetric(
-              vertical: 8,
-              horizontal: 10,
+        if (!widget.isTeacher) ...[
+          TextField(
+            decoration: InputDecoration(
+              hintText: 'Öğretmen / Branş...',
+              prefixIcon: const Icon(Icons.search, size: 18, color: Colors.grey),
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(
+                vertical: 8,
+                horizontal: 10,
+              ),
+              filled: true,
+              fillColor: Colors.grey.shade50,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: Colors.grey.shade200),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: Colors.grey.shade200),
+              ),
             ),
-            filled: true,
-            fillColor: Colors.grey.shade50,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide(color: Colors.grey.shade200),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide(color: Colors.grey.shade200),
-            ),
+            style: const TextStyle(fontSize: 13),
+            onChanged: (v) => setState(() => _teacherSearch = v),
           ),
-          style: const TextStyle(fontSize: 13),
-          onChanged: (v) => setState(() => _teacherSearch = v),
-        ),
-        const SizedBox(height: 8),
+          const SizedBox(height: 8),
+        ] else ...[
+          const SizedBox(height: 8),
+        ],
         Expanded(
           child: ListView.builder(
             itemCount: _filteredTeachers.length,
@@ -622,7 +683,7 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  onTap: () {
+                  onTap: widget.isTeacher ? null : () {
                     setState(() {
                       _selectedTeacherId = isSelected
                           ? null

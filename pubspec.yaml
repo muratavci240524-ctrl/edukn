@@ -37,6 +37,8 @@ dependencies:
   audioplayers: ^6.5.1
   google_generative_ai: ^0.4.7
   archive: ^3.6.1
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^5.1.0
 
 dev_dependencies:
   flutter_test:

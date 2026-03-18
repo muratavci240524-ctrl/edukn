@@ -523,6 +523,7 @@ class _TeacherAnnouncementsScreenState extends State<TeacherAnnouncementsScreen>
         final data = doc.data() as Map<String, dynamic>;
         final schoolTypeId = data['schoolTypeId'] as String?;
         final recipients = List<String>.from(data['recipients'] ?? []);
+        final publishDate = (data['publishDate'] as Timestamp?)?.toDate();
 
         // 1. Okul türü kontrolü
         if (schoolTypeId != null && !userSchoolTypes.contains(schoolTypeId)) {
@@ -530,37 +531,74 @@ class _TeacherAnnouncementsScreenState extends State<TeacherAnnouncementsScreen>
         }
 
         // 2. Alıcı kontrolü
+        bool isRecipient = false;
+
         // - 'ALL' ise herkes görür
         // - 'TEACHER' ise tüm öğretmenler görür
+        // - 'unit:ogretmen' ise tüm öğretmenler görür
+        if (recipients.contains('ALL') ||
+            recipients.contains('TEACHER') ||
+            recipients.contains('unit:ogretmen')) {
+          isRecipient = true;
+        }
+
         // - Öğretmenin kendi ID'si veya Email'i alıcılarda varsa görür
+        if (!isRecipient &&
+            ((currentUserId != null && recipients.contains('user:$currentUserId')) ||
+                (currentUserEmail != null && recipients.contains(currentUserEmail)))) {
+          isRecipient = true;
+        }
+
+        // - Okul türü bazlı öğretmenler (Örn: school:XYZ:Öğretmenler)
+        if (!isRecipient) {
+          for (final stId in userSchoolTypes) {
+            if (recipients.contains('school:$stId:Öğretmenler')) {
+              isRecipient = true;
+              break;
+            }
+          }
+        }
+
+        // - Şube bazlı öğretmenler (Örn: branch:ABC:Öğretmenler)
+        if (!isRecipient) {
+          for (final classId in _assignedClassIds) {
+            if (recipients.contains('branch:$classId:Öğretmenler')) {
+              isRecipient = true;
+              break;
+            }
+          }
+        }
+
         // - Öğretmenin dersine girdiği bir sınıf ID'si alıcılarda varsa görür
-        if (recipients.contains('ALL') || recipients.contains('TEACHER')) {
-          return true;
-        }
-
-        if (currentUserId != null && recipients.contains(currentUserId)) {
-          return true;
-        }
-
-        if (currentUserEmail != null && recipients.contains(currentUserEmail)) {
-          return true;
-        }
-
-        // Sınıf bazlı kontrol
-        for (final classId in _assignedClassIds) {
-          if (recipients.contains(classId)) {
-            return true;
+        // (Eski mantık: raw classId)
+        if (!isRecipient) {
+          for (final classId in _assignedClassIds) {
+            if (recipients.contains(classId)) {
+              isRecipient = true;
+              break;
+            }
           }
         }
 
         // Öğrenci bazlı kontrol (Tanımlı öğrencilere giden duyuruları öğretmen de görür)
         for (final studentId in _assignedStudentIds) {
           if (recipients.contains(studentId)) {
-            return true;
+            isRecipient = true; // If any student is a recipient, the teacher can see it.
+            break;
           }
         }
 
-        return false;
+        if (!isRecipient) return false;
+
+        // 3. Tarih Aralığı Filtreleme
+        if (_range != null && publishDate != null) {
+          if (publishDate.isBefore(_range!.start) ||
+              publishDate.isAfter(_range!.end)) {
+            return false;
+          }
+        }
+
+        return true;
       }).toList();
 
       return _MockQuerySnapshot(filteredDocs);

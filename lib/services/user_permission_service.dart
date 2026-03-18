@@ -7,12 +7,23 @@ import 'package:shared_preferences/shared_preferences.dart';
 class UserPermissionService {
   static Map<String, dynamic>? _cachedUserData;
   static bool _isImpersonating = false;
+  static Future<Map<String, dynamic>?>? _loadFuture;
 
   /// Kullanıcı verilerini yükle (normal veya impersonation)
-  static Future<Map<String, dynamic>?> loadUserData() async {
+  static Future<Map<String, dynamic>?> loadUserData({bool forceRefresh = false}) async {
+    if (_loadFuture != null && !forceRefresh) return _loadFuture;
+    
+    _loadFuture = _internalLoadUserData();
+    return _loadFuture;
+  }
+
+  static Future<Map<String, dynamic>?> _internalLoadUserData() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return null;
+      if (user == null) {
+        _loadFuture = null;
+        return null;
+      }
 
       // Impersonation kontrolü
       final prefs = await SharedPreferences.getInstance();

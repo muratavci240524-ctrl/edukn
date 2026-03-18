@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 class StylishBottomNav extends StatelessWidget {
   final int currentIndex;
   final Function(int) onTap;
+  final Map<int, int>? badgeCounts;
 
   const StylishBottomNav({
     Key? key,
     required this.currentIndex,
     required this.onTap,
+    this.badgeCounts,
   }) : super(key: key);
 
   @override
@@ -84,7 +86,8 @@ class StylishBottomNav extends StatelessWidget {
 
   Widget _buildNavItem(int index, IconData icon, String label) {
     final isSelected = currentIndex == index;
-    // WRAP IN MATERIAL FOR PROPER INK SPLASH VISIBILITY
+    final count = badgeCounts?[index] ?? 0;
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -96,12 +99,51 @@ class StylishBottomNav extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                icon,
-                color: isSelected
-                    ? const Color(0xFF1565C0) // Blue 800
-                    : Colors.grey.shade400,
-                size: 26,
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Icon(
+                    icon,
+                    color: isSelected
+                        ? const Color(0xFF1565C0) // Blue 800
+                        : Colors.grey.shade400,
+                    size: 26,
+                  ),
+                  if (count > 0)
+                    Positioned(
+                      top: -4,
+                      right: -6,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF43F5E), // Rose 500
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 2),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.1),
+                              blurRadius: 4,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        constraints: const BoxConstraints(
+                          minWidth: 18,
+                          minHeight: 18,
+                        ),
+                        child: Center(
+                          child: Text(
+                            count > 9 ? '9+' : count.toString(),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ),
               const SizedBox(height: 4),
               FittedBox(

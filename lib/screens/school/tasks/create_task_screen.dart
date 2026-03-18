@@ -590,13 +590,21 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   }
 
   Future<void> _showUserSelectionDialog() async {
-    final staffSnapshot = await FirebaseFirestore.instance
+    final userSnapshot = await FirebaseFirestore.instance
         .collection('users')
         .where('institutionId', isEqualTo: widget.institutionId)
-        .where('type', whereIn: ['teacher', 'staff'])
         .get();
 
-    final allUsers = staffSnapshot.docs.map((d) {
+    final allUsers = userSnapshot.docs.where((d) {
+      final data = d.data();
+      final role = (data['role'] ?? '').toString().toLowerCase();
+      final type = (data['type'] ?? '').toString().toLowerCase();
+      
+      // Filter out students and parents
+      final isExcluded = ['student', 'parent', 'veli', 'ogrenci'].contains(role) || 
+                         ['student', 'parent', 'veli', 'ogrenci'].contains(type);
+      return !isExcluded;
+    }).map((d) {
       final data = d.data();
       data['id'] = d.id;
       return data;

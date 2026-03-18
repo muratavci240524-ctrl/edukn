@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../../models/survey_model.dart';
 import '../../../services/survey_service.dart';
 import '../../../services/announcement_service.dart';
@@ -15,6 +16,7 @@ class SurveyPreviewScreen extends StatefulWidget {
   final List<SurveySection> sections;
   final bool isAnonymous;
   final DateTime? scheduledAt;
+  final String? authorId;
 
   const SurveyPreviewScreen({
     Key? key,
@@ -28,6 +30,7 @@ class SurveyPreviewScreen extends StatefulWidget {
     required this.sections,
     this.isAnonymous = false,
     this.scheduledAt,
+    this.authorId,
   }) : super(key: key);
 
   @override
@@ -555,13 +558,14 @@ class _SurveyPreviewScreenState extends State<SurveyPreviewScreen> {
     setState(() => _isPublishing = true);
 
     try {
+      final user = FirebaseAuth.instance.currentUser;
       final survey = Survey(
         id: '',
         institutionId: widget.institutionId,
         schoolTypeId: widget.schoolTypeId,
         title: widget.title,
         description: widget.description,
-        authorId: '',
+        authorId: widget.authorId ?? user?.uid ?? '',
         createdAt: DateTime.now(),
         status: widget.scheduledAt != null
             ? SurveyStatus.scheduled

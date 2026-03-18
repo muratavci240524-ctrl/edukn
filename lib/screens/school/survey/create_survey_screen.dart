@@ -7,6 +7,8 @@ import '../../../widgets/recipient_selector_field.dart'; // Correct import
 class CreateSurveyScreen extends StatefulWidget {
   final String institutionId;
   final String schoolTypeId;
+  final bool isTeacher;
+  final String? teacherId;
 
   final Survey? templateSurvey;
 
@@ -14,6 +16,8 @@ class CreateSurveyScreen extends StatefulWidget {
     Key? key,
     required this.institutionId,
     required this.schoolTypeId,
+    this.isTeacher = false,
+    this.teacherId,
     this.templateSurvey,
   }) : super(key: key);
 
@@ -871,6 +875,7 @@ class _CreateSurveyScreenState extends State<CreateSurveyScreen> {
           sections: _sections,
           isAnonymous: _isAnonymous,
           scheduledAt: scheduledInfo,
+          authorId: widget.teacherId, // Pass the teacherId as authorId
         ),
       ),
     );

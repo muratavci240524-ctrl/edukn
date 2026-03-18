@@ -52,11 +52,36 @@ class ChatService {
     // Use transaction/batch if needed, but simple writes are fine for MVP
     await messageRef.set(message.toMap());
 
-    // 2. Update conversation lastMessage
-    await _firestore.collection('conversations').doc(conversationId).update({
+    // 2. Update conversation lastMessage and unread counts
+    final convDoc = await _firestore.collection('conversations').doc(conversationId).get();
+    final participants = List<String>.from(convDoc.data()?['participantIds'] ?? []);
+    
+    Map<String, dynamic> updates = {
       'lastMessage': message.toMap(),
       'updatedAt': FieldValue.serverTimestamp(),
-      'unreadCount': FieldValue.increment(1), // TODO: logic per user
+      'unreadCount': FieldValue.increment(1), // Legacy total
+    };
+
+    for (final pId in participants) {
+      if (pId != message.senderId) {
+        updates['unreadCounts.$pId'] = FieldValue.increment(1);
+      }
+    }
+
+    await _firestore.collection('conversations').doc(conversationId).update(updates);
+  }
+
+  // Mark as read
+  Future<void> markAsRead(String conversationId) async {
+    final uid = currentUserId;
+    if (uid == null) return;
+    
+    await _firestore.collection('conversations').doc(conversationId).update({
+      'unreadCounts.$uid': 0,
+      // If we want to be clean, we'd also decrement global unreadCount, 
+      // but it's hard without knowing the previous individual count.
+      // So let's just leave global unreadCount as a 'total messages since start' 
+      // or similar if we don't rely on it.
     });
   }
 

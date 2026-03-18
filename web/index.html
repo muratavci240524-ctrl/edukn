@@ -1,24 +1,11 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <!--
-    If you are serving your web app in a path other than the root, change the
-    href value below to reflect the base path you are serving from.
-
-    The path provided below has to start and end with a slash "/" in order for
-    it to work correctly.
-
-    For more details:
-    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
-
-    This is a placeholder for base href that will be replaced by the value of
-    the `--base-href` argument provided to `flutter build`.
-  -->
   <base href="$FLUTTER_BASE_HREF">
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="description" content="edukn management system">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
@@ -32,11 +19,64 @@
   <title>edukn</title>
   <link rel="manifest" href="manifest.json">
 
-  <!-- Firebase SDK'ları yükle (JavaScript'te başlatma YOK) -->
+  <!-- Firebase SDK'ları -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
+
+  <!-- QR Scanning Engine (The Force) -->
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+  <script>
+    window.startWebScanner = function(videoId, onDetect) {
+      console.log("Starting Native Web Scanner for ID:", videoId);
+      const video = document.getElementById(videoId);
+      if (!video) {
+        console.error("Video element not found yet, retrying...");
+        setTimeout(() => window.startWebScanner(videoId, onDetect), 500);
+        return;
+      }
+      
+      navigator.mediaDevices.getUserMedia({ 
+        video: { 
+          facingMode: "environment",
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        } 
+      })
+      .then(stream => {
+        video.srcObject = stream;
+        video.setAttribute("playsinline", true);
+        video.play();
+        
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d");
+        
+        function scan() {
+          if (video.readyState === video.HAVE_ENOUGH_DATA) {
+            canvas.height = video.videoHeight;
+            canvas.width = video.videoWidth;
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+            const code = jsQR(imageData.data, imageData.width, imageData.height, {
+              inversionAttempts: "dontInvert",
+            });
+            if (code) {
+              console.log("QR Detected:", code.data);
+              onDetect(code.data);
+              // We keep scanning or Flutter can handle closing
+            }
+          }
+          requestAnimationFrame(scan);
+        }
+        requestAnimationFrame(scan);
+      })
+      .catch(err => {
+        console.error("Native Scanner Media Error:", err);
+        alert("Kamera başlatılamadı: " + err.message);
+      });
+    };
+  </script>
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>

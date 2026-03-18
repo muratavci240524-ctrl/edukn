@@ -146,6 +146,8 @@ class _ChatDetailWidgetState extends State<ChatDetailWidget> {
       }
     });
 
+    _markAsRead(); // Initial mark as read
+
     _positionSubscription = _audioPlayer.onPositionChanged.listen((pos) {
       setState(() {
         _currentPosition = pos;
@@ -168,10 +170,15 @@ class _ChatDetailWidgetState extends State<ChatDetailWidget> {
         setState(() {
           _messages = messages;
         });
-        // Optional: auto scroll to bottom on new message?
-        // _scrollToBottom();
+        _markAsRead(); // Mark as read on new message receipt
       }
     });
+  }
+
+  Future<void> _markAsRead() async {
+    if (!_conversationId.startsWith('temp_')) {
+      await _chatService.markAsRead(_conversationId);
+    }
   }
 
   @override

@@ -1069,77 +1069,60 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
   // ---------------------------------------------------------------------------
 
   // Helper method to get teacher's lesson count for a specific day
-  Future<Map<String, dynamic>> _getTeacherDayInfo(
+  Future<int> _getTeacherLessonCount(
     String teacherId,
     int day,
   ) async {
     try {
-      // Get teacher's branch
-      final teacherDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(teacherId)
-          .get();
-
-      String branch = 'Öğretmen';
-      if (teacherDoc.exists) {
-        final data = teacherDoc.data();
-        if (data != null) {
-          if (data['branches'] is List &&
-              (data['branches'] as List).isNotEmpty) {
-            branch = (data['branches'] as List).first.toString();
-          } else if (data['branch'] is String &&
-              (data['branch'] as String).isNotEmpty) {
-            branch = data['branch'];
-          }
-        }
-      }
-
-      // Get active period to fetch schedule
+      // 1. Get ALL active periods for this institution (Handle Primary/Middle/High sync)
       final periodSnapshot = await FirebaseFirestore.instance
           .collection('workPeriods')
           .where('institutionId', isEqualTo: widget.institutionId)
           .where('isActive', isEqualTo: true)
           .get();
 
+      if (periodSnapshot.docs.isEmpty) return 0;
+      final activePeriodIds = periodSnapshot.docs.map((d) => d.id).toSet();
+      final dayName = _getDayName(day);
+
+      // 2. Fetch all schedule items for this day in this institution
+      // We filter by institutionId + day + isActive for robustness and cross-period support
+      final scheduleSnap = await FirebaseFirestore.instance
+          .collection('classSchedules')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .where('day', isEqualTo: dayName)
+          .where('isActive', isEqualTo: true)
+          .get();
+
       int lessonCount = 0;
-      if (periodSnapshot.docs.isNotEmpty) {
-        final periodId = periodSnapshot.docs.first.id;
-        final dayName = _getDayName(day);
+      for (var doc in scheduleSnap.docs) {
+        final data = doc.data();
+        
+        // Ensure it belongs to an active period for this institution
+        if (!activePeriodIds.contains(data['periodId'])) continue;
 
-        // Fetch teacher's schedule for this day
-        final scheduleSnap = await FirebaseFirestore.instance
-            .collection('classSchedules')
-            .where('periodId', isEqualTo: periodId)
-            .where('day', isEqualTo: dayName)
-            .where('isActive', isEqualTo: true)
-            .get();
+        final tId = data['teacherId'];
+        final tIds = data['teacherIds'];
 
-        // Count lessons for this teacher
-        for (var doc in scheduleSnap.docs) {
-          final data = doc.data();
-          final tId = data['teacherId'];
-          final tIds = data['teacherIds'];
-
-          bool match = false;
-          if (tId != null && tId.toString() == teacherId) {
+        bool match = false;
+        if (tId != null && tId.toString() == teacherId) {
+          match = true;
+        }
+        if (!match && tIds is List) {
+          if (tIds.any((e) => e.toString() == teacherId)) {
             match = true;
           }
-          if (!match && tIds is List) {
-            if (tIds.any((e) => e.toString() == teacherId)) {
-              match = true;
-            }
-          }
+        }
 
-          if (match) {
-            lessonCount++;
-          }
+        if (match) {
+          lessonCount++;
         }
       }
 
-      return {'branch': branch, 'lessonCount': lessonCount};
+      return lessonCount;
     } catch (e) {
-      print('Error getting teacher day info: ');
-      return {'branch': 'Öğretmen', 'lessonCount': 0};
+      print('Error getting teacher lesson count: $e');
+      return 0;
     }
   }
 
@@ -1209,11 +1192,18 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
                   final isSelected = currentId == t.id;
                   final isAssignedElsewhere = assignedTeachers.contains(t.id);
 
-                  return FutureBuilder<Map<String, dynamic>>(
-                    future: _getTeacherDayInfo(t.id, day),
+                  final tData = t.data() as Map<String, dynamic>;
+                  String branch = 'Öğretmen';
+                  if (tData['branches'] is List && (tData['branches'] as List).isNotEmpty) {
+                    branch = (tData['branches'] as List).first.toString();
+                  } else if (tData['branch'] is String && (tData['branch'] as String).isNotEmpty) {
+                    branch = tData['branch'];
+                  }
+
+                  return FutureBuilder<int>(
+                    future: _getTeacherLessonCount(t.id, day),
                     builder: (context, infoSnap) {
-                      final branch = infoSnap.data?['branch'] ?? 'Öğretmen';
-                      final lessonCount = infoSnap.data?['lessonCount'] ?? 0;
+                      final lessonCount = infoSnap.data ?? 0;
                       final subtitle = '$branch ($lessonCount saat)';
 
                       // Determine colors based on assignment status
@@ -1551,6 +1541,7 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
         currentLoad[t['id']] = 0;
       }
 
+      int assignedCount = 0;
       // 5. Algorithm: Unified Fairness per Location
       for (int day = 1; day <= 7; day++) {
         Set<String> assignedToday = {};
@@ -1665,6 +1656,7 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
           assignedToday.add(tId);
           totalLoad[tId] = (totalLoad[tId] ?? 0) + 1;
           currentLoad[tId] = (currentLoad[tId] ?? 0) + 1;
+          assignedCount++;
 
           // Update InMemory History so they aren't assigned same spot again this week
           if (locHistoryCounts.containsKey(tId)) {
@@ -1680,20 +1672,35 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
             'institutionId': widget.institutionId,
             'periodId': widget.periodId,
             'locationId': loc.id,
+            'locationName': loc.name,
             'dayOfWeek': day,
             'teacherId': tId,
             'teacherName': tName,
+            'weekStart': weekStr,
           });
         }
       }
 
       await batch.commit();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Otomatik dağıtım (Döngüsel Rotasyon) tamamlandı.'),
-        ),
-      );
+      if (assignedCount > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Otomatik dağıtım (Döngüsel Rotasyon) tamamlandı. $assignedCount atama yapıldı.',
+            ),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Hiçbir atama yapılamadı. Nöbet yerlerinin uygunluk havuzlarının boş olmadığından emin olun.',
+            ),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
       _loadData();
       _loadStatsData();
     } catch (e) {

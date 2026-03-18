@@ -112,9 +112,14 @@ class _TeacherSocialMediaScreenState extends State<TeacherSocialMediaScreen> {
             return Center(child: Text('Hata: ${snapshot.error}'));
           }
 
-          final List<dynamic> userSchoolTypes = userData?['schoolTypes'] ?? [];
           final currentUserId = _auth.currentUser?.uid;
           final currentUserEmail = _auth.currentUser?.email;
+          final schoolTypes = userData?['schoolTypes'] as List<dynamic>? ?? [];
+          final userSchoolTypeSet = schoolTypes.map((e) => e.toString()).toSet();
+
+          // Optimize Lookups
+          final studentIdSet = _assignedStudentIds.toSet();
+          final classIdSet = _assignedClassIds.toSet();
 
           // Manual sorting by createdAt after fetching
           final List<QueryDocumentSnapshot> allDocs = 
@@ -132,40 +137,47 @@ class _TeacherSocialMediaScreenState extends State<TeacherSocialMediaScreen> {
 
           final filteredPosts = allDocs.where((doc) {
             final data = doc.data() as Map<String, dynamic>;
-            final schoolTypeId = data['schoolTypeId'] as String?;
             final recipients = List<String>.from(data['recipients'] ?? []);
+            final schoolTypeId = data['schoolTypeId']?.toString();
 
-            // 1. Okul türü kontrolü
-            if (schoolTypeId != null && !userSchoolTypes.contains(schoolTypeId)) {
-              return false;
+            // 1. Quick Global Checks
+            bool isRecipient = recipients.isEmpty || 
+                             recipients.contains('ALL') || 
+                             recipients.contains('TEACHER') ||
+                             recipients.contains('unit:ogretmen');
+
+            // 2. Personal Checks
+            if (!isRecipient && currentUserId != null) {
+              if (recipients.contains('user:$currentUserId')) isRecipient = true;
+              else if (currentUserEmail != null && recipients.contains(currentUserEmail)) isRecipient = true;
             }
 
-            // 2. Alıcı kontrolü
-            if (recipients.isEmpty || recipients.contains('ALL') || recipients.contains('TEACHER')) {
-              return true;
-            }
-
-            if (currentUserId != null && recipients.contains(currentUserId)) {
-              return true;
-            }
-
-            if (currentUserEmail != null && recipients.contains(currentUserEmail)) {
-              return true;
-            }
-
-            for (final classId in _assignedClassIds) {
-              if (recipients.contains(classId)) {
-                return true;
+            // 3. Class/Student Checks (Only if not already matched)
+            if (!isRecipient) {
+              for (final r in recipients) {
+                if (r.startsWith('class:')) {
+                  final cid = r.substring(6);
+                  if (classIdSet.contains(cid)) { isRecipient = true; break; }
+                } else if (r.startsWith('user:')) {
+                  final sid = r.substring(5);
+                  if (studentIdSet.contains(sid)) { isRecipient = true; break; }
+                }
               }
             }
 
-            for (final studentId in _assignedStudentIds) {
-              if (recipients.contains(studentId)) {
-                return true;
+            if (!isRecipient) return false;
+
+            // 4. School Type Access Check
+            if (schoolTypeId != null && !userSchoolTypeSet.contains(schoolTypeId)) {
+              // Bypass if it's a global/unit post
+              if (!(recipients.contains('unit:ogretmen') || 
+                    recipients.contains('TEACHER') || 
+                    recipients.contains('ALL'))) {
+                return false;
               }
             }
 
-            return false;
+            return true;
           }).toList();
 
           if (filteredPosts.isEmpty) {
@@ -202,22 +214,25 @@ class _TeacherSocialMediaScreenState extends State<TeacherSocialMediaScreen> {
             return 0;
           });
 
-          return ListView.builder(
+          return GridView.builder(
             padding: const EdgeInsets.all(16),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: MediaQuery.of(context).size.width > 700 ? 2 : 1,
+              crossAxisSpacing: 16,
+              mainAxisSpacing: 16,
+              childAspectRatio: 0.75,
+            ),
             itemCount: filteredPosts.length,
             itemBuilder: (context, index) {
               final post = filteredPosts[index];
               final data = post.data() as Map<String, dynamic>;
               
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: PostCard(
-                  postId: post.id,
-                  data: data,
-                  currentUserId: currentUserId,
-                  currentUserEmail: currentUserEmail,
-                  schoolTypeId: data['schoolTypeId'] ?? '',
-                ),
+              return PostCard(
+                postId: post.id,
+                data: data,
+                currentUserId: currentUserId,
+                currentUserEmail: currentUserEmail,
+                schoolTypeId: data['schoolTypeId'] ?? '',
               );
             },
           );

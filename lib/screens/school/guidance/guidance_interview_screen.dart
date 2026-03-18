@@ -19,12 +19,16 @@ class GuidanceInterviewScreen extends StatefulWidget {
   final String institutionId;
   final String schoolTypeId;
   final String schoolTypeName;
+  final bool isTeacher;
+  final String? teacherId;
 
   const GuidanceInterviewScreen({
     Key? key,
     required this.institutionId,
     required this.schoolTypeId,
     required this.schoolTypeName,
+    this.isTeacher = false,
+    this.teacherId,
   }) : super(key: key);
 
   @override
@@ -221,12 +225,19 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
         }
       } else if (_selectedTab == 'gecmis') {
         // Geçmiş Görüşmeler
-        final query = await FirebaseFirestore.instance
+        Query queryRef = FirebaseFirestore.instance
             .collection('guidance_interviews')
             .where('institutionId', isEqualTo: widget.institutionId)
-            .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
-            .orderBy('date', descending: true)
-            .get();
+            .where('schoolTypeId', isEqualTo: widget.schoolTypeId);
+
+        if (widget.isTeacher && widget.teacherId != null) {
+          queryRef = queryRef.where(Filter.or(
+            Filter('interviewerId', isEqualTo: widget.teacherId),
+            Filter('participants', arrayContains: widget.teacherId),
+          ));
+        }
+
+        final query = await queryRef.orderBy('date', descending: true).get();
 
         rawData = query.docs.map((doc) {
           final data = doc.data() as Map<String, dynamic>? ?? {};

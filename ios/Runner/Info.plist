@@ -2,6 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>NSCameraUsageDescription</key>
+    <string>QR kod okutarak giriş/çıkış yapabilmek için kameranıza erişmemiz gerekiyor.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Sesli notlar ve aramalar için mikrofonunuza erişmemiz gerekiyor.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Profil resmi ve dosya paylaşımı için galerinize erişmemiz gerekiyor.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Gerekli durumlarda konum bazlı işlemler için konumunuza erişmemiz gerekiyor.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>

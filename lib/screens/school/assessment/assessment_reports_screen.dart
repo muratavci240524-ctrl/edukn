@@ -8,11 +8,13 @@ import 'agm/screens/agm_dashboard_screen.dart';
 class AssessmentReportsScreen extends StatelessWidget {
   final String institutionId;
   final String schoolTypeId;
+  final bool isTeacher;
 
   const AssessmentReportsScreen({
     Key? key,
     required this.institutionId,
     required this.schoolTypeId,
+    this.isTeacher = false,
   }) : super(key: key);
 
   @override
@@ -93,25 +95,27 @@ class AssessmentReportsScreen extends StatelessWidget {
                     );
                   },
                 ),
-                const SizedBox(height: 16),
-                _buildMenuCard(
-                  context,
-                  title: 'AGM – Akademik Güçlendirme',
-                  subtitle: 'Otomatik etüt grubu yerleştirme sistemi',
-                  icon: Icons.model_training,
-                  color: Colors.deepOrange,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => AgmDashboardScreen(
-                          institutionId: institutionId,
-                          schoolTypeId: schoolTypeId,
+                if (!isTeacher) ...[
+                  const SizedBox(height: 16),
+                  _buildMenuCard(
+                    context,
+                    title: 'AGM – Akademik Güçlendirme',
+                    subtitle: 'Otomatik etüt grubu yerleştirme sistemi',
+                    icon: Icons.model_training,
+                    color: Colors.deepOrange,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => AgmDashboardScreen(
+                            institutionId: institutionId,
+                            schoolTypeId: schoolTypeId,
+                          ),
                         ),
-                      ),
-                    );
-                  },
-                ),
+                      );
+                    },
+                  ),
+                ],
               ],
             ),
           ),

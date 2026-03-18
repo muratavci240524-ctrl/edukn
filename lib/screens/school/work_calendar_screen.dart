@@ -11,12 +11,14 @@ class WorkCalendarScreen extends StatefulWidget {
   final String schoolTypeId;
   final String schoolTypeName;
   final String institutionId;
+  final bool isTeacher;
 
   const WorkCalendarScreen({
     Key? key,
     required this.schoolTypeId,
     required this.schoolTypeName,
     required this.institutionId,
+    this.isTeacher = false,
   }) : super(key: key);
 
   @override
@@ -95,7 +97,7 @@ class _WorkCalendarScreenState extends State<WorkCalendarScreen>
           ],
         ),
       ),
-      floatingActionButton: _isViewingPastTerm
+      floatingActionButton: _isViewingPastTerm || widget.isTeacher
           ? null
           : FloatingActionButton.extended(
               onPressed: () => _showPeriodFormDialog(),
@@ -305,6 +307,7 @@ class _WorkCalendarScreenState extends State<WorkCalendarScreen>
                           schoolTypeName: widget.schoolTypeName,
                           institutionId: widget.institutionId,
                           onPeriodUpdated: () => setState(() {}),
+                          isTeacher: widget.isTeacher,
                         ),
                       ),
                     );
@@ -336,32 +339,33 @@ class _WorkCalendarScreenState extends State<WorkCalendarScreen>
                               ),
                             ),
                           ),
-                          PopupMenuButton<String>(
-                            icon: Icon(Icons.more_vert, color: Colors.grey),
-                            onSelected: (value) {
-                              if (value == 'edit') {
-                                _showPeriodFormDialog(
-                                  periodId: doc.id,
-                                  existingData: data,
-                                );
-                              } else if (value == 'delete') {
-                                _deletePeriod(doc.id, data['periodName']);
-                              }
-                            },
-                            itemBuilder: (context) => [
-                              PopupMenuItem(
-                                value: 'edit',
-                                child: Text('Düzenle'),
-                              ),
-                              PopupMenuItem(
-                                value: 'delete',
-                                child: Text(
-                                  'Sil',
-                                  style: TextStyle(color: Colors.red),
+                          if (!widget.isTeacher)
+                            PopupMenuButton<String>(
+                              icon: Icon(Icons.more_vert, color: Colors.grey),
+                              onSelected: (value) {
+                                if (value == 'edit') {
+                                  _showPeriodFormDialog(
+                                    periodId: doc.id,
+                                    existingData: data,
+                                  );
+                                } else if (value == 'delete') {
+                                  _deletePeriod(doc.id, data['periodName']);
+                                }
+                              },
+                              itemBuilder: (context) => [
+                                PopupMenuItem(
+                                  value: 'edit',
+                                  child: Text('Düzenle'),
                                 ),
-                              ),
-                            ],
-                          ),
+                                PopupMenuItem(
+                                  value: 'delete',
+                                  child: Text(
+                                    'Sil',
+                                    style: TextStyle(color: Colors.red),
+                                  ),
+                                ),
+                              ],
+                            ),
                         ],
                       ),
                       SizedBox(height: 12),
@@ -671,6 +675,8 @@ class _PeriodDetailScreen extends StatefulWidget {
   final String institutionId;
   final VoidCallback onPeriodUpdated;
 
+  final bool isTeacher;
+
   const _PeriodDetailScreen({
     required this.periodId,
     required this.periodData,
@@ -678,6 +684,7 @@ class _PeriodDetailScreen extends StatefulWidget {
     required this.schoolTypeName,
     required this.institutionId,
     required this.onPeriodUpdated,
+    this.isTeacher = false,
   });
 
   @override
@@ -785,6 +792,7 @@ class _PeriodDetailScreenState extends State<_PeriodDetailScreen> {
               schoolTypeId: widget.schoolTypeId,
               institutionId: widget.institutionId,
               onCreatePlan: _showCreatePlanWizard,
+              isTeacher: widget.isTeacher,
             ),
           ],
         ),
@@ -800,6 +808,7 @@ class _PeriodDetailScreenState extends State<_PeriodDetailScreen> {
         periodName: widget.periodData['periodName'] ?? '',
         schoolTypeId: widget.schoolTypeId,
         institutionId: widget.institutionId,
+        isTeacher: widget.isTeacher,
         onPlanCreated: () {
           widget.onPeriodUpdated();
           setState(() {});
@@ -815,12 +824,14 @@ class _YearlyPlansCard extends StatefulWidget {
   final String schoolTypeId;
   final String institutionId;
   final VoidCallback onCreatePlan;
+  final bool isTeacher;
 
   const _YearlyPlansCard({
     required this.periodId,
     required this.schoolTypeId,
     required this.institutionId,
     required this.onCreatePlan,
+    this.isTeacher = false,
   });
 
   @override
@@ -845,7 +856,7 @@ class _YearlyPlansCardState extends State<_YearlyPlansCard> {
                 Icon(Icons.event_note, color: Colors.green),
                 SizedBox(width: 12),
                 Text(
-                  'Yıllık Planlar',
+                  'Ders İşleyiş Planları',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
                 Spacer(),
@@ -1074,25 +1085,27 @@ class _YearlyPlansCardState extends State<_YearlyPlansCard> {
                                           ),
                                         ),
                                       ),
-                                      SizedBox(width: 4),
-                                      IconButton(
-                                        icon: Icon(
-                                          Icons.delete_outline,
-                                          color: Colors.red,
-                                          size: 18,
+                                      if (!widget.isTeacher) ...[
+                                        SizedBox(width: 4),
+                                        IconButton(
+                                          icon: Icon(
+                                            Icons.delete_outline,
+                                            color: Colors.red,
+                                            size: 18,
+                                          ),
+                                          onPressed: () => _deletePlan(
+                                            doc.id,
+                                            planTitle.isNotEmpty
+                                                ? planTitle
+                                                : lessonName,
+                                          ),
+                                          padding: EdgeInsets.zero,
+                                          constraints: BoxConstraints(
+                                            minWidth: 32,
+                                            minHeight: 32,
+                                          ),
                                         ),
-                                        onPressed: () => _deletePlan(
-                                          doc.id,
-                                          planTitle.isNotEmpty
-                                              ? planTitle
-                                              : lessonName,
-                                        ),
-                                        padding: EdgeInsets.zero,
-                                        constraints: BoxConstraints(
-                                          minWidth: 32,
-                                          minHeight: 32,
-                                        ),
-                                      ),
+                                      ],
                                     ],
                                   ),
                                   onTap: () => _openPlanDetail(doc.id, data),
@@ -1182,6 +1195,7 @@ class _CreatePlanWizard extends StatefulWidget {
   final String schoolTypeId;
   final String institutionId;
   final VoidCallback onPlanCreated;
+  final bool isTeacher;
 
   const _CreatePlanWizard({
     required this.periodId,
@@ -1189,6 +1203,7 @@ class _CreatePlanWizard extends StatefulWidget {
     required this.schoolTypeId,
     required this.institutionId,
     required this.onPlanCreated,
+    this.isTeacher = false,
   });
 
   @override
@@ -1241,7 +1256,7 @@ class _CreatePlanWizardState extends State<_CreatePlanWizard> {
         _isLoadingLessons = false;
       });
     } catch (e) {
-      setState(() => _isLoadingLessons = false);
+      if (mounted) setState(() => _isLoadingLessons = false);
     }
   }
 

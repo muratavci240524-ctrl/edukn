@@ -5,12 +5,12 @@ class ShiftService {
 
   // ==================== SHIFT TEMPLATES ====================
 
-  // Yeni vardiya şablonu oluştur
-  Future<String> createShiftTemplate({
+    Future<String> createShiftTemplate({
     required String name,
-    required String startTime, // "08:00"
-    required String endTime, // "17:00"
-    required int breakDuration, // minutes
+    required String startTime,
+    required String endTime,
+    required int breakDuration,
+    required String institutionId, // Added
   }) async {
     final workDuration = _calculateWorkDuration(startTime, endTime, breakDuration);
     
@@ -21,6 +21,7 @@ class ShiftService {
       'breakDuration': breakDuration,
       'workDuration': workDuration,
       'isActive': true,
+      'institutionId': institutionId, // Added institutionId
       'createdAt': FieldValue.serverTimestamp(),
     });
     
@@ -28,8 +29,8 @@ class ShiftService {
   }
 
   // Vardiya şablonlarını getir
-  Future<List<Map<String, dynamic>>> getShiftTemplates({bool onlyActive = true}) async {
-    Query query = _firestore.collection('shift_templates');
+  Future<List<Map<String, dynamic>>> getShiftTemplates(String institutionId, {bool onlyActive = true}) async {
+    Query query = _firestore.collection('shift_templates').where('institutionId', isEqualTo: institutionId);
     
     if (onlyActive) {
       query = query.where('isActive', isEqualTo: true);
@@ -70,6 +71,7 @@ class ShiftService {
   // Personel için aylık program oluştur/güncelle
   Future<void> assignShift({
     required String userId,
+    required String institutionId, // Added institutionId
     required String month, // "2025-11"
     required String date, // "2025-11-23"
     required String shiftTemplateId,
@@ -80,14 +82,13 @@ class ShiftService {
     final doc = await docRef.get();
     
     if (doc.exists) {
-      // Güncelle
       await docRef.update({
         'assignments.$date': shiftTemplateId,
       });
     } else {
-      // Yeni oluştur
       await docRef.set({
         'userId': userId,
+        'institutionId': institutionId,
         'month': month,
         'assignments': {date: shiftTemplateId},
         'createdAt': FieldValue.serverTimestamp(),

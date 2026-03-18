@@ -9,10 +9,14 @@ import 'development_report_export_dialogs.dart';
 
 class DevelopmentReportManagementScreen extends StatefulWidget {
   final String institutionId;
+  final bool isTeacher;
+  final String? teacherId;
 
   const DevelopmentReportManagementScreen({
     Key? key,
     required this.institutionId,
+    this.isTeacher = false,
+    this.teacherId,
   }) : super(key: key);
 
   @override
@@ -55,7 +59,10 @@ class _DevelopmentReportManagementScreenState
           if (snapshot.connectionState == ConnectionState.waiting)
             return Center(child: CircularProgressIndicator());
 
-          final sessions = snapshot.data ?? [];
+          var sessions = snapshot.data ?? [];
+          if (widget.isTeacher && widget.teacherId != null) {
+            sessions = sessions.where((s) => s.assignedReviewerIds.contains(widget.teacherId)).toList();
+          }
           if (sessions.isEmpty)
             return Center(child: Text("Rapor oturumu bulunamadı."));
 
@@ -209,7 +216,7 @@ class _DevelopmentReportManagementScreenState
           );
         },
       ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: widget.isTeacher ? null : FloatingActionButton(
         heroTag: "create",
         child: const Icon(Icons.add),
         tooltip: "Yeni Rapor Oluştur",

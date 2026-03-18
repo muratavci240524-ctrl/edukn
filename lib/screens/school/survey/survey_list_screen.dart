@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../models/survey_model.dart';
 import '../../../services/survey_service.dart';
 import 'create_survey_screen.dart';
@@ -9,11 +10,16 @@ class SurveyListScreen extends StatefulWidget {
   final String schoolTypeId;
   final String schoolTypeName;
 
+  final bool isTeacher;
+  final String? teacherId;
+
   const SurveyListScreen({
     Key? key,
     required this.institutionId,
     required this.schoolTypeId,
     required this.schoolTypeName,
+    this.isTeacher = false,
+    this.teacherId,
   }) : super(key: key);
 
   @override
@@ -23,10 +29,44 @@ class SurveyListScreen extends StatefulWidget {
 class _SurveyListScreenState extends State<SurveyListScreen> {
   final SurveyService _surveyService = SurveyService();
 
+  List<String> _classIds = [];
+  bool _isInitLoading = false;
+
   @override
   void initState() {
     super.initState();
     _surveyService.checkScheduledSurveys(widget.institutionId);
+    if (widget.isTeacher && widget.teacherId != null) {
+      _loadTeacherClasses();
+    }
+  }
+
+  Future<void> _loadTeacherClasses() async {
+    setState(() => _isInitLoading = true);
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('lessonAssignments')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .where('teacherIds', arrayContains: widget.teacherId)
+          .where('isActive', isEqualTo: true)
+          .get();
+
+      final ids = snap.docs
+          .map((doc) => doc.data()['classId']?.toString())
+          .whereType<String>()
+          .toSet()
+          .toList();
+
+      if (mounted) {
+        setState(() {
+          _classIds = ids;
+          _isInitLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading teacher classes for surveys: $e');
+      if (mounted) setState(() => _isInitLoading = false);
+    }
   }
 
   @override
@@ -35,11 +75,19 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
       appBar: AppBar(title: const Text('Anket İşlemleri'), centerTitle: false),
       body: Align(
         alignment: Alignment.topCenter,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 800),
-          child: StreamBuilder<List<Survey>>(
-            stream: _surveyService.getSurveys(widget.institutionId),
-            builder: (context, snapshot) {
+        child: _isInitLoading
+            ? const Center(child: CircularProgressIndicator())
+            : ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 800),
+                child: StreamBuilder<List<Survey>>(
+                  stream: widget.isTeacher
+                      ? _surveyService.getFilteredSurveys(
+                          institutionId: widget.institutionId,
+                          authorId: widget.teacherId,
+                          targetedClassIds: _classIds,
+                        )
+                      : _surveyService.getSurveys(widget.institutionId),
+                  builder: (context, snapshot) {
               if (snapshot.hasError) {
                 return Center(child: Text('Hata: ${snapshot.error}'));
               }
@@ -227,6 +275,8 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
         builder: (context) => CreateSurveyScreen(
           institutionId: widget.institutionId,
           schoolTypeId: widget.schoolTypeId,
+          isTeacher: widget.isTeacher,
+          teacherId: widget.teacherId,
         ),
       ),
     );

@@ -21,9 +21,12 @@ class AnnouncementService {
     try {
       // 1. Try fetching from user document
       final userDoc = await _firestore.collection('users').doc(user.uid).get();
-      if (userDoc.exists && userDoc.data()!.containsKey('institutionId')) {
-        _cachedInstitutionId = userDoc.data()!['institutionId'];
-        return _cachedInstitutionId;
+      if (userDoc.exists) {
+        final data = userDoc.data();
+        if (data != null && data.containsKey('institutionId')) {
+           _cachedInstitutionId = data['institutionId'].toString().toUpperCase();
+           return _cachedInstitutionId;
+        }
       }
 
       // 2. Fallback: Try finding by email query

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../../services/shift_service.dart';
 
 class ShiftManagementScreen extends StatefulWidget {
@@ -15,6 +16,7 @@ class _ShiftManagementScreenState extends State<ShiftManagementScreen>
 
   List<Map<String, dynamic>> _templates = [];
   bool _loading = true;
+  String? _myInstitutionId;
 
   @override
   void initState() {
@@ -32,12 +34,20 @@ class _ShiftManagementScreenState extends State<ShiftManagementScreen>
   Future<void> _loadTemplates() async {
     setState(() => _loading = true);
     try {
-      final templates = await _service.getShiftTemplates();
-      setState(() => _templates = templates);
+      if (_myInstitutionId == null) {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null && user.email != null) {
+          final domain = user.email!.split('@')[1];
+          _myInstitutionId = domain.split('.')[0].toUpperCase();
+        }
+      }
+      
+      if (_myInstitutionId != null) {
+        final templates = await _service.getShiftTemplates(_myInstitutionId!);
+        setState(() => _templates = templates);
+      }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Hata: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e')));
     } finally {
       setState(() => _loading = false);
     }
@@ -172,6 +182,7 @@ class _ShiftManagementScreenState extends State<ShiftManagementScreen>
                   startTime: startController.text,
                   endTime: endController.text,
                   breakDuration: int.parse(breakController.text),
+                  institutionId: _myInstitutionId!,
                 );
                 Navigator.pop(context);
                 _loadTemplates();

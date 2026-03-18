@@ -126,6 +126,7 @@ class Conversation {
   final List<String> participantIds;
   ChatMessage? lastMessage;
   final int unreadCount;
+  final Map<String, int> unreadCounts;
   final String? chatName; // For groups
   final String? chatImage;
   bool isArchived;
@@ -135,6 +136,7 @@ class Conversation {
     required this.participantIds,
     this.lastMessage,
     this.unreadCount = 0,
+    this.unreadCounts = const {},
     this.chatName,
     this.chatImage,
     this.isArchived = false,
@@ -147,6 +149,7 @@ class Conversation {
       'participantIds': participantIds,
       'lastMessage': lastMessage?.toMap(),
       'unreadCount': unreadCount,
+      'unreadCounts': unreadCounts,
       'chatName': chatName,
       'chatImage': chatImage,
       'isArchived': isArchived,
@@ -155,6 +158,13 @@ class Conversation {
   }
 
   factory Conversation.fromMap(Map<String, dynamic> data, String id) {
+    Map<String, int> counts = {};
+    if (data['unreadCounts'] != null) {
+      (data['unreadCounts'] as Map).forEach((key, value) {
+        counts[key.toString()] = value as int;
+      });
+    }
+
     return Conversation(
       id: id,
       participantIds: List<String>.from(data['participantIds'] ?? []),
@@ -162,6 +172,7 @@ class Conversation {
           ? ChatMessage.fromMap(data['lastMessage'], '')
           : null,
       unreadCount: data['unreadCount'] ?? 0,
+      unreadCounts: counts,
       chatName: data['chatName'],
       chatImage: data['chatImage'],
       isArchived: data['isArchived'] ?? false,

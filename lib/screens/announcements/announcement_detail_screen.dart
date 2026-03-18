@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/user_permission_service.dart';
-import 'announcement_form_sheet.dart';
+import 'create_announcement_screen.dart';
 
 class AnnouncementDetailScreen extends StatefulWidget {
   static const routeName = '/announcement-detail';
@@ -75,12 +75,28 @@ class _AnnouncementDetailScreenState extends State<AnnouncementDetailScreen> {
     if (_announcementData == null) return;
 
     final recipients = _announcementData!['recipients'] as List<dynamic>? ?? [];
+    final recipientNames = _announcementData!['recipientNames'] as Map<String, dynamic>? ?? {};
     final readBy = _announcementData!['readBy'] as List<dynamic>? ?? [];
     final List<Map<String, dynamic>> details = [];
 
     for (final recipientId in recipients) {
-      if (recipientId.toString().startsWith('user:')) {
-        final userId = recipientId.toString().substring(5);
+      final rId = recipientId.toString();
+
+      // Öncelik 1: Dokümandaki recipientNames haritasını kullan
+      if (recipientNames.containsKey(rId)) {
+        details.add({
+          'id': rId,
+          'name': recipientNames[rId],
+          'role': _getRoleFromId(rId),
+          'isRead': readBy.contains(rId) ||
+              (rId.startsWith('user:') && readBy.contains(rId.substring(5))),
+        });
+        continue;
+      }
+
+      // Öncelik 2: Eğer user: ise ve isim yoksa Firestore'dan çek (Geriye dönük uyumluluk)
+      if (rId.startsWith('user:')) {
+        final userId = rId.substring(5);
         try {
           final userDoc = await FirebaseFirestore.instance
               .collection('users')
@@ -99,12 +115,32 @@ class _AnnouncementDetailScreenState extends State<AnnouncementDetailScreen> {
         } catch (e) {
           print('Kullanıcı yüklenirken hata: $e');
         }
+      } else {
+        // Diğer türler için (unit, branch vs.) isim yoksa ID'yi temizleyip ekle
+        details.add({
+          'id': rId,
+          'name': rId.split(':').last,
+          'role': _getRoleFromId(rId),
+          'isRead': readBy.contains(rId),
+        });
       }
     }
 
     if (mounted) {
       setState(() => _recipientDetails = details);
     }
+  }
+
+  String _getRoleFromId(String id) {
+    if (id.startsWith('user:')) return 'Kullanıcı';
+    if (id.startsWith('unit:')) return 'Birim';
+    if (id.startsWith('school:')) return 'Okul Türü';
+    if (id.startsWith('branch:')) return 'Şube';
+    if (id.startsWith('class:')) return 'Sınıf Seviyesi';
+    if (id.startsWith('group:')) return 'Grup';
+    if (id == 'ALL') return 'Herkes';
+    if (id == 'TEACHER') return 'Tüm Öğretmenler';
+    return 'Alıcı';
   }
 
   Future<void> _markAsRead() async {
@@ -174,17 +210,19 @@ class _AnnouncementDetailScreenState extends State<AnnouncementDetailScreen> {
               icon: const Icon(Icons.edit),
               tooltip: 'Düzenle',
               onPressed: () {
-                showModalBottomSheet(
-                  context: context,
-                  isScrollControlled: true,
-                  backgroundColor: Colors.transparent,
-                  builder: (ctx) => AnnouncementFormSheet(
-                    announcementId: widget.announcementId,
-                    announcementData: _announcementData,
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (ctx) => CreateAnnouncementScreen(
+                      announcementId: widget.announcementId,
+                      announcementData: _announcementData,
+                      schoolTypeId: _announcementData?['schoolTypeId'],
+                    ),
                   ),
-                ).then((_) {
-                  // Düzenleme sonrası yenile
-                  _loadAnnouncementData();
+                ).then((value) {
+                  if (value == true) {
+                    _loadAnnouncementData();
+                  }
                 });
               },
             ),

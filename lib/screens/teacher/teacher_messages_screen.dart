@@ -55,6 +55,7 @@ class _TeacherMessagesScreenState extends State<TeacherMessagesScreen>
     _tabController.dispose();
     _searchController.dispose();
     _conversationsSubscription?.cancel();
+    _isSearching = false;
     super.dispose();
   }
 
@@ -98,18 +99,24 @@ class _TeacherMessagesScreenState extends State<TeacherMessagesScreen>
   }
 
   Future<void> _loadContacts() async {
-    if (mounted) setState(() => _isLoadingContacts = true);
-    List<ChatUser> loadedContacts = [];
+    if (!mounted) return;
+    setState(() => _isLoadingContacts = true);
+    
+    final List<ChatUser> loadedContacts = [];
+    final Set<String> loadedContactIds = {};
 
     try {
-      // Doğru ID ve Kurum bilgisini al
-      final teacherId = userData?['id'] ?? FirebaseAuth.instance.currentUser?.uid;
-      final instId = (userData?['institutionId'] ?? widget.institutionId ?? "").toString().toUpperCase();
+      final user = FirebaseAuth.instance.currentUser;
+      final teacherId = userData?['id'] ?? user?.uid;
+      final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
       final teacherSchoolTypes = List<String>.from(userData?['schoolTypes'] ?? []);
 
-      debugPrint('🔍 Mesaj Rehberi - TeacherId: $teacherId, InstId: "$instId", SchoolTypes: $teacherSchoolTypes');
+      if (teacherId == null || instId.isEmpty) {
+        if (mounted) setState(() => _isLoadingContacts = false);
+        return;
+      }
 
-      // 1. Yöneticileri Getir
+      // 1. Yöneticileri Getir (Daha güvenli filtreleme)
       final List<String> managerRoles = [
         'Kurum Yöneticisi', 'Genel Müdür', 'Müdür', 'Müdür Yardımcısı', 'Yönetici',
         'genel_mudur', 'mudur', 'mudur_yardimcisi', 'admin', 'Personel'
@@ -121,81 +128,70 @@ class _TeacherMessagesScreenState extends State<TeacherMessagesScreen>
           .where('role', whereIn: managerRoles)
           .get();
 
-      debugPrint('   - Bulunan yönetici/personel sayısı: ${managersSnap.docs.length}');
-
       for (var doc in managersSnap.docs) {
         if (doc.id == teacherId) continue;
         final data = doc.data();
-        
-        // Eğer yönetici ise veya ortak okul türü varsa veya öğretmenin okul türü hiç tanımlanmamışsa göster
         final managerSchoolTypes = List<String>.from(data['schoolTypes'] ?? []);
+        
         bool isRelevant = data['role'] == 'Kurum Yöneticisi' || 
                          data['role'] == 'genel_mudur' ||
                          data['role'] == 'Genel Müdür' ||
-                         teacherSchoolTypes.isEmpty || // Öğretmene tür tanımlı değilse hepsini görsün
+                         teacherSchoolTypes.isEmpty ||
                          managerSchoolTypes.any((t) => teacherSchoolTypes.contains(t));
 
-        if (isRelevant) {
+        if (isRelevant && !loadedContactIds.contains(doc.id)) {
+          loadedContactIds.add(doc.id);
+
+          String roleKey = data['role']?.toString() ?? 'Personel';
+          String displayRole = roleKey;
+          if (roleKey == 'genel_mudur') displayRole = 'Genel Müdür';
+          else if (roleKey == 'mudur') displayRole = 'Müdür';
+          else if (roleKey == 'mudur_yardimcisi') displayRole = 'Müdür Yardımcısı';
+          else if (roleKey == 'admin') displayRole = 'Kurum Yöneticisi';
+
           loadedContacts.add(ChatUser(
             id: doc.id,
             name: data['fullName'] ?? 'Yönetici',
             userType: 'staff',
-            role: data['role'],
+            role: displayRole,
             avatarUrl: data['photoUrl'],
           ));
         }
       }
 
-      // 2. Tanımlı Öğrencileri Getir (Ders atamaları üzerinden)
-      debugPrint('   🔍 Ders atamaları aranıyor...');
-      
-      final currentUid = FirebaseAuth.instance.currentUser?.uid;
-      final assignQueries = [
-         FirebaseFirestore.instance.collection('lessonAssignments')
-            .where('institutionId', isEqualTo: instId)
-            .where('teacherIds', arrayContains: teacherId).get(),
-         if (currentUid != null && currentUid != teacherId)
-            FirebaseFirestore.instance.collection('lessonAssignments')
-               .where('institutionId', isEqualTo: instId)
-               .where('teacherIds', arrayContains: currentUid).get(),
-         FirebaseFirestore.instance.collection('lessonAssignments')
-            .where('teacherIds', arrayContains: teacherId).get(), // Global fallback
-      ];
+      // 2. Sınıf Atamaları ve Öğrenciler
+      final assignSnap = await FirebaseFirestore.instance
+          .collection('lessonAssignments')
+          .where('institutionId', isEqualTo: instId)
+          .where('teacherIds', arrayContains: teacherId)
+          .where('isActive', isEqualTo: true)
+          .get();
 
-      final assignSnaps = await Future.wait(assignQueries);
       final Set<String> classIds = {};
-      
-      for (var snap in assignSnaps) {
-        for (var doc in snap.docs) {
-          final data = doc.data();
-          final cid = data['classId']?.toString();
-          if (cid != null) {
-            // Sadece doğru kuruma ait sınıf olduğundan emin ol (global fallback'ten gelenler için)
-            final docInstId = (data['institutionId'] ?? "").toString().toUpperCase();
-            if (instId.isEmpty || docInstId == instId) {
-              classIds.add(cid);
-            }
-          }
-        }
+      for (var doc in assignSnap.docs) {
+        final cid = doc.data()['classId']?.toString();
+        if (cid != null) classIds.add(cid);
       }
-
-      debugPrint('   - Benzersiz Sınıf Sayısı: ${classIds.length}');
 
       if (classIds.isNotEmpty) {
         final List<String> classIdList = classIds.toList();
+        final List<String> studentIds = [];
+
+        // Öğrencileri yükle
         for (var i = 0; i < classIdList.length; i += 10) {
           final chunk = classIdList.skip(i).take(10).toList();
           final studentsSnap = await FirebaseFirestore.instance
               .collection('students')
+              .where('institutionId', isEqualTo: instId) // Safe instId filter
               .where('classId', whereIn: chunk)
               .get();
-
-          debugPrint('      - Sınıf chunk ${i/10} öğrenci: ${studentsSnap.docs.length}');
 
           for (var doc in studentsSnap.docs) {
             final data = doc.data();
             final sId = data['uid'] ?? doc.id;
-            if (!loadedContacts.any((c) => c.id == sId)) {
+            studentIds.add(sId);
+            if (!loadedContactIds.contains(sId)) {
+              loadedContactIds.add(sId);
               loadedContacts.add(ChatUser(
                 id: sId,
                 name: data['fullName'] ?? 'Öğrenci',
@@ -208,19 +204,20 @@ class _TeacherMessagesScreenState extends State<TeacherMessagesScreen>
         }
         
         // 3. Velileri Getir
-        final studentIds = loadedContacts.where((u) => u.userType == 'student').map((u) => u.id).toList();
         if (studentIds.isNotEmpty) {
           for (var i = 0; i < studentIds.length; i += 10) {
             final chunk = studentIds.skip(i).take(10).toList();
             final parentsSnap = await FirebaseFirestore.instance
                 .collection('users')
+                .where('institutionId', isEqualTo: instId)
                 .where('role', isEqualTo: 'Veli')
                 .where('studentIds', arrayContainsAny: chunk)
                 .get();
 
             for (var doc in parentsSnap.docs) {
               final data = doc.data();
-              if (!loadedContacts.any((c) => c.id == doc.id)) {
+              if (!loadedContactIds.contains(doc.id)) {
+                loadedContactIds.add(doc.id);
                 loadedContacts.add(ChatUser(
                   id: doc.id,
                   name: '${data['fullName']} (Veli)',
@@ -234,9 +231,24 @@ class _TeacherMessagesScreenState extends State<TeacherMessagesScreen>
         }
       }
 
-      loadedContacts.sort((a, b) => a.name.compareTo(b.name));
+      loadedContacts.sort((a, b) {
+        int getPriority(ChatUser u) {
+          if (u.userType != 'staff') return 100;
+          final r = u.role?.toLowerCase() ?? '';
+          if (r == 'genel müdür') return 1;
+          if (r == 'müdür') return 2;
+          if (r == 'müdür yardımcısı') return 3;
+          if (r == 'kurum yöneticisi') return 4;
+          return 5;
+        }
+
+        final pA = getPriority(a);
+        final pB = getPriority(b);
+        if (pA != pB) return pA.compareTo(pB);
+        return a.name.compareTo(b.name);
+      });
     } catch (e) {
-      debugPrint('Hata (Mesaj Kişileri): $e');
+      debugPrint('Error Loading Contacts: $e');
     }
 
     if (mounted) {
@@ -387,7 +399,10 @@ class _TeacherMessagesScreenState extends State<TeacherMessagesScreen>
               ChatListWidget(
                 conversations: _filteredConversations,
                 selectedConversationId: _selectedConversation?.id,
-                onConversationSelected: (c) => setState(() => _selectedConversation = c),
+                onConversationSelected: (c) {
+                  setState(() => _selectedConversation = c);
+                  _chatService.markAsRead(c.id);
+                },
                 contacts: _contacts,
               ),
               _buildContactsList(),
@@ -416,6 +431,7 @@ class _TeacherMessagesScreenState extends State<TeacherMessagesScreen>
           conversations: _filteredConversations,
           onConversationSelected: (c) {
             setState(() => _selectedConversation = c);
+            _chatService.markAsRead(c.id);
             final isWide = MediaQuery.of(context).size.width > 800;
             if (!isWide) {
               Navigator.push(

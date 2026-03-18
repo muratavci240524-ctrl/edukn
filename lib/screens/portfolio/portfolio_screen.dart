@@ -26,11 +26,14 @@ class PortfolioScreen extends StatefulWidget {
   final String schoolTypeId;
   final String schoolTypeName;
 
+  final List<String>? allowedClassIds;
+
   const PortfolioScreen({
     Key? key,
     required this.institutionId,
     required this.schoolTypeId,
     required this.schoolTypeName,
+    this.allowedClassIds,
   }) : super(key: key);
 
   @override
@@ -102,29 +105,64 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   Future<void> _loadStudents() async {
     setState(() => _isLoading = true);
     try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('students')
-          .where('institutionId', isEqualTo: widget.institutionId)
-          .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
-          .orderBy('name')
-          .get();
+      List<Map<String, dynamic>> students = [];
 
-      final students = snapshot.docs.map((doc) {
-        final data = doc.data();
-        data['id'] = doc.id;
-        return data;
-      }).toList();
+      if (widget.allowedClassIds != null && widget.allowedClassIds!.isNotEmpty) {
+        // Teacher mode: Filter by assigned classes using chunks (max 10-30 per whereIn)
+        final classChunks = <List<String>>[];
+        for (var i = 0; i < widget.allowedClassIds!.length; i += 10) {
+          classChunks.add(widget.allowedClassIds!.skip(i).take(10).toList());
+        }
 
-      setState(() {
-        _allStudents = students;
-        _extractFilterData();
-        _filterStudents();
-        _isLoading = false;
-      });
+        for (final chunk in classChunks) {
+          final snapshot = await FirebaseFirestore.instance
+              .collection('students')
+              .where('institutionId', isEqualTo: widget.institutionId)
+              .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+              .where('classId', whereIn: chunk)
+              .get();
+          
+          students.addAll(snapshot.docs.map((doc) {
+            final data = doc.data();
+            data['id'] = doc.id;
+            return data;
+          }));
+        }
+        
+        // Remove duplicates if any (due to overlapping assignments, though unlikely for student-class)
+        final seenIds = <String>{};
+        students.retainWhere((s) => seenIds.add(s['id']));
+      } else {
+        // Admin mode: Load all students for the school type
+        final snapshot = await FirebaseFirestore.instance
+            .collection('students')
+            .where('institutionId', isEqualTo: widget.institutionId)
+            .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+            .orderBy('name')
+            .get();
+
+        students = snapshot.docs.map((doc) {
+          final data = doc.data();
+          data['id'] = doc.id;
+          return data;
+        }).toList();
+      }
+
+      // Final sort by name since chunks might mess up order
+      students.sort((a, b) => (a['name'] ?? '').toString().compareTo((b['name'] ?? '').toString()));
+
+      if (mounted) {
+        setState(() {
+          _allStudents = students;
+          _extractFilterData();
+          _filterStudents();
+          _isLoading = false;
+        });
+      }
     } catch (e) {
       print('Error loading students: $e');
-      setState(() => _isLoading = false);
       if (mounted) {
+        setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Öğrenci listesi yüklenirken hata oluştu: $e'),
@@ -2546,11 +2584,6 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
         .toString()
         .toLowerCase();
 
-    // ignore: avoid_print
-    print(
-      "DEBUG: Parsing exams for Student: $studentName (ID: $studentId, No: $studentNo)",
-    );
-
     List<Map<String, dynamic>> results = [];
 
     for (var exam in exams) {
@@ -2559,8 +2592,6 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
 
       try {
         final List<dynamic> allResults = jsonDecode(exam.resultsJson!);
-        // ignore: avoid_print
-        print("DEBUG: Exam ${exam.name} has ${allResults.length} results.");
 
         Map<String, dynamic>? match;
 
@@ -2575,7 +2606,6 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                         '')
                     .toString()
                     .trim();
-            // print("DEBUG: Checking No ($rNo) == ($studentNo)");
             return rNo == studentNo;
           }, orElse: () => null);
         }
@@ -2583,7 +2613,6 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
         // 2. Match by Student ID
         if (match == null) {
           match = allResults.firstWhere((r) {
-            // print("DEBUG: Checking ID (${r['studentId']}) == ($studentId)");
             return r['studentId'].toString() == studentId ||
                 r['id'].toString() == studentId;
           }, orElse: () => null);
@@ -2600,8 +2629,6 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
         }
 
         if (match != null) {
-          // ignore: avoid_print
-          print("DEBUG: Match FOUND for ${exam.name}: $match");
           // Calculate total net if missing or 0
           double totalNet =
               (match['totalNet'] ?? match['net'] ?? match['netler'] ?? 0)
