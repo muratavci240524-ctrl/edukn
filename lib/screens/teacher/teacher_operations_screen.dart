@@ -18,7 +18,7 @@ import '../school/homework/homework_operations_screen.dart';
 import '../school/etut_process_screen.dart';
 import '../school/survey/survey_list_screen.dart';
 import '../../services/user_permission_service.dart';
-import '../hr/attendance/leave_management_screen.dart';
+import '../hr/leave/leave_management_screen.dart';
 import 'teacher_duty_screen.dart';
 import '../school/tasks/field_trip_list_screen.dart';
 import '../school/assessment/assessment_reports_screen.dart';

@@ -193,60 +193,64 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with SingleTi
           bottom: PreferredSize(
             preferredSize: const Size.fromHeight(60),
             child: Container(
+              width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: const BoxDecoration(
                 color: Colors.white,
                 border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
               ),
-              child: Container(
-                height: 48,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF1F5F9), // slate-100
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: TabBar(
-                  controller: _tabController,
-                  dividerColor: Colors.transparent,
-                  indicatorSize: TabBarIndicatorSize.tab,
-                  padding: const EdgeInsets.all(4),
-                  splashBorderRadius: BorderRadius.circular(12), // Fix the ugly rectangle hover
-                  indicator: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF6366F1).withOpacity(0.08),
-                        blurRadius: 8,
-                        offset: const Offset(0, 4),
+              child: Center(
+                child: Container(
+                  height: 48,
+                  constraints: const BoxConstraints(maxWidth: 1400),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF1F5F9), // slate-100
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: TabBar(
+                    controller: _tabController,
+                    dividerColor: Colors.transparent,
+                    indicatorSize: TabBarIndicatorSize.tab,
+                    padding: const EdgeInsets.all(4),
+                    splashBorderRadius: BorderRadius.circular(12),
+                    indicator: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF6366F1).withOpacity(0.08),
+                          blurRadius: 8,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    labelColor: const Color(0xFF6366F1),
+                    unselectedLabelColor: const Color(0xFF64748B),
+                    labelStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                    unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                    tabs: const [
+                      Tab(
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.today_rounded, size: 18),
+                            SizedBox(width: 8),
+                            Text('GÜNLÜK'),
+                          ],
+                        ),
+                      ),
+                      Tab(
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.history_rounded, size: 18),
+                            SizedBox(width: 8),
+                            Text('ARŞİV'),
+                          ],
+                        ),
                       ),
                     ],
                   ),
-                  labelColor: const Color(0xFF6366F1),
-                  unselectedLabelColor: const Color(0xFF64748B),
-                  labelStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
-                  unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-                  tabs: const [
-                    Tab(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.today_rounded, size: 18),
-                          SizedBox(width: 8),
-                          Text('GÜNLÜK'),
-                        ],
-                      ),
-                    ),
-                    Tab(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.history_rounded, size: 18),
-                          SizedBox(width: 8),
-                          Text('ARŞİV'),
-                        ],
-                      ),
-                    ),
-                  ],
                 ),
               ),
             ),
@@ -306,139 +310,142 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with SingleTi
     final present = combinedList.where((e) => e['attendance'] != null).length;
     final absent = total - present;
 
-    return Column(
-      children: [
-        // Header & Stats
-        Container(
-          color: Colors.white,
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          child: Column(
-            children: [
-              const SizedBox(height: 8),
-              // Date Selector
-              Container(
-                margin: const EdgeInsets.symmetric(vertical: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF8FAFC),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.chevron_left_rounded, color: Color(0xFF6366F1)),
-                      onPressed: () {
-                        setState(() => _selectedDate = _selectedDate.subtract(const Duration(days: 1)));
-                        _initDailyStream();
-                      },
-                    ),
-                    Text(
-                      DateFormat('d MMMM yyyy', 'tr_TR').format(_selectedDate),
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B)), // slate-800
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.chevron_right_rounded, color: Color(0xFF6366F1)),
-                      onPressed: () {
-                        setState(() => _selectedDate = _selectedDate.add(const Duration(days: 1)));
-                        _initDailyStream();
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-              // Stats Row
-              Row(
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1400),
+        child: Column(
+          children: [
+            // Header & Stats
+            Container(
+              color: Colors.white,
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: Column(
                 children: [
-                  _buildStatCard('Toplam', total.toString(), const Color(0xFF6366F1), Icons.people_outline),
-                  const SizedBox(width: 12),
-                  _buildStatCard('Gelen', present.toString(), const Color(0xFF10B981), Icons.check_circle_outline),
-                  const SizedBox(width: 12),
-              _buildStatCard('Gelmeyen', absent.toString(), const Color(0xFFEF4444), Icons.error_outline),
-            ],
-          ),
-          const SizedBox(height: 16),
-          // Filters Row
-          Row(
-            children: [
-              Expanded(
-                child: _buildFilterBadge(
-                  label: _selectedDepartment ?? 'Departman',
-                  isActive: _selectedDepartment != null,
-                  onTap: _showDepartmentFilter,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildFilterBadge(
-                  label: _selectedSchoolType ?? 'Okul Türü',
-                  isActive: _selectedSchoolType != null,
-                  onTap: _showSchoolTypeFilter,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                decoration: BoxDecoration(
-                  color: (_selectedDepartment != null || _selectedSchoolType != null) ? Colors.orange.shade50 : const Color(0xFFF8FAFC), // slate-50
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: IconButton(
-                  icon: Icon(
-                    Icons.filter_list_off_rounded,
-                    color: (_selectedDepartment != null || _selectedSchoolType != null) ? Colors.orange : const Color(0xFF94A3B8), // slate-400
-                    size: 20,
+                  const SizedBox(height: 8),
+                  // Date Selector
+                  Container(
+                    margin: const EdgeInsets.symmetric(vertical: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.chevron_left_rounded, color: Color(0xFF6366F1)),
+                          onPressed: () {
+                            setState(() => _selectedDate = _selectedDate.subtract(const Duration(days: 1)));
+                            _initDailyStream();
+                          },
+                        ),
+                        Text(
+                          DateFormat('d MMMM yyyy', 'tr_TR').format(_selectedDate),
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B)), // slate-800
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.chevron_right_rounded, color: Color(0xFF6366F1)),
+                          onPressed: () {
+                            setState(() => _selectedDate = _selectedDate.add(const Duration(days: 1)));
+                            _initDailyStream();
+                          },
+                        ),
+                      ],
+                    ),
                   ),
-                  onPressed: () {
-                    setState(() {
-                      _selectedDepartment = null;
-                      _selectedSchoolType = null;
-                    });
-                  },
+                  const SizedBox(height: 8),
+                  // Stats Row
+                  Row(
+                    children: [
+                      _buildStatCard('Toplam', total.toString(), const Color(0xFF6366F1), Icons.people_outline),
+                      const SizedBox(width: 12),
+                      _buildStatCard('Gelen', present.toString(), const Color(0xFF10B981), Icons.check_circle_outline),
+                      const SizedBox(width: 12),
+                      _buildStatCard('Gelmeyen', absent.toString(), const Color(0xFFEF4444), Icons.error_outline),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  // Filters Row
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildFilterBadge(
+                          label: _selectedDepartment ?? 'Departman',
+                          isActive: _selectedDepartment != null,
+                          onTap: _showDepartmentFilter,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _buildFilterBadge(
+                          label: _selectedSchoolType ?? 'Okul Türü',
+                          isActive: _selectedSchoolType != null,
+                          onTap: _showSchoolTypeFilter,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: (_selectedDepartment != null || _selectedSchoolType != null) ? Colors.orange.shade50 : const Color(0xFFF8FAFC), // slate-50
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: IconButton(
+                          icon: Icon(
+                            Icons.filter_list_off_rounded,
+                            color: (_selectedDepartment != null || _selectedSchoolType != null) ? Colors.orange : const Color(0xFF94A3B8), // slate-400
+                            size: 20,
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              _selectedDepartment = null;
+                              _selectedSchoolType = null;
+                            });
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            // Search Bar in list
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: TextField(
+                onChanged: (v) => setState(() => _searchQuery = v),
+                decoration: InputDecoration(
+                  hintText: 'Personel ara...',
+                  prefixIcon: const Icon(Icons.search_rounded, size: 20, color: Color(0xFF64748B)), // slate
+                  filled: true,
+                  fillColor: Colors.white,
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
                 ),
               ),
-            ],
-          ),
-        ],
-      ),
-    ),
-
-    // Search Bar in list
-    Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: TextField(
-        onChanged: (v) => setState(() => _searchQuery = v),
-        decoration: InputDecoration(
-          hintText: 'Personel ara...',
-          prefixIcon: const Icon(Icons.search_rounded, size: 20, color: Color(0xFF64748B)), // slate
-          filled: true,
-          fillColor: Colors.white,
-          isDense: true,
-          contentPadding: const EdgeInsets.symmetric(vertical: 10),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-          ),
+            ),
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                itemCount: combinedList.length,
+                itemBuilder: (context, index) {
+                  final item = combinedList[index];
+                  return _buildStaffAttendanceCard(item);
+                },
+              ),
+            ),
+          ],
         ),
       ),
-    ),
-
-        Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            itemCount: combinedList.length,
-            itemBuilder: (context, index) {
-              final item = combinedList[index];
-              return _buildStaffAttendanceCard(item);
-            },
-          ),
-        ),
-      ],
     );
   }
 
@@ -795,8 +802,11 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with SingleTi
   }
 
   Widget _buildHistoryTab() {
-    return Column(
-      children: [
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1400),
+        child: Column(
+          children: [
         Container(
           padding: const EdgeInsets.all(16),
           decoration: const BoxDecoration(
@@ -982,7 +992,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with SingleTi
                     ),
         ),
       ],
-    );
+    ),),);
   }
 
   void _showQrCodeDialog() {

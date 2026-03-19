@@ -1,0 +1,89 @@
+Flutter crash report.
+Please report a bug at https://github.com/flutter/flutter/issues.
+
+## command
+
+flutter run -d chrome
+
+## exception
+
+PathAccessException: PathAccessException: Deletion failed, path = 'C:\Users\user\AppData\Local\Temp\flutter_tools.aeaf2ea6\flutter_tool.8273e824' (OS Error: Dosya başka bir işlem tarafından kullanıldığından bu işlem dosyaya erişemiyor, errno = 32)
+
+```
+#0      _Directory._deleteSync (dart:io/directory_impl.dart:216:7)
+#1      FileSystemEntity.deleteSync (dart:io/file_system_entity.dart:425:7)
+#2      ForwardingFileSystemEntity.deleteSync (package:file/src/forwarding/forwarding_file_system_entity.dart:70:16)
+#3      ErrorHandlingDirectory.deleteSync.<anonymous closure> (package:flutter_tools/src/base/error_handling_io.dart:451:22)
+#4      _runSync (package:flutter_tools/src/base/error_handling_io.dart:552:14)
+#5      ErrorHandlingDirectory.deleteSync (package:flutter_tools/src/base/error_handling_io.dart:450:12)
+#6      ResidentRunner.preExit (package:flutter_tools/src/resident_runner.dart:1435:25)
+#7      ResidentRunner.exit (package:flutter_tools/src/resident_runner.dart:1278:11)
+<asynchronous suspension>
+#8      TerminalHandler._commonTerminalInputHandler (package:flutter_tools/src/resident_runner.dart:1830:9)
+<asynchronous suspension>
+#9      TerminalHandler.processTerminalInput (package:flutter_tools/src/resident_runner.dart:1906:7)
+<asynchronous suspension>
+```
+
+## flutter doctor
+
+```
+[32m[✓][39m Flutter (Channel stable, 3.41.4, on Microsoft Windows [Version
+    10.0.26200.8037], locale tr-TR) [748ms]
+    [32m•[39m Flutter version 3.41.4 on channel stable at C:\src\flutter
+    [32m•[39m Upstream repository https://github.com/flutter/flutter.git
+    [32m•[39m Framework revision ff37bef603 (2 weeks ago), 2026-03-03
+      16:03:22 -0800
+    [32m•[39m Engine revision e4b8dca3f1
+    [32m•[39m Dart version 3.11.1
+    [32m•[39m DevTools version 2.54.1
+    [32m•[39m Feature flags: enable-web, enable-linux-desktop,
+      enable-macos-desktop, enable-windows-desktop, enable-android,
+      enable-ios, cli-animations, enable-native-assets,
+      omit-legacy-version-file, enable-lldb-debugging,
+      enable-uiscene-migration
+
+[32m[✓][39m Windows Version (11 Enterprise 64-bit, 25H2, 2009) [2,9s]
+
+[33m[!][39m Android toolchain - develop for Android devices (Android SDK
+    version 30.0.3) [6,2s]
+    [32m•[39m Android SDK at C:\Users\user\AppData\Local\Android\Sdk
+    [32m•[39m Emulator version 31.3.11.0 (build_id 9058569) (CL:N/A)
+    [31m✗[39m Flutter requires Android SDK 36 and the Android BuildTools
+      28.0.3
+      To update the Android SDK visit
+      https://flutter.dev/to/windows-android-setup for detailed
+      instructions.
+    [33m![39m Some Android licenses not accepted. To resolve this, run:
+      flutter doctor --android-licenses
+
+[32m[✓][39m Chrome - develop for the web [386ms]
+    [32m•[39m Chrome at C:\Program Files\Google\Chrome\Application\chrome.exe
+
+[33m[!][39m Visual Studio - develop Windows apps (Visual Studio Community
+    2022 17.9.6) [385ms]
+    [32m•[39m Visual Studio at C:\Program Files\Microsoft Visual
+      Studio\2022\Community
+    [32m•[39m Visual Studio Community 2022 version 17.9.34728.123
+    [31m✗[39m Visual Studio is missing necessary components. Please re-run
+      the Visual Studio installer for the "Desktop development with
+      C++" workload, and include these components:
+        MSVC v142 - VS 2019 C++ x64/x86 build tools
+         - If there are multiple build tool versions available,
+         install the latest
+        C++ CMake tools for Windows
+        Windows 10 SDK
+
+[32m[✓][39m Connected device (3 available) [327ms]
+    [32m•[39m Windows (desktop) • windows • windows-x64    • Microsoft
+      Windows [Version 10.0.26200.8037]
+    [32m•[39m Chrome (web)      • chrome  • web-javascript • Google Chrome
+      146.0.7680.80
+    [32m•[39m Edge (web)        • edge    • web-javascript • Microsoft Edge
+      146.0.3856.59
+
+[32m[✓][39m Network resources [554ms]
+    [32m•[39m All expected network resources are available.
+
+[33m![39m Doctor found issues in 2 categories.
+```

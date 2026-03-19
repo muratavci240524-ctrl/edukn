@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'attendance/attendance_dashboard.dart';
 import 'shifts/shift_management_screen.dart';
+import 'leave/leave_management_screen.dart';
 
 class AttendanceScreen extends StatelessWidget {
   static const routeName = '/hr/attendance';
@@ -10,47 +11,50 @@ class AttendanceScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Devam – Mesai – İzin Yönetimi')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          _buildMenuCard(
-            context,
-            title: 'Puantaj ve Devam Takibi',
-            subtitle: 'Giriş/Çıkış yap, çalışma süreni gör',
-            icon: Icons.access_time,
-            color: Colors.blue,
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const AttendanceDashboard()),
-            ),
+      body: Center(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 1400),
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              _buildMenuCard(
+                context,
+                title: 'Puantaj ve Devam Takibi',
+                subtitle: 'Giriş/Çıkış yap, çalışma süreni gör',
+                icon: Icons.access_time,
+                color: Colors.blue,
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AttendanceDashboard()),
+                ),
+              ),
+              const SizedBox(height: 16),
+              _buildMenuCard(
+                context,
+                title: 'Mesai ve Vardiya',
+                subtitle: 'Vardiya planı ve fazla mesai',
+                icon: Icons.calendar_month,
+                color: Colors.orange,
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const ShiftManagementScreen()),
+                ),
+              ),
+              const SizedBox(height: 16),
+              _buildMenuCard(
+                context,
+                title: 'İzin Yönetimi',
+                subtitle: 'İzin talebi ve bakiye sorgulama',
+                icon: Icons.beach_access,
+                color: Colors.green,
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LeaveManagementScreen()),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 16),
-          _buildMenuCard(
-            context,
-            title: 'Mesai ve Vardiya',
-            subtitle: 'Vardiya planı ve fazla mesai',
-            icon: Icons.calendar_month,
-            color: Colors.orange,
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const ShiftManagementScreen()),
-            ),
-          ),
-          const SizedBox(height: 16),
-          _buildMenuCard(
-            context,
-            title: 'İzin Yönetimi',
-            subtitle: 'İzin talebi ve bakiye sorgulama',
-            icon: Icons.beach_access,
-            color: Colors.green,
-            onTap: () {
-              // TODO: İzin ekranına git
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Bu modül henüz aktif değil.')),
-              );
-            },
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -70,38 +74,42 @@ class AttendanceScreen extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: Padding(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(
             children: [
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
-                  shape: BoxShape.circle,
+                  color: Colors.indigo.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                child: Icon(icon, color: color, size: 32),
+                child: Icon(icon, color: Colors.indigo, size: 28),
               ),
-              const SizedBox(width: 20),
+              const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       title,
-                      style: const TextStyle(
-                        fontSize: 18,
+                      style: TextStyle(
+                        fontSize: 15,
                         fontWeight: FontWeight.bold,
+                        color: Colors.grey.shade900,
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 2),
                     Text(
                       subtitle,
-                      style: TextStyle(color: Colors.grey.shade600),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
                     ),
                   ],
                 ),
               ),
-              const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
+              Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey.shade400),
             ],
           ),
         ),

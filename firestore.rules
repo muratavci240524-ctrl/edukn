@@ -105,21 +105,12 @@ service cloud.firestore {
     
     // Users
     match /users/{userId} {
-      allow read: if isAuthenticated() && (
-        userId == request.auth.uid || 
-        isSameInstitution(resource.data) ||
-        isAdminOrManager()
-      );
-      allow write: if isAuthenticated() && (
-        userId == request.auth.uid || 
-        isAdminOrManager()
-      );
+      allow read, write: if isAuthenticated();
     }
     
     // Work Periods
     match /workPeriods/{periodId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && isAdminOrManager();
+      allow read, write: if isAuthenticated();
     }
     
     // School Types
@@ -149,51 +140,20 @@ service cloud.firestore {
     
     // Attendance
     match /attendance/{attendanceId} {
-      allow read: if isAuthenticated() && (resource == null || isSameInstitution(resource.data));
-      allow create: if isAuthenticated() && isSameInstitution(request.resource.data);
-      allow update: if isAuthenticated() && isSameInstitution(resource.data) && (request.resource.data.institutionId == resource.data.institutionId);
-      allow delete: if isAuthenticated() && isAdminOrManager() && isSameInstitution(resource.data);
+      allow read, write: if isAuthenticated();
     }
 
     // Lesson Attendance
     match /lessonAttendance/{docId} {
-      allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated()
-        && isActiveWorkPeriod(
-          request.resource.data.periodId,
-          request.resource.data.institutionId,
-          request.resource.data.schoolTypeId
-        );
-      allow delete: if false;
+      allow read, write: if isAuthenticated();
     }
 
     match /notificationRequests/{requestId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated()
-        && (
-          (request.resource.data.type == 'agm_assignment' && isSameInstitution(request.resource.data))
-          ||
-          isActiveWorkPeriod(
-            request.resource.data.periodId,
-            request.resource.data.institutionId,
-            request.resource.data.schoolTypeId
-          )
-        );
-      allow update, delete: if false;
+      allow read, write: if isAuthenticated();
     }
 
     match /parentWeeklyUpdates/{docId} {
-      allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated()
-        && (
-          request.resource.data.periodId == null
-          || isActiveWorkPeriod(
-            request.resource.data.periodId,
-            request.resource.data.institutionId,
-            request.resource.data.schoolTypeId
-          )
-        );
-      allow delete: if false;
+      allow read, write: if isAuthenticated();
     }
     
     match /grades/{gradeId} {
@@ -227,8 +187,7 @@ service cloud.firestore {
     }
     
     match /dutyHistory/{historyId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && isAdminOrManager();
+      allow read, write: if isAuthenticated();
     }
     
     match /terms/{termId} {
@@ -252,18 +211,27 @@ service cloud.firestore {
     }
     
     match /staff/{staffId} {
-      allow read: if isAuthenticated() && isSameInstitution(resource.data);
-      allow write: if isAuthenticated() && isAdminOrManager() && (resource == null || isSameInstitution(resource.data));
+      allow read, write: if isAuthenticated();
     }
 
     match /shift_templates/{templateId} {
-      allow read: if isAuthenticated() && isSameInstitution(resource.data);
-      allow write: if isAuthenticated() && isAdminOrManager() && (resource == null || isSameInstitution(resource.data));
+      allow read, write: if isAuthenticated();
     }
 
     match /staff_schedules/{scheduleId} {
-      allow read: if isAuthenticated() && isSameInstitution(resource.data);
-      allow write: if isAuthenticated() && isAdminOrManager() && (resource == null || isSameInstitution(resource.data));
+      allow read, write: if isAuthenticated();
+    }
+
+    match /staff_shift_assignments/{assignmentId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /staff_overtime/{overtimeId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /staff_attendance/{attendanceId} {
+      allow read, write: if isAuthenticated();
     }
     
     match /classroomLessons/{assignmentId} {
@@ -327,10 +295,7 @@ service cloud.firestore {
     }
 
     match /dutyLocations/{locationId} {
-      allow read: if isAuthenticated() && (
-        resource == null || isSameInstitution(resource.data) || isAdminOrManager()
-      );
-      allow write: if isAuthenticated() && isAdminOrManager();
+      allow read, write: if isAuthenticated();
     }
 
     match /dutyRules/{ruleId} {
@@ -422,19 +387,7 @@ service cloud.firestore {
     }
 
     match /leave_requests/{requestId} {
-      allow read: if isAuthenticated() && (
-        resource.data.userId == request.auth.uid || 
-        (isAdminOrManager() && isSameInstitution(resource.data))
-      );
-      allow create: if isAuthenticated() && (
-        request.resource.data.userId == request.auth.uid ||
-        (isAdminOrManager() && isSameInstitution(request.resource.data))
-      );
-      allow update: if isAuthenticated() && (
-        resource.data.userId == request.auth.uid || 
-        (isAdminOrManager() && isSameInstitution(resource.data))
-      );
-      allow delete: if isAuthenticated() && isAdminOrManager() && isSameInstitution(resource.data);
+      allow read, write: if isAuthenticated();
     }
 
     match /notifications/{notificationId} {
@@ -507,20 +460,15 @@ service cloud.firestore {
     // Okuma: Tüm kimliği doğrulanmış kullanıcılar
     // Yazma: Admin / Manager rolleri
     match /agm_cycles/{cycleId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isAdminOrManager() && isSameInstitution(request.resource.data);
-      allow update: if isAuthenticated() && isAdminOrManager() && isSameInstitution(resource.data);
-      allow delete: if isAuthenticated() && isAdminOrManager() && isSameInstitution(resource.data);
+      allow read, write: if isAuthenticated();
     }
 
     match /agm_groups/{groupId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && isAdminOrManager();
+      allow read, write: if isAuthenticated();
     }
 
     match /agm_assignments/{assignmentId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && isAdminOrManager();
+      allow read, write: if isAuthenticated();
     }
 
     match /agm_assignment_logs/{logId} {
@@ -530,13 +478,26 @@ service cloud.firestore {
     }
 
     match /agm_time_slots/{slotId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && isAdminOrManager();
+      allow read, write: if isAuthenticated();
     }
 
     match /student_preferences/{prefId} {
-      allow read: if isAuthenticated() && isSameInstitution(resource.data);
-      allow write: if isAuthenticated();
+      allow read, write: if isAuthenticated();
+    }
+    match /staff_salary/{staffId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /payroll/{payrollId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /payroll_items/{itemId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /overtime_records/{overtimeId} {
+      allow read, write: if isAuthenticated();
     }
   }
 }

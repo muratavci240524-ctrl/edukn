@@ -37,7 +37,7 @@ import '../activity/activity_list_screen.dart';
 import '../../../../widgets/recipient_selector_field.dart';
 
 import 'chat/chat_screen.dart';
-import '../../hr/attendance/leave_management_screen.dart';
+import '../../hr/leave/leave_management_screen.dart';
 import '../../../../widgets/stylish_bottom_nav.dart';
 import '../guidance/guidance_interview_screen.dart';
 import '../guidance/guidance_study_program_screen.dart';
