@@ -2,15 +2,181 @@ import 'dart:typed_data';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:intl/intl.dart';
 import '../models/assessment/trial_exam_model.dart';
 import '../models/field_trip_model.dart'; // Add this import
 
 class PdfService {
+  Future<Uint8List> generatePreRegistrationOfferPdf(
+    Map<String, dynamic> reg,
+    Map<String, dynamic> settings,
+  ) async {
+    final pdf = pw.Document();
+    final font = await PdfGoogleFonts.robotoRegular();
+    final fontBold = await PdfGoogleFonts.robotoBold();
+    final offer = reg['priceOffer'] as Map<String, dynamic>? ?? {};
+
+    pdf.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        theme: pw.ThemeData.withFont(base: font, bold: fontBold),
+        build: (pw.Context context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Column(
+                     crossAxisAlignment: pw.CrossAxisAlignment.start,
+                     children: [
+                       pw.Text('ABC OKULLARI', style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold, color: PdfColors.indigo)),
+                       pw.Text('ADAY ÖĞRENCİ ÜCRET FORMU', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                     ]
+                  ),
+                  pw.Text('Tarih: ${DateFormat('dd.MM.yyyy').format(DateTime.now())}', style: const pw.TextStyle(fontSize: 10)),
+                ],
+              ),
+              pw.Divider(height: 32, thickness: 2, color: PdfColors.indigo),
+              
+              // Student Info
+              pw.Row(
+                children: [
+                  _pdfInfoGroup('Aday Öğrenci:', reg['fullName']),
+                  _pdfInfoGroup('Sınıf / Tür:', '${reg['classLevel']} / ${reg['schoolTypeName'] ?? ''}'),
+                ],
+              ),
+              pw.SizedBox(height: 20),
+
+              // Price Table
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Expanded(
+                    child: _pdfBox('Eğitim Giderleri', [
+                      _pdfRow('Eğitim Bedeli', offer['educationFee'] ?? 0),
+                      _pdfRow('İndirim', offer['discount'] ?? 0, isRed: true),
+                      pw.Divider(),
+                      _pdfRow('Net Eğitim', (offer['educationFee'] ?? 0) - (offer['discount'] ?? 0), isBold: true),
+                    ]),
+                  ),
+                  pw.SizedBox(width: 20),
+                  pw.Expanded(
+                    child: _pdfBox('Diğer Giderler', [
+                      _pdfRow('Yemek Bedeli', offer['foodFee'] ?? 0),
+                      _pdfRow('Kırtasiye/Kitap', offer['stationeryFee'] ?? 0),
+                      _pdfRow('Servis Bedeli', offer['serviceFee'] ?? 0),
+                      pw.Divider(),
+                      _pdfRow('Ek Toplam', (offer['foodFee'] ?? 0) + (offer['stationeryFee'] ?? 0) + (offer['serviceFee'] ?? 0), isBold: true),
+                    ]),
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 20),
+              
+              // Total Section
+              pw.Container(
+                padding: const pw.EdgeInsets.all(16),
+                decoration: pw.BoxDecoration(color: PdfColors.indigo50, borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8))),
+                child: pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Text('GENEL TOPLAM TUTAR:', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: PdfColors.indigo)),
+                    pw.Text(
+                      NumberFormat.currency(locale: 'tr_TR', symbol: '₺').format(offer['total'] ?? 0),
+                      style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold, color: PdfColors.indigo),
+                    ),
+                  ],
+                ),
+              ),
+              
+              pw.SizedBox(height: 32),
+              pw.Row(
+                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                 children: [
+                   _pdfSign('Veli Ad Soyad / İmza', reg['guardian1Name']),
+                   _pdfSign('Görüşmeyi Yapan / İmza', reg['responsibleName']),
+                 ]
+              ),
+              
+              pw.Spacer(),
+              pw.Text('* Bu form bir teklif niteliğinde olup bilgilendirme amaçlıdır.', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
+            ],
+          );
+        },
+      ),
+    );
+
+    return pdf.save();
+  }
+
+  pw.Widget _pdfInfoGroup(String label, String? value) {
+    return pw.Expanded(
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Text(label, style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+          pw.Text(value ?? '-', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+
+  pw.Widget _pdfBox(String title, List<pw.Widget> children) {
+    return pw.Container(
+      decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey300), borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4))),
+      child: pw.Column(
+        children: [
+          pw.Container(
+            width: double.infinity,
+            padding: const pw.EdgeInsets.all(6),
+            color: PdfColors.indigo,
+            child: pw.Text(title, style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold)),
+          ),
+          pw.Padding(
+            padding: const pw.EdgeInsets.all(10),
+            child: pw.Column(children: children),
+          ),
+        ],
+      ),
+    );
+  }
+
+  pw.Widget _pdfRow(String label, dynamic value, {bool isRed = false, bool isBold = false}) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.only(bottom: 4),
+      child: pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        children: [
+          pw.Text(label, style: pw.TextStyle(fontSize: 10, fontWeight: isBold ? pw.FontWeight.bold : null)),
+          pw.Text(
+            NumberFormat.currency(locale: 'tr_TR', symbol: '₺').format(value),
+            style: pw.TextStyle(fontSize: 10, fontWeight: isBold ? pw.FontWeight.bold : null, color: isRed ? PdfColors.red : null),
+          ),
+        ],
+      ),
+    );
+  }
+
+  pw.Widget _pdfSign(String label, String? name) {
+    return pw.Column(
+      children: [
+        pw.Text(label, style: const pw.TextStyle(fontSize: 10)),
+        pw.SizedBox(height: 10),
+        pw.Text(name ?? '-', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+        pw.SizedBox(height: 40),
+        pw.Container(width: 150, height: 1, color: PdfColors.black),
+      ],
+    );
+  }
+
   Future<Uint8List> generateStaffPdf(
     Map<String, dynamic> staff,
     List<String> selectedSections,
   ) async {
     final pdf = pw.Document();
+    
+    // ... rest of the existing code ...
 
     // Font yükleme (Türkçe karakter desteği için)
     final font = await PdfGoogleFonts.robotoRegular();

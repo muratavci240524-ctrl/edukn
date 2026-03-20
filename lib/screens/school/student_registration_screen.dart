@@ -166,7 +166,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _tabController?.addListener(() {
       setState(() {}); // Tab değiştiğinde UI'ı güncelle
     });
@@ -1643,7 +1643,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
     }
 
     return DefaultTabController(
-      length: 3,
+      length: 4,
       child: Scaffold(
         backgroundColor: Colors.grey.shade50,
         appBar: AppBar(
@@ -1740,6 +1740,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
               Tab(text: 'Kişisel Bilgiler'),
               Tab(text: 'Okul Bilgileri'),
               Tab(text: 'Veli Bilgileri'),
+              Tab(text: 'Muhasebe'),
             ],
           ),
         ),
@@ -1748,11 +1749,107 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
             _buildPersonalInfoTab(),
             _buildSchoolInfoTab(),
             _buildParentInfoTabNew(),
+            _buildAccountingTab(),
           ],
         ),
       ),
     );
   }
+
+  Widget _buildAccountingTab() {
+    final studentId = _selectedStudentId;
+    if (studentId == null) return Container();
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('payment_plans')
+          .where('studentId', isEqualTo: studentId)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) return Center(child: Text('Hata: ${snapshot.error}'));
+        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+
+        final plans = snapshot.data!.docs;
+
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8.0),
+                child: Text('Ödeme ve Taksit Takibi', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.indigo)),
+              ),
+              if (plans.isEmpty)
+                _buildNoPlanView()
+              else
+                ...plans.map((doc) => _buildPaymentPlanCard(doc.id, doc.data() as Map<String, dynamic>)).toList(),
+              const SizedBox(height: 100), // Action button space
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildNoPlanView() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(32),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+      child: Column(
+        children: [
+          Icon(Icons.money_off, size: 64, color: Colors.grey.shade300),
+          const SizedBox(height: 16),
+          const Text('Kayıtlı ödeme planı bulunamadı', style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          const Text('Bu öğrenci için yeni bir ödeme planı oluşturun.', style: TextStyle(color: Colors.grey), textAlign: TextAlign.center),
+          const SizedBox(height: 24),
+          ElevatedButton.icon(
+            onPressed: () => _showPaymentPlanRobot(),
+            icon: const Icon(Icons.smart_toy),
+            label: const Text('Ödeme Planı Robotunu Başlat'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPaymentPlanCard(String planId, Map<String, dynamic> data) {
+    final installments = List<dynamic>.from(data['installments'] ?? []);
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: ExpansionTile(
+        title: Text('${data['name'] ?? 'Eğitim Ödemesi'}', style: const TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: Text('Öğrenci Borç Takibi'),
+        children: [
+          ...installments.map((inst) {
+            final instData = inst as Map<String, dynamic>;
+            final isPaid = instData['status'] == 'paid';
+            return ListTile(
+              leading: Icon(isPaid ? Icons.check_circle : Icons.pending_actions, color: isPaid ? Colors.green : Colors.orange),
+              title: Text('Taksit: ${instData['amount']} ₺'),
+              subtitle: Text('Vade: ${instData['dueDate']}'),
+            );
+          }).toList(),
+        ],
+      ),
+    );
+  }
+
+  void _showPaymentPlanRobot() {
+    showDialog(
+      context: context, 
+      builder: (context) => AlertDialog(
+        title: const Text('Ödeme Planı Robotu'),
+        content: const Text('Bu robot seçili öğrenci için ödeme planı oluşturmanıza yardımcı olur.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Kapat')),
+        ]
+      )
+    );
+  }
+
 
   // Kişisel Bilgiler Tab
   Widget _buildPersonalInfoTab() {
@@ -7653,6 +7750,4 @@ class __StudentRegistrationFormScreenState
     }
   }
   */
-
-  // TÜM ÖĞRENCİLERİ SİL (DEBUG)
 }

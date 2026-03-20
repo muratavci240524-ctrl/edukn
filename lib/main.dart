@@ -20,6 +20,8 @@ import 'screens/support_services/support_services_hub_screen.dart';
 import 'screens/school/settings/permission_definition_screen.dart';
 import 'screens/school/settings/app_settings_screen.dart';
 import 'screens/school/kvkk_detail_screen.dart';
+import 'screens/school/registration/pre_registration_screen.dart';
+import 'screens/school/accounting/accounting_dashboard_screen.dart';
 // --- 1. FIREBASE CORE PAKETLERİNİ IMPORT ET ---
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart'; // FlutterFire CLI'nin oluşturduğu dosya
@@ -182,6 +184,8 @@ class MyApp extends StatelessWidget {
         '/school-dashboard': (context) => SchoolDashboardScreen(),
         '/profile-settings': (context) => ProfileSettingsScreen(),
         '/student-registration': (context) => StudentRegistrationScreen(),
+        '/pre-registration': (context) => PreRegistrationScreen(),
+        '/accounting': (context) => AccountingDashboardScreen(),
         '/terms': (context) => TermsScreen(),
         '/school-types': (context) => SchoolTypesScreen(),
         '/user-management': (context) => UserManagementScreen(),

@@ -1367,9 +1367,18 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
           ],
           if (_hasModuleAccess('ogrenci_kayit')) ...[
             _buildHorizontalCard(
+              icon: Icons.contact_phone,
+              title: 'Ön Kayıt / Görüşme',
+              subtitle: 'Aday görüşmeleri ve fiyat teklifleri',
+              color: Colors.orange,
+              onTap: () =>
+                  Navigator.pushNamed(context, '/pre-registration'),
+            ),
+            const SizedBox(height: 8),
+            _buildHorizontalCard(
               icon: Icons.person_add,
               title: 'Öğrenci Kayıt',
-              subtitle: 'Öğrenci kayıt ve yönetimi',
+              subtitle: 'Kesin kayıt ve öğrenci yönetimi',
               color: Colors.blue,
               onTap: () =>
                   Navigator.pushNamed(context, '/student-registration'),
@@ -1447,11 +1456,7 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
               subtitle: 'Mali işlemler ve raporlama',
               color: Colors.green,
               onTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Muhasebe modülü yakında eklenecek...'),
-                  ),
-                );
+                Navigator.pushNamed(context, '/accounting');
               },
             ),
             const SizedBox(height: 16),
