@@ -7,7 +7,8 @@ import 'package:intl/date_symbol_data_local.dart'; // For localized dates
 import 'screens/super_admin/admin_login_screen.dart';
 import 'screens/super_admin/admin_dashboard_screen.dart';
 import 'screens/school/school_login_screen.dart';
-import 'screens/school/school_dashboard_screen.dart';
+import 'screens/school/school_dashboard_v2_screen.dart'; // Yeni sürüm (Deneme)
+// import 'screens/school/school_dashboard_screen.dart'; // Eski sürüm (Yedek)
 import 'screens/school/profile_settings_screen.dart';
 import 'screens/school/school_types/school_types_screen.dart';
 import 'screens/school/user_management_screen.dart';
@@ -181,7 +182,8 @@ class MyApp extends StatelessWidget {
       initialRoute: '/school-login', // Varsayılan olarak okul giriş ekranı
       routes: {
         '/school-login': (context) => SchoolLoginScreen(),
-        '/school-dashboard': (context) => SchoolDashboardScreen(),
+        '/school-dashboard': (context) => SchoolDashboardV2Screen(), // Yeni sürüm (Deneme)
+        // '/school-dashboard': (context) => SchoolDashboardScreen(), // Eski sürüm (Yedek)
         '/profile-settings': (context) => ProfileSettingsScreen(),
         '/student-registration': (context) => StudentRegistrationScreen(),
         '/pre-registration': (context) => PreRegistrationScreen(),
