@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../widgets/edukn_logo.dart';
 // Web için
 import 'dart:html' as html show window;
 import 'user_profile_screen.dart';
@@ -557,7 +558,7 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
       builder: (context) => AlertDialog(
         content: Row(
           children: [
-            CircularProgressIndicator(),
+            EduKnLoader(size: 40),
             SizedBox(width: 16),
             Text('Veriler aktarılıyor...'),
           ],
@@ -629,7 +630,7 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
       builder: (context) => AlertDialog(
         content: Row(
           children: [
-            CircularProgressIndicator(),
+            EduKnLoader(size: 40),
             SizedBox(width: 16),
             Text('Veriler siliniyor...'),
           ],
@@ -720,7 +721,7 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
   @override
   Widget build(BuildContext context) {
     if (isLoading) {
-      return Scaffold(body: Center(child: CircularProgressIndicator()));
+      return Scaffold(body: Center(child: EduKnLoader(size: 100)));
     }
 
     if (schoolData == null) {

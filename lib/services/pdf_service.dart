@@ -15,92 +15,103 @@ class PdfService {
     final font = await PdfGoogleFonts.robotoRegular();
     final fontBold = await PdfGoogleFonts.robotoBold();
     final offer = reg['priceOffer'] as Map<String, dynamic>? ?? {};
+    final priceTypes = settings['priceTypes'] as List<dynamic>? ?? ['Eğitim', 'Yemek'];
+    final discounts = settings['discounts'] as List<dynamic>? ?? [];
+    final paymentMethods = settings['paymentMethods'] as List<dynamic>? ?? [];
+
+    // Logo (if exists in settings)
+    pw.Widget logoWidget;
+    if (settings['logo'] != null && settings['logo'].toString().isNotEmpty) {
+      final logoBytes = Uint8List.fromList(List<int>.from(settings['logo'] is String 
+          ? Uri.parse(settings['logo']).data!.contentAsBytes() 
+          : settings['logo']));
+      logoWidget = pw.Image(pw.MemoryImage(logoBytes), width: 100);
+    } else {
+      logoWidget = pw.Text('LOGO', style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold));
+    }
+
+    // Validity Date: Last day of meeting month
+    String meetingDateStr = reg['meetingDate']?.toString() ?? DateFormat('dd.MM.yyyy').format(DateTime.now());
+    DateTime meetingDate = DateTime.now();
+    try {
+      if (meetingDateStr.contains('.')) {
+        final parts = meetingDateStr.split('.');
+        meetingDate = DateTime(int.parse(parts[2]), int.parse(parts[1]), int.parse(parts[0]));
+      } else {
+        meetingDate = DateTime.parse(meetingDateStr);
+      }
+    } catch (_) {}
+    final lastDayOfMonth = DateTime(meetingDate.year, meetingDate.month + 1, 0);
+    final validityDateStr = DateFormat('dd.MM.yyyy').format(lastDayOfMonth);
 
     pdf.addPage(
       pw.Page(
         pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(32),
         theme: pw.ThemeData.withFont(base: font, bold: fontBold),
         build: (pw.Context context) {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Column(
-                     crossAxisAlignment: pw.CrossAxisAlignment.start,
-                     children: [
-                       pw.Text('ABC OKULLARI', style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold, color: PdfColors.indigo)),
-                       pw.Text('ADAY ÖĞRENCİ ÜCRET FORMU', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
-                     ]
-                  ),
-                  pw.Text('Tarih: ${DateFormat('dd.MM.yyyy').format(DateTime.now())}', style: const pw.TextStyle(fontSize: 10)),
-                ],
-              ),
-              pw.Divider(height: 32, thickness: 2, color: PdfColors.indigo),
-              
-              // Student Info
-              pw.Row(
-                children: [
-                  _pdfInfoGroup('Aday Öğrenci:', reg['fullName']),
-                  _pdfInfoGroup('Sınıf / Tür:', '${reg['classLevel']} / ${reg['schoolTypeName'] ?? ''}'),
-                ],
-              ),
+              // Header Logo
+              pw.Center(child: logoWidget),
               pw.SizedBox(height: 20),
+              
+              pw.Text('ADAY ÖĞRENCİ ÜCRET FORMU', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+              pw.SizedBox(height: 16),
 
-              // Price Table
+              // Student Info Grid
+              pw.Table(
+                children: [
+                   pw.TableRow(children: [
+                     _pdfInfoCell('Öğrencinin Adı Soyadı:', reg['fullName']),
+                     _pdfInfoCell('Tarih:', DateFormat('dd.MM.yyyy').format(DateTime.now())),
+                   ]),
+                   pw.TableRow(children: [
+                     _pdfInfoCell('Kayıt Olacağı Okul Türü:', reg['schoolTypeName'] ?? '-'),
+                     _pdfInfoCell('Sınıfı:', reg['classLevel']?.toString() ?? '-'),
+                   ]),
+                ]
+              ),
+              pw.SizedBox(height: 24),
+
+              // Two columns: Eğitim & Yemek
               pw.Row(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
+                  // Left Column: Eğitim (or first price type)
                   pw.Expanded(
-                    child: _pdfBox('Eğitim Giderleri', [
-                      _pdfRow('Eğitim Bedeli', offer['educationFee'] ?? 0),
-                      _pdfRow('İndirim', offer['discount'] ?? 0, isRed: true),
-                      pw.Divider(),
-                      _pdfRow('Net Eğitim', (offer['educationFee'] ?? 0) - (offer['discount'] ?? 0), isBold: true),
-                    ]),
+                    child: _buildPriceColumn(priceTypes.isNotEmpty ? priceTypes[0].toString() : 'Eğitim', offer, discounts, paymentMethods, true),
                   ),
-                  pw.SizedBox(width: 20),
+                  pw.SizedBox(width: 2),
+                  // Right Column: Yemek (or second price type)
                   pw.Expanded(
-                    child: _pdfBox('Diğer Giderler', [
-                      _pdfRow('Yemek Bedeli', offer['foodFee'] ?? 0),
-                      _pdfRow('Kırtasiye/Kitap', offer['stationeryFee'] ?? 0),
-                      _pdfRow('Servis Bedeli', offer['serviceFee'] ?? 0),
-                      pw.Divider(),
-                      _pdfRow('Ek Toplam', (offer['foodFee'] ?? 0) + (offer['stationeryFee'] ?? 0) + (offer['serviceFee'] ?? 0), isBold: true),
-                    ]),
+                    child: priceTypes.length > 1 
+                      ? _buildPriceColumn(priceTypes[1].toString(), offer, discounts, paymentMethods, false)
+                      : pw.Container(),
                   ),
                 ],
               ),
-              pw.SizedBox(height: 20),
               
-              // Total Section
-              pw.Container(
-                padding: const pw.EdgeInsets.all(16),
-                decoration: pw.BoxDecoration(color: PdfColors.indigo50, borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8))),
-                child: pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text('GENEL TOPLAM TUTAR:', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: PdfColors.indigo)),
-                    pw.Text(
-                      NumberFormat.currency(locale: 'tr_TR', symbol: '₺').format(offer['total'] ?? 0),
-                      style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold, color: PdfColors.indigo),
-                    ),
-                  ],
-                ),
-              ),
-              
-              pw.SizedBox(height: 32),
-              pw.Row(
-                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                 children: [
-                   _pdfSign('Veli Ad Soyad / İmza', reg['guardian1Name']),
-                   _pdfSign('Görüşmeyi Yapan / İmza', reg['responsibleName']),
-                 ]
-              ),
-              
+              // Footer Info
               pw.Spacer(),
-              pw.Text('* Bu form bir teklif niteliğinde olup bilgilendirme amaçlıdır.', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
+              pw.Divider(thickness: 0.5),
+              pw.SizedBox(height: 8),
+              pw.Table(
+                border: pw.TableBorder.all(color: PdfColors.grey300),
+                children: [
+                  pw.TableRow(children: [
+                    _pdfFooterCell('Veli Adı Soyadı:', reg['guardian1Name']),
+                    _pdfFooterCell('Görüşme Geçerlilik Tarihi:', validityDateStr),
+                  ]),
+                   pw.TableRow(children: [
+                    _pdfFooterCell('Telefon:', reg['phone']),
+                    _pdfFooterCell('Görüşme Yapan Yönetici:', reg['responsibleName']),
+                  ]),
+                ]
+              ),
+              pw.SizedBox(height: 12),
+              pw.Center(child: pw.Text('abc.k12.tr  444 222 1', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600))),
             ],
           );
         },
@@ -110,65 +121,174 @@ class PdfService {
     return pdf.save();
   }
 
-  pw.Widget _pdfInfoGroup(String label, String? value) {
-    return pw.Expanded(
+  pw.Widget _pdfInfoCell(String label, String? value) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 4),
+      child: pw.Row(
+        children: [
+          pw.Text(label, style: const pw.TextStyle(fontSize: 10)),
+          pw.SizedBox(width: 8),
+          pw.Text(value ?? '-', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+        ],
+      )
+    );
+  }
+
+  pw.Widget _pdfFooterCell(String label, String? value) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.all(6),
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          pw.Text(label, style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
-          pw.Text(value ?? '-', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+          pw.Text(label, style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
+          pw.SizedBox(height: 2),
+          pw.Text(value ?? '-', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
         ],
-      ),
+      )
     );
   }
 
-  pw.Widget _pdfBox(String title, List<pw.Widget> children) {
+  pw.Widget _buildPriceColumn(String type, Map<String, dynamic> offer, List<dynamic> discounts, List<dynamic> paymentMethods, bool showTotals) {
+    final baseAmt = (offer[type] ?? 0.0).toDouble();
+    final appliedIds = offer['appliedDiscounts'] as List<dynamic>? ?? [];
+    
+    // Calculate global discounts for this type
+    final typeDiscounts = <pw.Widget>[];
+    double totalGlobalDiscForThisType = 0;
+    
+    for (var d in discounts) {
+      final dName = d['name']?.toString() ?? '';
+      final dApplyToRaw = d['applyTo'] as List<dynamic>?;
+      bool applies = false;
+      if (dApplyToRaw == null || dApplyToRaw.isEmpty) {
+        applies = true;
+      } else {
+         final tL = type.toLowerCase().replaceAll('ğ', 'g').replaceAll('ş', 's').replaceAll('ı', 'i').replaceAll('ü', 'u').replaceAll('ö', 'o').replaceAll('ç', 'c');
+         for (var a in dApplyToRaw) {
+            final aL = a.toString().toLowerCase().replaceAll('ğ', 'g').replaceAll('ş', 's').replaceAll('ı', 'i').replaceAll('ü', 'u').replaceAll('ö', 'o').replaceAll('ç', 'c');
+            if (tL.contains(aL) || aL.contains(tL)) { applies = true; break; }
+         }
+      }
+      
+      if (applies) {
+        if (appliedIds.contains(d['id'])) {
+          final perc = (offer['_manualPerc_${d['id']}'] as num?)?.toDouble() ?? (d['percentage'] as num?)?.toDouble() ?? 0.0;
+          final dAmt = baseAmt * (perc / 100);
+          totalGlobalDiscForThisType += dAmt;
+          typeDiscounts.add(_pdfTableRow(dName + ':', '%${perc.toInt()}', isBold: false, fontSize: 9));
+        } else {
+          // Show empty as in image? Actually image shows labels Erken Kayıt, Burs etc.
+          // Let's list some common ones if they exist in settings
+          typeDiscounts.add(_pdfTableRow(dName + ':', '', isBold: false, fontSize: 9));
+        }
+      }
+    }
+    
+    final amtAfterGlobal = baseAmt - totalGlobalDiscForThisType;
+
+    // Combined totals logic (if this is the second column)
+    double combinedTaksit = 0;
+    double combinedPesin = 0;
+    double combinedTek = 0;
+    
+    if (!showTotals) {
+       // Calculation for ALL types combined (for the Right-column summary)
+       final priceTypes = offer.keys.where((k) => !['appliedDiscounts', 'discount', 'total', 'autoGenerated', 'perTypePaymentMethods'].contains(k)).toList();
+       for (var mt in paymentMethods) {
+          final mName = mt['name']?.toString().toLowerCase() ?? '';
+          final disc = (mt['discount'] as num?)?.toDouble() ?? 0.0;
+          double typeCombined = 0;
+          for (var pt in priceTypes) {
+             // Redo the global discount calc for pt...
+             double ptBase = (offer[pt.toString()] ?? 0.0).toDouble();
+             double ptGlobalDisc = 0;
+             for (var d in discounts) {
+                if (appliedIds.contains(d['id'])) {
+                   final dApplyToRaw = d['applyTo'] as List<dynamic>?;
+                   bool ptApplies = false;
+                   if (dApplyToRaw == null || dApplyToRaw.isEmpty) ptApplies = true;
+                   else {
+                      final ptL = pt.toString().toLowerCase().replaceAll('ğ', 'g').replaceAll('ş', 's').replaceAll('ı', 'i').replaceAll('ü', 'u').replaceAll('ö', 'o').replaceAll('ç', 'c');
+                      for (var a in dApplyToRaw) {
+                         final aL = a.toString().toLowerCase().replaceAll('ğ', 'g').replaceAll('ş', 's').replaceAll('ı', 'i').replaceAll('ü', 'u').replaceAll('ö', 'o').replaceAll('ç', 'c');
+                         if (ptL.contains(aL) || aL.contains(ptL)) { ptApplies = true; break; }
+                      }
+                   }
+                   if (ptApplies) {
+                     final p = (offer['_manualPerc_${d['id']}'] as num?)?.toDouble() ?? (d['percentage'] as num?)?.toDouble() ?? 0.0;
+                     ptGlobalDisc += ptBase * (p / 100);
+                   }
+                }
+             }
+             typeCombined += (ptBase - ptGlobalDisc) * (1 - disc / 100);
+          }
+          if (mName.contains('peşin')) combinedPesin = typeCombined;
+          else if (mName.contains('tek çekim')) combinedTek = typeCombined;
+          else if (mName.contains('taksit')) combinedTaksit = typeCombined;
+       }
+    }
+
     return pw.Container(
-      decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey300), borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4))),
+      decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey400)),
       child: pw.Column(
         children: [
           pw.Container(
-            width: double.infinity,
             padding: const pw.EdgeInsets.all(6),
             color: PdfColors.indigo,
-            child: pw.Text(title, style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold)),
+            width: double.infinity,
+            alignment: pw.Alignment.center,
+            child: pw.Text(type.toUpperCase(), style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 12)),
           ),
-          pw.Padding(
-            padding: const pw.EdgeInsets.all(10),
-            child: pw.Column(children: children),
+          _pdfTableRow('Ücreti:', baseAmt, isBold: true, bgColor: PdfColors.grey100),
+          pw.Container(
+            padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            color: PdfColors.indigo400,
+            width: double.infinity,
+            child: pw.Text('Uygulanan İndirimler:', style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 10)),
           ),
+          ...typeDiscounts,
+          pw.Divider(thickness: 0.5, height: 1),
+          // Individual Payment Plans for this type
+          ...paymentMethods.map((m) {
+             final disc = (m['discount'] as num?)?.toDouble() ?? 0.0;
+             final pAmt = amtAfterGlobal * (1 - disc / 100);
+             return _pdfTableRow('${m['name']} ($type):', pAmt, isBold: true, fontSize: 9);
+          }).toList(),
+
+          if (!showTotals) ...[
+             pw.Container(
+               padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+               color: PdfColors.indigo,
+               width: double.infinity,
+               child: pw.Text('Eğitim + Yemek Toplam Ücretler:', style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 10)),
+             ),
+             _pdfTableRow('Taksitli:', combinedTaksit, isBold: true),
+             _pdfTableRow('Peşin:', combinedPesin, isBold: true),
+             _pdfTableRow('Tek Çekim:', combinedTek, isBold: true),
+          ]
         ],
       ),
     );
   }
 
-  pw.Widget _pdfRow(String label, dynamic value, {bool isRed = false, bool isBold = false}) {
-    return pw.Padding(
-      padding: const pw.EdgeInsets.only(bottom: 4),
+  pw.Widget _pdfTableRow(String label, dynamic value, {bool isBold = false, PdfColor? bgColor, double fontSize = 10}) {
+    final valStr = value is double 
+        ? NumberFormat.currency(locale: 'tr_TR', symbol: '').format(value)
+        : value.toString();
+    
+    return pw.Container(
+      color: bgColor,
+      padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 6),
       child: pw.Row(
         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
         children: [
-          pw.Text(label, style: pw.TextStyle(fontSize: 10, fontWeight: isBold ? pw.FontWeight.bold : null)),
-          pw.Text(
-            NumberFormat.currency(locale: 'tr_TR', symbol: '₺').format(value),
-            style: pw.TextStyle(fontSize: 10, fontWeight: isBold ? pw.FontWeight.bold : null, color: isRed ? PdfColors.red : null),
-          ),
+          pw.Text(label, style: pw.TextStyle(fontSize: fontSize, fontWeight: isBold ? pw.FontWeight.bold : null)),
+          pw.Text(valStr, style: pw.TextStyle(fontSize: fontSize, fontWeight: isBold ? pw.FontWeight.bold : null)),
         ],
       ),
     );
   }
 
-  pw.Widget _pdfSign(String label, String? name) {
-    return pw.Column(
-      children: [
-        pw.Text(label, style: const pw.TextStyle(fontSize: 10)),
-        pw.SizedBox(height: 10),
-        pw.Text(name ?? '-', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
-        pw.SizedBox(height: 40),
-        pw.Container(width: 150, height: 1, color: PdfColors.black),
-      ],
-    );
-  }
 
   Future<Uint8List> generateStaffPdf(
     Map<String, dynamic> staff,

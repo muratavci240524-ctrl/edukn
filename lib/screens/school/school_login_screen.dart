@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../../widgets/edukn_logo.dart';
 import '../teacher/teacher_main_screen.dart';
 
 class SchoolLoginScreen extends StatefulWidget {
@@ -123,6 +124,22 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       print('✅ Giriş başarılı, yönlendiriliyor...');
 
       if (mounted) {
+        // Show success loading animation for 2 seconds
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => WillPopScope(
+            onWillPop: () async => false,
+            child: const Center(
+              child: EduKnLoader(size: 100),
+            ),
+          ),
+        );
+
+        await Future.delayed(const Duration(milliseconds: 2000));
+        if (!mounted) return;
+        Navigator.pop(context); // Close the dialog
+
         final role = userData?['role']?.toString().toLowerCase() ?? '';
         if (role.contains('ogretmen') ||
             role.contains('teacher') ||
@@ -235,29 +252,9 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                             children: [
                               const Spacer(flex: 1),
                               // Logo & Header
-                              Container(
-                                width: isMobile ? 56 : 70,
-                                height: isMobile ? 56 : 70,
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF4C59BC),
-                                  borderRadius: BorderRadius.circular(
-                                    isMobile ? 16 : 20,
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: const Color(
-                                        0xFF4C59BC,
-                                      ).withOpacity(0.3),
-                                      blurRadius: 20,
-                                      offset: const Offset(0, 10),
-                                    ),
-                                  ],
-                                ),
-                                child: Icon(
-                                  Icons.school_rounded,
-                                  color: Colors.white,
-                                  size: isMobile ? 28 : 35,
-                                ),
+                              const EduKnLogo(
+                                type: EduKnLogoType.iconOnly,
+                                iconSize: 70,
                               ),
                               SizedBox(height: isMobile ? 12 : 20),
                               GestureDetector(
@@ -397,13 +394,9 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                                             ),
                                             child: _isLoading
                                                 ? const SizedBox(
-                                                    width: 20,
-                                                    height: 20,
-                                                    child:
-                                                        CircularProgressIndicator(
-                                                          color: Colors.white,
-                                                          strokeWidth: 2,
-                                                        ),
+                                                    width: 24,
+                                                    height: 24,
+                                                    child: EduKnLoader(size: 24),
                                                   )
                                                 : Row(
                                                     mainAxisAlignment:

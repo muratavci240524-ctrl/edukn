@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../../widgets/edukn_logo.dart';
 
 class AdminLoginScreen extends StatefulWidget {
   const AdminLoginScreen({Key? key}) : super(key: key);
@@ -54,6 +55,22 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
       print('✅ Giriş başarılı!');
 
       if (mounted) {
+        // Show success loading animation for 2 seconds
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => WillPopScope(
+            onWillPop: () async => false,
+            child: const Center(
+              child: EduKnLoader(size: 100),
+            ),
+          ),
+        );
+
+        await Future.delayed(const Duration(milliseconds: 2000));
+        if (!mounted) return;
+        Navigator.pop(context); // Close the dialog
+
         Navigator.pushReplacementNamed(context, '/admin-dashboard');
       }
     } on FirebaseAuthException catch (e) {
@@ -143,7 +160,6 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
           // Mobil için boyut ve boşlukları ayarla
           final double paddingValue = isMobile ? 20.0 : 32.0;
           final double titleSize = isMobile ? 24.0 : 28.0;
-          final double iconSize = isMobile ? 48.0 : 64.0;
           final double spaceSmall = isMobile ? 12.0 : 16.0;
           final double spaceMedium = isMobile ? 20.0 : 24.0;
           final double spaceLarge = isMobile ? 24.0 : 32.0;
@@ -192,17 +208,9 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                               : MainAxisSize.min,
                           children: [
                             // Logo ve Başlık
-                            Container(
-                              padding: EdgeInsets.all(isMobile ? 12 : 16),
-                              decoration: BoxDecoration(
-                                color: Colors.purple.shade50,
-                                shape: BoxShape.circle,
-                              ),
-                              child: Icon(
-                                Icons.admin_panel_settings,
-                                size: iconSize,
-                                color: Colors.purple,
-                              ),
+                            const EduKnLogo(
+                              type: EduKnLogoType.iconOnly,
+                              iconSize: 70,
                             ),
                             SizedBox(height: spaceMedium),
                             Text(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../../widgets/edukn_dropdown.dart';
 
 class AddPreRegistrationScreen extends StatelessWidget {
   final String? institutionId;
@@ -76,6 +77,7 @@ class _PreRegistrationFormWidgetState extends State<PreRegistrationFormWidget> {
   String? _guardian2Kinship;
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _guardianJobController = TextEditingController();
   
   // Interviewer Info
   List<Map<String, dynamic>> _adminUsers = [];
@@ -135,6 +137,7 @@ class _PreRegistrationFormWidgetState extends State<PreRegistrationFormWidget> {
     _guardian2Kinship = reg['guardian2Kinship'];
     _phoneController.text = reg['phone'] ?? '';
     _emailController.text = reg['email'] ?? '';
+    _guardianJobController.text = reg['guardianJob'] ?? '';
     
     _selectedCity = reg['address']?['city'] ?? 'ANKARA';
     _selectedDistrict = reg['address']?['district'];
@@ -293,6 +296,7 @@ class _PreRegistrationFormWidgetState extends State<PreRegistrationFormWidget> {
           'guardian2Kinship': _guardian2Kinship,
           'phone': _phoneController.text,
           'email': _emailController.text.toLowerCase(),
+          'guardianJob': _guardianJobController.text,
           'responsibleId': _selectedInterviewers.isNotEmpty ? _selectedInterviewers.first : null,
           'responsibleName': _selectedInterviewers.isNotEmpty 
               ? _adminUsers.firstWhere((u) => u['id'] == _selectedInterviewers.first, orElse: () => {'fullName': ''})['fullName'] 
@@ -325,6 +329,7 @@ class _PreRegistrationFormWidgetState extends State<PreRegistrationFormWidget> {
             'guardian2Kinship': _guardian2Kinship,
             'phone': _phoneController.text,
             'email': _emailController.text.toLowerCase(),
+            'guardianJob': _guardianJobController.text,
             'responsibleId': _selectedInterviewers.isNotEmpty ? _selectedInterviewers.first : null,
             'responsibleName': _selectedInterviewers.isNotEmpty 
                 ? _adminUsers.firstWhere((u) => u['id'] == _selectedInterviewers.first, orElse: () => {'fullName': ''})['fullName'] 
@@ -604,27 +609,28 @@ class _PreRegistrationFormWidgetState extends State<PreRegistrationFormWidget> {
               },
             ),
             const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              decoration: _inputDecoration('Cinsiyet', Icons.wc_outlined),
+            EduKnDropdown<String>(
+              label: 'Cinsiyet',
+              prefixIcon: Icons.wc_outlined,
               value: student['gender'],
-              items: ['Erkek', 'Kız'].map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
+              items: ['Erkek', 'Kız'].map((g) => DropdownMenuItem<String>(value: g, child: Text(g))).toList(),
               onChanged: (v) => setState(() => student['gender'] = v),
             ),
             const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              isExpanded: true,
-              decoration: _inputDecoration('Sınıf Seviyesi', Icons.grade_outlined),
+            EduKnDropdown<String>(
+              label: 'Sınıf Seviyesi',
+              prefixIcon: Icons.grade_outlined,
               value: student['classLevel'],
               items: _getAvailableClassLevels()
-                  .map((l) => DropdownMenuItem(value: l, child: Text(_formatLevelLabel(l)))).toList(),
+                  .map((l) => DropdownMenuItem<String>(value: l, child: Text(_formatLevelLabel(l)))).toList(),
               onChanged: (v) => _onClassLevelChanged(student, v),
             ),
             const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              isExpanded: true,
-              decoration: _inputDecoration('Okul Türü', Icons.school_outlined),
+            EduKnDropdown<String>(
+              label: 'Okul Türü',
+              prefixIcon: Icons.school_outlined,
               value: student['schoolTypeId'],
-              items: widget.schoolTypes.map((t) => DropdownMenuItem(value: t['id'] as String, child: Text(t['schoolTypeName'] ?? t['typeName'] ?? '', overflow: TextOverflow.ellipsis))).toList(),
+              items: widget.schoolTypes.map((t) => DropdownMenuItem<String>(value: t['id'] as String, child: Text(t['schoolTypeName'] ?? t['typeName'] ?? '', overflow: TextOverflow.ellipsis))).toList(),
               onChanged: (v) => setState(() => student['schoolTypeId'] = v),
             ),
           ],
@@ -648,10 +654,11 @@ class _PreRegistrationFormWidgetState extends State<PreRegistrationFormWidget> {
               textCapitalization: TextCapitalization.characters,
             ),
             const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              decoration: _inputDecoration('Yakınlık Derecesi', Icons.people_outline),
+            EduKnDropdown<String>(
+              label: 'Yakınlık Derecesi',
+              prefixIcon: Icons.people_outline,
               value: _guardian1Kinship,
-              items: _kinships.map((k) => DropdownMenuItem(value: k, child: Text(k))).toList(),
+              items: _kinships.map((k) => DropdownMenuItem<String>(value: k, child: Text(k))).toList(),
               onChanged: (v) => setState(() => _guardian1Kinship = v!),
             ),
             const Divider(height: 32),
@@ -661,12 +668,12 @@ class _PreRegistrationFormWidgetState extends State<PreRegistrationFormWidget> {
               textCapitalization: TextCapitalization.characters,
             ),
             const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              decoration: _inputDecoration('Yakınlık Derecesi', Icons.people_outline),
+            EduKnDropdown<String>(
+              label: 'Yakınlık Derecesi',
+              prefixIcon: Icons.people_outline,
               value: _guardian2Kinship,
-              items: _kinships.map((k) => DropdownMenuItem(value: k, child: Text(k))).toList(),
+              items: _kinships.map((k) => DropdownMenuItem<String>(value: k, child: Text(k))).toList(),
               onChanged: (v) => setState(() => _guardian2Kinship = v),
-              hint: const Text('Seçiniz'),
             ),
             const SizedBox(height: 12),
             const Divider(height: 32),
@@ -693,6 +700,12 @@ class _PreRegistrationFormWidgetState extends State<PreRegistrationFormWidget> {
                 ),
               ],
             ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _guardianJobController,
+              decoration: _inputDecoration('Veli Mesleği', Icons.work_outline),
+              textCapitalization: TextCapitalization.words,
+            ),
           ],
         ),
       ),
@@ -705,11 +718,11 @@ class _PreRegistrationFormWidgetState extends State<PreRegistrationFormWidget> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey.shade200)),
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: DropdownButtonFormField<String>(
-          isExpanded: true,
-          decoration: _inputDecoration('Görüşmeyi Yapan Yönetici *', Icons.person_search_outlined),
+        child: EduKnDropdown<String>(
+          label: 'Görüşmeyi Yapan Yönetici *',
+          prefixIcon: Icons.person_search_outlined,
           value: _selectedInterviewers.isNotEmpty ? _selectedInterviewers.first : null,
-          items: _adminUsers.map((u) => DropdownMenuItem(value: u['id'] as String, child: Text(u['fullName'] ?? ''))).toList(),
+          items: _adminUsers.map((u) => DropdownMenuItem<String>(value: u['id'] as String, child: Text(u['fullName'] ?? ''))).toList(),
           onChanged: (v) {
             if (v != null) {
               setState(() => _selectedInterviewers = [v]);
