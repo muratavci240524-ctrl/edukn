@@ -11,5 +11,7 @@ git commit -m "Duyuru filtreleme özellikleri eklendi"
 git push
 
 
+flutter build web
 
+firebase deploy --only hosting
 

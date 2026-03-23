@@ -44,6 +44,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.4
 
 dependency_overrides:
   archive: 3.6.1
@@ -52,3 +53,13 @@ flutter:
   uses-material-design: true
   assets:
     - assets/images/
+
+flutter_launcher_icons:
+  image_path: "assets/images/logo_icon_only.png"
+  android: "ic_launcher"
+  ios: true
+  web:
+    generate: true
+    image_path: "assets/images/logo_icon_only.png"
+    background_color: "#ffffff"
+    theme_color: "#ffffff"
