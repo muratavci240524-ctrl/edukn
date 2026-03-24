@@ -190,7 +190,42 @@ class _ClassroomManagementScreenState extends State<ClassroomManagementScreen>
           .toList();
     }
 
+    // Doğal sıralama (Natural Sort) - Alfabetik ve Sayısal (Örn: 1, 2, 10...)
+    filtered.sort((a, b) => _compareNatural(a.classroomName, b.classroomName));
+
     return filtered;
+  }
+
+  /// Alfanümerik metinleri "doğal" sırada karşılaştırır.
+  /// Örneğin: "D-1", "D-2", "D-10" -> 1, 2, 10 sırasında olur.
+  int _compareNatural(String a, String b) {
+    final RegExp re = RegExp(r'(\d+)|\D+');
+    final Iterable<Match> aMatches = re.allMatches(a.toLowerCase());
+    final Iterable<Match> bMatches = re.allMatches(b.toLowerCase());
+
+    final itA = aMatches.iterator;
+    final itB = bMatches.iterator;
+
+    while (itA.moveNext() && itB.moveNext()) {
+      final aPart = itA.current.group(0)!;
+      final bPart = itB.current.group(0)!;
+
+      // Eğer her iki parça da sayıysa, sayısal karşılaştırma yap
+      final aIsNum = itA.current.group(1) != null;
+      final bIsNum = itB.current.group(1) != null;
+
+      if (aIsNum && bIsNum) {
+        final aNum = int.parse(aPart);
+        final bNum = int.parse(bPart);
+        if (aNum != bNum) return aNum.compareTo(bNum);
+      } else {
+        // En az biri metinse, alfabetik karşılaştırma yap
+        final cmp = aPart.compareTo(bPart);
+        if (cmp != 0) return cmp;
+      }
+    }
+
+    return a.length.compareTo(b.length);
   }
 
   void _showClassroomFormDialog({ClassroomModel? classroomToEdit}) {

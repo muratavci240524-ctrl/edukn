@@ -11,6 +11,7 @@ import 'terms_screen.dart';
 import 'notes/personal_notes_screen.dart';
 import 'hr/hr_hub_screen.dart';
 import 'dart:math' as math;
+import '../teacher/teacher_qr_scan_screen.dart';
 
 class SchoolDashboardV2Screen extends StatefulWidget {
   const SchoolDashboardV2Screen({Key? key}) : super(key: key);
@@ -136,6 +137,34 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
   Future<void> _switchToTerm(Map<String, dynamic> term) async { final isActive = term['isActive'] == true; if (isActive) await _termService.clearSelectedTerm(); else await _termService.setSelectedTerm(term['id'], term['termName'] ?? '${term['startYear']}-${term['endYear']}'); setState(() => isLoading = true); await _loadInitialData(); }
   bool _hasModuleAccess(String moduleKey) { if (schoolData == null) return false; final activeModules = schoolData!['activeModules'] as List<dynamic>? ?? []; if (!activeModules.contains(moduleKey)) return false; if (userData == null) return true; final modulePerms = userData!['modulePermissions'] as Map<String, dynamic>?; if (modulePerms == null) return false; final modulePerm = modulePerms[moduleKey] as Map<String, dynamic>?; if (modulePerm == null) return false; return modulePerm['enabled'] == true; }
   String _getUserDisplayName() { if (userData != null) return userData!['fullName'] ?? 'Kullanıcı'; return schoolData?['adminFullName'] ?? 'Yönetici'; }
+  String _getUserRole() { if (userData != null) { final role = userData!['role'] ?? ''; const roleMap = { 'mudur': 'Müdür', 'mudir_yardimcisi': 'Müdür Yardımcısı', 'ogretmen': 'Öğretmen', 'personel': 'Personel', 'genel_mudur': 'Genel Müdür', }; return roleMap[role] ?? role; } return 'Yönetici'; }
+
+  Future<void> _logout() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(children: [
+          Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(12)), child: const Icon(Icons.logout_rounded, color: Colors.red, size: 22)),
+          const SizedBox(width: 12),
+          const Text('Çıkış Yap', style: TextStyle(fontWeight: FontWeight.bold)),
+        ]),
+        content: const Text('Hesabınızdan çıkış yapmak istediğinize emin misiniz?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('İptal')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Çıkış Yap'),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true) {
+      await FirebaseAuth.instance.signOut();
+      if (mounted) Navigator.pushReplacementNamed(context, '/school-login');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -147,7 +176,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
 
   PreferredSizeWidget _buildAppBar(bool isMobile) {
     String currentTermName = selectedTerm != null ? (selectedTerm!['termName'] ?? '${selectedTerm!['startYear']}-${selectedTerm!['endYear']}') : (activeTerm != null ? (activeTerm!['termName'] ?? 'Aktif Dönem') : 'Dönem Seçin');
-    return AppBar(backgroundColor: Colors.white.withOpacity(0.95), elevation: 0, centerTitle: true, flexibleSpace: Stack(children: [if (!_isMobileSearchActive) Positioned(left: 16, top: 0, bottom: 0, child: Row(children: [const EduKnLogo(iconSize: 28, type: EduKnLogoType.iconOnly), if (!isMobile) ...[const SizedBox(width: 12), Text('eduKN', style: TextStyle(color: Colors.indigo.shade900, fontWeight: FontWeight.w900, letterSpacing: -0.5, fontSize: 20))]]))]), title: _isMobileSearchActive ? _buildMobileSearchInput() : (!isMobile ? _buildSearchBar(isMobile) : const SizedBox.shrink()), actions: [if (isMobile && !_isMobileSearchActive) IconButton(icon: const Icon(Icons.search, color: Colors.indigo), onPressed: () { setState(() => _isMobileSearchActive = true); _searchFocusNode.requestFocus(); }), if (!_isMobileSearchActive) _buildTermSelectorButton(currentTermName, isMobile), const SizedBox(width: 12), if (!_isMobileSearchActive) Center(child: InkWell(onTap: () => Navigator.pushNamed(context, '/profile-settings'), borderRadius: BorderRadius.circular(20), child: Padding(padding: const EdgeInsets.all(4.0), child: CircleAvatar(radius: 17, backgroundColor: Colors.indigo.shade50, child: Text(_getUserDisplayName()[0].toUpperCase(), style: const TextStyle(color: Colors.indigo, fontSize: 13, fontWeight: FontWeight.bold)))))), const SizedBox(width: 16)]);
+    return AppBar(backgroundColor: Colors.white.withOpacity(0.95), elevation: 0, centerTitle: true, flexibleSpace: Stack(children: [if (!_isMobileSearchActive) Positioned(left: 16, top: 0, bottom: 0, child: Row(children: [const EduKnLogo(iconSize: 28, type: EduKnLogoType.iconOnly), if (!isMobile) ...[const SizedBox(width: 12), Text('eduKN', style: TextStyle(color: Colors.indigo.shade900, fontWeight: FontWeight.w900, letterSpacing: -0.5, fontSize: 20))]]))]), title: _isMobileSearchActive ? _buildMobileSearchInput() : (!isMobile ? _buildSearchBar(isMobile) : const SizedBox.shrink()), actions: [if (isMobile && !_isMobileSearchActive) IconButton(icon: const Icon(Icons.search, color: Colors.indigo), onPressed: () { setState(() => _isMobileSearchActive = true); _searchFocusNode.requestFocus(); }), if (!_isMobileSearchActive) _buildTermSelectorButton(currentTermName, isMobile), const SizedBox(width: 8), if (!_isMobileSearchActive) _buildProfileButton(), const SizedBox(width: 16)]);
   }
 
   Widget _buildMobileSearchInput() { return CompositedTransformTarget(link: _searchLayerLink, child: Container(height: 42, decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(12)), child: Row(children: [IconButton(icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: Colors.blueGrey), onPressed: () => setState(() => _isMobileSearchActive = false)), Expanded(child: TextField(controller: _searchController, focusNode: _searchFocusNode, onChanged: _onSearchChanged, autofocus: true, decoration: InputDecoration(hintText: 'Arayın...', hintStyle: TextStyle(color: Colors.blueGrey.shade300, fontSize: 13), border: InputBorder.none)))]))); }
@@ -159,11 +188,110 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
   }
 
   Widget _buildSelectorAction({required IconData icon, required String title, required String subtitle, required Color color, required VoidCallback onTap}) { return ListTile(onTap: onTap, leading: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(10)), child: Icon(icon, color: color, size: 20)), title: Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.blueGrey.shade900)), subtitle: Text(subtitle, style: TextStyle(fontSize: 11, color: Colors.blueGrey.shade500)), trailing: const Icon(Icons.chevron_right, size: 20), contentPadding: EdgeInsets.zero); }
+
+  Widget _buildProfileButton() {
+    final displayName = _getUserDisplayName();
+    final role = _getUserRole();
+    final initial = displayName.isNotEmpty ? displayName[0].toUpperCase() : 'U';
+    return PopupMenuButton<String>(
+      offset: const Offset(0, 48),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 8,
+      shadowColor: Colors.black.withOpacity(0.12),
+      onSelected: (value) {
+        if (value == 'profile' || value == 'edit_profile') {
+          Navigator.pushNamed(context, '/profile-settings');
+        } else if (value == 'qr') {
+          Navigator.push(context, MaterialPageRoute(builder: (_) => const TeacherQrScanScreen()));
+        } else if (value == 'logout') {
+          _logout();
+        }
+      },
+      itemBuilder: (context) => [
+        // --- Profil Bilgileri Başlık ---
+        PopupMenuItem<String>(
+          enabled: false,
+          padding: EdgeInsets.zero,
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 22,
+                  backgroundColor: Colors.indigo.shade100,
+                  child: Text(initial, style: TextStyle(color: Colors.indigo.shade800, fontSize: 18, fontWeight: FontWeight.bold)),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(displayName, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)), overflow: TextOverflow.ellipsis),
+                      const SizedBox(height: 2),
+                      Text(role, style: TextStyle(fontSize: 12, color: Colors.blueGrey.shade500)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const PopupMenuDivider(),
+        // --- Profilim / Düzenle ---
+        PopupMenuItem<String>(
+          value: 'profile',
+          child: Row(children: [
+            Container(padding: const EdgeInsets.all(7), decoration: BoxDecoration(color: Colors.indigo.shade50, borderRadius: BorderRadius.circular(8)), child: Icon(Icons.person_outline_rounded, color: Colors.indigo.shade700, size: 18)),
+            const SizedBox(width: 12),
+            const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Profilim', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              Text('Profili Düzenle', style: TextStyle(fontSize: 11, color: Colors.blueGrey)),
+            ]),
+          ]),
+        ),
+        const PopupMenuDivider(),
+        // --- QR Giriş/Çıkış ---
+        PopupMenuItem<String>(
+          value: 'qr',
+          child: Row(children: [
+            Container(padding: const EdgeInsets.all(7), decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(8)), child: Icon(Icons.qr_code_scanner_rounded, color: Colors.orange.shade700, size: 18)),
+            const SizedBox(width: 12),
+            const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Giriş / Çıkış (QR)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              Text('Kamera ile QR tarama', style: TextStyle(fontSize: 11, color: Colors.blueGrey)),
+            ]),
+          ]),
+        ),
+        const PopupMenuDivider(),
+        // --- Çıkış Yap ---
+        PopupMenuItem<String>(
+          value: 'logout',
+          child: Row(children: [
+            Container(padding: const EdgeInsets.all(7), decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(8)), child: Icon(Icons.logout_rounded, color: Colors.red.shade600, size: 18)),
+            const SizedBox(width: 12),
+            Text('Çıkış Yap', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.red.shade700)),
+          ]),
+        ),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+        child: CircleAvatar(
+          radius: 17,
+          backgroundColor: Colors.indigo.shade50,
+          child: Text(initial, style: const TextStyle(color: Colors.indigo, fontSize: 13, fontWeight: FontWeight.bold)),
+        ),
+      ),
+    );
+  }
+
+
+
   Future<void> _migrateDataToActiveTerm() async { final confirm = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(title: const Text('Veri Aktarımı'), content: const Text('Dönem bilgisi bulunmayan veriler aktif döneme atanacak. Devam edilsin mi?'), actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('İptal')), ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Aktar'))])); if (confirm == true) { setState(() => isLoading = true); await _termService.migrateDataToActiveTerm(); await _loadInitialData(); } }
   Future<void> _deleteAllData() async { final confirm = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(title: const Text('DİKKAT: Veriler Silinecek', style: TextStyle(color: Colors.red)), content: const Text('Kurumun tüm verileri (öğrenciler, dersler, vb.) KALICI olarak silinecek. Bu işlem geri alınamaz!'), actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('İptal')), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.red), onPressed: () => Navigator.pop(ctx, true), child: const Text('Tümünü Sil'))])); if (confirm == true) { setState(() => isLoading = true); await _deleteAllData(); await _loadInitialData(); } }
   Widget _buildGreeting(bool isMobile) { return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [if (selectedTerm != null) ...[Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: Colors.orange.shade100, borderRadius: BorderRadius.circular(6)), child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.warning_amber_rounded, color: Colors.orange.shade900, size: 14), const SizedBox(width: 8), Text('Görüntülenen Dönem: ${selectedTerm!['termName'] ?? '${selectedTerm!['startYear']}-${selectedTerm!['endYear']}'}', style: TextStyle(color: Colors.orange.shade900, fontSize: 12, fontWeight: FontWeight.bold))])), const SizedBox(height: 12)], Text('Hoş Geldiniz, ${_getUserDisplayName().split(' ')[0]}', style: TextStyle(fontSize: isMobile ? 32 : 42, fontWeight: FontWeight.w800, color: Colors.indigo.shade900, letterSpacing: -1)), const SizedBox(height: 8), Text('Kurumunuzun dijital ekosistemini buradan yönetebilirsiniz.', style: TextStyle(fontSize: isMobile ? 14 : 16, color: Colors.blueGrey.shade500, fontWeight: FontWeight.w400))]); }
 
   Widget _buildGridSections(bool isMobile) {
+
     return LayoutBuilder(
       builder: (context, constraints) {
         double cardWidth; if (constraints.maxWidth > 1000) { cardWidth = (constraints.maxWidth - 48) / 3; } else if (constraints.maxWidth > 700) { cardWidth = (constraints.maxWidth - 24) / 2; } else { cardWidth = constraints.maxWidth; }

@@ -40,6 +40,7 @@ class AgmService {
     required DateTime bitisTarihi,
     int? haftalikMaksimumSaat,
     int? minimumDersSayisi,
+    int? minimumGrupOgrenciSayisi,
   }) async {
     final cycle = AgmCycle(
       id: '',
@@ -57,6 +58,7 @@ class AgmService {
       olusturanKullaniciId: _currentUserId,
       haftalikMaksimumSaat: haftalikMaksimumSaat,
       minimumDersSayisi: minimumDersSayisi,
+      minimumGrupOgrenciSayisi: minimumGrupOgrenciSayisi,
     );
     return await _repo.createCycle(cycle);
   }
@@ -74,6 +76,7 @@ class AgmService {
     required DateTime bitisTarihi,
     int? haftalikMaksimumSaat,
     int? minimumDersSayisi,
+    int? minimumGrupOgrenciSayisi,
     required AgmCycleStatus status,
     required DateTime olusturulmaZamani,
     required String olusturanKullaniciId,
@@ -94,6 +97,7 @@ class AgmService {
       olusturanKullaniciId: olusturanKullaniciId,
       haftalikMaksimumSaat: haftalikMaksimumSaat,
       minimumDersSayisi: minimumDersSayisi,
+      minimumGrupOgrenciSayisi: minimumGrupOgrenciSayisi,
     );
     await _repo.updateCycle(cycle);
   }
@@ -152,6 +156,7 @@ class AgmService {
       haftalikMaksimumSaat: cycle.haftalikMaksimumSaat,
     );
     engine.setMinimumDersSayisi(cycle.minimumDersSayisi);
+    engine.setMinimumGrupOgrenciSayisi(cycle.minimumGrupOgrenciSayisi);
 
     final draft = await engine.generateDraft(
       ogrenciProfiller: ogrenciProfiller,
@@ -212,6 +217,7 @@ class AgmService {
       haftalikMaksimumSaat: haftalikMaksimumSaat,
     );
     engine.setMinimumDersSayisi(cycle.minimumDersSayisi);
+    engine.setMinimumGrupOgrenciSayisi(cycle.minimumGrupOgrenciSayisi);
 
     final draft = await engine.generateDraft(
       ogrenciProfiller: profiller,

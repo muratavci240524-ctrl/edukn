@@ -17,9 +17,9 @@ class AgmCycle {
   final DateTime olusturulmaZamani;
   final String olusturanKullaniciId;
 
-  // Ön tanımlama ayarları
   final int? haftalikMaksimumSaat; // soft constraint
   final int? minimumDersSayisi; // soft constraint
+  final int? minimumGrupOgrenciSayisi; // Minimum quota for a group to exist
 
   // Taslak istatistikleri (Persistence için)
   final List<String> unassignedStudentIds;
@@ -45,6 +45,7 @@ class AgmCycle {
     required this.olusturanKullaniciId,
     this.haftalikMaksimumSaat,
     this.minimumDersSayisi,
+    this.minimumGrupOgrenciSayisi,
     this.unassignedStudentIds = const [],
     this.absentStudentIds = const [],
     this.underAssignedStudentIds = const [],
@@ -78,6 +79,7 @@ class AgmCycle {
       'olusturanKullaniciId': olusturanKullaniciId,
       'haftalikMaksimumSaat': haftalikMaksimumSaat,
       'minimumDersSayisi': minimumDersSayisi,
+      'minimumGrupOgrenciSayisi': minimumGrupOgrenciSayisi,
       'unassignedStudentIds': unassignedStudentIds,
       'absentStudentIds': absentStudentIds,
       'underAssignedStudentIds': underAssignedStudentIds,
@@ -112,6 +114,7 @@ class AgmCycle {
       olusturanKullaniciId: map['olusturanKullaniciId'] ?? '',
       haftalikMaksimumSaat: map['haftalikMaksimumSaat'],
       minimumDersSayisi: map['minimumDersSayisi'],
+      minimumGrupOgrenciSayisi: map['minimumGrupOgrenciSayisi'],
       unassignedStudentIds: List<String>.from(
         map['unassignedStudentIds'] ?? [],
       ),
@@ -143,6 +146,7 @@ class AgmCycle {
     String? olusturanKullaniciId,
     int? haftalikMaksimumSaat,
     int? minimumDersSayisi,
+    int? minimumGrupOgrenciSayisi,
     List<String>? unassignedStudentIds,
     List<String>? absentStudentIds,
     List<String>? underAssignedStudentIds,
@@ -168,6 +172,8 @@ class AgmCycle {
       olusturanKullaniciId: olusturanKullaniciId ?? this.olusturanKullaniciId,
       haftalikMaksimumSaat: haftalikMaksimumSaat ?? this.haftalikMaksimumSaat,
       minimumDersSayisi: minimumDersSayisi ?? this.minimumDersSayisi,
+      minimumGrupOgrenciSayisi:
+          minimumGrupOgrenciSayisi ?? this.minimumGrupOgrenciSayisi,
       unassignedStudentIds: unassignedStudentIds ?? this.unassignedStudentIds,
       absentStudentIds: absentStudentIds ?? this.absentStudentIds,
       underAssignedStudentIds:

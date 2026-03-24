@@ -35,8 +35,7 @@ class AgmDraftResult {
   final List<AgmAssignment> atamalar;
   final List<AgmGroup> gruplar; // Updated groups
   final List<String> yerlesmeyenOgrenciIds; // Hard constraint sebebiyle
-  final List<String>
-  eksikAtananOgrenciIds; // Minimum ders sayısına ulaşamayanlar
+  final List<String> eksikAtananOgrenciIds; // Minimum ders sayısına ulaşamayanlar
   final List<AgmSoftWarning> softUyarilar;
   final Map<String, List<String>> yerlesmemeNedenleri;
 
@@ -66,87 +65,148 @@ class AgmSoftWarning {
 
 /// ─────────────────────────────────────────────────────────────────────────────
 /// AGM Greedy Optimization Algoritması
-///
-/// AŞAMA 1 – İHTİYAÇ ANALİZİ
-///   Her öğrenci için: ihtiyaçSkoru[ders] = 1 - başarıOranı
-///   En düşük başarıdan en yükseğe sıralanır
-///
-/// AŞAMA 2 – 2 FAZLI DAĞITIM
-///   FAZ 1 – Dengeleme: Her öğrenciye farklı derslerden en az 1 etüt
-///   FAZ 2 – Derinleştirme: Yüksek ihtiyaçlılara ek atama
-///
-/// HARD CONSTRAINTS:
-///   - Öğrenci aynı slotta yalnızca 1 grupta olabilir
-///   - Öğretmen aynı slotta yalnızca 1 grupta olabilir
-///
-/// SOFT CONSTRAINTS (aşılabilir, uyarı üretir):
-///   - Grup kapasitesi
-///   - Haftalık maksimum saat
 /// ─────────────────────────────────────────────────────────────────────────────
 class AgmAssignmentEngine {
   final String cycleId;
   final String institutionId;
   final int? haftalikMaksimumSaat;
+  int? minimumGrupOgrenciSayisi;
+  int? _minimumDersSayisi;
 
   AgmAssignmentEngine({
     required this.cycleId,
     required this.institutionId,
     this.haftalikMaksimumSaat,
+    this.minimumGrupOgrenciSayisi,
   });
 
-  /// Ana giriş noktası
-  /// [ogrenciProfillar] – öğrenci listesi + ders ihtiyaç skoru haritası
-  /// [gruplar] – admin tarafından ön tanımlanmış gruplar
+  void setMinimumDersSayisi(int? val) => _minimumDersSayisi = val;
+  void setMinimumGrupOgrenciSayisi(int? val) => minimumGrupOgrenciSayisi = val;
+
+  /// Ana giriş noktası. İteratif olarak dağıtım yapar.
   Future<AgmDraftResult> generateDraft({
     required List<StudentNeedProfile> ogrenciProfiller,
     required List<AgmGroup> gruplar,
   }) async {
-    // ── HARD CONSTRAINT TAKİBİ ────────────────────────────────────────────
-    // ogrenciId -> Set<slotId> (dolmuş slotlar)
+    final Set<String> disabledGroupIds = {};
+    AgmDraftResult? finalResult;
+
+    // Maksimum 10 iterasyon (Infinite loop önlemi)
+    for (int iter = 0; iter < 10; iter++) {
+      final passResult = _runPass(
+        ogrenciProfiller: ogrenciProfiller,
+        gruplar: gruplar,
+        disabledGroupIds: disabledGroupIds,
+      );
+
+      if (minimumGrupOgrenciSayisi == null || minimumGrupOgrenciSayisi! <= 1) {
+        finalResult = passResult;
+        break;
+      }
+
+      // Kriteri sağlamayan grupları bul (en az 1 öğrencisi olan ama min altı kalanlar)
+      final underEnrolledIds = passResult.gruplar
+          .where((g) =>
+              g.mevcutOgrenciSayisi > 0 &&
+              g.mevcutOgrenciSayisi < minimumGrupOgrenciSayisi!)
+          .map((g) => g.id)
+          .toList();
+
+      if (underEnrolledIds.isEmpty) {
+        finalResult = passResult;
+        break;
+      }
+
+      // Bu grupları devre dışı bırak ve yeniden dene
+      disabledGroupIds.addAll(underEnrolledIds);
+      finalResult = passResult;
+    }
+
+    // Son aşamada hala kriteri sağlamayan grup kaldıysa (10 iterasyona rağmen),
+    // o grupları ve atamalarini temizleyip öğrencileri yerleşemeyenlere geri ekleyelim.
+    if (minimumGrupOgrenciSayisi != null && minimumGrupOgrenciSayisi! > 1) {
+      final finalUnderEnrolledIds = finalResult!.gruplar
+          .where((g) =>
+              g.mevcutOgrenciSayisi > 0 &&
+              g.mevcutOgrenciSayisi < minimumGrupOgrenciSayisi!)
+          .map((g) => g.id)
+          .toSet();
+
+      if (finalUnderEnrolledIds.isNotEmpty) {
+        final filteredAtamalar = finalResult.atamalar
+            .where((a) => !finalUnderEnrolledIds.contains(a.groupId))
+            .toList();
+
+        final studentsFromRemovedGroups = finalResult.atamalar
+            .where((a) => finalUnderEnrolledIds.contains(a.groupId))
+            .map((a) => a.ogrenciId)
+            .toList();
+
+        final Set<String> newYerlesmeyen =
+            finalResult.yerlesmeyenOgrenciIds.toSet()..addAll(studentsFromRemovedGroups);
+
+        final filteredGruplar = finalResult.gruplar.map((g) {
+          if (finalUnderEnrolledIds.contains(g.id)) {
+            return g.copyWith(mevcutOgrenciSayisi: 0, kazanimlar: []);
+          }
+          return g;
+        }).toList();
+
+        finalResult = AgmDraftResult(
+          atamalar: filteredAtamalar,
+          gruplar: filteredGruplar,
+          yerlesmeyenOgrenciIds: newYerlesmeyen.toList(),
+          eksikAtananOgrenciIds: finalResult.eksikAtananOgrenciIds,
+          softUyarilar: finalResult.softUyarilar,
+          yerlesmemeNedenleri: finalResult.yerlesmemeNedenleri,
+        );
+      }
+    }
+
+    return finalResult!;
+  }
+
+  AgmDraftResult _runPass({
+    required List<StudentNeedProfile> ogrenciProfiller,
+    required List<AgmGroup> gruplar,
+    required Set<String> disabledGroupIds,
+  }) {
     final Map<String, Set<String>> ogrenciDoluSlot = {};
-    // ogrenciId -> kaç saat atandı
     final Map<String, int> ogrenciSaatSayisi = {};
-    // ogrenciId -> Nedenler
     final Map<String, List<String>> yerlesmemeNedenleri = {};
 
-    // groupId -> mevcut öğrenci sayısı (Firestore'dan ayrı, in-memory)
     final Map<String, int> grupMevcut = {
-      for (final g in gruplar) g.id: g.mevcutOgrenciSayisi,
+      for (final g in gruplar) g.id: 0,
     };
 
     final List<AgmAssignment> atamalar = [];
     final List<String> yerlesmeyenIds = [];
     final List<AgmSoftWarning> uyarilar = [];
 
-    // Group-Outcome Map: groupId -> Map<kazanimAdi, frekans>
     final Map<String, Map<String, int>> grupKazanimFrekanslari = {
       for (final g in gruplar)
         g.id: {
           for (final k in g.kazanimlar) k: 10,
-        }, // Mevcutları güçlü frekansla başlat
+        },
     };
 
-    // groupId -> bu grubun hedef "başarı seviyesi" (ilk atanan öğrenciye göre belirlenir)
     final Map<String, int> grupBucket = {};
 
-    // ── AŞAMA 1: ÖNCELİKLENDİRME ──────────────────────────────────────────
-    // Öğrencileri toplam ihtiyaç skoruna göre azalan sırada sırala
     final siralanmisProfillar = List<StudentNeedProfile>.from(ogrenciProfiller)
       ..sort((a, b) => b.toplamIhtiyac.compareTo(a.toplamIhtiyac));
+
     for (final profil in siralanmisProfillar) {
       final ogrenciId = profil.ogrenciId;
       ogrenciDoluSlot.putIfAbsent(ogrenciId, () => {});
       ogrenciSaatSayisi.putIfAbsent(ogrenciId, () => 0);
       yerlesmemeNedenleri.putIfAbsent(ogrenciId, () => []);
 
-      // Dersleri ihtiyaç skoruna göre sırala (en yüksek önce)
       final siraliDersler = profil.dersIhtiyaclari.entries.toList()
         ..sort((a, b) => b.value.compareTo(a.value));
 
       for (final dersEntry in siraliDersler) {
         final dersId = dersEntry.key;
 
-        // Haftalık maks saat kontrolü (soft)
         if (haftalikMaksimumSaat != null &&
             ogrenciSaatSayisi[ogrenciId]! >= haftalikMaksimumSaat!) {
           yerlesmemeNedenleri[ogrenciId]!.add(
@@ -155,7 +215,6 @@ class AgmAssignmentEngine {
           continue;
         }
 
-        // Bu öğrencinin bu dersindeki zayıf kazanımları
         final ogrenciKazanimlar = profil.kazanimIhtiyaclari[dersId] ?? {};
         final ogrenciBasariOrani = profil.dersBasariOranlari[dersId] ?? 0.0;
 
@@ -163,12 +222,13 @@ class AgmAssignmentEngine {
           dersId: dersId,
           ogrenciId: ogrenciId,
           ogrenciKazanimlar: ogrenciKazanimlar,
-          ogrenciBasariOrani: profil.dersBasariOranlari[dersId] ?? 0.0,
+          ogrenciBasariOrani: ogrenciBasariOrani,
           ogrenciDoluSlot: ogrenciDoluSlot[ogrenciId]!,
           gruplar: gruplar,
           grupMevcut: grupMevcut,
           grupKazanimFrekanslari: grupKazanimFrekanslari,
           grupBucket: grupBucket,
+          disabledGroupIds: disabledGroupIds,
         );
 
         final uygunGrup = findResult.group;
@@ -189,23 +249,16 @@ class AgmAssignmentEngine {
             ),
           );
 
-          // Güncellemeler
           ogrenciDoluSlot[ogrenciId]!.add(uygunGrup.saatDilimiId);
           grupMevcut[uygunGrup.id] = (grupMevcut[uygunGrup.id] ?? 0) + 1;
           ogrenciSaatSayisi[ogrenciId] = ogrenciSaatSayisi[ogrenciId]! + 1;
 
           if (!grupBucket.containsKey(uygunGrup.id)) {
-            grupBucket[uygunGrup.id] = (ogrenciBasariOrani * 5).floor().clamp(
-              0,
-              4,
-            );
+            grupBucket[uygunGrup.id] = (ogrenciBasariOrani * 5).floor().clamp(0, 4);
           }
 
           if (ogrenciKazanimlar.isNotEmpty) {
-            final frekansMap = grupKazanimFrekanslari.putIfAbsent(
-              uygunGrup.id,
-              () => {},
-            );
+            final frekansMap = grupKazanimFrekanslari.putIfAbsent(uygunGrup.id, () => {});
             for (final k in ogrenciKazanimlar) {
               frekansMap[k] = (frekansMap[k] ?? 0) + 1;
             }
@@ -216,55 +269,22 @@ class AgmAssignmentEngine {
       }
     }
 
-    // Hiç yerleşemeyenler ve Eksik yerleşenler
     final List<String> eksikAtananIds = [];
     for (final profil in ogrenciProfiller) {
       final ogrenciId = profil.ogrenciId;
-      final ogrenciAtamalar = atamalar
-          .where((a) => a.ogrenciId == ogrenciId)
-          .toList();
+      final ogrenciAtamalar = atamalar.where((a) => a.ogrenciId == ogrenciId).toList();
       final atananSayisi = ogrenciAtamalar.length;
 
       if (atananSayisi == 0) {
         yerlesmeyenIds.add(ogrenciId);
-      } else if (minimumDersSayisi != null &&
-          atananSayisi < minimumDersSayisi!) {
+      } else if (_minimumDersSayisi != null && atananSayisi < _minimumDersSayisi!) {
         eksikAtananIds.add(ogrenciId);
-
-        final atananDersIsimleri = ogrenciAtamalar
-            .map((e) {
-              final g = gruplar.firstWhere(
-                (x) => x.id == e.groupId,
-                orElse: () => gruplar.first,
-              );
-              return g.dersAdi;
-            })
-            .toSet()
-            .join(', ');
-
-        if (profil.dersIhtiyaclari.length == atananSayisi) {
-          // Öğrenciye gereken tüm dersler atanmış, minimuma sırf başarılı olduğu için ulaşamamış
-          yerlesmemeNedenleri[ogrenciId] = [
-            'Atandığı dersler: $atananDersIsimleri',
-            'Başka dersten yüzdelik başarı eksikliği (ihtiyacı) bulunmamaktadır.',
-          ];
-        } else {
-          // Başka eksikleri de vardı ama kapasite veya çakışma gibi sebeplerle atanamadı
-          yerlesmemeNedenleri[ogrenciId]!.insert(
-            0,
-            'Atandığı dersler: $atananDersIsimleri',
-          );
-        }
       }
     }
 
-    // Final adım: Grup dökümanlarını (in-memory) kazanımlarla güncelle (UI'da göstermek için)
     final listGuncelGruplar = gruplar.map((g) {
       final frekanslar = grupKazanimFrekanslari[g.id] ?? {};
-      // Frekansa göre sırala ve ilk 3'ü al (1 ana + 2 yardımcı)
-      final siraliKazanimlar = frekanslar.entries.toList()
-        ..sort((a, b) => b.value.compareTo(a.value));
-
+      final siraliKazanimlar = frekanslar.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
       final top3 = siraliKazanimlar.take(3).map((e) => e.key).toList();
 
       return g.copyWith(
@@ -283,18 +303,6 @@ class AgmAssignmentEngine {
     );
   }
 
-  /// Minimum ders sayısı kontrolü için yardımcı özellik
-  int? get minimumDersSayisi {
-    // Bu değer genellikle cycle modelinden gelir. GenerateDraft'a parametre olarak da eklenebilir.
-    // Ancak mevcut yapıda global bir referans yoksa engine'e constructorda eklenebilir.
-    return _minimumDersSayisi;
-  }
-
-  int? _minimumDersSayisi;
-
-  void setMinimumDersSayisi(int? val) => _minimumDersSayisi = val;
-
-  /// En verimli grubu bul (Doluluk ve Kazanım odaklı) + Neden Analizi
   _FindGroupResult _findBestEfficientGroupWithReason({
     required String dersId,
     required String ogrenciId,
@@ -305,38 +313,33 @@ class AgmAssignmentEngine {
     required Map<String, int> grupMevcut,
     required Map<String, Map<String, int>> grupKazanimFrekanslari,
     required Map<String, int> grupBucket,
+    required Set<String> disabledGroupIds,
   }) {
-    // 1) Bu ders için tüm gruplar
     final dersGruplari = gruplar.where((g) {
       return g.dersId == dersId || g.dersAdi == dersId;
     }).toList();
 
     if (dersGruplari.isEmpty) {
-      return _FindGroupResult(
-        null,
-        'Bu ders için tanımlanmış grup bulunamadı.',
-      );
+      return _FindGroupResult(null, 'Bu ders için tanımlanmış grup bulunamadı.');
     }
 
-    // 2) HARD CONSTRAINT filtreleme
     final uygunGruplar = <AgmGroup>[];
     String lastRefusalReason = 'Uygun grup bulunamadı.';
 
     for (final g in dersGruplari) {
-      // Öğrenci slot çakışması
       if (ogrenciDoluSlot.contains(g.saatDilimiId)) {
-        lastRefusalReason =
-            'Saat çakışması (${g.baslangicSaat}-${g.bitisSaat}).';
+        lastRefusalReason = 'Saat çakışması (${g.baslangicSaat}-${g.bitisSaat}).';
         continue;
       }
-
-      // HARD KAPASİTE KONTROLÜ
       final mevcut = grupMevcut[g.id] ?? 0;
       if (mevcut >= g.kapasite) {
         lastRefusalReason = 'Tüm gruplar dolu (${g.kapasite}/${g.kapasite}).';
         continue;
       }
-
+      if (disabledGroupIds.contains(g.id)) {
+        lastRefusalReason = 'Bu grup minimum öğrenci sayısını karşılamadığı için kapatıldı.';
+        continue;
+      }
       uygunGruplar.add(g);
     }
 
@@ -346,40 +349,28 @@ class AgmAssignmentEngine {
 
     final int studentBucket = (ogrenciBasariOrani * 5).floor().clamp(0, 4);
 
-    // 3) SIRALAMA (En verimli grup)
     uygunGruplar.sort((a, b) {
       final aDoluluk = grupMevcut[a.id] ?? 0;
       final bDoluluk = grupMevcut[b.id] ?? 0;
-
       final aBkt = grupBucket[a.id];
       final bBkt = grupBucket[b.id];
 
-      // Eğer grup boşsa, bucket farkı 0 kabul edilir (herkes girebilir).
       int aDist = aBkt == null ? 0 : (aBkt - studentBucket).abs();
       int bDist = bBkt == null ? 0 : (bBkt - studentBucket).abs();
 
-      // Öncelikle seviyesi en yakın olan grubu tercih et
       if (aDist != bDist) return aDist.compareTo(bDist);
-
-      // Mesafe eşitse (örneğin ikisi de 0), "tam eşleşme" ile "boş grup" arasında tam eşleşmeyi öne alalım.
-      // Boş grupları diğer seviyeler için rezerve bırakmak daha iyidir.
       if (aDist == 0 && bDist == 0) {
         bool aIsExact = aBkt != null && aBkt == studentBucket;
         bool bIsExact = bBkt != null && bBkt == studentBucket;
         if (aIsExact != bIsExact) return aIsExact ? -1 : 1;
       }
 
-      // Seviyeler eşitse kazanım uyumuna bakalım
       final aKazanimlar = (grupKazanimFrekanslari[a.id] ?? {}).keys.toSet();
       final bKazanimlar = (grupKazanimFrekanslari[b.id] ?? {}).keys.toSet();
       final aMatchCount = ogrenciKazanimlar.intersection(aKazanimlar).length;
       final bMatchCount = ogrenciKazanimlar.intersection(bKazanimlar).length;
-      // Çok kesişen (eksik kazanımı grubun odaklandığı kazanıma uyan) önce:
       if (aMatchCount != bMatchCount) return bMatchCount.compareTo(aMatchCount);
-
-      // Doluluk durumu (Sınıfları optimum doldurmak için daha dolu olanı doldurmayı tercih et)
       if (aDoluluk != bDoluluk) return bDoluluk.compareTo(aDoluluk);
-
       return 0;
     });
 

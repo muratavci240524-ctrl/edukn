@@ -1079,6 +1079,8 @@ class _PersonalInfoCard extends StatelessWidget {
       case 'VELI':
       case 'PARENT':
         return 'VELİ';
+      case 'DIGER':
+        return 'DİĞER';
       default:
         return role.toUpperCase();
     }
@@ -1780,7 +1782,10 @@ class _JobTabState extends State<_JobTab> {
 
                     // Ünvan
                     DropdownButtonFormField<String>(
-                      value: jobTitle.isEmpty ? null : jobTitle.toLowerCase(),
+                      value: [
+                        'ogretmen', 'mudur', 'mudur_yardimcisi', 'uzman', 'personel',
+                        'hr', 'muhasebe', 'satin_alma', 'depo', 'destek_hizmetleri', 'diger'
+                      ].contains(jobTitle.toLowerCase()) ? jobTitle.toLowerCase() : null,
                       items: const [
                         DropdownMenuItem(
                           value: 'ogretmen',
@@ -1816,6 +1821,10 @@ class _JobTabState extends State<_JobTab> {
                           value: 'destek_hizmetleri',
                           child: Text('Destek Hizmetleri'),
                         ),
+                        DropdownMenuItem(
+                          value: 'diger',
+                          child: Text('Diğer'),
+                        ),
                       ],
                       decoration: const InputDecoration(
                         labelText: 'Ünvan',
@@ -1837,7 +1846,15 @@ class _JobTabState extends State<_JobTab> {
                     // Branş (sadece öğretmen seçiliyse görünür)
                     if (jobTitle.toLowerCase() == 'ogretmen') ...[
                       DropdownButtonFormField<String>(
-                        value: branch.isEmpty ? null : branch,
+                        value: [
+                          'Almanca', 'Arapça', 'Beden Eğitimi ve Spor', 'Bilişim Teknolojileri ve Yazılım',
+                          'Biyoloji', 'Coğrafya', 'Din Kültürü ve Ahlak Bilgisi', 'Felsefe',
+                          'Fen Bilimleri', 'Fizik', 'Fransızca', 'Görsel Sanatlar', 'İlköğretim Matematik',
+                          'İngilizce', 'İspanyolca', 'Kimya', 'Kulüp', 'Matematik', 'Müzik', 'Okul Öncesi',
+                          'Özel Eğitim', 'Rehberlik ve Psikolojik Danışmanlık', 'Rusça', 'Sınıf Öğretmenliği',
+                          'Sosyal Bilgiler', 'Tarih', 'Teknoloji ve Tasarım', 'Türk Dili ve Edebiyatı',
+                          'Türkçe', 'Diğer'
+                        ].contains(branch) ? branch : null,
                         items: const [
                           DropdownMenuItem(
                             value: 'Almanca',
@@ -1954,6 +1971,10 @@ class _JobTabState extends State<_JobTab> {
                           DropdownMenuItem(
                             value: 'Türkçe',
                             child: Text('Türkçe'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'Diğer',
+                            child: Text('Diğer'),
                           ),
                         ],
                         decoration: const InputDecoration(

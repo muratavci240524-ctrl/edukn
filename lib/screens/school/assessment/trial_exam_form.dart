@@ -617,6 +617,7 @@ class _TrialExamFormState extends State<TrialExamForm>
       sessionIndex,
       sysByTc,
       sysByNo,
+      null, // No examType for preview
       (_) {}, // İlerleme geri bildirimi gerekmiyor
     );
 
@@ -2249,16 +2250,31 @@ class _TrialExamFormState extends State<TrialExamForm>
     Map<int, double> sessionProgress = {};
     List<Future<Map<String, StudentResult>>> sessionTasks = [];
 
+    // Get Exam Type Definition early for net calculation ratio
+    ExamType? currentExamType;
+    if (_selectedExamTypeId != null) {
+      try {
+        currentExamType = _examTypes.firstWhere((e) => e.id == _selectedExamTypeId);
+      } catch (_) {}
+    }
+
     for (int i = 0; i < _sessions.length; i++) {
       sessionTasks.add(
-        _processSessionSingle(_sessions[i], i, sysByTc, sysByNo, (sessionP) {
-          sessionProgress[i] = sessionP;
-          // Calculate total progress in 20-80 range
-          double totalP = 0;
-          sessionProgress.values.forEach((v) => totalP += v);
-          double weightedP = 0.2 + (totalP / _sessions.length) * 0.6;
-          onProgress(weightedP, "${i + 1}. Oturum işleniyor...");
-        }),
+        _processSessionSingle(
+          _sessions[i],
+          i,
+          sysByTc,
+          sysByNo,
+          currentExamType,
+          (sessionP) {
+            sessionProgress[i] = sessionP;
+            // Calculate total progress in 20-80 range
+            double totalP = 0;
+            sessionProgress.values.forEach((v) => totalP += v);
+            double weightedP = 0.2 + (totalP / _sessions.length) * 0.6;
+            onProgress(weightedP, "${i + 1}. Oturum işleniyor...");
+          },
+        ),
       );
     }
     final results = await Future.wait(sessionTasks);
@@ -2372,6 +2388,7 @@ class _TrialExamFormState extends State<TrialExamForm>
     int sessionIndex,
     Map<String, Map<String, dynamic>> sysByTc,
     Map<String, Map<String, dynamic>> sysByNo,
+    ExamType? examType,
     Function(double) onProgressCallback,
   ) async {
     Map<String, StudentResult> localResults = {};
@@ -2584,7 +2601,9 @@ class _TrialExamFormState extends State<TrialExamForm>
             }
           }
 
-          double net = correct - (wrong / 3.0);
+            double ratio = examType?.wrongCorrectRatio ?? 3.0;
+            if (ratio <= 0) ratio = 3.0; // Fail-safe
+            double net = correct - (wrong / ratio);
 
           final existing = student.subjects[subjectName];
 

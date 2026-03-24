@@ -55,6 +55,8 @@ class _AgmTeacherTimetableScreenState extends State<AgmTeacherTimetableScreen> {
   void _buildTeacherList() {
     final Map<String, String> teacherMap = {};
     for (final g in widget.groups) {
+      final hasStudents = (widget.assignmentsByGroup[g.id] ?? []).isNotEmpty;
+      if (!hasStudents) continue;
       if (g.ogretmenId.isNotEmpty) {
         teacherMap[g.ogretmenId] = g.ogretmenAdi;
       }
@@ -68,8 +70,11 @@ class _AgmTeacherTimetableScreenState extends State<AgmTeacherTimetableScreen> {
     setState(() {
       _selectedTeacherId = teacherId;
       _selectedTeacherName = teacherName;
-      _teacherGroups =
-          widget.groups.where((g) => g.ogretmenId == teacherId).toList()
+      _teacherGroups = widget.groups.where((g) {
+        final matchesTeacher = g.ogretmenId == teacherId;
+        final hasStudents = (widget.assignmentsByGroup[g.id] ?? []).isNotEmpty;
+        return matchesTeacher && hasStudents;
+      }).toList()
             ..sort((a, b) {
               int dayCompare = _gunler
                   .indexOf(a.gun)
@@ -444,7 +449,11 @@ class _AgmTeacherTimetableScreenState extends State<AgmTeacherTimetableScreen> {
       final tName = teacher['name'];
       if (tId == null) continue;
 
-      final tGroups = widget.groups.where((g) => g.ogretmenId == tId).toList()
+      final tGroups = widget.groups
+          .where((g) =>
+              g.ogretmenId == tId &&
+              (widget.assignmentsByGroup[g.id] ?? []).isNotEmpty)
+          .toList()
         ..sort((a, b) {
           int dayCompare = _gunler
               .indexOf(a.gun)
@@ -461,18 +470,6 @@ class _AgmTeacherTimetableScreenState extends State<AgmTeacherTimetableScreen> {
             ? _norm(group.derslikAdi!)
             : null;
         final gKazanimlar = group.kazanimlar.map((k) => _norm(k)).toList();
-
-        // Dinamik yazı boyutu belirle (Öğrenci sayısına göre)
-        double fontSize = 10;
-        double padding = 4;
-        if (students.length > 25) {
-          fontSize = 9;
-          padding = 2.5;
-        }
-        if (students.length > 40) {
-          fontSize = 8;
-          padding = 1.5;
-        }
 
         doc.addPage(
           pw.MultiPage(
@@ -616,39 +613,12 @@ class _AgmTeacherTimetableScreenState extends State<AgmTeacherTimetableScreen> {
                     ),
                 ],
                 pw.SizedBox(height: 16),
-                pw.Table.fromTextArray(
-                  headers: ['#', 'Şube', 'Öğrenci Adı Soyadı', 'Başarı %'],
-                  headerStyle: pw.TextStyle(
-                    font: fontBold,
-                    color: PdfColors.white,
-                    fontSize: fontSize,
-                  ),
-                  headerDecoration: const pw.BoxDecoration(
-                    color: PdfColors.deepOrange400,
-                  ),
-                  cellStyle: pw.TextStyle(font: font, fontSize: fontSize),
-                  cellPadding: pw.EdgeInsets.all(padding),
-                  cellAlignment: pw.Alignment.centerLeft,
-                  headerAlignment: pw.Alignment.centerLeft,
-                  columnWidths: {
-                    0: const pw.FixedColumnWidth(30),
-                    1: const pw.FixedColumnWidth(80),
-                    2: const pw.FlexColumnWidth(),
-                    3: const pw.FixedColumnWidth(60),
-                  },
-                  data: () {
-                    int counter = 1;
-                    return students.map((s) {
-                      final basari = (1.0 - s.ihtiyacSkoru) * 100;
-                      return [
-                        '${counter++}',
-                        _norm(s.subeAdi),
-                        _norm(s.ogrenciAdi),
-                        '% ${basari.toStringAsFixed(0)}',
-                      ];
-                    }).toList();
-                  }(),
+                pw.Text(
+                  'Öğrenci Listesi (${students.length}):',
+                  style: pw.TextStyle(font: fontBold, fontSize: 10),
                 ),
+                pw.SizedBox(height: 5),
+                _buildOldStyleStudentTable(students, font, fontBold),
               ];
             },
           ),
@@ -701,7 +671,11 @@ class _AgmTeacherTimetableScreenState extends State<AgmTeacherTimetableScreen> {
       final tName = teacher['name'];
       if (tId == null) continue;
 
-      final tGroups = widget.groups.where((g) => g.ogretmenId == tId).toList();
+      final tGroups = widget.groups
+          .where((g) =>
+              g.ogretmenId == tId &&
+              (widget.assignmentsByGroup[g.id] ?? []).isNotEmpty)
+          .toList();
 
       sheet.appendRow([TextCellValue('AGM ÖĞRETMEN PROGRAMI - $tName')]);
       sheet.appendRow([TextCellValue('')]);
@@ -753,5 +727,76 @@ class _AgmTeacherTimetableScreenState extends State<AgmTeacherTimetableScreen> {
         filename: 'agm_ogretmen_raporlari.xlsx',
       );
     }
+  }
+
+  pw.Widget _buildOldStyleStudentTable(List<AgmAssignment> students, pw.Font font, pw.Font fontBold) {
+    if (students.isEmpty) {
+      return pw.Text('• Bu grupta öğrenci yok.',
+          style: pw.TextStyle(font: font, fontSize: 10));
+    }
+
+    final sortedStudents = students.toList()
+      ..sort((a, b) {
+        final sc = a.subeAdi.compareTo(b.subeAdi);
+        if (sc != 0) return sc;
+        return a.ogrenciAdi.compareTo(b.ogrenciAdi);
+      });
+
+    return pw.Table(
+      border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
+      columnWidths: {
+        0: const pw.FixedColumnWidth(30),
+        1: const pw.FlexColumnWidth(3),
+        2: const pw.FlexColumnWidth(1.5),
+        3: const pw.FixedColumnWidth(60),
+      },
+      children: [
+        // Header
+        pw.TableRow(
+          decoration: const pw.BoxDecoration(color: PdfColors.grey100),
+          children: [
+            _tableHeader('No', fontBold),
+            _tableHeader('Öğrenci Adı Soyadı', fontBold),
+            _tableHeader('Şube', fontBold),
+            _tableHeader('Başarı %', fontBold),
+          ],
+        ),
+        // Rows
+        ...List.generate(sortedStudents.length, (index) {
+          final s = sortedStudents[index];
+          final basari = (1.0 - s.ihtiyacSkoru) * 100;
+          return pw.TableRow(
+            children: [
+              _tableCell('${index + 1}', font),
+              _tableCell(_norm(s.ogrenciAdi), font),
+              _tableCell(_norm(s.subeAdi), font),
+              _tableCell('%${basari.toStringAsFixed(0)}', font, align: pw.Alignment.center),
+            ],
+          );
+        }),
+      ],
+    );
+  }
+
+  pw.Widget _tableHeader(String text, pw.Font font) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.all(6),
+      child: pw.Text(
+        text,
+        style: pw.TextStyle(font: font, fontSize: 9, color: PdfColors.grey800),
+        textAlign: pw.TextAlign.center,
+      ),
+    );
+  }
+
+  pw.Widget _tableCell(String text, pw.Font font, {pw.Alignment align = pw.Alignment.centerLeft}) {
+    return pw.Container(
+      alignment: align,
+      padding: const pw.EdgeInsets.all(6),
+      child: pw.Text(
+        text,
+        style: pw.TextStyle(font: font, fontSize: 9),
+      ),
+    );
   }
 }

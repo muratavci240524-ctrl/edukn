@@ -53,6 +53,7 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
   int _yerlesmeyenFilterIndex = 0;
   String? _groupFilterBranch;
   final Set<String> _selectedStudentIds = {};
+  Set<String>? _selectedTimeSlots;
 
   @override
   void initState() {
@@ -514,8 +515,24 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
     final Map<String, List<AgmGroup>> byDay = {};
     final Set<String> allGroupBranches = _groups.map((g) => g.dersAdi).toSet();
 
+    // Benzersiz tüm slotları bulup sırala (filtreleme butonları için)
+    final allPossibleSlots = _groups
+        .map((g) => '${g.baslangicSaat}-${g.bitisSaat}')
+        .toSet()
+        .toList()
+      ..sort();
+
+    // Default: tümü seçili
+    if (_selectedTimeSlots == null) {
+      _selectedTimeSlots = Set<String>.from(allPossibleSlots);
+    }
+
     for (final g in _groups) {
       if (_groupFilterBranch != null && g.dersAdi != _groupFilterBranch) {
+        continue;
+      }
+      final slotKey = '${g.baslangicSaat}-${g.bitisSaat}';
+      if (!_selectedTimeSlots!.contains(slotKey)) {
         continue;
       }
       byDay.putIfAbsent(g.gun, () => []).add(g);
@@ -539,7 +556,10 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
       children: [
         _buildCycleSummaryBar(),
         const SizedBox(height: 16),
-        _buildGroupFilterRow(allGroupBranches.toList()..sort()),
+        _buildGroupFilterRow(
+          allGroupBranches.toList()..sort(),
+          allPossibleSlots,
+        ),
         const SizedBox(height: 12),
         ...sortedDays.map((day) {
           final groups = byDay[day]!;
@@ -635,18 +655,17 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
     );
   }
 
-  Widget _buildGroupFilterRow(List<String> branches) {
+  Widget _buildGroupFilterRow(List<String> branches, List<String> allSlots) {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
             color: Colors.deepOrange.shade50,
             borderRadius: BorderRadius.circular(8),
           ),
           child: Text(
-            'Cumartesi', // Not: AGM şu an sadece Cumartesi odaklı olabilir veya slot gününden gelir.
+            'Cumartesi',
             style: TextStyle(
               fontWeight: FontWeight.bold,
               color: Colors.deepOrange.shade700,
@@ -654,6 +673,57 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
             ),
           ),
         ),
+        const SizedBox(width: 8),
+
+        // Saat Dilimi Filtreleri (1, 2, 3...)
+        ...allSlots.asMap().entries.map((entry) {
+          final index = entry.key + 1;
+          final slotKey = entry.value;
+          final isSelected = _selectedTimeSlots?.contains(slotKey) ?? true;
+
+          return Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: InkWell(
+              onTap: () {
+                setState(() {
+                  if (_selectedTimeSlots == null) {
+                    _selectedTimeSlots = Set<String>.from(allSlots);
+                  }
+                  if (_selectedTimeSlots!.contains(slotKey)) {
+                    _selectedTimeSlots!.remove(slotKey);
+                  } else {
+                    _selectedTimeSlots!.add(slotKey);
+                  }
+                });
+              },
+              borderRadius: BorderRadius.circular(4),
+              child: Container(
+                width: 26,
+                height: 26,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: isSelected ? Colors.deepOrange : Colors.white,
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(
+                    color: isSelected
+                        ? Colors.deepOrange
+                        : Colors.grey.shade300,
+                  ),
+                ),
+                child: Text(
+                  '$index',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: isSelected ? Colors.white : Colors.grey.shade600,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }),
+
+        const Spacer(),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
@@ -712,9 +782,16 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      clipBehavior: Clip.antiAlias,
       child: ExpansionTile(
-        shape: const Border(),
-        collapsedShape: const Border(),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide.none,
+        ),
+        collapsedShape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide.none,
+        ),
         leading: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
@@ -1500,51 +1577,119 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
     required double esikBasariOrani,
     required bool sadeceDusukBasari,
     required Map<String, double> dersBazliEsikler,
+    required int minGroupSize,
   }) async {
     setState(() => _generating = true);
     Navigator.pop(context); // Sheet'i kapat
 
+    // Update cycle with the selected min group size
+    final currentCycle = widget.cycle.copyWith(
+      minimumGrupOgrenciSayisi: minGroupSize,
+    );
+
     try {
-      // 1) Sınav dökümanını çek (resultsJson + selectedBranches)
+      // 1) Sınav dökümanlarını çek (support multiple merged exams)
       _showProgress('Sınav verileri yükleniyor...');
-      final examDoc = await _db
-          .collection('trial_exams')
-          .doc(widget.cycle.referansDenemeSinavId)
-          .get();
+      
+      final List<String> examIds = widget.cycle.referansDenemeSinavIds.isNotEmpty 
+          ? widget.cycle.referansDenemeSinavIds 
+          : [widget.cycle.referansDenemeSinavId];
 
-      if (!examDoc.exists) {
-        _showError(
-          'Referans sınav bulunamadı. Lütfen önce sınavı değerlendirin.',
-        );
-        return;
+      final Map<String, StudentResult> aggregatedResults = {};
+      final Map<String, Map<String, Set<String>>> aggregatedWeakOutcomes = {};
+      final Set<String> allStudentsWhoEnteredExam = {};
+      final List<String> selectedBranches = [];
+      String classLevel = '';
+
+      for (String eid in examIds) {
+        final examDoc = await _db.collection('trial_exams').doc(eid).get();
+        if (!examDoc.exists) continue;
+
+        final examData = examDoc.data()!;
+        final resultsJson = examData['resultsJson'] as String?;
+        if (resultsJson == null || resultsJson.isEmpty) continue;
+
+        if (selectedBranches.isEmpty) {
+          selectedBranches.addAll((examData['selectedBranches'] as List<dynamic>? ?? []).map((e) => e.toString()));
+        }
+        if (classLevel.isEmpty) {
+          classLevel = examData['classLevel']?.toString() ?? '';
+        }
+
+        final List<dynamic> jsonList = jsonDecode(resultsJson);
+        final examResults = jsonList.map((e) => StudentResult.fromJson(e)).toList();
+
+        // Kazanımları çek (Bu sınav dökümanından)
+        final outcomesMapRaw = examData['outcomes'] as Map<String, dynamic>? ?? {};
+        final Map<String, Map<String, List<String>>> examOutcomes = {};
+        outcomesMapRaw.forEach((booklet, subjects) {
+          if (subjects is Map<String, dynamic>) {
+            examOutcomes[booklet] = subjects.map((k, v) => MapEntry(k, (v as List<dynamic>).map((e) => e.toString()).toList()));
+          }
+        });
+
+        for (final result in examResults) {
+          if (result.systemStudentId == null) continue;
+          final sid = result.systemStudentId!;
+          allStudentsWhoEnteredExam.add(sid);
+
+          // Bilgileri birleştir
+          if (!aggregatedResults.containsKey(sid)) {
+            // İlk kez karşılaşıldı, derin kopya yapalım ki orjinal mapleri bozmayalım
+            aggregatedResults[sid] = StudentResult(
+              tcNo: result.tcNo,
+              studentNo: result.studentNo,
+              name: result.name,
+              classLevel: result.classLevel,
+              branch: result.branch,
+              systemStudentId: sid,
+            );
+          }
+
+          final target = aggregatedResults[sid]!;
+          result.subjects.forEach((ders, stats) {
+            if (target.subjects.containsKey(ders)) {
+              final tStats = target.subjects[ders]!;
+              tStats.correct += stats.correct;
+              tStats.wrong += stats.wrong;
+              tStats.empty += stats.empty;
+              tStats.net += stats.net;
+            } else {
+              target.subjects[ders] = SubjectStats(
+                correct: stats.correct,
+                wrong: stats.wrong,
+                empty: stats.empty,
+                net: stats.net,
+              );
+            }
+
+            // Bu sınavdaki zayıf kazanımları tespit et ve öğrenci havuzuna ekle
+            final studentAnswers = result.answers[ders] ?? '';
+            final correctAnswers = result.correctAnswers[ders] ?? '';
+            final booklet = result.booklet.isNotEmpty ? result.booklet[0] : 'A';
+            final subjectOutcomes = examOutcomes[booklet]?[ders] ?? [];
+
+            final Set<String> currentWeak = {};
+            for (int i = 0; i < studentAnswers.length && i < correctAnswers.length; i++) {
+              if (studentAnswers[i] != correctAnswers[i] && i < subjectOutcomes.length) {
+                final kazanim = subjectOutcomes[i];
+                if (kazanim.isNotEmpty && kazanim != '-') {
+                  currentWeak.add(kazanim);
+                }
+              }
+            }
+            if (currentWeak.isNotEmpty) {
+              aggregatedWeakOutcomes.putIfAbsent(sid, () => {});
+              aggregatedWeakOutcomes[sid]!.putIfAbsent(ders, () => {}).addAll(currentWeak);
+            }
+          });
+        }
       }
 
-      final examData = examDoc.data()!;
-      final resultsJson = examData['resultsJson'] as String?;
-      if (resultsJson == null || resultsJson.isEmpty) {
-        _showError(
-          'Bu sınava ait değerlendirme sonucu bulunamadı.\nLütfen önce sınavı değerlendirin (Optik Okuma / Toplu Değerlendirme).',
-        );
+      if (allStudentsWhoEnteredExam.isEmpty) {
+        _showError('Seçilen sınavlarda analiz edilecek sonuç bulunamadı.');
         return;
       }
-
-      final selectedBranches =
-          (examData['selectedBranches'] as List<dynamic>? ?? [])
-              .map((e) => e.toString())
-              .toList();
-      final classLevel = examData['classLevel']?.toString() ?? '';
-
-      // 2) Sonuçları parse et
-      _showProgress('Öğrenci sonuçları analiz ediliyor...');
-      final List<dynamic> jsonList = jsonDecode(resultsJson);
-      final examResults = jsonList
-          .map((e) => StudentResult.fromJson(e))
-          .toList();
-
-      // Sisteme eşleşmiş kayıtlar
-      final matchedResults = examResults
-          .where((r) => r.systemStudentId != null)
-          .toList();
 
       // 3) Şube öğrencilerini Firestore'dan çek
       _showProgress('Şube öğrencileri yükleniyor...');
@@ -1581,12 +1726,9 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
 
       // 4) Sınava girmeyenleri bul
       _showProgress('Sınava girmeyenler tespit ediliyor...');
-      final sinavaGirenIds = matchedResults
-          .map((r) => r.systemStudentId!)
-          .toSet();
 
       final absent = branchStudents
-          .where((s) => !sinavaGirenIds.contains(s['id']))
+          .where((s) => !allStudentsWhoEnteredExam.contains(s['id']))
           .map(
             (s) => {
               'id': s['id'],
@@ -1601,23 +1743,8 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
       _showProgress('Öğrenci ihtiyaç profilleri hesaplanıyor...');
       final List<StudentNeedProfile> profiller = [];
 
-      // Kazanımları çek (TrialExam dökümanından)
-      final outcomesMapRaw =
-          examData['outcomes'] as Map<String, dynamic>? ?? {};
-      // Booklet -> Subject -> List<String>
-      final Map<String, Map<String, List<String>>> examOutcomes = {};
-      outcomesMapRaw.forEach((booklet, subjects) {
-        if (subjects is Map<String, dynamic>) {
-          examOutcomes[booklet] = subjects.map(
-            (k, v) => MapEntry(
-              k,
-              (v as List<dynamic>).map((e) => e.toString()).toList(),
-            ),
-          );
-        }
-      });
-
-      for (final result in matchedResults) {
+      for (final sid in aggregatedResults.keys) {
+        final result = aggregatedResults[sid]!;
         if (result.subjects.isEmpty) continue;
 
         final Map<String, double> dersIhtiyaclari = {};
@@ -1638,29 +1765,10 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
             dersIhtiyaclari[dersAdi] = ihtiyac;
             dersBasariOranlari[dersAdi] = basariOrani;
 
-            // Kazanım bazlı analiz
-            final studentAnswers = result.answers[dersAdi] ?? '';
-            final correctAnswers = result.correctAnswers[dersAdi] ?? '';
-            final booklet = result.booklet.isNotEmpty ? result.booklet[0] : 'A';
-            final subjectOutcomes = examOutcomes[booklet]?[dersAdi] ?? [];
-
-            final Set<String> weakOutcomes = {};
-            for (
-              int i = 0;
-              i < studentAnswers.length && i < correctAnswers.length;
-              i++
-            ) {
-              if (studentAnswers[i] != correctAnswers[i] &&
-                  i < subjectOutcomes.length) {
-                // Yanlış veya boş soru -> Kazanım zayıf
-                final kazanim = subjectOutcomes[i];
-                if (kazanim.isNotEmpty && kazanim != '-') {
-                  weakOutcomes.add(kazanim);
-                }
-              }
-            }
-            if (weakOutcomes.isNotEmpty) {
-              kazanimIhtiyaclari[dersAdi] = weakOutcomes;
+            // Önceden birleştirilmiş kazanım zayıflıklarını al
+            final weak = aggregatedWeakOutcomes[sid]?[dersAdi];
+            if (weak != null && weak.isNotEmpty) {
+              kazanimIhtiyaclari[dersAdi] = weak;
             }
           }
         });
@@ -1668,13 +1776,13 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
         if (dersIhtiyaclari.isEmpty) continue;
 
         final studentData = branchStudents.firstWhere(
-          (s) => s['id'] == result.systemStudentId,
+          (s) => s['id'] == sid,
           orElse: () => {},
         );
 
         profiller.add(
           StudentNeedProfile(
-            ogrenciId: result.systemStudentId!,
+            ogrenciId: sid,
             ogrenciAdi: studentData.isNotEmpty
                 ? (studentData['fullName'] ??
                           studentData['name'] ??
@@ -1711,10 +1819,14 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
         return;
       }
 
+      // 6.5) Derslik Ataması (Eğer grup dersliği yoksa otomatik tanımla)
+      _showProgress('Derslikler otomatik tanımlanıyor...');
+      await _autoAssignClassrooms();
+
       // 7) Algoritmayı çalıştır
       _showProgress('Algoritma çalışıyor (${profiller.length} öğrenci)...');
       final draftResult = await _service.generateDraft(
-        cycle: widget.cycle,
+        cycle: currentCycle,
         ogrenciProfiller: profiller,
         gruplar: _groups,
       );
@@ -1755,7 +1867,7 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
       final List<String> profileIds = profiller
           .map((p) => p.ogrenciId)
           .toList();
-      final sinavaGirenIdsList = sinavaGirenIds.toList();
+      final sinavaGirenIdsList = allStudentsWhoEnteredExam.toList();
       for (final sid in sinavaGirenIdsList) {
         if (!profileIds.contains(sid)) {
           allReasons
@@ -3517,6 +3629,137 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
       if (mounted) setState(() => _loading = false);
     }
   }
+
+  /// Dersliği olmayan gruplara otomatik derslik atar.
+  /// Kural: Aynı branş dersleri mümkünse aynı derslikte (farklı seanslarda) olur.
+  Future<void> _autoAssignClassrooms() async {
+    try {
+      // 1) Aktif derslikleri çek
+      final classroomsSnap = await _db
+          .collection('classrooms')
+          .where('institutionId', isEqualTo: widget.cycle.institutionId)
+          .where('schoolTypeId', isEqualTo: widget.cycle.schoolTypeId)
+          .where('isActive', isEqualTo: true)
+          .get();
+
+      if (classroomsSnap.docs.isEmpty) return;
+
+      // 2) Derslikleri doğal sıraya göre diz
+      final classroomList = classroomsSnap.docs.map((doc) => {
+        'id': doc.id,
+        'name': doc.data()['classroomName'] ?? '',
+      }).toList();
+      classroomList.sort((a, b) => _compareNatural(a['name']!, b['name']!));
+
+      // 3) Mevcut derslik kullanımını takip et (Day -> Slot -> List<RoomID>)
+      final Map<String, Map<String, List<String>>> roomUsage = {};
+
+      // Mevcut manuel atamaları işle
+      for (final g in _groups) {
+        if (g.derslikId != null) {
+          final slot = '${g.baslangicSaat}-${g.bitisSaat}';
+          roomUsage
+              .putIfAbsent(g.gun, () => {})
+              .putIfAbsent(slot, () => [])
+              .add(g.derslikId!);
+        }
+      }
+
+      // 4) Atama bekleyen grupları branş bazlı grupla
+      final groupsToAssign = _groups.where((g) => g.derslikId == null).toList();
+      if (groupsToAssign.isEmpty) return;
+
+      final Map<String, List<AgmGroup>> branchGroups = {};
+      for (final g in groupsToAssign) {
+        branchGroups.putIfAbsent(g.dersAdi, () => []).add(g);
+      }
+
+      final batch = _db.batch();
+      bool anyChange = false;
+
+      // 5) Branş bazlı atama yap
+      for (final branch in branchGroups.keys) {
+        final groupsOfBranch = branchGroups[branch]!;
+        // Gün ve saat sırasına göre diz (peş peşe olması için)
+        groupsOfBranch.sort((a, b) {
+          final c1 = a.gun.compareTo(b.gun);
+          if (c1 != 0) return c1;
+          return a.baslangicSaat.compareTo(b.baslangicSaat);
+        });
+
+        // Bu branşın o gün kullandığı "tercih edilen" dersliği tut
+        final Map<String, String> preferredRoomForBranchOnDay = {};
+
+        for (final g in groupsOfBranch) {
+          final day = g.gun;
+          final slot = '${g.baslangicSaat}-${g.bitisSaat}';
+          String? selectedRoomId;
+          String? selectedRoomName;
+
+          // Önce bu branşın bu gün kullandığı odayı dene (mümkünse peş peşe)
+          final prefId = preferredRoomForBranchOnDay[day];
+          if (prefId != null) {
+            final usedRoomsInSlot = roomUsage[day]?[slot] ?? [];
+            if (!usedRoomsInSlot.contains(prefId)) {
+              selectedRoomId = prefId;
+            }
+          }
+
+          // Tercih edilen oda doluysa veya yoksa boş oda ara
+          if (selectedRoomId == null) {
+            for (final room in classroomList) {
+              final rid = room['id']!;
+              final usedRoomsInSlot = roomUsage[day]?[slot] ?? [];
+              if (!usedRoomsInSlot.contains(rid)) {
+                selectedRoomId = rid;
+                preferredRoomForBranchOnDay[day] = rid; // Yeni tercih bu oda
+                break;
+              }
+            }
+          }
+
+          if (selectedRoomId != null) {
+            selectedRoomName = classroomList.firstWhere((r) => r['id'] == selectedRoomId)['name'];
+            batch.update(_db.collection('agm_groups').doc(g.id), {
+              'derslikId': selectedRoomId,
+              'derslikAdi': selectedRoomName,
+            });
+            roomUsage.putIfAbsent(day, () => {}).putIfAbsent(slot, () => []).add(selectedRoomId);
+            anyChange = true;
+          }
+        }
+      }
+
+      if (anyChange) {
+        await batch.commit();
+        await _loadData(); // _groups listesini Firestore'dan tazele
+      }
+    } catch (e) {
+      print('Derslik otomatik atama hatası: $e');
+    }
+  }
+
+  /// Alfanümerik metinleri "doğal" sırada karşılaştırır (1, 2, 10...)
+  int _compareNatural(String a, String b) {
+    final RegExp re = RegExp(r'(\d+)|\D+');
+    final Iterable<Match> aMatch = re.allMatches(a.toLowerCase());
+    final Iterable<Match> bMatch = re.allMatches(b.toLowerCase());
+    final itA = aMatch.iterator;
+    final itB = bMatch.iterator;
+    while (itA.moveNext() && itB.moveNext()) {
+      final aStr = itA.current.group(0)!;
+      final bStr = itB.current.group(0)!;
+      if (itA.current.group(1) != null && itB.current.group(1) != null) {
+        final aNum = int.parse(aStr);
+        final bNum = int.parse(bStr);
+        if (aNum != bNum) return aNum.compareTo(bNum);
+      } else {
+        final cmp = aStr.compareTo(bStr);
+        if (cmp != 0) return cmp;
+      }
+    }
+    return a.length.compareTo(b.length);
+  }
 }
 
 // ─── TASLAK OLUŞTURMA BOTTOM SHEET ───────────────────────────────────────────
@@ -3528,8 +3771,8 @@ class _DraftGenerateSheet extends StatefulWidget {
     required double esikBasariOrani,
     required bool sadeceDusukBasari,
     required Map<String, double> dersBazliEsikler,
-  })
-  onGenerate;
+    required int minGroupSize,
+  }) onGenerate;
 
   const _DraftGenerateSheet({
     required this.cycle,
@@ -3546,6 +3789,7 @@ class _DraftGenerateSheetState extends State<_DraftGenerateSheet> {
   bool _sadeceDusukBasari = true;
   bool _loading = false;
   bool _dersBazliAcik = false;
+  int _minGrupOgrenci = 5;
   final Map<String, double> _dersBazliEsikler = {};
 
   @override
@@ -3612,6 +3856,63 @@ class _DraftGenerateSheetState extends State<_DraftGenerateSheet> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // Grup Kotaları
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(
+                      children: [
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Grup Kotaları',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 15,
+                                ),
+                              ),
+                              Text(
+                                'Grup minimum öğrenci sayısını belirle',
+                                style: TextStyle(fontSize: 11, color: Colors.grey),
+                              ),
+                            ],
+                          ),
+                        ),
+                        SizedBox(
+                          width: 50,
+                          child: TextFormField(
+                            initialValue: _minGrupOgrenci.toString(),
+                            keyboardType: TextInputType.number,
+                            maxLength: 2,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.deepOrange,
+                            ),
+                            decoration: InputDecoration(
+                              isDense: true,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 10,
+                              ),
+                              filled: true,
+                              fillColor: Colors.deepOrange.shade50,
+                              counterText: "",
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: BorderSide.none,
+                              ),
+                            ),
+                            onChanged: (v) => _minGrupOgrenci = int.tryParse(v) ?? 0,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const Divider(height: 24),
+
                   // Sadece düşük başarılı
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
@@ -3836,6 +4137,7 @@ class _DraftGenerateSheetState extends State<_DraftGenerateSheet> {
                         dersBazliEsikler: _dersBazliAcik
                             ? _dersBazliEsikler
                             : {},
+                        minGroupSize: _minGrupOgrenci,
                       );
                     },
               icon: _loading

@@ -55,29 +55,46 @@ class _AgmClassroomTimetableScreenState
 
   void _buildClassroomList() {
     final Map<String, String> classroomMap = {};
+    bool hasUndefined = false;
     for (final g in widget.groups) {
+      final hasStudents = (widget.assignmentsByGroup[g.id] ?? []).isNotEmpty;
+      if (!hasStudents) continue;
+
       if (g.derslikId != null && g.derslikId!.isNotEmpty) {
         classroomMap[g.derslikId!] = g.derslikAdi ?? 'İsimsiz Derslik';
+      } else {
+        hasUndefined = true;
       }
     }
     _classrooms =
         classroomMap.entries.map((e) => {'id': e.key, 'name': e.value}).toList()
-          ..sort((a, b) => a['name']!.compareTo(b['name']!));
+          ..sort((a, b) => _compareNatural(a['name']!, b['name']!));
+
+    if (hasUndefined) {
+      _classrooms.add({'id': 'undefined', 'name': 'Derslik Tanımlanmamış'});
+    }
   }
 
   void _loadClassroomTimetable(String classroomId, String classroomName) {
     setState(() {
       _selectedClassroomId = classroomId;
       _selectedClassroomName = classroomName;
-      _classroomGroups =
-          widget.groups.where((g) => g.derslikId == classroomId).toList()
-            ..sort((a, b) {
-              int dayCompare = _gunler
-                  .indexOf(a.gun)
-                  .compareTo(_gunler.indexOf(b.gun));
-              if (dayCompare != 0) return dayCompare;
-              return a.baslangicSaat.compareTo(b.baslangicSaat);
-            });
+      _classroomGroups = widget.groups.where((g) {
+        bool matchesRoom;
+        if (classroomId == 'undefined') {
+          matchesRoom = g.derslikId == null || g.derslikId!.isEmpty;
+        } else {
+          matchesRoom = g.derslikId == classroomId;
+        }
+        final hasStudents = (widget.assignmentsByGroup[g.id] ?? []).isNotEmpty;
+        return matchesRoom && hasStudents;
+      }).toList()
+        ..sort((a, b) {
+          int dayCompare =
+              _gunler.indexOf(a.gun).compareTo(_gunler.indexOf(b.gun));
+          if (dayCompare != 0) return dayCompare;
+          return a.baslangicSaat.compareTo(b.baslangicSaat);
+        });
     });
   }
 
@@ -454,143 +471,50 @@ class _AgmClassroomTimetableScreenState
       final rName = room['name'];
       if (rId == null) continue;
 
-      final rGroups = widget.groups.where((g) => g.derslikId == rId).toList()
+      final rGroups = widget.groups.where((g) {
+        bool matchesRoom;
+        if (rId == 'undefined') {
+          matchesRoom = g.derslikId == null || g.derslikId!.isEmpty;
+        } else {
+          matchesRoom = g.derslikId == rId;
+        }
+        final hasStudents = (widget.assignmentsByGroup[g.id] ?? []).isNotEmpty;
+        return matchesRoom && hasStudents;
+      }).toList()
         ..sort((a, b) {
-          int dayCompare = _gunler
-              .indexOf(a.gun)
-              .compareTo(_gunler.indexOf(b.gun));
+          int dayCompare =
+              _gunler.indexOf(a.gun).compareTo(_gunler.indexOf(b.gun));
           if (dayCompare != 0) return dayCompare;
           return a.baslangicSaat.compareTo(b.baslangicSaat);
         });
 
-      doc.addPage(
-        pw.MultiPage(
-          pageFormat: PdfPageFormat.a4,
-          header: (context) => pw.Container(
-            width: double.infinity,
-            padding: const pw.EdgeInsets.all(12),
-            decoration: const pw.BoxDecoration(color: PdfColors.deepOrange800),
-            child: pw.Text(
-              'AGM DERSLİK PROGRAMI: ${_norm(rName!)}',
-              style: pw.TextStyle(
-                font: fontBold,
-                color: PdfColors.white,
-                fontSize: 16,
-              ),
-            ),
-          ),
-          build: (pw.Context context) {
-            return [
-              pw.SizedBox(height: 10),
-              ...rGroups.map((g) {
-                final students = widget.assignmentsByGroup[g.id] ?? [];
-                final gDersAdi = _norm(g.dersAdi);
-                final gOgretmenAdi = _norm(g.ogretmenAdi);
-                final gGun = _norm(g.gun);
-                final gKazanimlar = g.kazanimlar.map((k) => _norm(k)).toList();
+      // Eğer derslik tanımlanmamışsa, her grubu ayrı sayfaya bas (Kullanıcı talebi: Boş olanlar her sayfada tek tek olsun)
+      // Normal dersliklerde ise o dersliğin tüm programını bir arada tut (MultiPage içinde).
+      final bool isUndefined = rId == 'undefined';
 
-                return pw.Container(
-                  margin: const pw.EdgeInsets.only(bottom: 20),
-                  padding: const pw.EdgeInsets.all(10),
-                  decoration: pw.BoxDecoration(
-                    border: pw.Border.all(color: PdfColors.grey300),
-                    borderRadius: const pw.BorderRadius.all(
-                      pw.Radius.circular(8),
-                    ),
-                  ),
-                  child: pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Row(
-                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                        children: [
-                          pw.Column(
-                            crossAxisAlignment: pw.CrossAxisAlignment.start,
-                            children: [
-                              pw.Text(
-                                'Derslik: ${_norm(rName)}',
-                                style: pw.TextStyle(
-                                  font: fontBold,
-                                  fontSize: 13,
-                                ),
-                              ),
-                              pw.Text(
-                                'Gün: $gGun',
-                                style: pw.TextStyle(font: font, fontSize: 11),
-                              ),
-                            ],
-                          ),
-                          pw.Column(
-                            crossAxisAlignment: pw.CrossAxisAlignment.end,
-                            children: [
-                              pw.Text(
-                                'Öğretmen: $gOgretmenAdi',
-                                style: pw.TextStyle(
-                                  font: fontBold,
-                                  fontSize: 11,
-                                ),
-                              ),
-                              pw.Text(
-                                'Ders: $gDersAdi',
-                                style: pw.TextStyle(font: font, fontSize: 11),
-                              ),
-                              pw.Text(
-                                'Saat: ${g.baslangicSaat}-${g.bitisSaat}',
-                                style: pw.TextStyle(
-                                  font: fontBold,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                      pw.Divider(color: PdfColors.orange200),
-                      pw.Text(
-                        'Kazanım: ${gKazanimlar.isNotEmpty ? gKazanimlar.join(", ") : "-"}',
-                        style: pw.TextStyle(
-                          font: fontBold,
-                          fontSize: 10,
-                          color: PdfColors.deepOrange800,
-                        ),
-                      ),
-                      pw.SizedBox(height: 10),
-                      pw.Text(
-                        'Öğrenci Listesi (${students.length}):',
-                        style: pw.TextStyle(font: fontBold, fontSize: 10),
-                      ),
-                      pw.SizedBox(height: 5),
-                      pw.Wrap(
-                        spacing: 15,
-                        runSpacing: 5,
-                        children: students
-                            .map(
-                              (s) => pw.Text(
-                                '• ${_norm(s.ogrenciAdi)} (${_norm(s.subeAdi)})',
-                                style: pw.TextStyle(font: font, fontSize: 9),
-                              ),
-                            )
-                            .toList(),
-                      ),
-                    ],
-                  ),
-                );
-              }).toList(),
-            ];
-          },
-          footer: (context) => pw.Align(
-            alignment: pw.Alignment.centerRight,
-            child: pw.Text(
-              'Rapor Tarihi: ${DateTime.now().day}.${DateTime.now().month}.${DateTime.now().year} | Sayfa ${context.pageNumber}',
-              style: pw.TextStyle(
-                font: font,
-                fontSize: 8,
-                color: PdfColors.grey500,
-              ),
+      if (isUndefined) {
+        // Her grup için yeni bir sayfa (tekli grup raporu)
+        for (final g in rGroups) {
+          doc.addPage(
+            pw.Page(
+              pageFormat: PdfPageFormat.a4,
+              build: (context) => _buildGroupReport(g, rName!, font, fontBold),
             ),
+          );
+        }
+      } else {
+        // Normal derslik: MultiPage (tüm slotları listele)
+        doc.addPage(
+          pw.MultiPage(
+            pageFormat: PdfPageFormat.a4,
+            header: (context) => _buildHeader(rName!, fontBold),
+            footer: (context) => _buildFooter(context, font),
+            build: (pw.Context context) {
+              return rGroups.map((g) => _buildGroupCardInPdf(g, rName!, font, fontBold)).toList();
+            },
           ),
-        ),
-      );
+        );
+      }
     }
 
     final bytes = await doc.save();
@@ -653,7 +577,16 @@ class _AgmClassroomTimetableScreenState
       final rName = room['name'];
       if (rId == null) continue;
 
-      final rGroups = widget.groups.where((g) => g.derslikId == rId).toList();
+      final rGroups = widget.groups.where((g) {
+        bool matchesRoom;
+        if (rId == 'undefined') {
+          matchesRoom = g.derslikId == null || g.derslikId!.isEmpty;
+        } else {
+          matchesRoom = g.derslikId == rId;
+        }
+        final hasStudents = (widget.assignmentsByGroup[g.id] ?? []).isNotEmpty;
+        return matchesRoom && hasStudents;
+      }).toList();
 
       sheet.appendRow([
         TextCellValue('AGM DERSLİK PROGRAMI - ${_norm(rName!)}'),
@@ -712,5 +645,220 @@ class _AgmClassroomTimetableScreenState
         filename: 'agm_derslik_raporlari.xlsx',
       );
     }
+  }
+
+  pw.Widget _buildHeader(String rName, pw.Font fontBold) {
+    return pw.Container(
+      width: double.infinity,
+      padding: const pw.EdgeInsets.all(12),
+      margin: const pw.EdgeInsets.only(bottom: 12),
+      decoration: const pw.BoxDecoration(color: PdfColors.deepOrange800),
+      child: pw.Text(
+        'AGM DERSLİK PROGRAMI: ${_norm(rName)}',
+        style: pw.TextStyle(
+          font: fontBold,
+          color: PdfColors.white,
+          fontSize: 16,
+        ),
+      ),
+    );
+  }
+
+  pw.Widget _buildFooter(pw.Context context, pw.Font font) {
+    return pw.Align(
+      alignment: pw.Alignment.centerRight,
+      child: pw.Text(
+        'Rapor Tarihi: ${DateTime.now().day}.${DateTime.now().month}.${DateTime.now().year} | Sayfa ${context.pageNumber}',
+        style: pw.TextStyle(
+          font: font,
+          fontSize: 8,
+          color: PdfColors.grey500,
+        ),
+      ),
+    );
+  }
+
+  pw.Widget _buildGroupReport(
+    AgmGroup g,
+    String rName,
+    pw.Font font,
+    pw.Font fontBold,
+  ) {
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        _buildHeader(rName, fontBold),
+        pw.SizedBox(height: 10),
+        _buildGroupCardInPdf(g, rName, font, fontBold),
+      ],
+    );
+  }
+
+  pw.Widget _buildGroupCardInPdf(
+    AgmGroup g,
+    String rName,
+    pw.Font font,
+    pw.Font fontBold,
+  ) {
+    final students = widget.assignmentsByGroup[g.id] ?? [];
+    final gDersAdi = _norm(g.dersAdi);
+    final gOgretmenAdi = _norm(g.ogretmenAdi);
+    final gGun = _norm(g.gun);
+    final gKazanimlar = g.kazanimlar.map((k) => _norm(k)).toList();
+
+    return pw.Container(
+      margin: const pw.EdgeInsets.only(bottom: 20),
+      padding: const pw.EdgeInsets.all(10),
+      decoration: pw.BoxDecoration(
+        border: pw.Border.all(color: PdfColors.grey300),
+        borderRadius: const pw.BorderRadius.all(
+          pw.Radius.circular(8),
+        ),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    'Derslik: ${_norm(rName)}',
+                    style: pw.TextStyle(font: fontBold, fontSize: 13),
+                  ),
+                  pw.Text(
+                    'Gün: $gGun',
+                    style: pw.TextStyle(font: font, fontSize: 11),
+                  ),
+                ],
+              ),
+              pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.end,
+                children: [
+                  pw.Text(
+                    'Öğretmen: $gOgretmenAdi',
+                    style: pw.TextStyle(font: fontBold, fontSize: 11),
+                  ),
+                  pw.Text(
+                    'Ders: $gDersAdi',
+                    style: pw.TextStyle(font: font, fontSize: 11),
+                  ),
+                  pw.Text(
+                    'Saat: ${g.baslangicSaat}-${g.bitisSaat}',
+                    style: pw.TextStyle(font: fontBold, fontSize: 11),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          pw.Divider(color: PdfColors.orange200),
+          pw.Text(
+            'Kazanım: ${gKazanimlar.isNotEmpty ? gKazanimlar.join(", ") : "-"}',
+            style: pw.TextStyle(
+              font: fontBold,
+              fontSize: 10,
+              color: PdfColors.deepOrange800,
+            ),
+          ),
+          pw.SizedBox(height: 10),
+          pw.Text(
+            'Öğrenci Listesi (${students.length}):',
+            style: pw.TextStyle(font: fontBold, fontSize: 10),
+          ),
+          pw.SizedBox(height: 5),
+          // Öğrenci listesini 3 sütuna böl ve şube sırasına göre sırala
+          _build3ColumnStudentTable(students, font),
+        ],
+      ),
+    );
+  }
+
+  pw.Widget _build3ColumnStudentTable(List<AgmAssignment> students, pw.Font font) {
+    if (students.isEmpty) {
+      return pw.Text('• Bu grupta öğrenci yok.', style: pw.TextStyle(font: font, fontSize: 8));
+    }
+
+    final sortedStudents = students.toList()
+      ..sort((a, b) {
+        final sc = a.subeAdi.compareTo(b.subeAdi);
+        if (sc != 0) return sc;
+        return a.ogrenciAdi.compareTo(b.ogrenciAdi);
+      });
+
+    final List<pw.TableRow> rows = [];
+    for (int i = 0; i < sortedStudents.length; i += 3) {
+      rows.add(
+        pw.TableRow(
+          children: [
+            pw.Padding(
+              padding: const pw.EdgeInsets.symmetric(vertical: 2),
+              child: pw.Text(
+                '• ${_norm(sortedStudents[i].ogrenciAdi)} (${_norm(sortedStudents[i].subeAdi)})',
+                style: pw.TextStyle(font: font, fontSize: 8),
+              ),
+            ),
+            if (i + 1 < sortedStudents.length)
+              pw.Padding(
+                padding: const pw.EdgeInsets.symmetric(vertical: 2),
+                child: pw.Text(
+                   '• ${_norm(sortedStudents[i + 1].ogrenciAdi)} (${_norm(sortedStudents[i + 1].subeAdi)})',
+                   style: pw.TextStyle(font: font, fontSize: 8),
+                ),
+              )
+            else
+              pw.SizedBox(),
+            if (i + 2 < sortedStudents.length)
+              pw.Padding(
+                padding: const pw.EdgeInsets.symmetric(vertical: 2),
+                child: pw.Text(
+                   '• ${_norm(sortedStudents[i + 2].ogrenciAdi)} (${_norm(sortedStudents[i + 2].subeAdi)})',
+                   style: pw.TextStyle(font: font, fontSize: 8),
+                ),
+              )
+            else
+              pw.SizedBox(),
+          ],
+        ),
+      );
+    }
+
+    return pw.Table(
+      columnWidths: {
+        0: const pw.FlexColumnWidth(1),
+        1: const pw.FlexColumnWidth(1),
+        2: const pw.FlexColumnWidth(1),
+      },
+      children: rows,
+    );
+  }
+
+  /// Alfanümerik metinleri "doğal" sırada karşılaştırır.
+  int _compareNatural(String a, String b) {
+    if (a == 'Derslik Tanımlanmamış') return 1; // Tanımlanmamış olan en sonda olsun
+    if (b == 'Derslik Tanımlanmamış') return -1;
+    
+    final RegExp re = RegExp(r'(\d+)|\D+');
+    final Iterable<Match> aMatch = re.allMatches(a.toLowerCase());
+    final Iterable<Match> bMatch = re.allMatches(b.toLowerCase());
+
+    final itA = aMatch.iterator;
+    final itB = bMatch.iterator;
+
+    while (itA.moveNext() && itB.moveNext()) {
+      final aStr = itA.current.group(0)!;
+      final bStr = itB.current.group(0)!;
+
+      if (itA.current.group(1) != null && itB.current.group(1) != null) {
+        final aNum = int.parse(aStr);
+        final bNum = int.parse(bStr);
+        if (aNum != bNum) return aNum.compareTo(bNum);
+      } else {
+        final cmp = aStr.compareTo(bStr);
+        if (cmp != 0) return cmp;
+      }
+    }
+    return a.length.compareTo(b.length);
   }
 }

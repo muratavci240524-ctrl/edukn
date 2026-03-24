@@ -64,7 +64,7 @@ class StudentResult {
       'rankBranch': rankBranch,
       'subjects': subjects.map((k, v) => MapEntry(k, v.toJson())),
       'answers': answers,
-      // 'correctAnswers': correctAnswers, // Redundant, removed to save space
+      'correctAnswers': correctAnswers, 
       'isMatched': isMatched,
       'systemStudentId': systemStudentId,
       'participatedSessions': participatedSessions.toList(),

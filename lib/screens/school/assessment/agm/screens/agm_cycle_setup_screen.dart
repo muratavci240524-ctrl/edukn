@@ -100,7 +100,6 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
           ? c.referansDenemeSinavAdlari
           : [c.referansDenemeSinavAdi];
       _baslangic = c.baslangicTarihi;
-      _bitis = c.bitisTarihi;
       _maxSaat = c.haftalikMaksimumSaat;
       _minDers = c.minimumDersSayisi;
     }
@@ -137,6 +136,7 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
     final classroomSnap = await _db
         .collection('classrooms')
         .where('institutionId', isEqualTo: widget.institutionId)
+        .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
         .where('isActive', isEqualTo: true)
         .get();
 
@@ -172,19 +172,16 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
 
       setState(() {
         _exams = examSnap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
-        _classrooms =
-            classroomSnap.docs
-                .map(
-                  (d) => {
-                    'id': d.id,
-                    'name': d.data()['classroomName'] ?? '',
-                    'capacity': d.data()['capacity'] ?? 0,
-                  },
-                )
-                .toList()
-              ..sort(
-                (a, b) => (a['name'] as String).compareTo(b['name'] as String),
-              );
+        _classrooms = classroomSnap.docs
+            .map(
+              (d) => {
+                'id': d.id,
+                'name': d.data()['classroomName'] ?? '',
+                'capacity': d.data()['capacity'] ?? 0,
+              },
+            )
+            .toList()
+          ..sort((a, b) => _compareNatural(a['name'] as String, b['name'] as String));
 
         _existingSlots = [];
         _allLibrarySlots = librarySlots;
@@ -674,6 +671,7 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
   // ════════════════════════════════════════════════════════
 
   Widget _buildSlotsTab() {
+    final isMobile = MediaQuery.of(context).size.width < 600;
     if (_loadingSlots) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -682,42 +680,54 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
         _buildSlotLibrary(),
         const Divider(height: 1),
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: isMobile
+              ? Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Bu Cycle\'daki Saat Dilimleri',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
+                    _buildSlotsHeader(isMobile),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildHeaderActionBtn(
+                            onPressed: _showAddSlotSheet,
+                            icon: Icons.add_circle_outline,
+                            label: 'Yeni Tanımla',
+                            color: Colors.deepOrange,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _buildHeaderActionBtn(
+                            onPressed: _autoDistributeClassrooms,
+                            icon: Icons.auto_awesome,
+                            label: 'Oto Dağıt',
+                            color: Colors.teal,
+                          ),
+                        ),
+                      ],
                     ),
-                    Text(
-                      '${_existingSlots.length} dilim seçildi',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade600,
-                      ),
+                  ],
+                )
+              : Row(
+                  children: [
+                    Expanded(child: _buildSlotsHeader(isMobile)),
+                    _buildHeaderActionBtn(
+                      onPressed: _showAddSlotSheet,
+                      icon: Icons.add_circle_outline,
+                      label: 'Yeni Tanımla',
+                      color: Colors.deepOrange,
+                    ),
+                    const SizedBox(width: 8),
+                    _buildHeaderActionBtn(
+                      onPressed: _autoDistributeClassrooms,
+                      icon: Icons.auto_awesome,
+                      label: 'Derslikleri Otomatik Dağıt',
+                      color: Colors.teal,
                     ),
                   ],
                 ),
-              ),
-              ElevatedButton.icon(
-                onPressed: _showAddSlotSheet,
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('Yeni Tanımla'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.deepOrange.shade50,
-                  foregroundColor: Colors.deepOrange,
-                  elevation: 0,
-                ),
-              ),
-            ],
-          ),
         ),
         Expanded(
           child: _existingSlots.isEmpty
@@ -1740,9 +1750,8 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
                                                 (c) => c['id'] == v,
                                               );
                                               info['derslikAdi'] = cr['name'];
-                                              // Manuel kapasiteyi dersliğin kendi kapasitesiyle güncelle
-                                              info['kapasite'] =
-                                                  cr['capacity'] ?? 20;
+                                              // Artık manuel kapasite korunuyor, derslik kapasitesiyle ezilmiyor
+                                              // info['kapasite'] = cr['capacity'] ?? 20;
                                             }
                                           });
                                         },
@@ -1759,6 +1768,58 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
                   }).toList(),
                 ],
                 const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.auto_awesome, size: 18),
+                    onPressed: () {
+                      // Bu slot için anlık otomatik seçim yap
+                      final rooms = List<Map<String, dynamic>>.from(_classrooms);
+                      rooms.sort((a, b) => _compareNatural(a['name']!, b['name']!));
+
+                      final Set<String> occupied = {};
+                      // 1. Zaten bu slotta kayıtlı olanlar
+                      for (final e in slot.ogretmenGirisler) {
+                        if (e.derslikId != null) occupied.add(e.derslikId!);
+                      }
+                      // 2. Şu an seçilmiş olanlar
+                      extraInfo.forEach((k, v) {
+                        if (v['derslikId'] != null) occupied.add(v['derslikId']!);
+                      });
+
+                      setSt(() {
+                        extraInfo.forEach((key, info) {
+                          if (info['derslikId'] == null) {
+                            for (final r in rooms) {
+                              final rid = r['id']!;
+                              if (!occupied.contains(rid)) {
+                                info['derslikId'] = rid;
+                                info['derslikAdi'] = r['name'];
+                                occupied.add(rid);
+                                break;
+                              }
+                            }
+                          }
+                        });
+                      });
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.teal.shade50,
+                      foregroundColor: Colors.teal,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(color: Colors.teal.shade100),
+                      ),
+                    ),
+                    label: const Text(
+                      'Derslikleri Otomatik Dağıt',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
@@ -1852,6 +1913,149 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
     );
     await _repo.updateTimeSlotTeachers(slot.id, updated);
     setState(() => _existingSlots[slotIndex] = updatedSlot);
+  }
+
+  /// Mevcut tüm slotlara alfanümerik sıraya göre derslikleri otomatik dağıtır.
+  /// Kural: Aynı branş dersleri mümkünse aynı derslikte (farklı seanslarda) olur.
+  Future<void> _autoDistributeClassrooms() async {
+    if (_classrooms.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Atanacak derslik bulunamadı.')),
+      );
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Derslikler otomatik dağıtılıyor...')),
+    );
+
+    // 1) Derslikleri doğal sıraya göre al
+    final classroomList = List<Map<String, dynamic>>.from(_classrooms);
+    classroomList.sort((a, b) => _compareNatural(a['name']!, b['name']!));
+
+    // 2) Mevcut derslik kullanımını takip et (Day -> SlotKey -> List<RoomID>)
+    final Map<String, Map<String, Set<String>>> usage = {};
+
+    // Mevcut (elle atanmış) derslikleri rezerve et
+    for (final slot in _existingSlots) {
+      final slotKey = '${slot.baslangicSaat}-${slot.bitisSaat}';
+      for (final entry in slot.ogretmenGirisler) {
+        if (entry.derslikId != null) {
+          usage
+              .putIfAbsent(slot.gun, () => {})
+              .putIfAbsent(slotKey, () => {})
+              .add(entry.derslikId!);
+        }
+      }
+    }
+
+    // 3) Atama bekleyenleri işle
+    // Kural: Aynı branş dersleri mümkünse aynı derslikte olur.
+    final Map<String, Map<String, String>> branchRoomPref = {}; // Day -> Branch -> RoomId
+
+    final List<AgmTimeSlot> updatedSlots = List.from(_existingSlots);
+
+    for (int i = 0; i < updatedSlots.length; i++) {
+      final slot = updatedSlots[i];
+      final slotKey = '${slot.baslangicSaat}-${slot.bitisSaat}';
+      final updatedEntries = List<AgmSlotTeacherEntry>.from(slot.ogretmenGirisler);
+      bool slotChanged = false;
+
+      for (int j = 0; j < updatedEntries.length; j++) {
+        final entry = updatedEntries[j];
+        if (entry.derslikId == null) {
+          String? selectedRoomId;
+          String? selectedRoomName;
+
+          // Önce bu branşın bu gün kullandığı odayı dene
+          final prefId = branchRoomPref[slot.gun]?[entry.dersAdi];
+          if (prefId != null) {
+            final usedRoomsInSlot = usage[slot.gun]?[slotKey] ?? {};
+            if (!usedRoomsInSlot.contains(prefId)) {
+              selectedRoomId = prefId;
+            }
+          }
+
+          // Tercih edilen oda doluysa veya yoksa boş oda ara
+          if (selectedRoomId == null) {
+            for (final room in classroomList) {
+              final rid = room['id']!;
+              final usedRoomsInSlot = usage[slot.gun]?[slotKey] ?? {};
+              if (!usedRoomsInSlot.contains(rid)) {
+                selectedRoomId = rid;
+                branchRoomPref.putIfAbsent(slot.gun, () => {})[entry.dersAdi] = rid;
+                break;
+              }
+            }
+          }
+
+          if (selectedRoomId != null) {
+            selectedRoomName = classroomList.firstWhere((r) => r['id'] == selectedRoomId)['name'];
+            updatedEntries[j] = AgmSlotTeacherEntry(
+              dersId: entry.dersId,
+              dersAdi: entry.dersAdi,
+              ogretmenId: entry.ogretmenId,
+              ogretmenAdi: entry.ogretmenAdi,
+              kapasite: entry.kapasite, // Manuel kapasite korunur
+              derslikId: selectedRoomId,
+              derslikAdi: selectedRoomName,
+            );
+            usage
+                .putIfAbsent(slot.gun, () => {})
+                .putIfAbsent(slotKey, () => {})
+                .add(selectedRoomId);
+            slotChanged = true;
+          }
+        }
+      }
+
+      if (slotChanged) {
+        updatedSlots[i] = AgmTimeSlot(
+          id: slot.id,
+          institutionId: slot.institutionId,
+          ad: slot.ad,
+          gun: slot.gun,
+          baslangicSaat: slot.baslangicSaat,
+          bitisSaat: slot.bitisSaat,
+          ogretmenGirisler: updatedEntries,
+        );
+        // DB güncelle (Persistence)
+        await _repo.updateTimeSlotTeachers(slot.id, updatedEntries);
+      }
+    }
+
+    setState(() {
+      _existingSlots = updatedSlots;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Derslikler başarıyla dağıtıldı.'),
+        backgroundColor: Colors.green,
+      ),
+    );
+  }
+
+  /// Alfanümerik metinleri "doğal" sırada karşılaştırır (1, 2, 10...)
+  int _compareNatural(String a, String b) {
+    final RegExp re = RegExp(r'(\d+)|\D+');
+    final Iterable<Match> aMatch = re.allMatches(a.toLowerCase());
+    final Iterable<Match> bMatch = re.allMatches(b.toLowerCase());
+    final itA = aMatch.iterator;
+    final itB = bMatch.iterator;
+    while (itA.moveNext() && itB.moveNext()) {
+      final aStr = itA.current.group(0)!;
+      final bStr = itB.current.group(0)!;
+      if (itA.current.group(1) != null && itB.current.group(1) != null) {
+        final aNum = int.parse(aStr);
+        final bNum = int.parse(bStr);
+        if (aNum != bNum) return aNum.compareTo(bNum);
+      } else {
+        final cmp = aStr.compareTo(bStr);
+        if (cmp != 0) return cmp;
+      }
+    }
+    return a.length.compareTo(b.length);
   }
 
   Future<void> _editTeacherEntry(
@@ -2503,6 +2707,57 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
               ),
             ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSlotsHeader(bool isMobile) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          'Bu Cycle\'daki Saat Dilimleri',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: isMobile ? 18 : 16,
+            color: Colors.black87,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          '${_existingSlots.length} dilim seçildi',
+          style: TextStyle(
+            fontSize: isMobile ? 13 : 12,
+            color: Colors.grey.shade600,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHeaderActionBtn({
+    required VoidCallback onPressed,
+    required IconData icon,
+    required String label,
+    required Color color,
+  }) {
+    return ElevatedButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon, size: 18),
+      label: Text(
+        label,
+        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+      ),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: color.withOpacity(0.08),
+        foregroundColor: color,
+        elevation: 0,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: BorderSide(color: color.withOpacity(0.2)),
+        ),
       ),
     );
   }
