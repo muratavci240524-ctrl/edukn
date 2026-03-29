@@ -49,6 +49,7 @@ import '../../support_services/library/library_screen.dart';
 import '../../support_services/cleaning/cleaning_screen.dart';
 import '../../support_services/inventory/inventory_screen.dart';
 import '../../guidance/reports/development_report_management_screen.dart';
+import 'school_type_detail_v2_screen.dart';
 
 class SchoolTypeDetailScreen extends StatefulWidget {
   final String schoolTypeId;
@@ -509,6 +510,31 @@ class _OperationsTabState extends State<_OperationsTab> {
                       ),
                     );
                   },
+                ),
+                // V2 Preview Button
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (ctx) => SchoolTypeDetailV2Screen(
+                            schoolTypeId: widget.schoolTypeId,
+                            schoolTypeName: widget.schoolTypeName,
+                            institutionId: widget.institutionId,
+                          ),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.auto_awesome, size: 16, color: Colors.amber),
+                    label: const Text('V2\'yi Dene', style: TextStyle(color: Colors.white, fontSize: 12)),
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(color: Colors.white.withOpacity(0.5)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                    ),
+                  ),
                 ),
                 // Okul Yönetimine Dön
                 IconButton(

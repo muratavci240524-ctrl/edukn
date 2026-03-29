@@ -35,6 +35,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
   List<Map<String, dynamic>> _searchResults = [];
   bool _isSearching = false;
   bool _isMobileSearchActive = false;
+  String _selectedModuleCategory = 'Tümü';
 
   @override
   void initState() {
@@ -171,7 +172,62 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
     if (isLoading) return const Scaffold(body: Center(child: EduKnLoader(size: 100)));
     if (schoolData == null) return const Scaffold(body: Center(child: Text('Okul verileri yüklenemedi!')));
     final size = MediaQuery.of(context).size; final isMobile = size.width < 1100;
-    return Scaffold(backgroundColor: const Color(0xFFF8FAFC), appBar: _buildAppBar(isMobile), body: Stack(children: [const Positioned.fill(child: IgnorePointer(child: CustomPaint(painter: DoodlePainter()))), SingleChildScrollView(physics: const BouncingScrollPhysics(), child: Center(child: Container(constraints: const BoxConstraints(maxWidth: 1400), padding: EdgeInsets.symmetric(horizontal: isMobile ? 16 : 24, vertical: isMobile ? 24 : 32), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [_buildGreeting(isMobile), const SizedBox(height: 32), _buildGridSections(isMobile), const SizedBox(height: 64), _buildFeatureCards(isMobile), const SizedBox(height: 64), _buildFooter(isMobile)]))))]));
+    
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC), 
+      appBar: _buildAppBar(isMobile), 
+      body: Column(
+        children: [
+          Expanded(
+            child: Stack(
+              children: [
+                const Positioned.fill(child: IgnorePointer(child: CustomPaint(painter: DoodlePainter()))),
+                SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(), 
+                  child: Center(
+                    child: Container(
+                      constraints: const BoxConstraints(maxWidth: 1400), 
+                      padding: EdgeInsets.symmetric(horizontal: isMobile ? 16 : 24, vertical: isMobile ? 24 : 32), 
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start, 
+                        children: [
+                          _buildGreeting(isMobile), 
+                          const SizedBox(height: 32), 
+                          _buildGridSections(isMobile), 
+                          const SizedBox(height: 32),
+                        ]
+                      )
+                    )
+                  )
+                )
+              ]
+            ),
+          ),
+          // Sabit Alt Alan
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.95),
+              border: Border(top: BorderSide(color: Colors.indigo.shade50, width: 1)),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, -5))]
+            ),
+            child: Center(
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 1400),
+                padding: EdgeInsets.symmetric(horizontal: isMobile ? 16 : 24, vertical: 12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildFeatureCards(isMobile),
+                    const SizedBox(height: 12),
+                    _buildFooter(isMobile),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   PreferredSizeWidget _buildAppBar(bool isMobile) {
@@ -288,23 +344,182 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
 
   Future<void> _migrateDataToActiveTerm() async { final confirm = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(title: const Text('Veri Aktarımı'), content: const Text('Dönem bilgisi bulunmayan veriler aktif döneme atanacak. Devam edilsin mi?'), actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('İptal')), ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Aktar'))])); if (confirm == true) { setState(() => isLoading = true); await _termService.migrateDataToActiveTerm(); await _loadInitialData(); } }
   Future<void> _deleteAllData() async { final confirm = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(title: const Text('DİKKAT: Veriler Silinecek', style: TextStyle(color: Colors.red)), content: const Text('Kurumun tüm verileri (öğrenciler, dersler, vb.) KALICI olarak silinecek. Bu işlem geri alınamaz!'), actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('İptal')), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.red), onPressed: () => Navigator.pop(ctx, true), child: const Text('Tümünü Sil'))])); if (confirm == true) { setState(() => isLoading = true); await _deleteAllData(); await _loadInitialData(); } }
-  Widget _buildGreeting(bool isMobile) { return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [if (selectedTerm != null) ...[Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: Colors.orange.shade100, borderRadius: BorderRadius.circular(6)), child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.warning_amber_rounded, color: Colors.orange.shade900, size: 14), const SizedBox(width: 8), Text('Görüntülenen Dönem: ${selectedTerm!['termName'] ?? '${selectedTerm!['startYear']}-${selectedTerm!['endYear']}'}', style: TextStyle(color: Colors.orange.shade900, fontSize: 12, fontWeight: FontWeight.bold))])), const SizedBox(height: 12)], Text('Hoş Geldiniz, ${_getUserDisplayName().split(' ')[0]}', style: TextStyle(fontSize: isMobile ? 32 : 42, fontWeight: FontWeight.w800, color: Colors.indigo.shade900, letterSpacing: -1)), const SizedBox(height: 8), Text('Kurumunuzun dijital ekosistemini buradan yönetebilirsiniz.', style: TextStyle(fontSize: isMobile ? 14 : 16, color: Colors.blueGrey.shade500, fontWeight: FontWeight.w400))]); }
+  Widget _buildGreeting(bool isMobile) { 
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start, 
+      children: [
+        if (selectedTerm != null) ...[
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), 
+            decoration: BoxDecoration(color: Colors.orange.shade100, borderRadius: BorderRadius.circular(6)), 
+            child: Row(
+              mainAxisSize: MainAxisSize.min, 
+              children: [
+                Icon(Icons.warning_amber_rounded, color: Colors.orange.shade900, size: 14), 
+                const SizedBox(width: 8), 
+                Text('Görüntülenen Dönem: ${selectedTerm!['termName'] ?? '${selectedTerm!['startYear']}-${selectedTerm!['endYear']}'}', style: TextStyle(color: Colors.orange.shade900, fontSize: 12, fontWeight: FontWeight.bold))
+              ]
+            )
+          ), 
+          const SizedBox(height: 12)
+        ], 
+        _buildModuleCategorySelector(isMobile),
+      ]
+    ); 
+  }
+
+  Widget _buildModuleCategorySelector(bool isMobile) {
+    final categories = [
+      {'id': 'Tümü', 'label': 'Tümü', 'icon': Icons.grid_view_rounded},
+      {'id': 'Akademik', 'label': 'Akademik', 'icon': Icons.school_rounded},
+      {'id': 'Kurumsal', 'label': 'Kurumsal', 'icon': Icons.groups_rounded},
+      {'id': 'Ölçme', 'label': 'Ölçme', 'icon': Icons.assignment_turned_in_outlined},
+      {'id': 'Finans', 'label': 'Finans', 'icon': Icons.account_balance_wallet_rounded},
+      {'id': 'Operasyon', 'label': 'Operasyon', 'icon': Icons.support_agent_rounded},
+      {'id': 'Sistem', 'label': 'Sistem', 'icon': Icons.settings_rounded},
+    ];
+
+    return Container(
+      width: double.infinity,
+      height: 100,
+      margin: const EdgeInsets.only(top: 16),
+      alignment: Alignment.center,
+      child: ScrollConfiguration(
+        behavior: MyCustomScrollBehavior(),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: categories.map((cat) {
+              final isSelected = _selectedModuleCategory == (cat['id'] as String);
+              return Padding(
+                padding: const EdgeInsets.only(right: 16),
+                child: InkWell(
+                  onTap: () {
+                    setState(() {
+                      _selectedModuleCategory = cat['id'] as String;
+                    });
+                  },
+                  borderRadius: BorderRadius.circular(20),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
+                    width: isMobile ? 85 : 95,
+                    height: isMobile ? 85 : 95,
+                    decoration: BoxDecoration(
+                      color: isSelected ? Colors.indigo : Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: isSelected ? Colors.indigo.withOpacity(0.3) : Colors.black.withOpacity(0.04),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        )
+                      ],
+                      border: Border.all(
+                        color: isSelected ? Colors.indigo : Colors.indigo.shade50,
+                        width: 1.5,
+                      ),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          cat['icon'] as IconData,
+                          color: isSelected ? Colors.white : Colors.indigo.shade400,
+                          size: 24,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          cat['label'] as String,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                            color: isSelected ? Colors.white : Colors.indigo.shade900,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _buildGridSections(bool isMobile) {
-
     return LayoutBuilder(
       builder: (context, constraints) {
-        double cardWidth; if (constraints.maxWidth > 1000) { cardWidth = (constraints.maxWidth - 48) / 3; } else if (constraints.maxWidth > 700) { cardWidth = (constraints.maxWidth - 24) / 2; } else { cardWidth = constraints.maxWidth; }
-        return Wrap(
-          spacing: 24, runSpacing: 24,
-          children: [
-            _ModuleCardWidget(title: 'EĞİTİM', badge: 'AKADEMİK', icon: Icons.school_outlined, color: Colors.indigo, cardWidth: cardWidth, isMobile: isMobile, items: [if (_hasModuleAccess('ogrenci_kayit')) {'title': 'Ön Kayıt', 'onTap': () => Navigator.pushNamed(context, '/pre-registration')}, if (_hasModuleAccess('ogrenci_kayit')) {'title': 'Öğrenci Kaydı', 'onTap': () => Navigator.pushNamed(context, '/student-registration')}, if (_hasModuleAccess('okul_turleri')) {'title': 'Okul Türleri', 'onTap': () => Navigator.pushNamed(context, '/school-types')}], onTap: () => _showEducationHub()), 
-            _ModuleCardWidget(title: 'İnsan Kaynakları', badge: 'KURUMSAL', icon: Icons.group_outlined, color: Colors.purple, cardWidth: cardWidth, isMobile: isMobile, items: _getHrItems(), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HrHubScreen()))),
-            _ModuleCardWidget(title: 'ÖLÇME DEĞERLENDİRME', badge: 'ANALİZ', icon: Icons.assignment_turned_in_outlined, color: Colors.teal, cardWidth: cardWidth, isMobile: isMobile, items: [{'title': 'Sınav Tanımları', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => AssessmentDashboardScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'])))}, {'title': 'Optik Formlar', 'onTap': () {}}, {'title': 'Soru Bankası', 'onTap': () {}}, if (_hasModuleAccess('yoklama')) {'title': 'Yoklama Raporları', 'onTap': () {}}, {'title': 'Gelişim Analizi', 'onTap': () {}}], onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AssessmentDashboardScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'])))),
-            _ModuleCardWidget(title: 'MALİ İŞLER', badge: 'FİNANS', icon: Icons.account_balance_wallet_outlined, color: Colors.blue, cardWidth: cardWidth, isMobile: isMobile, items: [if (_hasModuleAccess('muhasebe')) {'title': 'Gelir Kaydı', 'onTap': () => Navigator.pushNamed(context, '/accounting')}, {'title': 'Gider Kaydı', 'onTap': () => Navigator.pushNamed(context, '/accounting')}, {'title': 'Veli Tahsilat', 'onTap': () => Navigator.pushNamed(context, '/accounting')}, {'title': 'Makbuz Al', 'onTap': () => Navigator.pushNamed(context, '/accounting')}], onTap: () => Navigator.pushNamed(context, '/accounting')),
-            _ModuleCardWidget(title: 'HİZMETLER', badge: 'OPERASYON', icon: Icons.support_agent_outlined, color: Colors.orange, cardWidth: cardWidth, isMobile: isMobile, items: [ {'title': 'Yemekhane İşlemleri', 'onTap': () => Navigator.pushNamed(context, '/support-services')}, {'title': 'Servis İşlemleri', 'onTap': () => Navigator.pushNamed(context, '/support-services')}, {'title': 'Depo ve Satın Alma', 'onTap': () => Navigator.pushNamed(context, '/support-services')}], onTap: () => Navigator.pushNamed(context, '/support-services')),
-            _ModuleCardWidget(title: 'SİSTEM AYARLARI', badge: 'SİSTEM', icon: Icons.settings_outlined, color: Colors.blueGrey, cardWidth: cardWidth, isMobile: isMobile, items: [if (userData == null || _hasModuleAccess('kullanici_yonetimi')) {'title': 'Kullanıcı Yönetimi', 'onTap': () => Navigator.pushNamed(context, '/user-management')}, {'title': 'Yetki Tanımlama', 'onTap': () => Navigator.pushNamed(context, '/permission-definition')}, {'title': 'Uygulama Ayarları', 'onTap': () => Navigator.pushNamed(context, '/app-settings')}, {'title': 'Veri Yedekleme', 'onTap': () {}}], onTap: () => Navigator.pushNamed(context, '/app-settings'), buttonLabel: 'DÜZENLE'),
-          ],
+        final isAllSelected = _selectedModuleCategory == 'Tümü';
+        
+        final List<Map<String, dynamic>> moduleData = [
+          {
+            'title': 'EĞİTİM', 'badge': 'Akademik', 'icon': Icons.school_outlined, 'color': Colors.indigo, 'onTap': () => setState(() => _selectedModuleCategory = 'Akademik'),
+            'items': [if (_hasModuleAccess('ogrenci_kayit')) {'title': 'Ön Kayıt', 'onTap': () => Navigator.pushNamed(context, '/pre-registration')}, if (_hasModuleAccess('ogrenci_kayit')) {'title': 'Öğrenci Kaydı', 'onTap': () => Navigator.pushNamed(context, '/student-registration')}, if (_hasModuleAccess('okul_turleri')) {'title': 'Okul Türleri', 'onTap': () => Navigator.pushNamed(context, '/school-types')}]
+          },
+          {
+            'title': 'İnsan Kaynakları', 'badge': 'Kurumsal', 'icon': Icons.group_outlined, 'color': Colors.purple, 'onTap': () => setState(() => _selectedModuleCategory = 'Kurumsal'),
+            'items': _getHrItems()
+          },
+          {
+            'title': 'ÖLÇME DEĞERLENDİRME', 'badge': 'Ölçme', 'icon': Icons.assignment_turned_in_outlined, 'color': Colors.teal, 'onTap': () => setState(() => _selectedModuleCategory = 'Ölçme'),
+            'items': [{'title': 'Sınav Tanımları', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => AssessmentDashboardScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'])))}, {'title': 'Optik Formlar', 'onTap': () {}}, {'title': 'Soru Bankası', 'onTap': () {}}, if (_hasModuleAccess('yoklama')) {'title': 'Yoklama Raporları', 'onTap': () {}}, {'title': 'Gelişim Analizi', 'onTap': () {}}]
+          },
+          {
+            'title': 'MALİ İŞLER', 'badge': 'Finans', 'icon': Icons.account_balance_wallet_outlined, 'color': Colors.blue, 'onTap': () => setState(() => _selectedModuleCategory = 'Finans'),
+            'items': [if (_hasModuleAccess('muhasebe')) {'title': 'Gelir Kaydı', 'onTap': () => Navigator.pushNamed(context, '/accounting')}, {'title': 'Gider Kaydı', 'onTap': () => Navigator.pushNamed(context, '/accounting')}, {'title': 'Veli Tahsilat', 'onTap': () => Navigator.pushNamed(context, '/accounting')}, {'title': 'Makbuz Al', 'onTap': () => Navigator.pushNamed(context, '/accounting')}]
+          },
+          {
+            'title': 'HİZMETLER', 'badge': 'Operasyon', 'icon': Icons.support_agent_outlined, 'color': Colors.orange, 'onTap': () => setState(() => _selectedModuleCategory = 'Operasyon'),
+            'items': [ {'title': 'Yemekhane İşlemleri', 'onTap': () => Navigator.pushNamed(context, '/support-services')}, {'title': 'Servis İşlemleri', 'onTap': () => Navigator.pushNamed(context, '/support-services')}, {'title': 'Depo ve Satın Alma', 'onTap': () => Navigator.pushNamed(context, '/support-services')}]
+          },
+          {
+            'title': 'SİSTEM AYARLARI', 'badge': 'Sistem', 'icon': Icons.settings_outlined, 'color': Colors.blueGrey, 'onTap': () => setState(() => _selectedModuleCategory = 'Sistem'), 'buttonLabel': 'DÜZENLE',
+            'items': [if (userData == null || _hasModuleAccess('kullanici_yonetimi')) {'title': 'Kullanıcı Yönetimi', 'onTap': () => Navigator.pushNamed(context, '/user-management')}, {'title': 'Yetki Tanımlama', 'onTap': () => Navigator.pushNamed(context, '/permission-definition')}, {'title': 'Uygulama Ayarları', 'onTap': () => Navigator.pushNamed(context, '/app-settings')}, {'title': 'Veri Yedekleme', 'onTap': () {}}]
+          },
+        ];
+
+        final filteredData = isAllSelected 
+          ? moduleData 
+          : moduleData.where((d) => d['badge'] == _selectedModuleCategory).toList();
+
+        // Tekli seçimde veya mobilde Column kullanarak kartın içeriğe göre büyümesini sağlıyoruz
+        if (isMobile || !isAllSelected) {
+          return Column(
+            children: filteredData.map((d) => Padding(
+              padding: const EdgeInsets.only(bottom: 24), 
+              child: _ModuleCardWidget(
+                title: d['title'], badge: d['badge'], icon: d['icon'], color: d['color'], items: d['items'], onTap: d['onTap'], isMobile: isMobile, buttonLabel: d['buttonLabel'],
+                showAllItems: !isAllSelected,
+              )
+            )).toList(),
+          );
+        }
+
+        int count = constraints.maxWidth > 1100 ? 3 : 2;
+        double? extent = 350; 
+
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: count,
+            crossAxisSpacing: 24,
+            mainAxisSpacing: 24,
+            mainAxisExtent: extent, 
+          ),
+          itemCount: filteredData.length,
+          itemBuilder: (context, index) {
+            final d = filteredData[index];
+            return _ModuleCardWidget(
+              title: d['title'], badge: d['badge'], icon: d['icon'], color: d['color'], items: d['items'], onTap: d['onTap'], isMobile: isMobile, buttonLabel: d['buttonLabel'],
+              showAllItems: !isAllSelected,
+            );
+          },
         );
       },
     );
@@ -450,40 +665,93 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
     );
   }
 
-  Widget _buildFeatureCards(bool isMobile) { return LayoutBuilder(builder: (context, constraints) { final stackAt = 800.0; final shouldStack = constraints.maxWidth < stackAt; if (shouldStack) return Column(children: [_buildFeatureCard(title: 'Hızlı Haberleşme Merkezi', subtitle: 'Tanımlı kullanıcılara hızlı duyurular yapın.', icon: Icons.campaign_rounded, color: Colors.indigo, isMobile: isMobile, onTap: () => Navigator.pushNamed(context, '/announcements')), const SizedBox(height: 16), _buildFeatureCard(title: 'Notlarım', subtitle: 'Kendinize özel hatırlatıcılı notlar oluşturun.', icon: Icons.edit_note_rounded, color: Colors.purple, isMobile: isMobile, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PersonalNotesScreen())))]); return Row(children: [Expanded(child: _buildFeatureCard(title: 'Hızlı Haberleşme Merkezi', subtitle: 'Tanımlı kullanıcılara hızlı duyurular yapın.', icon: Icons.campaign_rounded, color: Colors.indigo, isMobile: isMobile, onTap: () => Navigator.pushNamed(context, '/announcements'))), const SizedBox(width: 24), Expanded(child: _buildFeatureCard(title: 'Notlarım', subtitle: 'Kendinize özel hatırlatıcılı notlar oluşturun.', icon: Icons.edit_note_rounded, color: Colors.purple, isMobile: isMobile, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PersonalNotesScreen()))))]); }); }
-  Widget _buildFeatureCard({required String title, required String subtitle, required IconData icon, required Color color, required bool isMobile, VoidCallback? onTap}) { return InkWell(onTap: onTap, borderRadius: BorderRadius.circular(24), child: Container(height: 160, padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20), decoration: BoxDecoration(color: color.withOpacity(0.05), borderRadius: BorderRadius.circular(24)), child: Row(children: [Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(12)), child: Icon(icon, color: Colors.white, size: 28)), const SizedBox(width: 16), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: color)), const SizedBox(height: 4), Text(subtitle, style: TextStyle(fontSize: 12, color: color.withOpacity(0.7), height: 1.4))]))]))); }
-  Widget _buildFooter(bool isMobile) { String footerText = '© 2026 eduKN. Tüm Hakları Saklıdır.'; return Column(children: [Divider(color: Colors.blueGrey.shade100), const SizedBox(height: 24), if (isMobile) ...[Text(footerText, textAlign: TextAlign.center, style: TextStyle(color: Colors.blueGrey.shade400, fontSize: 11)), const SizedBox(height: 12), Row(mainAxisAlignment: MainAxisAlignment.center, children: [_buildFooterLink('Destek'), const SizedBox(width: 16), _buildFooterLink('Gizlilik Politikası'), const SizedBox(width: 16), _buildFooterLink('Kullanım Şartları')])] else ...[Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(footerText, style: TextStyle(color: Colors.blueGrey.shade400, fontSize: 12)), Row(children: [_buildFooterLink('Destek'), const SizedBox(width: 24), _buildFooterLink('Gizlilik Politikası'), const SizedBox(width: 24), _buildFooterLink('Kullanım Şartları')])])]],); }
+  Widget _buildFeatureCards(bool isMobile) { 
+    return LayoutBuilder(builder: (context, constraints) { 
+      final stackAt = 800.0; 
+      final shouldStack = constraints.maxWidth < stackAt; 
+      if (shouldStack) {
+        return Row(
+          children: [
+            Expanded(child: _buildFeatureCard(title: 'Haberleşme', icon: Icons.campaign_rounded, color: Colors.indigo, isMobile: isMobile, onTap: () => Navigator.pushNamed(context, '/announcements'))), 
+            const SizedBox(width: 12), 
+            Expanded(child: _buildFeatureCard(title: 'Notlarım', icon: Icons.edit_note_rounded, color: Colors.purple, isMobile: isMobile, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PersonalNotesScreen()))))
+          ],
+        );
+      } 
+      return Row(
+        children: [
+          Expanded(child: _buildFeatureCard(title: 'Hızlı Haberleşme Merkezi', subtitle: 'Tanımlı kullanıcılara hızlı duyurular yapın.', icon: Icons.campaign_rounded, color: Colors.indigo, isMobile: isMobile, onTap: () => Navigator.pushNamed(context, '/announcements'))), 
+          const SizedBox(width: 24), 
+          Expanded(child: _buildFeatureCard(title: 'Notlarım', subtitle: 'Kendinize özel hatırlatıcılı notlar oluşturun.', icon: Icons.edit_note_rounded, color: Colors.purple, isMobile: isMobile, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PersonalNotesScreen()))))
+        ]
+      ); 
+    }); 
+  }
+
+  Widget _buildFeatureCard({required String title, String? subtitle, required IconData icon, required Color color, required bool isMobile, VoidCallback? onTap}) { 
+    return InkWell(
+      onTap: onTap, 
+      borderRadius: BorderRadius.circular(16), 
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12), 
+        decoration: BoxDecoration(color: color.withOpacity(0.05), borderRadius: BorderRadius.circular(16)), 
+        child: Row(
+          children: [
+            Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(10)), child: Icon(icon, color: Colors.white, size: 20)), 
+            const SizedBox(width: 12), 
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start, 
+                mainAxisAlignment: MainAxisAlignment.center, 
+                children: [
+                  Text(title, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color)), 
+                  if (subtitle != null && !isMobile) Text(subtitle, style: TextStyle(fontSize: 10, color: color.withOpacity(0.7), height: 1.2))
+                ]
+              )
+            )
+          ]
+        )
+      )
+    ); 
+  }
+
+  Widget _buildFooter(bool isMobile) { String footerText = '© 2026 eduKN.'; return Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(footerText, style: TextStyle(color: Colors.blueGrey.shade400, fontSize: 10)), Row(children: [_buildFooterLink('Destek'), const SizedBox(width: 16), _buildFooterLink('Gizlilik'), const SizedBox(width: 16), _buildFooterLink('Şartlar')])]); }
   Widget _buildFooterLink(String label) { return Text(label, style: TextStyle(color: Colors.blueGrey.shade400, fontSize: 11, fontWeight: FontWeight.w500)); }
 }
 
 class _ModuleCardWidget extends StatefulWidget {
-  final String title; final String badge; final IconData icon; final Color color; final List<Map<String, dynamic>> items; final VoidCallback onTap; final double cardWidth; final bool isMobile; final String? buttonLabel;
-  const _ModuleCardWidget({Key? key, required this.title, required this.badge, required this.icon, required this.color, required this.items, required this.onTap, required this.cardWidth, required this.isMobile, this.buttonLabel}) : super(key: key);
+  final String title; final String badge; final IconData icon; final Color color; final List<Map<String, dynamic>> items; final VoidCallback onTap; final bool isMobile; final String? buttonLabel;
+  final bool showAllItems;
+  const _ModuleCardWidget({Key? key, required this.title, required this.badge, required this.icon, required this.color, required this.items, required this.onTap, required this.isMobile, this.buttonLabel, this.showAllItems = false}) : super(key: key);
   @override State<_ModuleCardWidget> createState() => _ModuleCardWidgetState();
 }
 
 class _ModuleCardWidgetState extends State<_ModuleCardWidget> {
   bool isCardHovered = false; int? hoveredItemIndex;
   @override Widget build(BuildContext context) {
-    final displayedItems = widget.items.take(3).toList(); final remainingCount = widget.items.length - 3; final String label = remainingCount > 0 ? '+$remainingCount işlem daha görüntüle' : (widget.buttonLabel ?? 'GÖRÜNTÜLE');
+    final displayedItems = widget.showAllItems ? widget.items : widget.items.take(3).toList();
+    final remainingCount = widget.showAllItems ? 0 : (widget.items.length - 3);
+    final String label = remainingCount > 0 ? '+$remainingCount işlem daha görüntüle' : (widget.buttonLabel ?? 'GÖRÜNTÜLE');
+    
+    // Sabit yükseklik sadece "Tümü" seçiliyken ve mobilde değilken kullanılır
+    final bool useFixedLayout = !widget.isMobile && !widget.showAllItems;
+
     return MouseRegion(
       onEnter: (_) => setState(() => isCardHovered = true), 
       onExit: (_) => setState(() => isCardHovered = false), 
       child: Container(
-        width: widget.cardWidth, 
-        height: widget.isMobile ? null : 360, 
         decoration: BoxDecoration(color: Colors.white.withOpacity(0.9), borderRadius: BorderRadius.circular(widget.isMobile ? 24 : 32), border: Border.all(color: isCardHovered ? widget.color : Colors.transparent, width: 1.5)), 
         padding: EdgeInsets.all(widget.isMobile ? 24 : 32), 
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start, 
-          mainAxisSize: MainAxisSize.min, 
+          mainAxisSize: useFixedLayout ? MainAxisSize.max : MainAxisSize.min, 
           children: [
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: widget.color.withOpacity(0.1), borderRadius: BorderRadius.circular(16)), child: Icon(widget.icon, color: widget.color, size: 24)), Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: widget.color.withOpacity(0.1), borderRadius: BorderRadius.circular(100)), child: Text(widget.badge, style: TextStyle(color: widget.color, fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 0.5)))]), 
             const SizedBox(height: 24), 
             Text(widget.title, style: TextStyle(fontSize: widget.isMobile ? 18 : 20, fontWeight: FontWeight.bold, color: const Color(0xFF1E293B))), 
             const SizedBox(height: 20), 
             ListView.builder(shrinkWrap: true, padding: EdgeInsets.zero, physics: const NeverScrollableScrollPhysics(), itemCount: displayedItems.length, itemBuilder: (context, index) { final item = displayedItems[index]; final isHovered = hoveredItemIndex == index; return Padding(padding: const EdgeInsets.only(bottom: 8.0), child: MouseRegion(onEnter: (_) => setState(() => hoveredItemIndex = index), onExit: (_) => setState(() => hoveredItemIndex = null), child: InkWell(onTap: item['onTap'] as VoidCallback, borderRadius: BorderRadius.circular(8), child: Padding(padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 8.0), child: Row(children: [Container(width: 5, height: 5, decoration: BoxDecoration(color: isHovered ? widget.color : Colors.blueGrey.shade200, shape: BoxShape.circle)), const SizedBox(width: 10), Expanded(child: Text(item['title'] as String, style: TextStyle(color: isHovered ? widget.color : Colors.blueGrey.shade600, fontSize: 14, fontWeight: isHovered ? FontWeight.bold : FontWeight.w400))), Icon(Icons.chevron_right, size: 14, color: isHovered ? widget.color : Colors.blueGrey.shade300)]))))); }), 
-            if (!widget.isMobile) const Spacer(), 
+            if (useFixedLayout) const Spacer(), 
             const SizedBox(height: 16), 
             SizedBox(width: double.infinity, child: ElevatedButton(onPressed: widget.onTap, style: ElevatedButton.styleFrom(backgroundColor: isCardHovered ? widget.color : const Color(0xFFF1F5F9), foregroundColor: isCardHovered ? Colors.white : Colors.blueGrey.shade700, elevation: 0, padding: const EdgeInsets.symmetric(vertical: 20), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))), child: Text(label, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold))))
           ]
@@ -500,4 +768,12 @@ class DoodlePainter extends CustomPainter {
     for (double x = 0; x < size.width + spacing; x += spacing) { for (double y = 0; y < size.height + spacing; y += spacing) { final iconData = icons[random.nextInt(icons.length)]; final jitterX = random.nextDouble() * 40 - 20; final jitterY = random.nextDouble() * 40 - 20; final rotation = random.nextDouble() * 0.5 - 0.25; final textPainter = TextPainter(textDirection: TextDirection.ltr, text: TextSpan(text: String.fromCharCode(iconData.codePoint), style: TextStyle(fontSize: iconSize, fontFamily: iconData.fontFamily, package: iconData.fontPackage, color: Colors.indigo.withOpacity(0.02 + random.nextDouble() * 0.03)))); textPainter.layout(); canvas.save(); canvas.translate(x + jitterX, y + jitterY); canvas.rotate(rotation); textPainter.paint(canvas, Offset(-textPainter.width / 2, -textPainter.height / 2)); canvas.restore(); } }
   }
   @override bool shouldRepaint(CustomPainter oldDelegate) => false;
+}
+
+class MyCustomScrollBehavior extends MaterialScrollBehavior {
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+    PointerDeviceKind.touch,
+    PointerDeviceKind.mouse,
+  };
 }
