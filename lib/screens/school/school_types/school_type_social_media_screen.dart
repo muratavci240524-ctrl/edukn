@@ -34,6 +34,7 @@ class _SchoolTypeSocialMediaScreenState
 
   // --- Actions ---
 
+
   void _openCreatePost() {
     Navigator.push(
       context,
@@ -48,110 +49,139 @@ class _SchoolTypeSocialMediaScreenState
   }
 
   @override
+  void dispose() {
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        elevation: 0,
-        backgroundColor: Colors.indigo,
-        iconTheme: const IconThemeData(color: Colors.white),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '${widget.schoolTypeName} Sosyal',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
+      backgroundColor: const Color(0xFFF8FAFC),
+      body: SafeArea(
+        child: NestedScrollView(
+          headerSliverBuilder: (context, innerBoxIsScrolled) => [
+            SliverAppBar(
+              pinned: true,
+              backgroundColor: Colors.indigo,
+              elevation: 0,
+              automaticallyImplyLeading: false,
+              title: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.schoolTypeName,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    'Sosyal Medya',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.8),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
               ),
+              actions: [
+                IconButton(
+                  onPressed: _openCreatePost,
+                  icon: const Icon(Icons.add_rounded, color: Colors.white),
+                  tooltip: 'Yeni Medya Ekle',
+                ),
+              ],
             ),
           ],
-        ),
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _openCreatePost,
-        label: const Text(
-          'Yeni Medya Ekle',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
-        icon: const Icon(Icons.add_photo_alternate, color: Colors.white),
-        backgroundColor: Colors.indigo,
-      ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('social_media_posts')
-            .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
-            .orderBy('createdAt', descending: true)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(child: Text('Hata: ${snapshot.error}'));
-          }
+          body: StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('social_media_posts')
+                .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+                .orderBy('createdAt', descending: true)
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError) {
+                return Center(child: Text('Hata: ${snapshot.error}'));
+              }
 
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return const Center(child: Text('Henüz gönderi yok'));
-          }
+              if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                return const Center(child: Text('Henüz gönderi yok'));
+              }
 
-          // Client-side Sorting (Pinned First)
-          List<QueryDocumentSnapshot> posts = List.from(snapshot.data!.docs);
-          posts.sort((a, b) {
-            final dataA = a.data() as Map<String, dynamic>;
-            final dataB = b.data() as Map<String, dynamic>;
-            final isPinnedA = dataA['isPinned'] ?? false;
-            final isPinnedB = dataB['isPinned'] ?? false;
+              List<QueryDocumentSnapshot> posts = List.from(snapshot.data!.docs);
 
-            if (isPinnedA != isPinnedB) {
-              return isPinnedA ? -1 : 1; // Sabitlenenler önce
-            }
-            final timeA = dataA['createdAt'] as Timestamp?;
-            final timeB = dataB['createdAt'] as Timestamp?;
-            if (timeA != null && timeB != null) {
-              return timeB.compareTo(timeA);
-            }
-            return 0;
-          });
+              posts.sort((a, b) {
+                final dataA = a.data() as Map<String, dynamic>;
+                final dataB = b.data() as Map<String, dynamic>;
+                final isPinnedA = dataA['isPinned'] ?? false;
+                final isPinnedB = dataB['isPinned'] ?? false;
 
-          return Center(
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: 1000),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  int crossAxisCount = constraints.maxWidth > 700 ? 2 : 1;
+                if (isPinnedA != isPinnedB) {
+                  return isPinnedA ? -1 : 1;
+                }
+                final timeA = dataA['createdAt'] as Timestamp?;
+                final timeB = dataB['createdAt'] as Timestamp?;
+                if (timeA != null && timeB != null) {
+                  return timeB.compareTo(timeA);
+                }
+                return 0;
+              });
 
-                  return GridView.builder(
-                    padding: const EdgeInsets.all(16),
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: crossAxisCount,
-                      crossAxisSpacing: 16,
-                      mainAxisSpacing: 16,
-                      childAspectRatio: 0.75,
-                    ),
-                    itemCount: posts.length,
-                    itemBuilder: (context, index) {
-                      final post = posts[index];
-                      final data = post.data() as Map<String, dynamic>;
-                      return PostCard(
-                        postId: post.id,
-                        data: data,
-                        currentUserId: _auth.currentUser?.uid,
-                        currentUserEmail: _auth.currentUser?.email,
-                        schoolTypeId: widget.schoolTypeId,
+
+              return Center(
+                child: Container(
+                  constraints: const BoxConstraints(maxWidth: 1000),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      int crossAxisCount = constraints.maxWidth > 700 ? 2 : 1;
+
+                      return GridView.builder(
+                        padding: const EdgeInsets.all(16),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: crossAxisCount,
+                          crossAxisSpacing: 16,
+                          mainAxisSpacing: 16,
+                          childAspectRatio: 0.75,
+                        ),
+                        itemCount: posts.length,
+                        itemBuilder: (context, index) {
+                          final post = posts[index];
+                          final data = post.data() as Map<String, dynamic>;
+                          return PostCard(
+                            postId: post.id,
+                            data: data,
+                            currentUserId: _auth.currentUser?.uid,
+                            currentUserEmail: _auth.currentUser?.email,
+                            schoolTypeId: widget.schoolTypeId,
+                          );
+                        },
                       );
                     },
-                  );
-                },
-              ),
-            ),
-          );
-        },
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
       ),
+      floatingActionButton: MediaQuery.of(context).size.width > 700
+          ? FloatingActionButton.extended(
+              onPressed: _openCreatePost,
+              label: const Text(
+                'Yeni Medya Ekle',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+              icon: const Icon(Icons.add_photo_alternate, color: Colors.white),
+              backgroundColor: Colors.indigo,
+            )
+          : null,
     );
   }
+
 }
 
 class PostCard extends StatefulWidget {

@@ -40,6 +40,7 @@ class _SchoolTypeAnnouncementsScreenState
   Map<String, dynamic>? userData;
   bool _isLoadingPermissions = true;
   Timer? _scheduledCheckTimer;
+  bool _showFilters = false;
 
   @override
   void initState() {
@@ -164,17 +165,92 @@ class _SchoolTypeAnnouncementsScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC), // Slate 50
       body: SafeArea(
-        child: Column(
-          children: [
-            // Header
-            _buildHeader(context),
-            _buildFilters(context),
-
-            // Content
-            Expanded(
-              child: Center(
+        child: NestedScrollView(
+          headerSliverBuilder: (context, innerBoxIsScrolled) => [
+            SliverAppBar(
+              pinned: true,
+              backgroundColor: Colors.indigo,
+              elevation: 0,
+              automaticallyImplyLeading: false,
+              title: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.schoolTypeName,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    'Duyurular',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.8),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                if (_canEditAnnouncements())
+                  PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert_rounded, color: Colors.white),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    onSelected: (value) {
+                      if (value == 'sent') {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (ctx) => const SentAnnouncementsScreen(),
+                          ),
+                        );
+                      } else if (value == 'new') {
+                        _openCreateSheet();
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(
+                        value: 'sent',
+                        child: Row(
+                          children: [
+                            Icon(Icons.outbox_rounded, color: Colors.indigo, size: 20),
+                            SizedBox(width: 12),
+                            Text('Gönderilenler'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'new',
+                        child: Row(
+                          children: [
+                            Icon(Icons.add_rounded, color: Colors.indigo, size: 20),
+                            SizedBox(width: 12),
+                            Text('Yeni Duyuru'),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+            SliverAppBar(
+              floating: true,
+              pinned: false,
+              snap: true,
+              backgroundColor: Colors.white,
+              elevation: 2,
+              automaticallyImplyLeading: false,
+              toolbarHeight: _showFilters ? 124 : 68,
+              flexibleSpace: FlexibleSpaceBar(
+                background: _buildFilters(context),
+              ),
+            ),
+          ],
+          body: Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 800),
                   child: StreamBuilder<QuerySnapshot>(
@@ -350,10 +426,8 @@ class _SchoolTypeAnnouncementsScreenState
                 ),
               ),
             ),
-          ],
-        ),
-      ),
-      floatingActionButton: !_isLoadingPermissions && _canEditAnnouncements()
+          ),
+      floatingActionButton: MediaQuery.of(context).size.width > 700 && !_isLoadingPermissions && _canEditAnnouncements()
           ? FloatingActionButton.extended(
               onPressed: _openCreateSheet,
               backgroundColor: const Color(0xFF1976D2), // Strong Blue
@@ -371,141 +445,132 @@ class _SchoolTypeAnnouncementsScreenState
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
+
+  Widget _buildFilters(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-      color: Colors.indigo,
-      child: Row(
+      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+      child: Column(
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          // Search Bar
+          Row(
             children: [
-              Text(
-                '${widget.schoolTypeName}',
-                style: GoogleFonts.inter(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
+              Expanded(
+                child: TextField(
+                  controller: _search,
+                  onChanged: (_) => setState(() {}),
+                  textAlignVertical: TextAlignVertical.center,
+                  style: GoogleFonts.inter(fontSize: 14),
+                  decoration: InputDecoration(
+                    hintText: 'Duyuru ara...',
+                    hintStyle: GoogleFonts.inter(
+                      color: const Color(0xFF94A3B8),
+                      fontSize: 14,
+                    ),
+                    prefixIcon: const Icon(
+                      Icons.search_rounded,
+                      color: Color(0xFF94A3B8),
+                      size: 20,
+                    ),
+                    prefixIconConstraints: const BoxConstraints(
+                      minWidth: 40,
+                    ),
+                    suffixIcon: _search.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(
+                              Icons.clear_rounded,
+                              size: 18,
+                              color: Color(0xFF94A3B8),
+                            ),
+                            onPressed: () => setState(() => _search.clear()),
+                          )
+                        : null,
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(24),
+                      borderSide: const BorderSide(
+                        color: Color(0xFFE2E8F0),
+                        width: 1.2,
+                      ),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(24),
+                      borderSide: const BorderSide(
+                        color: Colors.blue,
+                        width: 1.5,
+                      ),
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(24),
+                      borderSide: const BorderSide(
+                        color: Color(0xFFE2E8F0),
+                        width: 1.2,
+                      ),
+                    ),
+                  ),
                 ),
               ),
-              Text(
-                'Duyurular',
-                style: GoogleFonts.inter(
-                  fontSize: 14,
-                  color: Colors.white.withOpacity(0.8),
+              const SizedBox(width: 12),
+              // Filter Toggle Button
+              Material(
+                color: _showFilters
+                    ? Colors.indigo.withOpacity(0.1)
+                    : const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(12),
+                child: InkWell(
+                  onTap: () => setState(() => _showFilters = !_showFilters),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    height: 48,
+                    width: 48,
+                    decoration: BoxDecoration(
+                      border: Border.all(
+                        color: _showFilters ? Colors.indigo : Colors.transparent,
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.tune_rounded,
+                      color: _showFilters ? Colors.indigo : const Color(0xFF64748B),
+                    ),
+                  ),
                 ),
               ),
             ],
           ),
-          const Spacer(),
-          if (_canEditAnnouncements())
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert_rounded, color: Colors.white),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              onSelected: (value) {
-                if (value == 'sent') {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (ctx) => const SentAnnouncementsScreen(),
-                    ),
-                  );
-                } else if (value == 'new') {
-                  _openCreateSheet();
-                }
-              },
-              itemBuilder: (context) => [
-                const PopupMenuItem(
-                  value: 'sent',
-                  child: Row(
-                    children: [
-                      Icon(Icons.send_rounded, color: Colors.grey),
-                      SizedBox(width: 12),
-                      Text('Gönderilen Duyurular'),
-                    ],
+          if (_showFilters) ...[
+            const SizedBox(height: 12),
+            // Filter Chips
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              child: Row(
+                children: [
+                  _buildFilterChip(
+                    'Tümü',
+                    _filterType == null,
+                    () => setState(() => _filterType = null),
                   ),
-                ),
-                const PopupMenuItem(
-                  value: 'new',
-                  child: Row(
-                    children: [
-                      Icon(Icons.add_rounded, color: Colors.grey),
-                      SizedBox(width: 12),
-                      Text('Yeni Duyuru'),
-                    ],
+                  const SizedBox(width: 8),
+                  _buildFilterChip(
+                    'Okunmamış',
+                    _filterType == 'unread',
+                    () => setState(() => _filterType = 'unread'),
                   ),
-                ),
-              ],
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFilters(BuildContext context) {
-    // Benzer filtreleme yapısı
-    return Container(
-      color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-      child: Column(
-        children: [
-          // Search Bar
-          Container(
-            decoration: BoxDecoration(
-              color: const Color(0xFFF1F5F9), // Slate 100
-              borderRadius: BorderRadius.circular(99),
-            ),
-            child: TextField(
-              controller: _search,
-              onChanged: (_) => setState(() {}),
-              decoration: InputDecoration(
-                hintText: 'Duyuru ara...',
-                hintStyle: GoogleFonts.inter(color: const Color(0xFF94A3B8)),
-                prefixIcon: const Icon(Icons.search, color: Color(0xFF94A3B8)),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 14,
-                ),
-                suffixIcon: _search.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear, color: Color(0xFF94A3B8)),
-                        onPressed: () => setState(() => _search.clear()),
-                      )
-                    : null,
+                  const SizedBox(width: 8),
+                  _buildFilterChip(
+                    'Sabitlenenler',
+                    _filterType == 'pinned',
+                    () => setState(() => _filterType = 'pinned'),
+                  ),
+                  const SizedBox(width: 8),
+                  _buildDateFilterChip(),
+                ],
               ),
             ),
-          ),
-          const SizedBox(height: 16),
-          // Filter Chips
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _buildFilterChip(
-                  'Tümü',
-                  _filterType == null,
-                  () => setState(() => _filterType = null),
-                ),
-                const SizedBox(width: 8),
-                _buildFilterChip(
-                  'Okunmamış',
-                  _filterType == 'unread',
-                  () => setState(() => _filterType = 'unread'),
-                ),
-                const SizedBox(width: 8),
-                _buildFilterChip(
-                  'Sabitlenenler',
-                  _filterType == 'pinned',
-                  () => setState(() => _filterType = 'pinned'),
-                ),
-                const SizedBox(width: 8),
-                _buildDateFilterChip(),
-              ],
-            ),
-          ),
+          ],
         ],
       ),
     );

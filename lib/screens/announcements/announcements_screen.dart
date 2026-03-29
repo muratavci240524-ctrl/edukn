@@ -30,7 +30,6 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen>
 
   // Yetkilendirme
   Map<String, dynamic>? userData;
-  bool _isLoadingPermissions = true;
   Timer? _scheduledCheckTimer;
   Timer? _termCheckTimer;
 
@@ -129,7 +128,6 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen>
     if (mounted) {
       setState(() {
         userData = data;
-        _isLoadingPermissions = false;
       });
     }
   }
@@ -220,122 +218,117 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen>
     }
   }
 
+  bool _showFilters = false;
+
   @override
   Widget build(BuildContext context) {
     _loadSelectedTerm();
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC), // Slate 50
+      backgroundColor: const Color(0xFFF8FAFC),
       body: SafeArea(
-        child: Column(
-          children: [
-            // Header
-            _buildHeader(context),
-            _buildFilters(context),
-
-            // Content
-            Expanded(
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 800),
-                  child: _buildAnnouncementList(),
-                ),
+        child: NestedScrollView(
+          headerSliverBuilder: (context, innerBoxIsScrolled) => [
+            SliverAppBar(
+              pinned: true,
+              backgroundColor: Colors.indigo,
+              elevation: 0,
+              automaticallyImplyLeading: false,
+              title: Row(
+                children: [
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 20),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Duyurular',
+                        style: GoogleFonts.inter(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      Text(
+                        'Genel Haberleşme',
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          color: Colors.white.withOpacity(0.8),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              actions: [
+                if (_canEditAnnouncements())
+                  PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert_rounded, color: Colors.white),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    onSelected: (value) {
+                      if (value == 'sent') {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (ctx) => const SentAnnouncementsScreen(),
+                          ),
+                        );
+                      } else if (value == 'new') {
+                        _openCreateSheet();
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(
+                        value: 'sent',
+                        child: Row(
+                          children: [
+                            Icon(Icons.outbox_rounded, color: Colors.indigo, size: 20),
+                            SizedBox(width: 12),
+                            Text('Gönderilenler'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'new',
+                        child: Row(
+                          children: [
+                            Icon(Icons.add_rounded, color: Colors.indigo, size: 20),
+                            SizedBox(width: 12),
+                            Text('Yeni Duyuru'),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+            SliverAppBar(
+              floating: true,
+              pinned: false,
+              snap: true,
+              backgroundColor: Colors.white,
+              elevation: 2,
+              automaticallyImplyLeading: false,
+              toolbarHeight: _showFilters ? 124 : 68,
+              flexibleSpace: FlexibleSpaceBar(
+                background: _buildFilters(context),
               ),
             ),
           ],
+          body: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 800),
+              child: _buildAnnouncementList(),
+            ),
+          ),
         ),
-      ),
-      floatingActionButton:
-          (!_isLoadingPermissions &&
-              !_isViewingPastTerm &&
-              _canEditAnnouncements())
-          ? FloatingActionButton.extended(
-              onPressed: _openCreateSheet,
-              backgroundColor: Theme.of(context).primaryColor,
-              foregroundColor: Colors.white,
-              icon: const Icon(Icons.add_rounded),
-              label: Text(
-                'Yeni Duyuru',
-                style: GoogleFonts.inter(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 14,
-                ),
-              ),
-              elevation: 4,
-            )
-          : null,
-    );
-  }
-
-  Widget _buildHeader(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-      color: Colors.white,
-      child: Row(
-        children: [
-          IconButton(
-            onPressed: () => Navigator.pop(context),
-            icon: const Icon(Icons.arrow_back_ios_new_rounded),
-            color: const Color(0xFF1E293B),
-            tooltip: 'Geri',
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-          ),
-          const SizedBox(width: 16),
-          Text(
-            'Duyurular',
-            style: GoogleFonts.inter(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: const Color(0xFF1E293B),
-            ),
-          ),
-          const Spacer(),
-          if (_canEditAnnouncements())
-            PopupMenuButton<String>(
-              icon: const Icon(
-                Icons.more_vert_rounded,
-                color: Color(0xFF64748B),
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              onSelected: (value) {
-                if (value == 'sent') {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (ctx) => const SentAnnouncementsScreen(),
-                    ),
-                  );
-                } else if (value == 'new') {
-                  _openCreateSheet();
-                }
-              },
-              itemBuilder: (context) => [
-                const PopupMenuItem(
-                  value: 'sent',
-                  child: Row(
-                    children: [
-                      Icon(Icons.send_rounded, color: Colors.grey),
-                      SizedBox(width: 12),
-                      Text('Gönderilen Duyurular'),
-                    ],
-                  ),
-                ),
-                const PopupMenuItem(
-                  value: 'new',
-                  child: Row(
-                    children: [
-                      Icon(Icons.add_rounded, color: Colors.grey),
-                      SizedBox(width: 12),
-                      Text('Yeni Duyuru'),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-        ],
       ),
     );
   }
@@ -343,71 +336,130 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen>
   Widget _buildFilters(BuildContext context) {
     return Container(
       color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
       child: Column(
         children: [
-          // Search Bar
-          Container(
-            decoration: BoxDecoration(
-              color: const Color(0xFFF1F5F9), // Slate 100
-              borderRadius: BorderRadius.circular(99),
-            ),
-            child: TextField(
-              controller: _search,
-              onChanged: (_) => setState(() {}),
-              decoration: InputDecoration(
-                hintText: 'Duyuru veya anket ara...',
-                hintStyle: GoogleFonts.inter(color: const Color(0xFF94A3B8)),
-                prefixIcon: const Icon(Icons.search, color: Color(0xFF94A3B8)),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 14,
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _search,
+                  onChanged: (_) => setState(() {}),
+                  textAlignVertical: TextAlignVertical.center,
+                  style: GoogleFonts.inter(fontSize: 14),
+                  decoration: InputDecoration(
+                    hintText: 'Duyuru veya anket ara...',
+                    hintStyle: GoogleFonts.inter(
+                      color: const Color(0xFF94A3B8),
+                      fontSize: 14,
+                    ),
+                    prefixIcon: const Icon(
+                      Icons.search_rounded,
+                      color: Color(0xFF94A3B8),
+                      size: 20,
+                    ),
+                    prefixIconConstraints: const BoxConstraints(minWidth: 40),
+                    suffixIcon: _search.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(
+                              Icons.clear_rounded,
+                              size: 18,
+                              color: Color(0xFF94A3B8),
+                            ),
+                            onPressed: () => setState(() => _search.clear()),
+                          )
+                        : null,
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(24),
+                      borderSide: const BorderSide(
+                        color: Color(0xFFE2E8F0),
+                        width: 1.2,
+                      ),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(24),
+                      borderSide: const BorderSide(
+                        color: Colors.blue,
+                        width: 1.5,
+                      ),
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(24),
+                      borderSide: const BorderSide(
+                        color: Color(0xFFE2E8F0),
+                        width: 1.2,
+                      ),
+                    ),
+                  ),
                 ),
-                suffixIcon: _search.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear, color: Color(0xFF94A3B8)),
-                        onPressed: () => setState(() => _search.clear()),
-                      )
-                    : null,
+              ),
+              const SizedBox(width: 12),
+              Material(
+                color: _showFilters
+                    ? Colors.indigo.withOpacity(0.1)
+                    : const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(12),
+                child: InkWell(
+                  onTap: () => setState(() => _showFilters = !_showFilters),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    height: 48,
+                    width: 48,
+                    decoration: BoxDecoration(
+                      border: Border.all(
+                        color: _showFilters ? Colors.indigo : Colors.transparent,
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.tune_rounded,
+                      color: _showFilters ? Colors.indigo : const Color(0xFF64748B),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (_showFilters) ...[
+            const SizedBox(height: 12),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              child: Row(
+                children: [
+                  _buildFilterChip(
+                    'Tümü',
+                    _filterType == null,
+                    () => setState(() => _filterType = null),
+                  ),
+                  const SizedBox(width: 8),
+                  _buildFilterChip(
+                    'Okunmamış',
+                    _filterType == 'unread',
+                    () => setState(() => _filterType = 'unread'),
+                  ),
+                  const SizedBox(width: 8),
+                  _buildFilterChip(
+                    'Sabitlenenler',
+                    _filterType == 'pinned',
+                    () => setState(() => _filterType = 'pinned'),
+                  ),
+                  const SizedBox(width: 8),
+                  _buildDateFilterChip(),
+                ],
               ),
             ),
-          ),
-          const SizedBox(height: 16),
-          // Filter Chips
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _buildFilterChip(
-                  'Tümü',
-                  _filterType == null,
-                  () => setState(() => _filterType = null),
-                ),
-                const SizedBox(width: 8),
-                _buildFilterChip(
-                  'Okunmamış',
-                  _filterType == 'unread',
-                  () => setState(() => _filterType = 'unread'),
-                ),
-                const SizedBox(width: 8),
-                _buildFilterChip(
-                  'Sabitlenenler',
-                  _filterType == 'pinned',
-                  () => setState(() => _filterType = 'pinned'),
-                ),
-                const SizedBox(width: 8),
-                _buildDateFilterChip(),
-              ],
-            ),
-          ),
+          ],
         ],
       ),
     );
   }
 
   Widget _buildFilterChip(String label, bool isSelected, VoidCallback onTap) {
-    final primaryColor = Theme.of(context).primaryColor;
+    const primaryColor = Color(0xFF1976D2);
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(30),
@@ -434,7 +486,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen>
 
   Widget _buildDateFilterChip() {
     final isSelected = _range != null;
-    final primaryColor = Theme.of(context).primaryColor;
+    const primaryColor = Color(0xFF1976D2);
 
     return InkWell(
       onTap: _pickRange,
@@ -443,7 +495,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen>
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
           color: isSelected
-              ? primaryColor.withValues(alpha: 0.1)
+              ? primaryColor.withOpacity(0.1)
               : Colors.white,
           borderRadius: BorderRadius.circular(30),
           border: Border.all(

@@ -15,6 +15,7 @@ import '../../../classroom_management_screen.dart';
 /// 2. Saat Dilimleri  (gün/saat + ders seçimi + öğretmen atama)
 /// 3. Özet & Oluştur
 import '../models/agm_cycle_model.dart';
+import '../models/agm_group_model.dart';
 
 class AgmCycleSetupScreen extends StatefulWidget {
   final String institutionId;
@@ -43,6 +44,7 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
 
   // ── Cycle Başlığı ───────────────────────────────────────
   final _titleController = TextEditingController();
+  final _examSearchController = TextEditingController();
 
   // ── Sınavlar ───────────────────────────────────────────
   List<String> _selectedExamIds = [];
@@ -117,12 +119,18 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
       includeInactive: true,
     );
 
-    final examSnap = await _db
-        .collection('trial_exams')
-        .where('institutionId', isEqualTo: widget.institutionId)
-        .where('isActive', isEqualTo: true)
-        .orderBy('date', descending: true)
-        .get();
+    // Sınavlar - trial_exams collection
+    QuerySnapshot? examSnap;
+    try {
+      examSnap = await _db
+          .collection('trial_exams')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .where('isActive', isEqualTo: true)
+          // orderBy('date'...) bazen index hatası verebilir, şimdilik basit tutalım
+          .get();
+    } catch (e) {
+      debugPrint('Sınavları çekerken hata: $e');
+    }
 
     // Saat dilimleri (mevcut cycle için boş başlar)
     // Öğretmenler – users collection, type:'staff', title:'ogretmen'
@@ -171,7 +179,17 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
       }).toList();
 
       setState(() {
-        _exams = examSnap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+        _exams = examSnap != null 
+            ? examSnap.docs.map((d) => {'id': d.id, ...d.data() as Map<String, dynamic>}).toList()
+            : [];
+        // Tarihe göre manuel sırala (eğer alan varsa)
+        _exams.sort((a, b) {
+          final da = a['date'];
+          final db = b['date'];
+          if (da is Timestamp && db is Timestamp) return db.compareTo(da);
+          return 0;
+        });
+
         _classrooms = classroomSnap.docs
             .map(
               (d) => {
@@ -296,6 +314,7 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
   void dispose() {
     _tabController.dispose();
     _titleController.dispose();
+    _examSearchController.dispose();
     super.dispose();
   }
 
@@ -347,77 +366,87 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: TextField(
+                  controller: _examSearchController,
                   decoration: _inputDecoration('Sınav Ara...').copyWith(
                     prefixIcon: const Icon(Icons.search),
                     filled: true,
                     fillColor: Colors.grey.shade50,
                   ),
                   onChanged: (val) {
-                    setSt(() {}); // Filtreleme state kontrolü için
+                    setSt(() {}); // Dialog state'ini yenile
                   },
                 ),
               ),
               const SizedBox(height: 12),
               Expanded(
-                child: ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  itemCount: _exams.length,
-                  itemBuilder: (context, index) {
-                    final e = _exams[index];
-                    final id = e['id'] as String;
-                    final name = e['name'] as String? ?? '';
-                    final type = e['type'] as String? ?? '';
-                    final dateRaw = e['date'];
-                    String dateStr = '';
-                    if (dateRaw is Timestamp) {
-                      dateStr = DateFormat(
-                        'dd.MM.yyyy',
-                      ).format(dateRaw.toDate());
-                    }
+                child: Builder(
+                  builder: (context) {
+                    final query = _examSearchController.text.toLowerCase();
+                    final filteredExams = _exams.where((e) {
+                      final name = (e['name'] ?? '').toString().toLowerCase();
+                      final type = (e['type'] ?? '').toString().toLowerCase();
+                      return name.contains(query) || type.contains(query);
+                    }).toList();
 
-                    final isSelected = _selectedExamIds.contains(id);
+                    return ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      itemCount: filteredExams.length,
+                      itemBuilder: (context, index) {
+                        final e = filteredExams[index];
+                        final id = e['id'] as String;
+                        final name = e['name'] as String? ?? '';
+                        final type = e['type'] as String? ?? '';
+                        final dateRaw = e['date'];
+                        String dateStr = '';
+                        if (dateRaw is Timestamp) {
+                          dateStr = DateFormat('dd.MM.yyyy').format(dateRaw.toDate());
+                        }
 
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      decoration: BoxDecoration(
-                        color: isSelected
-                            ? Colors.deepOrange.shade50
-                            : Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: isSelected
-                              ? Colors.deepOrange.shade200
-                              : Colors.grey.shade200,
-                        ),
-                      ),
-                      child: CheckboxListTile(
-                        title: Text(
-                          name,
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        subtitle: Text(
-                          '$type • $dateStr',
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                        value: isSelected,
-                        activeColor: Colors.deepOrange,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        onChanged: (val) {
-                          setState(() {
-                            if (val == true) {
-                              _selectedExamIds.add(id);
-                              _selectedExamNames.add(name);
-                            } else {
-                              _selectedExamIds.remove(id);
-                              _selectedExamNames.remove(name);
-                            }
-                          });
-                          setSt(() {});
-                          _updateExamDersler();
-                        },
-                      ),
+                        final isSelected = _selectedExamIds.contains(id);
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? Colors.deepOrange.shade50
+                                : Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isSelected
+                                  ? Colors.deepOrange.shade200
+                                  : Colors.grey.shade200,
+                            ),
+                          ),
+                          child: CheckboxListTile(
+                            title: Text(
+                              name,
+                              style: const TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                            subtitle: Text(
+                              '$type • $dateStr',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            value: isSelected,
+                            activeColor: Colors.deepOrange,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            onChanged: (val) {
+                              setState(() {
+                                if (val == true) {
+                                  _selectedExamIds.add(id);
+                                  _selectedExamNames.add(name);
+                                } else {
+                                  _selectedExamIds.remove(id);
+                                  _selectedExamNames.remove(name);
+                                }
+                              });
+                              setSt(() {});
+                              _updateExamDersler();
+                            },
+                          ),
+                        );
+                      },
                     );
                   },
                 ),
@@ -693,7 +722,7 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
                           child: _buildHeaderActionBtn(
                             onPressed: _showAddSlotSheet,
                             icon: Icons.add_circle_outline,
-                            label: 'Yeni Tanımla',
+                            label: 'Ekle',
                             color: Colors.deepOrange,
                           ),
                         ),
@@ -716,7 +745,7 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
                     _buildHeaderActionBtn(
                       onPressed: _showAddSlotSheet,
                       icon: Icons.add_circle_outline,
-                      label: 'Yeni Tanımla',
+                      label: 'Ekle',
                       color: Colors.deepOrange,
                     ),
                     const SizedBox(width: 8),
@@ -937,7 +966,11 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
               child: Column(
-                children: slot.ogretmenGirisler.map((entry) {
+                children: (() {
+                  final sortedEntries = List<AgmSlotTeacherEntry>.from(slot.ogretmenGirisler);
+                  sortedEntries.sort((a, b) => a.dersAdi.compareTo(b.dersAdi));
+                  return sortedEntries;
+                })().map((entry) {
                   return Container(
                     margin: const EdgeInsets.only(bottom: 6),
                     padding: const EdgeInsets.symmetric(
@@ -963,7 +996,7 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
                                 ),
                               ),
                               Text(
-                                '${entry.ogretmenAdi} • Kapasite: ${entry.kapasite}',
+                                '${entry.ogretmenAdi} • Kapasite: ${entry.kapasite}${entry.derslikAdi != null ? ' • ${entry.derslikAdi}' : ''}',
                                 style: TextStyle(
                                   fontSize: 11,
                                   color: Colors.grey.shade600,
@@ -2246,73 +2279,100 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
 
   Future<void> _saveCycle() async {
     setState(() => _saving = true);
+    final sw = Stopwatch()..start();
+    print('DEBUG: [UI] _saveCycle entry');
+
     try {
-      String cycleId;
-      if (widget.initialCycle != null) {
-        cycleId = widget.initialCycle!.id;
-        await _service.updateCycle(
-          id: cycleId,
-          institutionId: widget.initialCycle!.institutionId,
-          schoolTypeId: widget.schoolTypeId,
-          title: _titleController.text,
-          referansDenemeSinavId: _selectedExamIds.first,
-          referansDenemeSinavAdi: _selectedExamNames.first,
-          referansDenemeSinavIds: _selectedExamIds,
-          referansDenemeSinavAdlari: _selectedExamNames,
-          baslangicTarihi: _baslangic,
-          bitisTarihi: _bitis,
-          status: widget.initialCycle!.status,
-          olusturulmaZamani: widget.initialCycle!.olusturulmaZamani,
-          olusturanKullaniciId: widget.initialCycle!.olusturanKullaniciId,
-          haftalikMaksimumSaat: _maxSaat,
-          minimumDersSayisi: _minDers,
-        );
-
-        // Mevcut grupları ve atamaları temizle (yeniden oluşturulacak)
-        await _repo.deleteGroupsByCycle(cycleId);
-      } else {
-        cycleId = await _service.createCycle(
-          institutionId: widget.institutionId,
-          schoolTypeId: widget.schoolTypeId,
-          title: _titleController.text,
-          referansDenemeSinavId: _selectedExamIds.first,
-          referansDenemeSinavAdi: _selectedExamNames.first,
-          referansDenemeSinavIds: _selectedExamIds,
-          referansDenemeSinavAdlari: _selectedExamNames,
-          baslangicTarihi: _baslangic,
-          bitisTarihi: _bitis,
-          haftalikMaksimumSaat: _maxSaat,
-          minimumDersSayisi: _minDers,
-        );
-      }
-
-      await _service.createGroupsFromTimeSlots(
-        cycleId: cycleId,
-        institutionId: widget.institutionId,
-        slots: _existingSlots,
-      );
-
+      // 45 saniyelik genel bir zaman aşımı koruması
+      await Future.any([
+        _performSave(sw),
+        Future.delayed(const Duration(seconds: 45)).then(
+          (_) => throw Exception('İşlem 45 saniye sürdü ve iptal edildi (Zaman Aşımı)'),
+        ),
+      ]);
+    } catch (e, stack) {
+      print('DEBUG: [UI] _saveCycle GLOBAL ERROR: $e');
+      print('DEBUG: [UI] $stack');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              widget.initialCycle != null
-                  ? 'Cycle başarıyla güncellendi!'
-                  : 'Cycle başarıyla oluşturuldu!',
-            ),
-            backgroundColor: Colors.green,
+            content: Text('Hata: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 10),
           ),
-        );
-        Navigator.pop(context);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
         );
       }
     } finally {
+      print('DEBUG: [UI] _saveCycle finally exit at ${sw.elapsedMilliseconds}ms');
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _performSave(Stopwatch sw) async {
+    print('DEBUG: [UI] _performSave starting');
+
+    // 1) İstenen (güncel) grupları oluştur
+    final List<AgmGroup> proposedGroups = [];
+    for (final slot in _existingSlots) {
+      for (final entry in slot.ogretmenGirisler) {
+        proposedGroups.add(
+          AgmGroup(
+            id: '', 
+            cycleId: widget.initialCycle?.id ?? '',
+            institutionId: widget.institutionId,
+            dersId: entry.dersId,
+            dersAdi: entry.dersAdi,
+            saatDilimiId: slot.id,
+            saatDilimiAdi: slot.ad,
+            gun: slot.gun,
+            baslangicSaat: slot.baslangicSaat,
+            bitisSaat: slot.bitisSaat,
+            ogretmenId: entry.ogretmenId,
+            ogretmenAdi: entry.ogretmenAdi,
+            derslikId: entry.derslikId,
+            derslikAdi: entry.derslikAdi,
+            kapasite: entry.kapasite,
+            mevcutOgrenciSayisi: 0,
+          ),
+        );
+      }
+    }
+
+    // 2) Cycle nesnesini hazırla
+    final cycle = AgmCycle(
+      id: widget.initialCycle?.id ?? '',
+      institutionId: widget.institutionId,
+      schoolTypeId: widget.schoolTypeId,
+      title: _titleController.text,
+      referansDenemeSinavId: _selectedExamIds.isNotEmpty ? _selectedExamIds.first : '',
+      referansDenemeSinavAdi: _selectedExamNames.isNotEmpty ? _selectedExamNames.first : '',
+      referansDenemeSinavIds: _selectedExamIds,
+      referansDenemeSinavAdlari: _selectedExamNames,
+      baslangicTarihi: _baslangic,
+      bitisTarihi: _bitis,
+      status: widget.initialCycle?.status ?? AgmCycleStatus.draft,
+      olusturulmaZamani: widget.initialCycle?.olusturulmaZamani ?? DateTime.now(),
+      olusturanKullaniciId: widget.initialCycle?.olusturanKullaniciId ?? '',
+      haftalikMaksimumSaat: _maxSaat,
+      minimumDersSayisi: _minDers,
+    );
+
+    // 3) Servis üzerinden kaydet (SMART UPDATE)
+    await _service.saveCycle(cycle: cycle, proposedGroups: proposedGroups);
+    print('DEBUG: [UI] Service.saveCycle finished at ${sw.elapsedMilliseconds}ms');
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            widget.initialCycle != null
+                ? 'Cycle başarıyla güncellendi!'
+                : 'Cycle başarıyla oluşturuldu!',
+          ),
+          backgroundColor: Colors.green,
+        ),
+      );
+      Navigator.pop(context);
     }
   }
 

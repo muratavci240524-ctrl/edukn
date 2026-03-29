@@ -19,21 +19,45 @@ class AgmRepository {
   // ─── CYCLE ────────────────────────────────────────────────────────────────
 
   Future<String> createCycle(AgmCycle cycle) async {
+    print('DEBUG: AgmRepository.createCycle started');
     final ref = _db.collection('agm_cycles').doc();
     final data = cycle.toMap();
     data['id'] = ref.id;
-    await ref.set(data);
+    await ref.set(data).timeout(const Duration(seconds: 30), onTimeout: () {
+      throw Exception('CreateCycle Firestore timeout');
+    });
+    print('DEBUG: AgmRepository.createCycle finished');
     return ref.id;
   }
 
   Future<void> updateCycle(AgmCycle cycle) async {
-    await _db.collection('agm_cycles').doc(cycle.id).update(cycle.toMap());
+    print('DEBUG: AgmRepository.updateCycle started for ${cycle.id}');
+    await _db.collection('agm_cycles').doc(cycle.id).update(cycle.toMap()).timeout(
+      const Duration(seconds: 30),
+      onTimeout: () {
+        throw Exception('UpdateCycle Firestore timeout');
+      },
+    );
+    print('DEBUG: AgmRepository.updateCycle finished');
   }
 
   Future<void> updateCycleStatus(String cycleId, AgmCycleStatus status) async {
-    await _db.collection('agm_cycles').doc(cycleId).update({
-      'status': status.name,
-    });
+    print('DEBUG: AgmRepository.updateCycleStatus to ${status.name}');
+    await _db
+        .collection('agm_cycles')
+        .doc(cycleId)
+        .update({'status': status.name})
+        .timeout(const Duration(seconds: 30), onTimeout: () {
+          throw Exception('updateCycleStatus Firestore timeout');
+        });
+  }
+
+  Future<List<AgmGroup>> getGroupsByCycle(String cycleId) async {
+    final query = await _db
+        .collection('agm_groups')
+        .where('cycleId', isEqualTo: cycleId)
+        .get();
+    return query.docs.map((d) => AgmGroup.fromMap(d.data(), d.id)).toList();
   }
 
   Future<void> updateCycleStudentLists(
@@ -93,23 +117,185 @@ class AgmRepository {
   }
 
   Future<void> deleteGroupsByCycle(String cycleId) async {
-    final batch = _db.batch();
-    final groups = await _db
-        .collection('agm_groups')
-        .where('cycleId', isEqualTo: cycleId)
-        .get();
-    for (final doc in groups.docs) {
-      batch.delete(doc.reference);
+    print('DEBUG: Starting deleteGroupsByCycle for $cycleId');
+    final Stopwatch sw = Stopwatch()..start();
+    
+    // 1) Grup ve Atamaları PARALEL Bul
+    final results = await Future.wait([
+      _db.collection('agm_groups').where('cycleId', isEqualTo: cycleId).get(),
+      _db.collection('agm_assignments').where('cycleId', isEqualTo: cycleId).get(),
+    ]).timeout(const Duration(seconds: 30), onTimeout: () {
+      throw Exception('deleteGroupsByCycle.get Firestore timeout');
+    });
+    
+    final groups = results[0];
+    final assignments = results[1];
+    print('DEBUG: Fetched ${groups.docs.length} groups and ${assignments.docs.length} assignments in ${sw.elapsedMilliseconds}ms');
+
+    final List<DocumentReference> refsToDelete = [];
+    for (final d in groups.docs) refsToDelete.add(d.reference);
+    for (final d in assignments.docs) refsToDelete.add(d.reference);
+
+    if (refsToDelete.isEmpty) {
+      print('DEBUG: Nothing to delete.');
+      return;
     }
-    // Atamaları da siliyoruz çünkü gruplar değişiyor
-    final assignments = await _db
-        .collection('agm_assignments')
-        .where('cycleId', isEqualTo: cycleId)
-        .get();
-    for (final doc in assignments.docs) {
-      batch.delete(doc.reference);
+
+    // 2) 400'erli gruplar halinde sil
+    int batchCount = 0;
+    for (var i = 0; i < refsToDelete.length; i += 400) {
+      final batch = _db.batch();
+      final chunk = refsToDelete.sublist(
+        i,
+        i + 400 > refsToDelete.length ? refsToDelete.length : i + 400,
+      );
+      for (final ref in chunk) {
+        batch.delete(ref);
+      }
+      await batch.commit().timeout(const Duration(seconds: 30), onTimeout: () {
+        throw Exception('deleteGroupsByCycle.commit Batch $batchCount timeout');
+      });
+      batchCount++;
+      print('DEBUG: Batch $batchCount committed at ${sw.elapsedMilliseconds}ms');
     }
-    await batch.commit();
+    print('DEBUG: deleteGroupsByCycle completed in ${sw.elapsedMilliseconds}ms');
+  }
+
+  Future<void> batchWriteGroups(List<AgmGroup> groups) async {
+    if (groups.isEmpty) return;
+    print('DEBUG: Starting batchWriteGroups for ${groups.length} groups');
+    final Stopwatch sw = Stopwatch()..start();
+    
+    int batchCount = 0;
+    for (var i = 0; i < groups.length; i += 400) {
+      final batch = _db.batch();
+      final chunk = groups.sublist(
+        i,
+        i + 400 > groups.length ? groups.length : i + 400,
+      );
+      for (final group in chunk) {
+        final ref = _db.collection('agm_groups').doc();
+        final data = group.toMap();
+        data['id'] = ref.id;
+        batch.set(ref, data);
+      }
+      await batch.commit().timeout(const Duration(seconds: 30), onTimeout: () {
+        throw Exception('batchWriteGroups.commit Batch $batchCount timeout');
+      });
+      batchCount++;
+      print('DEBUG: Groups Batch $batchCount committed at ${sw.elapsedMilliseconds}ms');
+    }
+    print('DEBUG: batchWriteGroups completed in ${sw.elapsedMilliseconds}ms');
+  }
+
+  Future<void> batchUpdateGroups(List<AgmGroup> groups) async {
+    if (groups.isEmpty) return;
+    print('DEBUG: Starting batchUpdateGroups for ${groups.length} groups');
+    final Stopwatch sw = Stopwatch()..start();
+    
+    int batchCount = 0;
+    for (var i = 0; i < groups.length; i += 400) {
+      final batch = _db.batch();
+      final chunk = groups.sublist(
+        i,
+        i + 400 > groups.length ? groups.length : i + 400,
+      );
+      for (final group in chunk) {
+        final ref = _db.collection('agm_groups').doc(group.id);
+        batch.update(ref, group.toMap());
+      }
+      await batch.commit().timeout(const Duration(seconds: 30), onTimeout: () {
+        throw Exception('batchUpdateGroups.commit Batch $batchCount timeout');
+      });
+      batchCount++;
+      print('DEBUG: Update Batch $batchCount committed at ${sw.elapsedMilliseconds}ms');
+    }
+  }
+
+  Future<void> batchDeleteByRefs(List<DocumentReference> refs) async {
+    if (refs.isEmpty) return;
+    print('DEBUG: Starting batchDeleteByRefs for ${refs.length} items');
+    final Stopwatch sw = Stopwatch()..start();
+    
+    int batchCount = 0;
+    for (var i = 0; i < refs.length; i += 400) {
+      final batch = _db.batch();
+      final chunk = refs.sublist(
+        i,
+        i + 400 > refs.length ? refs.length : i + 400,
+      );
+      for (final ref in chunk) {
+        batch.delete(ref);
+      }
+      await batch.commit().timeout(const Duration(seconds: 30), onTimeout: () {
+        throw Exception('batchDeleteByRefs.commit Batch $batchCount timeout');
+      });
+      batchCount++;
+      print('DEBUG: Delete Batch $batchCount committed at ${sw.elapsedMilliseconds}ms');
+    }
+  }
+
+  Future<void> saveCycleOptimized({
+    required AgmCycle cycle,
+    required List<AgmGroup> proposedGroups,
+  }) async {
+    print('DEBUG: saveCycleOptimized started for ${cycle.id}');
+    final sw = Stopwatch()..start();
+
+    // 1) Mevcut grupları çek
+    final existingGroups = await getGroupsByCycle(cycle.id);
+    print('DEBUG: Found ${existingGroups.length} existing groups in ${sw.elapsedMilliseconds}ms');
+
+    // 2) Diff (Cerrahi Müdahale)
+    final existingMap = {for (var g in existingGroups) '${g.saatDilimiId}_${g.ogretmenId}_${g.dersId}': g};
+    final proposedMap = {for (var g in proposedGroups) '${g.saatDilimiId}_${g.ogretmenId}_${g.dersId}': g};
+
+    final toCreate = proposedGroups.where((g) {
+      final key = '${g.saatDilimiId}_${g.ogretmenId}_${g.dersId}';
+      return !existingMap.containsKey(key);
+    }).toList();
+
+    final toUpdate = proposedGroups.where((g) {
+      final key = '${g.saatDilimiId}_${g.ogretmenId}_${g.dersId}';
+      if (!existingMap.containsKey(key)) return false;
+      final existing = existingMap[key]!;
+      // Önemli metadata değişikliği var mı?
+      return existing.derslikId != g.derslikId || 
+             existing.kapasite != g.kapasite ||
+             existing.dersAdi != g.dersAdi ||
+             existing.ogretmenAdi != g.ogretmenAdi;
+    }).map((g) {
+      final key = '${g.saatDilimiId}_${g.ogretmenId}_${g.dersId}';
+      final existing = existingMap[key]!;
+      return g.copyWith(id: existing.id); // Mevcut ID'yi koru
+    }).toList();
+
+    final toDeleteIds = existingGroups.where((g) {
+      final key = '${g.saatDilimiId}_${g.ogretmenId}_${g.dersId}';
+      return !proposedMap.containsKey(key);
+    }).map((g) => g.id).toList();
+
+    print('DEBUG: Diff Results -> Create: ${toCreate.length}, Update: ${toUpdate.length}, Delete: ${toDeleteIds.length}');
+
+    // 3) İşlemleri Batch ile Yap
+    if (toDeleteIds.isNotEmpty) {
+      final refs = toDeleteIds.map((id) => _db.collection('agm_groups').doc(id)).toList();
+      await batchDeleteByRefs(refs);
+    }
+
+    if (toCreate.isNotEmpty) {
+      await batchWriteGroups(toCreate);
+    }
+
+    if (toUpdate.isNotEmpty) {
+      // batchUpdateGroups zaten mevcut
+      await batchUpdateGroups(toUpdate);
+    }
+
+    // 4) Cycle meta verisini güncelle
+    await updateCycle(cycle);
+
+    print('DEBUG: saveCycleOptimized finished in ${sw.elapsedMilliseconds}ms');
   }
 
   Stream<List<AgmCycle>> watchCycles(
@@ -183,18 +369,6 @@ class AgmRepository {
     await _db.collection('agm_groups').doc(groupId).update({
       'mevcutOgrenciSayisi': FieldValue.increment(delta),
     });
-  }
-
-  Future<void> updateGroup(AgmGroup group) async {
-    await _db.collection('agm_groups').doc(group.id).update(group.toMap());
-  }
-
-  Future<List<AgmGroup>> getGroupsByCycle(String cycleId) async {
-    final snap = await _db
-        .collection('agm_groups')
-        .where('cycleId', isEqualTo: cycleId)
-        .get();
-    return snap.docs.map((d) => AgmGroup.fromMap(d.data(), d.id)).toList();
   }
 
   Stream<List<AgmGroup>> watchGroupsByCycle(String cycleId) {

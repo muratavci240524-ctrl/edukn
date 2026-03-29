@@ -183,15 +183,43 @@ class AgmAssignmentEngine {
     final List<String> yerlesmeyenIds = [];
     final List<AgmSoftWarning> uyarilar = [];
 
+    // ── Gelişmiş Dağıtım İstatistikleri ──
+    final Map<String, int> subjectTotalNeeds = {};
+    final Map<String, List<double>> subjectSuccessLevels = {};
+    for (final p in ogrenciProfiller) {
+      for (final entry in p.dersIhtiyaclari.entries) {
+        subjectTotalNeeds[entry.key] = (subjectTotalNeeds[entry.key] ?? 0) + 1;
+        subjectSuccessLevels.putIfAbsent(entry.key, () => []).add(p.dersBasariOranlari[entry.key] ?? 0.0);
+      }
+    }
+    
+    final Map<String, int> targetGroupSize = {};
+    final Map<String, List<AgmGroup>> groupsOfSubject = {};
+    for (final g in gruplar) {
+      if (disabledGroupIds.contains(g.id)) continue;
+      groupsOfSubject.putIfAbsent(g.dersId, () => []).add(g);
+    }
+    
+    final Map<String, double> grupTargetValue = {};
+    groupsOfSubject.forEach((dersId, dersGruplari) {
+      final totalNeed = subjectTotalNeeds[dersId] ?? 0;
+      targetGroupSize[dersId] = (totalNeed / dersGruplari.length).ceil();
+      
+      final levels = subjectSuccessLevels[dersId]!..sort();
+      for (int i = 0; i < dersGruplari.length; i++) {
+        final targetPercentile = (i + 0.5) / dersGruplari.length;
+        final val = levels[(targetPercentile * levels.length).floor().clamp(0, levels.length - 1)];
+        grupTargetValue[dersGruplari[i].id] = val;
+      }
+    });
+
     final Map<String, Map<String, int>> grupKazanimFrekanslari = {
-      for (final g in gruplar)
-        g.id: {
-          for (final k in g.kazanimlar) k: 10,
-        },
+      for (final g in gruplar) g.id: {},
     };
 
     final Map<String, int> grupBucket = {};
 
+    // Öğrencileri toplam ihtiyaca göre sırala (zor durumdakiler önce)
     final siralanmisProfillar = List<StudentNeedProfile>.from(ogrenciProfiller)
       ..sort((a, b) => b.toplamIhtiyac.compareTo(a.toplamIhtiyac));
 
@@ -217,18 +245,22 @@ class AgmAssignmentEngine {
 
         final ogrenciKazanimlar = profil.kazanimIhtiyaclari[dersId] ?? {};
         final ogrenciBasariOrani = profil.dersBasariOranlari[dersId] ?? 0.0;
+        final int studentBucket = (ogrenciBasariOrani * 10).floor().clamp(0, 9);
 
         final findResult = _findBestEfficientGroupWithReason(
           dersId: dersId,
           ogrenciId: ogrenciId,
           ogrenciKazanimlar: ogrenciKazanimlar,
+          studentBucket: studentBucket,
           ogrenciBasariOrani: ogrenciBasariOrani,
           ogrenciDoluSlot: ogrenciDoluSlot[ogrenciId]!,
           gruplar: gruplar,
           grupMevcut: grupMevcut,
           grupKazanimFrekanslari: grupKazanimFrekanslari,
           grupBucket: grupBucket,
+          grupTargetValues: grupTargetValue,
           disabledGroupIds: disabledGroupIds,
+          targetSize: targetGroupSize[dersId] ?? 99,
         );
 
         final uygunGrup = findResult.group;
@@ -251,10 +283,10 @@ class AgmAssignmentEngine {
 
           ogrenciDoluSlot[ogrenciId]!.add(uygunGrup.saatDilimiId);
           grupMevcut[uygunGrup.id] = (grupMevcut[uygunGrup.id] ?? 0) + 1;
-          ogrenciSaatSayisi[ogrenciId] = ogrenciSaatSayisi[ogrenciId]! + 1;
-
+          ogrenciSaatSayisi[ogrenciId] = (ogrenciSaatSayisi[ogrenciId] ?? 0) + 1;
+          
           if (!grupBucket.containsKey(uygunGrup.id)) {
-            grupBucket[uygunGrup.id] = (ogrenciBasariOrani * 5).floor().clamp(0, 4);
+            grupBucket[uygunGrup.id] = studentBucket;
           }
 
           if (ogrenciKazanimlar.isNotEmpty) {
@@ -307,13 +339,16 @@ class AgmAssignmentEngine {
     required String dersId,
     required String ogrenciId,
     required Set<String> ogrenciKazanimlar,
+    required int studentBucket,
     required double ogrenciBasariOrani,
     required Set<String> ogrenciDoluSlot,
     required List<AgmGroup> gruplar,
     required Map<String, int> grupMevcut,
     required Map<String, Map<String, int>> grupKazanimFrekanslari,
     required Map<String, int> grupBucket,
+    required Map<String, double> grupTargetValues,
     required Set<String> disabledGroupIds,
+    required int targetSize,
   }) {
     final dersGruplari = gruplar.where((g) {
       return g.dersId == dersId || g.dersAdi == dersId;
@@ -337,7 +372,7 @@ class AgmAssignmentEngine {
         continue;
       }
       if (disabledGroupIds.contains(g.id)) {
-        lastRefusalReason = 'Bu grup minimum öğrenci sayısını karşılamadığı için kapatıldı.';
+        lastRefusalReason = 'Bu grup kapatıldı.';
         continue;
       }
       uygunGruplar.add(g);
@@ -347,30 +382,50 @@ class AgmAssignmentEngine {
       return _FindGroupResult(null, lastRefusalReason);
     }
 
-    final int studentBucket = (ogrenciBasariOrani * 5).floor().clamp(0, 4);
-
     uygunGruplar.sort((a, b) {
       final aDoluluk = grupMevcut[a.id] ?? 0;
       final bDoluluk = grupMevcut[b.id] ?? 0;
       final aBkt = grupBucket[a.id];
       final bBkt = grupBucket[b.id];
 
-      int aDist = aBkt == null ? 0 : (aBkt - studentBucket).abs();
-      int bDist = bBkt == null ? 0 : (bBkt - studentBucket).abs();
-
-      if (aDist != bDist) return aDist.compareTo(bDist);
-      if (aDist == 0 && bDist == 0) {
-        bool aIsExact = aBkt != null && aBkt == studentBucket;
-        bool bIsExact = bBkt != null && bBkt == studentBucket;
-        if (aIsExact != bIsExact) return aIsExact ? -1 : 1;
+      // 1. Hedef Seviye Uyumu (Percentile Match)
+      // Bu grubun hedeflediği başarı seviyesi öğrenciye ne kadar yakın?
+      final aTarget = grupTargetValues[a.id] ?? 0.5;
+      final bTarget = grupTargetValues[b.id] ?? 0.5;
+      final aTargetDist = (aTarget - ogrenciBasariOrani).abs();
+      final bTargetDist = (bTarget - ogrenciBasariOrani).abs();
+      
+      if ((aTargetDist - bTargetDist).abs() > 0.001) {
+        return aTargetDist.compareTo(bTargetDist);
       }
 
+      // 2. Homojenlik (Mevcut Bucket Uyumu)
+      // Grup zaten bir seviye kazandıysa oraya sadık kal.
+      int aDist = aBkt == null ? 0 : (aBkt - studentBucket).abs();
+      int bDist = bBkt == null ? 0 : (bBkt - studentBucket).abs();
+      if (aDist != bDist) return aDist.compareTo(bDist);
+
+      if (aDist == 0) {
+        bool aIsMarked = aBkt != null;
+        bool bIsMarked = bBkt != null;
+        if (aIsMarked != bIsMarked) return aIsMarked ? -1 : 1;
+      }
+
+      // 3. Yoğunluk Dengesi (Equality)
+      bool aIsOverTarget = aDoluluk >= targetSize;
+      bool bIsOverTarget = bDoluluk >= targetSize;
+      if (aIsOverTarget != bIsOverTarget) return aIsOverTarget ? 1 : -1;
+
+      // 4. İnce Yük Dengeleme (Doluluk)
+      if (aDoluluk != bDoluluk) return aDoluluk.compareTo(bDoluluk);
+
+      // 5. Kazanım Uyumu
       final aKazanimlar = (grupKazanimFrekanslari[a.id] ?? {}).keys.toSet();
       final bKazanimlar = (grupKazanimFrekanslari[b.id] ?? {}).keys.toSet();
       final aMatchCount = ogrenciKazanimlar.intersection(aKazanimlar).length;
       final bMatchCount = ogrenciKazanimlar.intersection(bKazanimlar).length;
       if (aMatchCount != bMatchCount) return bMatchCount.compareTo(aMatchCount);
-      if (aDoluluk != bDoluluk) return bDoluluk.compareTo(aDoluluk);
+      
       return 0;
     });
 

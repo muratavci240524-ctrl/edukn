@@ -22,6 +22,7 @@ class AgmAssignment {
   final AgmAssignmentType atamaTipi;
   final String? groupName; // Group context for display
   final DateTime olusturulmaZamani;
+  final bool isAbsent;
 
   AgmAssignment({
     required this.id,
@@ -36,6 +37,7 @@ class AgmAssignment {
     this.atamaTipi = AgmAssignmentType.auto,
     this.groupName,
     required this.olusturulmaZamani,
+    this.isAbsent = false,
   });
 
   Map<String, dynamic> toMap() {
@@ -51,6 +53,7 @@ class AgmAssignment {
       'atamaTipi': atamaTipi.name,
       'groupName': groupName,
       'olusturulmaZamani': Timestamp.fromDate(olusturulmaZamani),
+      'isAbsent': isAbsent,
     };
   }
 
@@ -72,6 +75,7 @@ class AgmAssignment {
       groupName: map['groupName'],
       olusturulmaZamani:
           (map['olusturulmaZamani'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      isAbsent: map['isAbsent'] ?? false,
     );
   }
 }

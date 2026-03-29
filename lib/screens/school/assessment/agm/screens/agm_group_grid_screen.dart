@@ -511,8 +511,8 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
       );
     }
 
-    // Gruplama: gün bazlı — saat sırasına göre
-    final Map<String, List<AgmGroup>> byDay = {};
+    // Gruplama: Branş bazlı (dersAdi)
+    final Map<String, List<AgmGroup>> byBranch = {};
     final Set<String> allGroupBranches = _groups.map((g) => g.dersAdi).toSet();
 
     // Benzersiz tüm slotları bulup sırala (filtreleme butonları için)
@@ -535,21 +535,20 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
       if (!_selectedTimeSlots!.contains(slotKey)) {
         continue;
       }
-      byDay.putIfAbsent(g.gun, () => []).add(g);
+      byBranch.putIfAbsent(g.dersAdi, () => []).add(g);
     }
 
-    // Her gün içinde saate göre sırala, aynı saattekiler peşpeşe
-    byDay.forEach((day, groups) {
+    // Her branş içinde ortalama başarıya göre sırala (Büyükten küçüğe)
+    byBranch.forEach((branch, groups) {
       groups.sort((a, b) {
-        final cmp = a.baslangicSaat.compareTo(b.baslangicSaat);
-        if (cmp != 0) return cmp;
-        return a.bitisSaat.compareTo(b.bitisSaat);
+        final avgA = _getGroupAvgSuccess(a);
+        final avgB = _getGroupAvgSuccess(b);
+        return avgB.compareTo(avgA);
       });
     });
 
-    // Günleri de sırala
-    final sortedDays = byDay.keys.toList()
-      ..sort(); // Alfabetik sıralama (Cuma, Cumartesi, Pazartesi...)
+    // Branşları alfabetik sırala
+    final sortedBranches = byBranch.keys.toList()..sort();
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -561,35 +560,52 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
           allPossibleSlots,
         ),
         const SizedBox(height: 12),
-        ...sortedDays.map((day) {
-          final groups = byDay[day]!;
-          // Saat dilimlerine göre grupla (aynı saat dilimindekiler altına)
-          // Grup kartları arasında saat dilimi değişince ayırıcı koy
-          String? lastSlot;
-          final widgets = <Widget>[];
-          for (final g in groups) {
-            final slotKey = '${g.baslangicSaat}-${g.bitisSaat}';
-            if (lastSlot != null && slotKey != lastSlot) {
-              widgets.add(const SizedBox(height: 4));
-              widgets.add(Divider(color: Colors.grey.shade200, height: 1));
-              widgets.add(const SizedBox(height: 4));
-            }
-            widgets.add(_buildGroupCard(g));
-            lastSlot = slotKey;
-          }
+        ...sortedBranches.map((branch) {
+          final groups = byBranch[branch]!;
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildDayHeader(day),
+              _buildBranchHeader(branch),
               const SizedBox(height: 8),
-              ...widgets,
-              const SizedBox(height: 8),
+              ...groups.map((g) => _buildGroupCard(g)),
+              const SizedBox(height: 12),
             ],
           );
         }),
         const SizedBox(height: 80),
       ],
     );
+  }
+
+  Widget _buildBranchHeader(String branch) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        children: [
+          Icon(Icons.label_important_outline, size: 16, color: Colors.deepOrange.shade700),
+          const SizedBox(width: 6),
+          Text(
+            branch,
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+              color: Colors.deepOrange.shade700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  double _getGroupAvgSuccess(AgmGroup group) {
+    final assignments = _assignmentsByGroup[group.id] ?? [];
+    if (assignments.isEmpty) return 0.0;
+
+    double total = 0;
+    for (final a in assignments) {
+      total += (1.0 - a.ihtiyacSkoru).clamp(0.0, 1.0);
+    }
+    return total / assignments.length;
   }
 
   Widget _buildCycleSummaryBar() {
@@ -752,19 +768,7 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
     );
   }
 
-  Widget _buildDayHeader(String gun) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Text(
-        gun,
-        style: TextStyle(
-          fontWeight: FontWeight.bold,
-          fontSize: 13,
-          color: Colors.deepOrange.shade700,
-        ),
-      ),
-    );
-  }
+
 
   Widget _buildGroupCard(AgmGroup group) {
     final assignments = _assignmentsByGroup[group.id] ?? [];

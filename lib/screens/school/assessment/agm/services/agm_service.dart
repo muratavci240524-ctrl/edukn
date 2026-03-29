@@ -42,6 +42,7 @@ class AgmService {
     int? minimumDersSayisi,
     int? minimumGrupOgrenciSayisi,
   }) async {
+    print('DEBUG: [Service] createCycle started');
     final cycle = AgmCycle(
       id: '',
       institutionId: institutionId,
@@ -60,7 +61,26 @@ class AgmService {
       minimumDersSayisi: minimumDersSayisi,
       minimumGrupOgrenciSayisi: minimumGrupOgrenciSayisi,
     );
-    return await _repo.createCycle(cycle);
+    final id = await _repo.createCycle(cycle);
+    print('DEBUG: [Service] createCycle finished with ID: $id');
+    return id;
+  }
+
+  Future<void> saveCycle({
+    required AgmCycle cycle,
+    required List<AgmGroup> proposedGroups,
+  }) async {
+    print('DEBUG: [Service] saveCycle started for ${cycle.id}');
+    if (cycle.id.isEmpty) {
+      // Yeni oluşturulan cycle (zaten repository.createCycle var ama grupları da yazmak gerek)
+      final id = await _repo.createCycle(cycle);
+      final groupsWithId = proposedGroups.map((g) => g.copyWith(cycleId: id)).toList();
+      await _repo.batchWriteGroups(groupsWithId);
+    } else {
+      // Mevcut güncelleme (SMART UPDATE)
+      await _repo.saveCycleOptimized(cycle: cycle, proposedGroups: proposedGroups);
+    }
+    print('DEBUG: [Service] saveCycle finished');
   }
 
   Future<void> updateCycle({
@@ -81,6 +101,7 @@ class AgmService {
     required DateTime olusturulmaZamani,
     required String olusturanKullaniciId,
   }) async {
+    print('DEBUG: [Service] updateCycle started for $id');
     final cycle = AgmCycle(
       id: id,
       institutionId: institutionId,
@@ -100,6 +121,7 @@ class AgmService {
       minimumGrupOgrenciSayisi: minimumGrupOgrenciSayisi,
     );
     await _repo.updateCycle(cycle);
+    print('DEBUG: [Service] updateCycle finished');
   }
 
   Future<void> lockCycle(String cycleId) async {
@@ -113,29 +135,92 @@ class AgmService {
     required String institutionId,
     required List<AgmTimeSlot> slots,
   }) async {
+    print('DEBUG: [Service] smartUpdateGroups starting for $cycleId');
+    final sw = Stopwatch()..start();
+
+    // 1) Mevcut grupları çek
+    final existingGroups = await _repo.getGroupsByCycle(cycleId);
+    print('DEBUG: [Service] Fetched ${existingGroups.length} existing groups in ${sw.elapsedMilliseconds}ms');
+
+    // 2) İstenen (güncel) grupları oluştur
+    final List<AgmGroup> desiredGroups = [];
     for (final slot in slots) {
       for (final entry in slot.ogretmenGirisler) {
-        final group = AgmGroup(
-          id: '',
-          cycleId: cycleId,
-          institutionId: institutionId,
-          dersId: entry.dersId,
-          dersAdi: entry.dersAdi,
-          saatDilimiId: slot.id,
-          saatDilimiAdi: slot.ad,
-          gun: slot.gun,
-          baslangicSaat: slot.baslangicSaat,
-          bitisSaat: slot.bitisSaat,
-          ogretmenId: entry.ogretmenId,
-          ogretmenAdi: entry.ogretmenAdi,
-          derslikId: entry.derslikId,
-          derslikAdi: entry.derslikAdi,
-          kapasite: entry.kapasite,
-          mevcutOgrenciSayisi: 0,
+        desiredGroups.add(
+          AgmGroup(
+            id: '', // Henüz ID yok, eşleştirme için (saatDilimiId, ogretmenId, dersId) kullanacağız
+            cycleId: cycleId,
+            institutionId: institutionId,
+            dersId: entry.dersId,
+            dersAdi: entry.dersAdi,
+            saatDilimiId: slot.id,
+            saatDilimiAdi: slot.ad,
+            gun: slot.gun,
+            baslangicSaat: slot.baslangicSaat,
+            bitisSaat: slot.bitisSaat,
+            ogretmenId: entry.ogretmenId,
+            ogretmenAdi: entry.ogretmenAdi,
+            derslikId: entry.derslikId,
+            derslikAdi: entry.derslikAdi,
+            kapasite: entry.kapasite,
+            mevcutOgrenciSayisi: 0,
+          ),
         );
-        await _repo.createGroup(group);
       }
     }
+
+    // 3) Eşleştirme anahtarı oluştur: (slotId + teacherId + dersId)
+    String getMatchKey(AgmGroup g) => '${g.saatDilimiId}_${g.ogretmenId}_${g.dersId}';
+
+    final Map<String, AgmGroup> existingMap = {
+      for (final g in existingGroups) getMatchKey(g): g
+    };
+
+    final List<AgmGroup> toCreate = [];
+    final List<AgmGroup> toUpdate = [];
+    final Set<String> matchedExistingKeys = {};
+
+    for (final desired in desiredGroups) {
+      final key = getMatchKey(desired);
+      if (existingMap.containsKey(key)) {
+        matchedExistingKeys.add(key);
+        final existing = existingMap[key]!;
+        
+        // Metadata değişikliği var mı kontrol et (Derslik veya Kapasite)
+        if (existing.derslikId != desired.derslikId || 
+            existing.kapasite != desired.kapasite ||
+            existing.dersAdi != desired.dersAdi ||
+            existing.ogretmenAdi != desired.ogretmenAdi) {
+          
+          toUpdate.add(existing.copyWith(
+            derslikId: desired.derslikId,
+            derslikAdi: desired.derslikAdi,
+            kapasite: desired.kapasite,
+            dersAdi: desired.dersAdi,
+            ogretmenAdi: desired.ogretmenAdi,
+          ));
+        }
+      } else {
+        toCreate.add(desired);
+      }
+    }
+
+    // 4) Silinecekler: Mevcut olup istenenler arasında olmayanlar
+    final List<DocumentReference> toDeleteRefs = [];
+    existingMap.forEach((key, group) {
+      if (!matchedExistingKeys.contains(key)) {
+        toDeleteRefs.add(FirebaseFirestore.instance.collection('agm_groups').doc(group.id));
+      }
+    });
+
+    print('DEBUG: [Service] Diff results: ${toCreate.length} to create, ${toUpdate.length} to update, ${toDeleteRefs.length} to delete');
+
+    // 5) İşlemleri toplu yap
+    if (toCreate.isNotEmpty) await _repo.batchWriteGroups(toCreate);
+    if (toUpdate.isNotEmpty) await _repo.batchUpdateGroups(toUpdate);
+    if (toDeleteRefs.isNotEmpty) await _repo.batchDeleteByRefs(toDeleteRefs);
+
+    print('DEBUG: [Service] smartUpdateGroups finished in ${sw.elapsedMilliseconds}ms');
   }
 
   Stream<List<AgmGroup>> watchGroups(String cycleId) =>
@@ -167,10 +252,9 @@ class AgmService {
     await _repo.rollbackAssignments(cycle.id);
     await _repo.batchWriteAssignments(draft.atamalar);
 
-    // Grupları güncelle (kazanımlar ve doluluk)
-    for (final grup in draft.gruplar) {
-      await _repo.updateGroup(grup);
-    }
+    // Grupları topluca güncelle (kazanımlar ve doluluk)
+    await _repo.batchUpdateGroups(draft.gruplar);
+    print('DEBUG: [Service] batchUpdateGroups done for ${draft.gruplar.length} groups');
 
     // Eksik atananları ve yerleşmeyenleri cycle modelinde güncelle
     await _db.collection('agm_cycles').doc(cycle.id).update({
@@ -275,6 +359,7 @@ class AgmService {
         ihtiyacSkoru: 0.0,
         atamaTipi: AgmAssignmentType.manual,
         olusturulmaZamani: DateTime.now(),
+        isAbsent: true,
       );
       await _repo.batchWriteAssignments([yeniAtama]);
     } else {
@@ -352,6 +437,7 @@ class AgmService {
       ihtiyacSkoru: 0.0,
       atamaTipi: AgmAssignmentType.manual,
       olusturulmaZamani: DateTime.now(),
+      isAbsent: isAbsent,
     );
 
     await _repo.batchWriteAssignments([yeniAtama]);

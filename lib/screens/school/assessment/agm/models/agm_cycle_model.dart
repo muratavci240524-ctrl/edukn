@@ -28,6 +28,11 @@ class AgmCycle {
 
   /// ogrenciId -> List<Neden Mesajları>
   final Map<String, List<String>> unassignedReasons;
+  
+  // Draft Generation Settings
+  final double draftThreshold;
+  final bool draftOnlyLowSuccess;
+  final Map<String, double> draftSubjectThresholds;
 
   AgmCycle({
     required this.id,
@@ -50,6 +55,9 @@ class AgmCycle {
     this.absentStudentIds = const [],
     this.underAssignedStudentIds = const [],
     this.unassignedReasons = const {},
+    this.draftThreshold = 0.6,
+    this.draftOnlyLowSuccess = true,
+    this.draftSubjectThresholds = const {},
   });
 
   String get statusLabel {
@@ -64,7 +72,8 @@ class AgmCycle {
   }
 
   Map<String, dynamic> toMap() {
-    return {
+    print('DEBUG: AgmCycle.toMap started');
+    final data = {
       'institutionId': institutionId,
       'schoolTypeId': schoolTypeId,
       'title': title,
@@ -84,7 +93,12 @@ class AgmCycle {
       'absentStudentIds': absentStudentIds,
       'underAssignedStudentIds': underAssignedStudentIds,
       'unassignedReasons': unassignedReasons,
+      'draftThreshold': draftThreshold,
+      'draftOnlyLowSuccess': draftOnlyLowSuccess,
+      'draftSubjectThresholds': draftSubjectThresholds,
     };
+    print('DEBUG: AgmCycle.toMap finished');
+    return data;
   }
 
   factory AgmCycle.fromMap(Map<String, dynamic> map, String id) {
@@ -127,6 +141,12 @@ class AgmCycle {
             (k, v) => MapEntry(k, List<String>.from(v)),
           ) ??
           {},
+      draftThreshold: (map['draftThreshold'] as num?)?.toDouble() ?? 0.6,
+      draftOnlyLowSuccess: map['draftOnlyLowSuccess'] ?? true,
+      draftSubjectThresholds: (map['draftSubjectThresholds'] as Map<String, dynamic>?)?.map(
+            (k, v) => MapEntry(k, (v as num).toDouble()),
+          ) ??
+          {},
     );
   }
 
@@ -151,6 +171,9 @@ class AgmCycle {
     List<String>? absentStudentIds,
     List<String>? underAssignedStudentIds,
     Map<String, List<String>>? unassignedReasons,
+    double? draftThreshold,
+    bool? draftOnlyLowSuccess,
+    Map<String, double>? draftSubjectThresholds,
   }) {
     return AgmCycle(
       id: id ?? this.id,
@@ -179,6 +202,9 @@ class AgmCycle {
       underAssignedStudentIds:
           underAssignedStudentIds ?? this.underAssignedStudentIds,
       unassignedReasons: unassignedReasons ?? this.unassignedReasons,
+      draftThreshold: draftThreshold ?? this.draftThreshold,
+      draftOnlyLowSuccess: draftOnlyLowSuccess ?? this.draftOnlyLowSuccess,
+      draftSubjectThresholds: draftSubjectThresholds ?? this.draftSubjectThresholds,
     );
   }
 }
