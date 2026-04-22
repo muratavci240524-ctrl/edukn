@@ -683,6 +683,7 @@ class _AgmTeacherTimetableScreenState extends State<AgmTeacherTimetableScreen> {
         TextCellValue('Gün'),
         TextCellValue('Saat'),
         TextCellValue('Ders'),
+        TextCellValue('Kazanım'),
         TextCellValue('Derslik'),
         TextCellValue('Şube'),
         TextCellValue('Öğrenci Adı Soyadı'),
@@ -691,11 +692,23 @@ class _AgmTeacherTimetableScreenState extends State<AgmTeacherTimetableScreen> {
 
       for (final g in tGroups) {
         final students = widget.assignmentsByGroup[g.id] ?? [];
+        final kazanimlar = g.kazanimlar.join(', ');
+
+        // Her grubun başına ayırt edici bir kazanım başlığı atalım
+        sheet.appendRow([
+          TextCellValue('---'),
+          TextCellValue('GRUP DETAYI:'),
+          TextCellValue(g.dersAdi),
+          TextCellValue('KAZANIMLAR: $kazanimlar'),
+          TextCellValue('---'),
+        ]);
+
         if (students.isEmpty) {
           sheet.appendRow([
             TextCellValue(g.gun),
             TextCellValue('${g.baslangicSaat}-${g.bitisSaat}'),
             TextCellValue(g.dersAdi),
+            TextCellValue(kazanimlar),
             TextCellValue(g.derslikAdi ?? '-'),
             TextCellValue('-'),
             TextCellValue('-'),
@@ -708,6 +721,7 @@ class _AgmTeacherTimetableScreenState extends State<AgmTeacherTimetableScreen> {
               TextCellValue(g.gun),
               TextCellValue('${g.baslangicSaat}-${g.bitisSaat}'),
               TextCellValue(g.dersAdi),
+              TextCellValue(kazanimlar),
               TextCellValue(g.derslikAdi ?? '-'),
               TextCellValue(s.subeAdi),
               TextCellValue(s.ogrenciAdi),

@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'create_social_media_post_screen.dart';
 import 'package:intl/intl.dart';
 import 'dart:convert';
+import 'dart:math' as math;
 // ignore: avoid_web_libraries_in_flutter
 import 'dart:html' as html;
 import '../../../services/announcement_service.dart';
@@ -33,8 +34,35 @@ class _SchoolTypeSocialMediaScreenState
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
   // --- Actions ---
+  List<Map<String, dynamic>> _schoolTypes = [];
+  String? _selectedFilterSchoolTypeId;
 
+  @override
+  void initState() {
+    super.initState();
+    if (widget.schoolTypeId.isEmpty) {
+      _loadSchoolTypes();
+    }
+  }
 
+  Future<void> _loadSchoolTypes() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('school_types')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .get();
+      if (mounted) {
+        setState(() {
+          _schoolTypes = snapshot.docs.map((d) => {
+            'id': d.id,
+            'name': d.data()['schoolName'] ?? 'Bilinmeyen Okul Türü'
+          }).toList();
+        });
+      }
+    } catch (e) {
+      debugPrint("School Types load error: $e");
+    }
+  }
   void _openCreatePost() {
     Navigator.push(
       context,
@@ -64,7 +92,7 @@ class _SchoolTypeSocialMediaScreenState
               pinned: true,
               backgroundColor: Colors.indigo,
               elevation: 0,
-              automaticallyImplyLeading: false,
+              leading: const BackButton(color: Colors.white),
               title: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -93,13 +121,61 @@ class _SchoolTypeSocialMediaScreenState
                 ),
               ],
             ),
+            if (widget.schoolTypeId.isEmpty)
+              SliverPersistentHeader(
+                pinned: true,
+                delegate: _SliverAppBarDelegate(
+                  minHeight: 60.0,
+                  maxHeight: 60.0,
+                  child: Container(
+                    color: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: DropdownButtonFormField<String>(
+                      decoration: InputDecoration(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey.shade300),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey.shade300),
+                        ),
+                        filled: true,
+                        fillColor: Colors.white,
+                      ),
+                      value: _selectedFilterSchoolTypeId,
+                      hint: const Text('Tüm Okul Türleri'),
+                      isExpanded: true,
+                      icon: const Icon(Icons.arrow_drop_down_rounded, color: Colors.indigo),
+                      items: [
+                        const DropdownMenuItem(value: null, child: Text('Tüm Okul Türleri')),
+                        ..._schoolTypes.map((type) => DropdownMenuItem(
+                          value: type['id'] as String,
+                          child: Text(type['name'] as String),
+                        )).toList(),
+                      ],
+                      onChanged: (val) {
+                        setState(() {
+                          _selectedFilterSchoolTypeId = val;
+                        });
+                      },
+                    ),
+                  ),
+                ),
+              ),
           ],
           body: StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection('social_media_posts')
-                .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
-                .orderBy('createdAt', descending: true)
-                .snapshots(),
+            stream: widget.schoolTypeId.isNotEmpty
+                ? FirebaseFirestore.instance
+                    .collection('social_media_posts')
+                    .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+                    .orderBy('createdAt', descending: true)
+                    .snapshots()
+                : FirebaseFirestore.instance
+                    .collection('social_media_posts')
+                    .orderBy('createdAt', descending: true)
+                    .snapshots(),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
@@ -108,11 +184,22 @@ class _SchoolTypeSocialMediaScreenState
                 return Center(child: Text('Hata: ${snapshot.error}'));
               }
 
-              if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+              List<QueryDocumentSnapshot> posts = snapshot.data!.docs.where((doc) {
+                final data = doc.data() as Map<String, dynamic>;
+                if (data['institutionId'] != null && data['institutionId'] != widget.institutionId) {
+                  return false;
+                }
+                if (widget.schoolTypeId.isEmpty && _selectedFilterSchoolTypeId != null) {
+                  if (data['schoolTypeId'] != _selectedFilterSchoolTypeId) {
+                    return false;
+                  }
+                }
+                return true;
+              }).toList();
+
+              if (posts.isEmpty) {
                 return const Center(child: Text('Henüz gönderi yok'));
               }
-
-              List<QueryDocumentSnapshot> posts = List.from(snapshot.data!.docs);
 
               posts.sort((a, b) {
                 final dataA = a.data() as Map<String, dynamic>;
@@ -1243,5 +1330,35 @@ class _EditPostModalState extends State<_EditPostModal> {
         ),
       ),
     );
+  }
+}
+
+class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
+  _SliverAppBarDelegate({
+    required this.minHeight,
+    required this.maxHeight,
+    required this.child,
+  });
+
+  final double minHeight;
+  final double maxHeight;
+  final Widget child;
+
+  @override
+  double get minExtent => minHeight;
+
+  @override
+  double get maxExtent => math.max(maxHeight, minHeight);
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return SizedBox.expand(child: child);
+  }
+
+  @override
+  bool shouldRebuild(_SliverAppBarDelegate oldDelegate) {
+    return maxHeight != oldDelegate.maxHeight ||
+        minHeight != oldDelegate.minHeight ||
+        child != oldDelegate.child;
   }
 }

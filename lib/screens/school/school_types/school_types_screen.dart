@@ -56,25 +56,21 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
   bool _canCreateSchoolType() {
     // Admin kullanıcısı (userData yok) - Her zaman ekleyebilir
     if (userData == null) {
-      print('🔍 _canCreateSchoolType: userData null - admin yetkisi');
       return true;
     }
 
     final modulePerms = userData!['modulePermissions'] as Map<String, dynamic>?;
     if (modulePerms == null) {
-      print('🔍 _canCreateSchoolType: modulePermissions null');
       return false;
     }
 
     final schoolTypePerm = modulePerms['okul_turleri'] as Map<String, dynamic>?;
     if (schoolTypePerm == null) {
-      print('🔍 _canCreateSchoolType: okul_turleri permission null');
       return false;
     }
 
     final level = schoolTypePerm['level'];
     final canCreate = level == 'editor';
-    print('🔍 _canCreateSchoolType: level=$level, canCreate=$canCreate');
 
     // Genel modül düzenleme yetkisi gerekli
     return canCreate;
@@ -84,17 +80,11 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
   bool _canEditSpecificSchoolType(String schoolTypeId) {
     // Admin kullanıcısı (userData yok) - Her zaman düzenleyebilir
     if (userData == null) {
-      print(
-        '🔍 _canEditSpecificSchoolType($schoolTypeId): userData null - admin yetkisi',
-      );
       return true;
     }
 
     // Önce genel modül erişimi kontrol et
     if (!_hasSchoolTypeAccess()) {
-      print(
-        '🔍 _canEditSpecificSchoolType($schoolTypeId): genel modül erişimi yok',
-      );
       return false;
     }
 
@@ -109,18 +99,12 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
       final generalLevel =
           (modulePerms?['okul_turleri'] as Map<String, dynamic>?)?['level'];
       final canEdit = generalLevel == 'editor';
-      print(
-        '🔍 _canEditSpecificSchoolType($schoolTypeId): schoolTypePermissions null/eksik, genel level=$generalLevel, canEdit=$canEdit',
-      );
       return canEdit;
     }
 
     // Bu okul türü için editor yetkisi var mı?
     final permission = schoolTypePerms[schoolTypeId];
     final canEdit = permission == 'editor';
-    print(
-      '🔍 _canEditSpecificSchoolType($schoolTypeId): permission=$permission, canEdit=$canEdit',
-    );
     return canEdit;
   }
 
@@ -128,17 +112,11 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
   bool _canSwitchToSchoolType(String schoolTypeId) {
     // Admin kullanıcısı (userData yok) - Her zaman geçiş yapabilir
     if (userData == null) {
-      print(
-        '🔍 _canSwitchToSchoolType($schoolTypeId): userData null - admin yetkisi',
-      );
       return true;
     }
 
     // Önce genel modül erişimi kontrol et
     if (!_hasSchoolTypeAccess()) {
-      print(
-        '🔍 _canSwitchToSchoolType($schoolTypeId): genel modül erişimi yok',
-      );
       return false;
     }
 
@@ -149,18 +127,12 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
     // Eğer okul türü bazlı yetki kaydı yoksa, genel modül erişimi varsa geçişe izin ver
     if (schoolTypePerms == null || !schoolTypePerms.containsKey(schoolTypeId)) {
       // Genel modül erişimi zaten doğrulandı (_hasSchoolTypeAccess), geçişe izin ver
-      print(
-        '🔍 _canSwitchToSchoolType($schoolTypeId): schoolTypePermissions null/eksik, genel erişim var → canSwitch=true',
-      );
       return true;
     }
 
     // Bu okul türü için herhangi bir yetki var mı? (viewer veya editor)
     final permission = schoolTypePerms[schoolTypeId];
     final canSwitch = permission == 'viewer' || permission == 'editor';
-    print(
-      '🔍 _canSwitchToSchoolType($schoolTypeId): permission=$permission, canSwitch=$canSwitch',
-    );
     return canSwitch;
   }
 

@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:excel/excel.dart' hide Border;
 import 'package:file_picker/file_picker.dart';
 import 'package:file_saver/file_saver.dart';
+import 'work_calendar_guide_page.dart';
 
 class WorkCalendarScreen extends StatefulWidget {
   final String schoolTypeId;
@@ -96,6 +97,19 @@ class _WorkCalendarScreenState extends State<WorkCalendarScreen>
             ),
           ],
         ),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.info_outline_rounded, color: Colors.green),
+            tooltip: 'Takvim Rehberi',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const WorkCalendarGuidePage()),
+              );
+            },
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       floatingActionButton: _isViewingPastTerm || widget.isTeacher
           ? null

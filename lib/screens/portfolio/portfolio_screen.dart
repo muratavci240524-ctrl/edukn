@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../school/assessment/evaluation_models.dart';
 import '../school/assessment/student_report_card_dialog.dart';
@@ -20,6 +22,13 @@ import '../../models/guidance/development_report/development_report_model.dart';
 
 import 'development_report_detail_screen.dart';
 import '../guidance/reports/development_report_pdf_helper.dart';
+import 'portfolio_guide_page.dart';
+import 'portfolio_report_dialog.dart';
+import '../../services/term_service.dart';
+import '../school/guidance/demand/demand_dashboard_screen.dart';
+import '../school/guidance/demand/create_demand_dialog.dart';
+import '../../models/guidance/demand_model.dart';
+import '../../services/guidance/demand_service.dart';
 
 class PortfolioScreen extends StatefulWidget {
   final String institutionId;
@@ -27,6 +36,8 @@ class PortfolioScreen extends StatefulWidget {
   final String schoolTypeName;
 
   final List<String>? allowedClassIds;
+  final String? initialStudentId;
+  final bool showAllSchoolTypes;
 
   const PortfolioScreen({
     Key? key,
@@ -34,6 +45,8 @@ class PortfolioScreen extends StatefulWidget {
     required this.schoolTypeId,
     required this.schoolTypeName,
     this.allowedClassIds,
+    this.initialStudentId,
+    this.showAllSchoolTypes = false,
   }) : super(key: key);
 
   @override
@@ -57,48 +70,97 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   List<String> _classLevels = [];
   List<String> _classes = [];
 
+  // Scroll
+  final ScrollController _studentListScrollController = ScrollController();
+  final GlobalKey _selectedStudentCardKey = GlobalKey();
+
+  // Report Context
+  String? _activeTermId;
+  Map<String, dynamic> _schoolSettings = {};
+
   @override
   void initState() {
     super.initState();
     _loadStudents();
     _loadActiveFilterData();
+    _loadReportContext();
     _searchController.addListener(_filterStudents);
   }
 
   @override
   void dispose() {
     _searchController.dispose();
+    _studentListScrollController.dispose();
     super.dispose();
   }
 
   Future<void> _loadActiveFilterData() async {
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection('school_types')
-          .doc(widget.schoolTypeId)
-          .get();
-      if (doc.exists && doc.data() != null) {
-        final data = doc.data()!;
-        if (data['activeGrades'] != null) {
-          final grades = List<String>.from(
-            data['activeGrades'].map((e) => e.toString()),
-          );
-          if (mounted) {
-            setState(() {
-              _classLevels = grades;
-              // Add 'Mezun' if it's a high school
-              final stName = (data['name'] ?? widget.schoolTypeName)
-                  .toString()
-                  .toLowerCase();
-              if (stName.contains('lise') && !_classLevels.contains('Mezun')) {
-                _classLevels.add('Mezun');
-              }
-            });
+      if (widget.showAllSchoolTypes) {
+        // Load all active grades from all school types of the institution
+        final snapshot = await FirebaseFirestore.instance
+            .collection('schoolTypes')
+            .where('institutionId', isEqualTo: widget.institutionId)
+            .get();
+        
+        final Set<String> allGrades = {};
+        for (var doc in snapshot.docs) {
+          final data = doc.data();
+          if (data['activeGrades'] != null) {
+            allGrades.addAll(List<String>.from(data['activeGrades'].map((e) => e.toString())));
+          }
+        }
+        
+        if (mounted) {
+          setState(() {
+            _classLevels = allGrades.toList();
+          });
+        }
+      } else {
+        final doc = await FirebaseFirestore.instance
+            .collection('schoolTypes')
+            .doc(widget.schoolTypeId)
+            .get();
+        if (doc.exists && doc.data() != null) {
+          final data = doc.data()!;
+          if (data['activeGrades'] != null) {
+            final grades = List<String>.from(
+              data['activeGrades'].map((e) => e.toString()),
+            );
+            if (mounted) {
+              setState(() {
+                _classLevels = grades;
+                // Add 'Mezun' if it's a high school
+                final stName = (data['name'] ?? widget.schoolTypeName)
+                    .toString()
+                    .toLowerCase();
+                if (stName.contains('lise') && !_classLevels.contains('Mezun')) {
+                  _classLevels.add('Mezun');
+                }
+              });
+            }
           }
         }
       }
     } catch (e) {
       print('Error loading active filter data: $e');
+    }
+  }
+
+  Future<void> _loadReportContext() async {
+    try {
+      _activeTermId = await TermService().getActiveTermId();
+      final instDoc = await FirebaseFirestore.instance
+          .collection('institutions')
+          .doc(widget.institutionId)
+          .get();
+      if (instDoc.exists) {
+        setState(() {
+          _schoolSettings = instDoc.data() ?? {};
+        });
+      }
+    } catch (e) {
+      print('Error loading report context: $e');
     }
   }
 
@@ -133,13 +195,16 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
         final seenIds = <String>{};
         students.retainWhere((s) => seenIds.add(s['id']));
       } else {
-        // Admin mode: Load all students for the school type
-        final snapshot = await FirebaseFirestore.instance
+        // Admin mode: Load all students
+        var query = FirebaseFirestore.instance
             .collection('students')
-            .where('institutionId', isEqualTo: widget.institutionId)
-            .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
-            .orderBy('name')
-            .get();
+            .where('institutionId', isEqualTo: widget.institutionId);
+            
+        if (!widget.showAllSchoolTypes) {
+          query = query.where('schoolTypeId', isEqualTo: widget.schoolTypeId);
+        }
+        
+        final snapshot = await query.orderBy('name').get();
 
         students = snapshot.docs.map((doc) {
           final data = doc.data();
@@ -156,8 +221,19 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
           _allStudents = students;
           _extractFilterData();
           _filterStudents();
+          if (widget.initialStudentId != null) {
+            try {
+              _selectedStudent = _allStudents.firstWhere((s) => s['id'] == widget.initialStudentId);
+            } catch (_) {}
+          }
           _isLoading = false;
         });
+        // Seçili öğrenciye scroll yap
+        if (widget.initialStudentId != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _scrollToSelectedStudent();
+          });
+        }
       }
     } catch (e) {
       print('Error loading students: $e');
@@ -207,6 +283,28 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
         if (ib != null) return 1;
         return a.compareTo(b);
       });
+    });
+  }
+
+  void _scrollToSelectedStudent() {
+    if (_selectedStudent == null) return;
+    final index = _filteredStudents.indexWhere((s) => s['id'] == _selectedStudent!['id']);
+    if (index < 0) return;
+
+    // itemExtent ile sabit yükseklik: her öğrenci kartı tam 80px
+    // Liste padding'i (top: 8px) + index * itemExtent = kesin piksel pozisyon
+    const double itemExtent = 80.0;
+    const double listPaddingTop = 8.0;
+    final targetOffset = listPaddingTop + index * itemExtent;
+
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (_studentListScrollController.hasClients) {
+        _studentListScrollController.animateTo(
+          targetOffset,
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeInOut,
+        );
+      }
     });
   }
 
@@ -285,6 +383,9 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                           institutionId: widget.institutionId,
                           onClose: () =>
                               setState(() => _selectedStudent = null),
+                          filteredStudents: _filteredStudents,
+                          activeTermId: _activeTermId,
+                          schoolSettings: _schoolSettings,
                         ),
                 ),
               ],
@@ -523,6 +624,8 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
     }
 
     return ListView.builder(
+      controller: _studentListScrollController,
+      itemExtent: 80.0, // Sabit yükseklik: scroll hesabı her index için kesin çalışır
       padding: EdgeInsets.all(8),
       itemCount: _filteredStudents.length,
       itemBuilder: (context, index) {
@@ -532,6 +635,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
             _selectedStudent!['id'] == student['id'];
 
         return Card(
+          key: isSelected ? _selectedStudentCardKey : null,
           margin: EdgeInsets.symmetric(vertical: 4),
           elevation: isSelected ? 2 : 0,
           shape: RoundedRectangleBorder(
@@ -588,6 +692,9 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                       student: student,
                       institutionId: widget.institutionId,
                       onClose: () => Navigator.pop(context),
+                      filteredStudents: _filteredStudents,
+                      activeTermId: _activeTermId,
+                      schoolSettings: _schoolSettings,
                     ),
                   ),
                 );
@@ -646,12 +753,20 @@ class PortfolioDetailView extends StatefulWidget {
   final Map<String, dynamic> student;
   final String institutionId;
   final VoidCallback? onClose;
+  
+  // Reporting Context
+  final List<Map<String, dynamic>> filteredStudents;
+  final String? activeTermId;
+  final Map<String, dynamic> schoolSettings;
 
   const PortfolioDetailView({
     Key? key,
     required this.student,
     required this.institutionId,
     this.onClose,
+    required this.filteredStudents,
+    this.activeTermId,
+    required this.schoolSettings,
   }) : super(key: key);
 
   @override
@@ -696,7 +811,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 12, vsync: this);
+    _tabController = TabController(length: 13, vsync: this);
 
     // Listen to Exam Types to get subject order and question counts
     _examTypesSubscription = AssessmentService()
@@ -831,6 +946,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
             Tab(text: 'Etütler'),
             Tab(text: 'Kitaplar'),
             Tab(text: 'Görüşmeler'),
+            Tab(text: 'Talepler'),
             Tab(text: 'Gelişim Raporu'),
             Tab(text: 'Çalışma Programları'),
             Tab(text: 'Rehberlik Testleri'),
@@ -838,6 +954,34 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
           ],
         ),
         actions: [
+          if (MediaQuery.of(context).size.width > 900) ...[
+            IconButton(
+              icon: const Icon(Icons.print_rounded, color: Colors.indigo),
+              tooltip: 'Rapor Yazdır',
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (context) => PortfolioReportDialog(
+                    filteredStudents: widget.filteredStudents,
+                    selectedStudent: widget.student,
+                    institutionId: widget.institutionId,
+                    termId: widget.activeTermId ?? '',
+                    schoolSettings: widget.schoolSettings,
+                  ),
+                );
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.info_outline_rounded, color: Colors.indigo),
+              tooltip: 'Nasıl Kullanılır?',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const PortfolioGuidePage()),
+                );
+              },
+            ),
+          ],
           if (widget.onClose != null && MediaQuery.of(context).size.width > 900)
             IconButton(
               icon: Icon(Icons.close, color: Colors.grey),
@@ -856,6 +1000,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
           _buildEtutlerTab(),
           _buildBooksTab(),
           _buildInterviewsTab(),
+          _buildDemandsTab(),
           _buildDevelopmentReportTab(),
           _buildStudyProgramsTab(),
           _buildGuidanceTestsTab(),
@@ -4959,6 +5104,155 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildDemandsTab() {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(16),
+          color: Colors.white,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Öğrenciye Ait Talepler',
+                style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              ElevatedButton.icon(
+                onPressed: () => _showCreateDemandDialogForStudent(),
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Yeni Talep'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.indigo,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: StreamBuilder<List<DemandModel>>(
+            stream: DemandService().streamDemands(
+              institutionId: widget.institutionId,
+              schoolTypeId: widget.student['schoolTypeId'] ?? '',
+            ),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              final sid = widget.student['id'];
+              final demands = (snapshot.data ?? [])
+                  .where((d) => d.studentUid == sid)
+                  .toList();
+
+              if (demands.isEmpty) {
+                return _buildEmptyState('Bu öğrenciye ait bir talep bulunmuyor.');
+              }
+
+              return ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: demands.length,
+                itemBuilder: (context, index) {
+                  final d = demands[index];
+                   return Card(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.all(16),
+                      leading: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.indigo.shade50,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          d.status == DemandStatus.completed ? Icons.check_circle : Icons.pending_actions,
+                          color: d.status == DemandStatus.completed ? Colors.green : Colors.orange,
+                        ),
+                      ),
+                      title: Text(d.title, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 4),
+                          Text(d.description, maxLines: 2, overflow: TextOverflow.ellipsis),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Text(DateFormat('dd.MM.yyyy').format(d.createdAt), style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+                              const SizedBox(width: 12),
+                              _buildStatusBadgeMini(d.status),
+                            ],
+                          ),
+                        ],
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => _showDemandDetailProxy(d),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showCreateDemandDialogForStudent() {
+     showDialog(
+      context: context,
+      builder: (context) => CreateDemandDialog(
+        institutionId: widget.institutionId,
+        schoolTypeId: widget.student['schoolTypeId'] ?? '',
+        senderUid: FirebaseAuth.instance.currentUser?.uid ?? '',
+        senderName: 'Yönetici', 
+        senderRole: 'admin',
+        userData: null, 
+      ),
+    );
+  }
+
+  void _showDemandDetailProxy(DemandModel d) {
+    // DemandDashboardScreen içinde kullandığımız detayı burada da kullanabiliriz
+    // Kod tekrarı olmaması için ortak bir widget'a çıkarmıştık zaten (_DemandDetailSheet)
+    // Ancak o sınıf private (_) olduğu için erişemeyebiliriz. 
+    // Onu DemandDashboardScreen dosyasında public yapalım sonra burayı güncelleriz.
+    // Şimdilik sadece alert dialog ile bir özet gösterelim.
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(d.title),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text("Durum: ${d.status.name}"),
+            Text("Açıklama: ${d.description}"),
+            if (d.closingNote != null) ...[
+              const SizedBox(height: 16),
+              const Text("Kapanış Notu:", style: TextStyle(fontWeight: FontWeight.bold)),
+              Text(d.closingNote!),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Kapat')),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusBadgeMini(DemandStatus status) {
+    Color c = status == DemandStatus.completed ? Colors.green : Colors.orange;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(color: c.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
+      child: Text(status.name, style: TextStyle(color: c, fontSize: 10, fontWeight: FontWeight.bold)),
     );
   }
 

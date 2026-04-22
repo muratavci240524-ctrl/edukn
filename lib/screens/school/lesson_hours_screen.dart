@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import '../../services/term_service.dart';
+import 'lesson_hours_guide_page.dart';
 
 class LessonHoursScreen extends StatefulWidget {
   final String schoolTypeId;
@@ -88,6 +89,19 @@ class _LessonHoursScreenState extends State<LessonHoursScreen> with WidgetsBindi
             ),
           ],
         ),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.info_outline_rounded, color: Colors.blue),
+            tooltip: 'Saat Programı Rehberi',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const LessonHoursGuidePage()),
+              );
+            },
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: Row(
         children: [

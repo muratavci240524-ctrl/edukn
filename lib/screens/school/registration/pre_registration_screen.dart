@@ -9,6 +9,7 @@ import 'pre_registration_settings_screen.dart';
 import '../../../services/pdf_service.dart';
 import 'package:printing/printing.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../../../constants/turkey_address_data.dart';
 import '../../../widgets/edukn_dropdown.dart';
 import '../../../widgets/edukn_logo.dart';
 
@@ -990,8 +991,41 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
     _showEditBottomSheet(
       'Adres Bilgilerini Düzenle',
       [
-        _buildPopupField('İl', cityCtrl),
-        _buildPopupField('İlçe', distCtrl),
+        StatefulBuilder(builder: (context, setModalState) {
+          final currentCity = cityCtrl.text.toUpperCase();
+          final currentDist = distCtrl.text.toUpperCase();
+          
+          return Column(
+            children: [
+              EduKnDropdown<String>(
+                label: 'İl',
+                value: TurkeyAddressData.cities.contains(currentCity) ? currentCity : null,
+                items: TurkeyAddressData.cities
+                    .map((c) => DropdownMenuItem<String>(value: c, child: Text(c))).toList(),
+                onChanged: (v) {
+                  setModalState(() {
+                    cityCtrl.text = v ?? '';
+                    distCtrl.text = ''; // Reset district when city changes
+                  });
+                },
+              ),
+              const SizedBox(height: 12),
+              EduKnDropdown<String>(
+                label: 'İlçe',
+                value: (cityCtrl.text.isNotEmpty && 
+                        TurkeyAddressData.getDistricts(cityCtrl.text).contains(currentDist)) 
+                    ? currentDist 
+                    : null,
+                items: (cityCtrl.text.isNotEmpty)
+                    ? TurkeyAddressData.getDistricts(cityCtrl.text)
+                        .map((d) => DropdownMenuItem<String>(value: d, child: Text(d))).toList()
+                    : [],
+                onChanged: (v) => setModalState(() => distCtrl.text = v ?? ''),
+              ),
+              const SizedBox(height: 12),
+            ],
+          );
+        }),
         _buildPopupField('Mahalle / Tam Adres', neighborhoodCtrl),
       ],
       () async {

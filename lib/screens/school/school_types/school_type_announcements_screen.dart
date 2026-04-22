@@ -42,9 +42,15 @@ class _SchoolTypeAnnouncementsScreenState
   Timer? _scheduledCheckTimer;
   bool _showFilters = false;
 
+  List<Map<String, dynamic>> _schoolTypes = [];
+  String? _selectedFilterSchoolTypeId;
+
   @override
   void initState() {
     super.initState();
+    if (widget.schoolTypeId.isEmpty) {
+      _loadSchoolTypes();
+    }
     _loadUserPermissions();
     _checkScheduledAnnouncements();
     _scheduledCheckTimer = Timer.periodic(
@@ -58,6 +64,25 @@ class _SchoolTypeAnnouncementsScreenState
     _search.dispose();
     _scheduledCheckTimer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _loadSchoolTypes() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('school_types')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .get();
+      if (mounted) {
+        setState(() {
+          _schoolTypes = snapshot.docs.map((d) => {
+            'id': d.id,
+            'name': d.data()['schoolName'] ?? 'Bilinmeyen Okul Türü'
+          }).toList();
+        });
+      }
+    } catch (e) {
+      debugPrint("School Types load error: $e");
+    }
   }
 
   Future<void> _checkScheduledAnnouncements() async {
@@ -172,7 +197,7 @@ class _SchoolTypeAnnouncementsScreenState
               pinned: true,
               backgroundColor: Colors.indigo,
               elevation: 0,
-              automaticallyImplyLeading: false,
+              leading: const BackButton(color: Colors.white),
               title: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -244,7 +269,9 @@ class _SchoolTypeAnnouncementsScreenState
               backgroundColor: Colors.white,
               elevation: 2,
               automaticallyImplyLeading: false,
-              toolbarHeight: _showFilters ? 124 : 68,
+              toolbarHeight: _showFilters 
+                 ? (widget.schoolTypeId.isEmpty ? 180 : 124) 
+                 : (widget.schoolTypeId.isEmpty ? 124 : 68),
               flexibleSpace: FlexibleSpaceBar(
                 background: _buildFilters(context),
               ),
@@ -540,6 +567,40 @@ class _SchoolTypeAnnouncementsScreenState
               ),
             ],
           ),
+          if (widget.schoolTypeId.isEmpty) ...[
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              decoration: InputDecoration(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(24),
+                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(24),
+                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                filled: true,
+                fillColor: Colors.white,
+              ),
+              value: _selectedFilterSchoolTypeId,
+              hint: const Text('Tüm Okul Türleri'),
+              isExpanded: true,
+              icon: const Icon(Icons.arrow_drop_down_rounded, color: Colors.indigo),
+              items: [
+                const DropdownMenuItem(value: null, child: Text('Tüm Okul Türleri')),
+                ..._schoolTypes.map((type) => DropdownMenuItem(
+                  value: type['id'] as String,
+                  child: Text(type['name'] as String),
+                )).toList(),
+              ],
+              onChanged: (val) {
+                setState(() {
+                  _selectedFilterSchoolTypeId = val;
+                });
+              },
+            ),
+          ],
           if (_showFilters) ...[
             const SizedBox(height: 12),
             // Filter Chips
@@ -651,11 +712,15 @@ class _SchoolTypeAnnouncementsScreenState
   // Okul türü bazlı duyuruları getir
   Stream<QuerySnapshot> _getSchoolTypeAnnouncements() {
     return _announcementService.getAnnouncements().map((snapshot) {
-      // Okul türü ID'sine göre filtrele
       final filteredDocs = snapshot.docs.where((doc) {
         final data = doc.data() as Map<String, dynamic>;
         final schoolTypeId = data['schoolTypeId'] as String?;
-        return schoolTypeId == widget.schoolTypeId;
+        if (widget.schoolTypeId.isNotEmpty) {
+          return schoolTypeId == widget.schoolTypeId;
+        } else if (_selectedFilterSchoolTypeId != null) {
+          return schoolTypeId == _selectedFilterSchoolTypeId;
+        }
+        return true;
       }).toList();
 
       // Yeni bir QuerySnapshot oluştur (mock)

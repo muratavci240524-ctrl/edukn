@@ -57,7 +57,7 @@ class PdfService {
               pw.Center(child: logoWidget),
               pw.SizedBox(height: 20),
               
-              pw.Text('ADAY ÖĞRENCİ ÜCRET FORMU', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+              pw.Text('ADAY ÖÄRENCİ ÜCRET FORMU', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
               pw.SizedBox(height: 16),
 
               // Student Info Grid
@@ -552,7 +552,7 @@ class PdfService {
             style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
           ),
           _buildFileRow('Nüfus Cüzdanı', isUploaded(official, 'id_copy')),
-          _buildFileRow('İkametgâh', isUploaded(official, 'residence')),
+          _buildFileRow('İkametgÃ¢h', isUploaded(official, 'residence')),
           _buildFileRow(
             'Adli Sicil Kaydı',
             isUploaded(official, 'criminal_record'),
@@ -806,7 +806,7 @@ class PdfService {
 
     return pw.TableHelper.fromTextArray(
       context: null,
-      headers: ['Sıra', 'Öğrenci Adı', 'Şube', 'Ort. Puan'],
+      headers: ['Sıra', 'Öğrenci Adı', 'Åube', 'Ort. Puan'],
       data: top10.asMap().entries.map((e) {
         double avg = 0;
         final exams = e.value['exams'] as Map;
@@ -838,7 +838,7 @@ class PdfService {
   pw.Widget _buildRisingStarsTable(List<Map<String, dynamic>> stars) {
     return pw.TableHelper.fromTextArray(
       context: null,
-      headers: ['Öğrenci', 'Şube', 'İlk Net', 'Son Net', 'Gelişim'],
+      headers: ['Öğrenci', 'Åube', 'İlk Net', 'Son Net', 'Gelişim'],
       data: stars
           .map(
             (s) => [
@@ -908,7 +908,7 @@ class PdfService {
             _buildPdfSectionTitle('Genel Puan ve Net Gelişimi'),
             _buildExamParticipationTable(exams, examStats),
             pw.SizedBox(height: 30),
-            _buildPdfSectionTitle('Şube Bazlı İlerleme Özeti'),
+            _buildPdfSectionTitle('Åube Bazlı İlerleme Özeti'),
             _buildBranchTrendTable(exams, branchExamStats),
           ];
         },
@@ -934,11 +934,11 @@ class PdfService {
         build: (pw.Context context) {
           return [
             _buildReportHeader(
-              'Şube Analiz Raporu',
-              'Şubeler Arası Akademik Kıyaslama',
+              'Åube Analiz Raporu',
+              'Åubeler Arası Akademik Kıyaslama',
             ),
             pw.SizedBox(height: 20),
-            _buildPdfSectionTitle('Şube Performans Tablosu'),
+            _buildPdfSectionTitle('Åube Performans Tablosu'),
             _buildDetailedBranchTable(branches, subjects, subjectExamStats),
           ];
         },
@@ -1051,7 +1051,7 @@ class PdfService {
 
     return pw.TableHelper.fromTextArray(
       context: null,
-      headers: ['Şube', ...exams.map((e) => 'S${exams.indexOf(e) + 1}')],
+      headers: ['Åube', ...exams.map((e) => 'S${exams.indexOf(e) + 1}')],
       data: branches.map((b) {
         return [
           b,
@@ -1074,7 +1074,7 @@ class PdfService {
   ) {
     return pw.TableHelper.fromTextArray(
       context: null,
-      headers: ['Şube', ...subjects],
+      headers: ['Åube', ...subjects],
       data: branches.where((b) => b != 'Tümü').map((b) {
         return [
           b,
@@ -1135,7 +1135,7 @@ class PdfService {
 
     return pw.TableHelper.fromTextArray(
       context: null,
-      headers: ['Sıra', 'İsim', 'Şube', 'Toplam $mode', 'Ort. $mode'],
+      headers: ['Sıra', 'İsim', 'Åube', 'Toplam $mode', 'Ort. $mode'],
       data: sorted.asMap().entries.map((e) {
         final st = e.value;
         final exams = st['exams'] as Map;
@@ -1473,7 +1473,7 @@ class PdfService {
                               ),
                             ),
                           if (group.driverPhone != null)
-                            pw.Text('Şoför: ${group.driverPhone}'),
+                            pw.Text('Åoför: ${group.driverPhone}'),
                         ],
                       ),
                     ),
@@ -1899,5 +1899,1202 @@ class PdfService {
         ),
       ),
     );
+  }
+
+  Future<Uint8List> generateClassSchedulePdf({
+    required List<Map<String, dynamic>> multiClassData, // List of {className, scheduleData, lessonStats}
+    required List<String> days,
+    required List<Map<String, dynamic>> lessonHours,
+    required Map<String, String> institutionInfo,
+  }) async {
+    final pdf = pw.Document();
+    final font = await PdfGoogleFonts.robotoRegular();
+    final fontBold = await PdfGoogleFonts.robotoBold();
+
+    for (var classData in multiClassData) {
+      final className = classData['className'];
+      final scheduleData = classData['scheduleData'];
+      final lessonStats = List<Map<String, dynamic>>.from(classData['lessonStats'] ?? []);
+
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          theme: pw.ThemeData.withFont(base: font, bold: fontBold),
+          build: (pw.Context context) {
+            return pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                _buildModernScheduleHeader(institutionInfo, 'Sınıfın Adı: $className'),
+                pw.SizedBox(height: 15),
+                _buildScheduleTable(days, lessonHours, scheduleData, isClassSchedule: true),
+                pw.SizedBox(height: 15),
+                _buildAttendanceStatsTable(lessonStats),
+                pw.Spacer(),
+                _buildScheduleFooter(institutionInfo['principalName'] ?? ''),
+              ],
+            );
+          },
+        ),
+      );
+    }
+
+    return pdf.save();
+  }
+
+  Future<Uint8List> generateTeacherSchedulePdf({
+    required List<Map<String, dynamic>> multiTeacherData, // List of {teacherName, scheduleData, lessonStats}
+    required List<String> days,
+    required List<Map<String, dynamic>> lessonHours,
+    required Map<String, String> institutionInfo,
+  }) async {
+    final pdf = pw.Document();
+    final font = await PdfGoogleFonts.robotoRegular();
+    final fontBold = await PdfGoogleFonts.robotoBold();
+
+    for (var teacherData in multiTeacherData) {
+      final teacherName = teacherData['teacherName'];
+      final scheduleData = teacherData['scheduleData'];
+      final lessonStats = List<Map<String, dynamic>>.from(teacherData['lessonStats'] ?? []);
+
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          theme: pw.ThemeData.withFont(base: font, bold: fontBold),
+          build: (pw.Context context) {
+            return pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                _buildModernScheduleHeader(institutionInfo, ''), // Başlık boş bırakıldı, Sayı/Konu yeterli
+                pw.SizedBox(height: 20),
+                pw.Center(
+                  child: pw.Text(
+                    'Sayın $teacherName',
+                    style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
+                  ),
+                ),
+                pw.SizedBox(height: 10),
+                pw.Text(
+                  '          2025/2026 eğitim öğretim yılı geçerli ders programınız aşağıda gösterilmiştir. Bilgilerinizi ve gereğini rica eder, başarılar dilerim.',
+                  style: const pw.TextStyle(fontSize: 10),
+                  textAlign: pw.TextAlign.left,
+                ),
+                pw.SizedBox(height: 20),
+                _buildScheduleTable(days, lessonHours, scheduleData, isClassSchedule: false),
+                pw.SizedBox(height: 20),
+                _buildTeacherStatsTable(lessonStats),
+                pw.Spacer(),
+                _buildScheduleFooter(institutionInfo['principalName'] ?? ''),
+              ],
+            );
+          },
+        ),
+      );
+    }
+
+    return pdf.save();
+  }
+
+  Future<Uint8List> generateMasterSchedulePdf({
+    required List<String> days,
+    required List<Map<String, dynamic>> lessonHours,
+    required List<Map<String, dynamic>> rows,
+    required Map<String, String> institutionInfo,
+    required String typeLabel,
+  }) async {
+    final pdf = pw.Document();
+    final font = await PdfGoogleFonts.robotoRegular();
+    final fontBold = await PdfGoogleFonts.robotoBold();
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a3.landscape,
+        theme: pw.ThemeData.withFont(base: font, bold: fontBold),
+        build: (pw.Context context) {
+          return [
+            pw.Center(
+              child: pw.Text(
+                'Toplu Çarşaf Liste: $typeLabel',
+                style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold),
+              ),
+            ),
+            pw.SizedBox(height: 10),
+            pw.Center(
+              child: pw.Text(
+                '${institutionInfo['city']} - ${institutionInfo['district']} / ${institutionInfo['schoolName']}',
+                style: const pw.TextStyle(fontSize: 12),
+              ),
+            ),
+            pw.SizedBox(height: 20),
+            _buildMasterScheduleGrid(days, lessonHours, rows),
+          ];
+        },
+      ),
+    );
+
+    return pdf.save();
+  }
+
+  pw.Widget _buildModernScheduleHeader(Map<String, String> info, String subTitle) {
+    return pw.Column(
+      children: [
+        pw.Center(child: pw.Text('T.C.', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+        pw.Center(child: pw.Text('${info['city']} - ${info['district']}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+        pw.Center(child: pw.Text(info['schoolName'] ?? '', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold))),
+        pw.SizedBox(height: 10),
+        pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          children: [
+            pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text('Sayı  :', style: const pw.TextStyle(fontSize: 9)),
+                pw.Text('Konu  : Haftalık Ders Programı', style: const pw.TextStyle(fontSize: 9)),
+              ],
+            ),
+            pw.Text(subTitle, style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(width: 50),
+          ],
+        ),
+      ],
+    );
+  }
+
+  pw.Widget _buildScheduleTable(
+    List<String> days,
+    List<Map<String, dynamic>> hours,
+    Map<String, dynamic> schedule, {
+    bool isClassSchedule = true,
+  }) {
+    const double dayColumnWidth = 80; // Gün sütunu genişliği (tek satır olması için artırıldı)
+    const double hourColumnWidth = 45; // Ders saatleri sütun genişliği
+    const double cellHeight = 40; // Sabit hücre yüksekliği
+
+    return pw.Table(
+      border: pw.TableBorder.all(color: PdfColors.black, width: 0.5),
+      columnWidths: {
+        0: const pw.FixedColumnWidth(dayColumnWidth),
+        ...Map.fromIterable(
+          List.generate(hours.length, (i) => i + 1),
+          key: (i) => i,
+          value: (_) => const pw.FixedColumnWidth(hourColumnWidth),
+        ),
+      },
+      children: [
+        // Header Row
+        pw.TableRow(
+          verticalAlignment: pw.TableCellVerticalAlignment.middle,
+          children: [
+            pw.Container(
+              height: cellHeight,
+              alignment: pw.Alignment.center,
+              child: pw.Text('', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
+            ),
+            ...hours.map((h) => pw.Container(
+                  height: cellHeight,
+                  alignment: pw.Alignment.center,
+                  padding: const pw.EdgeInsets.all(2),
+                  child: pw.Column(
+                    mainAxisAlignment: pw.MainAxisAlignment.center,
+                    children: [
+                      pw.Text('${hours.indexOf(h) + 1}.Ders', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
+                      pw.Text('${h['startTime']}\n${h['endTime']}', style: const pw.TextStyle(fontSize: 7), textAlign: pw.TextAlign.center),
+                    ],
+                  ),
+                )),
+          ],
+        ),
+        // Days Rows
+        ...days.map((day) {
+          return pw.TableRow(
+            verticalAlignment: pw.TableCellVerticalAlignment.middle,
+            children: [
+              pw.Container(
+                height: cellHeight,
+                padding: const pw.EdgeInsets.symmetric(horizontal: 4),
+                alignment: pw.Alignment.centerLeft,
+                child: pw.Text(day, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold), softWrap: false),
+              ),
+              ...List.generate(hours.length, (hIndex) {
+                final key = '${day}_$hIndex';
+                final data = schedule[key];
+                
+                // Boş hücre olsa bile sabit boyutta kalması için Container döner
+                if (data == null) {
+                  return pw.Container(height: cellHeight);
+                }
+
+                return pw.Container(
+                  height: cellHeight,
+                  padding: const pw.EdgeInsets.all(2),
+                  alignment: pw.Alignment.center,
+                  child: pw.Column(
+                    mainAxisAlignment: pw.MainAxisAlignment.center,
+                    children: [
+                      // Öncelikli olarak kısa ismi (shortName) kullan, yoksa tam ismi kullan
+                      pw.Text(
+                        (data['shortName'] != null && data['shortName'].toString().isNotEmpty) 
+                            ? data['shortName'].toString() 
+                            : (data['lessonName'] ?? ''), 
+                        style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold), 
+                        textAlign: pw.TextAlign.center
+                      ),
+                      pw.Text(
+                        isClassSchedule ? (data['teacherName'] ?? '') : (data['className'] ?? ''), 
+                        style: const pw.TextStyle(fontSize: 7), 
+                        textAlign: pw.TextAlign.center
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+          );
+        }),
+      ],
+    );
+  }
+
+  pw.Widget _buildAttendanceStatsTable(List<Map<String, dynamic>> stats) {
+    return pw.Table(
+      border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
+      columnWidths: {
+        0: const pw.FlexColumnWidth(3),
+        1: const pw.FlexColumnWidth(1),
+        2: const pw.FlexColumnWidth(3),
+      },
+      children: [
+        pw.TableRow(
+          decoration: const pw.BoxDecoration(color: PdfColors.grey100),
+          children: [
+            _tableHeaderCell('Dersin Adı'),
+            _tableHeaderCell('HDS'),
+            _tableHeaderCell('Öğretmenin Adı'),
+          ],
+        ),
+        ...stats.map((s) {
+          final lName = s['lessonName'] ?? '';
+          final sName = s['shortName'] ?? '';
+          final displayName = sName.isNotEmpty ? '$lName ($sName)' : lName;
+          
+          return pw.TableRow(
+            children: [
+              _tableDataCell(displayName),
+              _tableDataCell(s['count'].toString()),
+              _tableDataCell(s['teacherName'] ?? ''),
+            ],
+          );
+        }),
+        pw.TableRow(
+          children: [
+            _tableDataCell('Toplam Saat', isBold: true),
+            _tableDataCell(stats.fold(0, (prev, element) => prev + (element['count'] as int)).toString(), isBold: true),
+            pw.Container(),
+          ],
+        ),
+      ],
+    );
+  }
+
+  pw.Widget _buildTeacherStatsTable(List<Map<String, dynamic>> stats) {
+    return pw.Table(
+      border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
+      columnWidths: {
+        0: const pw.FlexColumnWidth(3),
+        1: const pw.FlexColumnWidth(1),
+        2: const pw.FlexColumnWidth(3),
+      },
+      children: [
+        pw.TableRow(
+          decoration: const pw.BoxDecoration(color: PdfColors.grey100),
+          children: [
+            _tableHeaderCell('Dersin Adı'),
+            _tableHeaderCell('HDS'),
+            _tableHeaderCell('Åube Adı (Sınıf)'),
+          ],
+        ),
+        ...stats.map((s) {
+          final lName = s['lessonName'] ?? '';
+          final sName = s['shortName'] ?? '';
+          final displayName = sName.isNotEmpty ? '$lName ($sName)' : lName;
+          
+          return pw.TableRow(
+            children: [
+              _tableDataCell(displayName),
+              _tableDataCell(s['count']?.toString() ?? '0'),
+              _tableDataCell(s['className'] ?? ''),
+            ],
+          );
+        }),
+        pw.TableRow(
+          children: [
+            _tableDataCell('Toplam Saat', isBold: true),
+            _tableDataCell(stats.fold(0, (prev, element) => prev + (element['count'] as int? ?? 0)).toString(), isBold: true),
+            pw.Container(),
+          ],
+        ),
+      ],
+    );
+  }
+
+  pw.Widget _tableHeaderCell(String text) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.all(4),
+      child: pw.Text(text, style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+    );
+  }
+
+  pw.Widget _tableDataCell(String text, {bool isBold = false}) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.all(4),
+      child: pw.Text(text, style: pw.TextStyle(fontSize: 8, fontWeight: isBold ? pw.FontWeight.bold : null)),
+    );
+  }
+
+  pw.Widget _buildScheduleFooter(String principal) {
+    return pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.end,
+      children: [
+        pw.Column(
+          children: [
+            pw.Text(principal, style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
+            pw.Text('Okul Müdürü', style: const pw.TextStyle(fontSize: 10)),
+            pw.SizedBox(height: 20),
+            pw.Text('İmza', style: const pw.TextStyle(fontSize: 9)),
+          ],
+        ),
+        pw.SizedBox(width: 40),
+      ],
+    );
+  }
+
+
+  pw.Widget _buildMasterScheduleGrid(List<String> days, List<Map<String, dynamic>> hours, List<Map<String, dynamic>> rows) {
+    const double nameWidth = 85;
+    const double hdsWidth = 25;
+    const double hourWidth = 25;
+    const double cellHeight = 35;
+    const double headerHeight = 32;
+
+    return pw.Table(
+      border: pw.TableBorder.all(color: PdfColors.black, width: 0.5),
+      children: [
+        // Header Row: Days and Hours
+        pw.TableRow(
+          verticalAlignment: pw.TableCellVerticalAlignment.middle,
+          children: [
+            // Name Column Header
+            pw.Container(
+              width: nameWidth,
+              height: headerHeight,
+              alignment: pw.Alignment.centerLeft,
+              padding: const pw.EdgeInsets.symmetric(horizontal: 4),
+              child: pw.Text('Adı Soyadı / Sınıf', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
+            ),
+            // HDS Column Header
+            pw.Container(
+              width: hdsWidth,
+              height: headerHeight,
+              alignment: pw.Alignment.center,
+              child: pw.Text('HDS', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
+            ),
+            // Days Blocks Headers
+            ...days.map((d) => pw.Container(
+              width: hourWidth * hours.length,
+              height: headerHeight,
+              child: pw.Column(
+                children: [
+                  // Merged Day Name
+                  pw.Container(
+                    height: headerHeight / 2,
+                    width: hourWidth * hours.length,
+                    alignment: pw.Alignment.center,
+                    decoration: const pw.BoxDecoration(
+                      border: pw.Border(bottom: pw.BorderSide(color: PdfColors.black, width: 0.5)),
+                    ),
+                    child: pw.Text(d, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
+                  ),
+                  // Hour Numbers Row
+                  pw.Row(
+                    children: hours.map((h) => pw.Container(
+                      width: hourWidth,
+                      height: headerHeight / 2,
+                      alignment: pw.Alignment.center,
+                      decoration: pw.BoxDecoration(
+                        border: pw.Border(
+                          right: h != hours.last ? const pw.BorderSide(color: PdfColors.black, width: 0.5) : pw.BorderSide.none,
+                        ),
+                      ),
+                      child: pw.Text('${hours.indexOf(h) + 1}', style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold)),
+                    )).toList(),
+                  ),
+                ],
+              ),
+            )),
+          ],
+        ),
+        // Data Rows
+        ...rows.map((row) {
+          final schedule = row['scheduleData'] as Map<String, dynamic>;
+          
+          // Calculate HDS (Total hours assigned)
+          int hdsCount = 0;
+          schedule.forEach((key, value) {
+            if (value != null) hdsCount++;
+          });
+
+          return pw.TableRow(
+            verticalAlignment: pw.TableCellVerticalAlignment.middle,
+            children: [
+              // Individual / Class Name
+              pw.Container(
+                height: cellHeight,
+                width: nameWidth,
+                alignment: pw.Alignment.centerLeft,
+                padding: const pw.EdgeInsets.symmetric(horizontal: 4),
+                child: pw.Text(row['name'] ?? '', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
+              ),
+              // HDS Count
+              pw.Container(
+                height: cellHeight,
+                width: hdsWidth,
+                alignment: pw.Alignment.center,
+                child: pw.Text(hdsCount.toString(), style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
+              ),
+              // Assigned Lessons for each day
+              ...days.map((d) => pw.Row(
+                children: List.generate(hours.length, (hIndex) {
+                  final key = '${d}_$hIndex';
+                  final data = schedule[key];
+                  
+                  return pw.Container(
+                    width: hourWidth,
+                    height: cellHeight,
+                    decoration: pw.BoxDecoration(
+                      border: pw.Border(
+                        right: (hIndex == hours.length - 1 && d == days.last) 
+                            ? pw.BorderSide.none 
+                            : const pw.BorderSide(color: PdfColors.black, width: 0.5),
+                      ),
+                    ),
+                    padding: const pw.EdgeInsets.all(1),
+                    child: data != null ? pw.Column(
+                      mainAxisAlignment: pw.MainAxisAlignment.center,
+                      children: [
+                        // Short lesson name or Full name
+                        pw.Text(
+                          (data['shortName'] != null && data['shortName'].toString().isNotEmpty) 
+                              ? data['shortName'].toString() 
+                              : (data['lessonName'] ?? ''),
+                          style: pw.TextStyle(fontSize: 6, fontWeight: pw.FontWeight.bold), 
+                          textAlign: pw.TextAlign.center,
+                        ),
+                        // Teacher or Class name
+                        pw.Text(
+                          data['teacherName'] ?? data['className'] ?? '', 
+                          style: const pw.TextStyle(fontSize: 5), 
+                          textAlign: pw.TextAlign.center,
+                        ),
+                      ],
+                    ) : pw.Container(),
+                  );
+                }),
+              )),
+            ],
+          );
+        }),
+      ],
+    );
+  }
+
+
+  Future<Uint8List> generateDetailedPortfolioPdf({
+    required Map<String, dynamic> studentData,
+    required List<String> enabledModules,
+    required bool startEachModuleOnNewPage,
+    required Map<String, dynamic> schoolSettings,
+    Uint8List? systemLogo,
+    pw.Font? baseFont,
+    pw.Font? boldFont,
+    pw.Font? italicFont,
+  }) async {
+    try {
+      final pdf = pw.Document();
+      final font = baseFont ?? await PdfGoogleFonts.robotoRegular();
+      final fontBold = boldFont ?? await PdfGoogleFonts.robotoBold();
+      final fontItalic = italicFont ?? await PdfGoogleFonts.robotoItalic();
+
+      List<pw.Widget> modulesContent = [];
+      
+      // 1. Dashboard
+      modulesContent.addAll(_buildPremiumFirstPage(studentData, systemLogo, fontBold));
+      await Future.delayed(const Duration(milliseconds: 10));
+
+      if (enabledModules.contains('deneme')) {
+        modulesContent.addAll(await _buildTrialExamsSection(studentData, startEachModuleOnNewPage, fontBold));
+        await Future.delayed(const Duration(milliseconds: 10));
+      }
+
+      if (enabledModules.contains('yazili')) {
+        modulesContent.addAll(_buildWrittenExamsSection(studentData, startEachModuleOnNewPage, fontBold));
+        await Future.delayed(const Duration(milliseconds: 10));
+      }
+
+      if (enabledModules.contains('odev')) {
+        modulesContent.addAll(_buildHomeworkSection(studentData, startEachModuleOnNewPage, fontBold));
+        await Future.delayed(const Duration(milliseconds: 10));
+      }
+      
+      if (enabledModules.contains('devamsizlik')) {
+        modulesContent.addAll(_buildAttendanceSection(studentData, startEachModuleOnNewPage, fontBold));
+        await Future.delayed(const Duration(milliseconds: 10));
+      }
+
+      if (enabledModules.contains('gorusme')) {
+        modulesContent.addAll(_buildInterviewsSection(studentData, startEachModuleOnNewPage, fontBold));
+        await Future.delayed(const Duration(milliseconds: 10));
+      }
+
+      if (enabledModules.contains('kitap')) {
+        modulesContent.addAll(_buildBooksSection(studentData, startEachModuleOnNewPage, fontBold));
+        await Future.delayed(const Duration(milliseconds: 10));
+      }
+
+      if (enabledModules.contains('calisma')) {
+        modulesContent.addAll(_buildStudyProgramsSection(studentData, startEachModuleOnNewPage, fontBold));
+        await Future.delayed(const Duration(milliseconds: 10));
+      }
+
+      pdf.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(30),
+          theme: pw.ThemeData.withFont(base: font, bold: fontBold, italic: fontItalic),
+          header: (pw.Context context) {
+            return pw.Column(
+              children: [
+                pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Text('ÖĞRENCİ PORTFOLYO RAPORU', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.indigo900, fontSize: 14)),
+                    if (systemLogo != null) pw.Image(pw.MemoryImage(systemLogo), height: 35),
+                  ],
+                ),
+                pw.Divider(thickness: 1, color: PdfColors.indigo900),
+                pw.SizedBox(height: 10),
+              ],
+            );
+          },
+          footer: (pw.Context context) {
+            return pw.Container(
+              alignment: pw.Alignment.centerRight,
+              margin: const pw.EdgeInsets.only(top: 10),
+              child: pw.Text(
+                'Sayfa ${context.pageNumber} / ${context.pagesCount}',
+                style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
+              ),
+            );
+          },
+          build: (pw.Context context) => modulesContent,
+        ),
+      );
+
+      await Future.delayed(Duration.zero);
+      return pdf.save();
+    } catch (e) {
+      print("PDF Build Error: $e");
+      final errPdf = pw.Document();
+      errPdf.addPage(pw.Page(build: (p) => pw.Center(child: pw.Text("Rapor hazirlanirken hata olustu: $e"))));
+      return errPdf.save();
+    }
+  }
+
+  pw.Widget _sectionMiniHeader(String title, PdfColor color) {
+    return pw.Container(
+      width: double.infinity,
+      padding: const pw.EdgeInsets.symmetric(vertical: 4),
+      decoration: pw.BoxDecoration(color: color, borderRadius: const pw.BorderRadius.vertical(top: pw.Radius.circular(4))),
+      child: pw.Text(title, style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 10), textAlign: pw.TextAlign.center),
+    );
+  }
+
+  String _mapSubjectToCode(String subject) {
+    final s = subject.toLowerCase().trim()
+        .replaceAll('i̇', 'i').replaceAll('ı', 'i')
+        .replaceAll('ö', 'o').replaceAll('ü', 'u')
+        .replaceAll('ş', 's').replaceAll('ç', 'c')
+        .replaceAll('ğ', 'g');
+    if (s.contains('turkce') || s.contains('trk') || s.contains('tur')) return 'TRK';
+    if (s.contains('matematik') || s.contains('mat') || s.contains('mtm')) return 'MAT';
+    if (s.contains('fen') || s.contains('bilim') || s.contains('fb')) return 'FEN';
+    if (s.contains('sosyal') || s.contains('sos') || s.contains('ink') || s.contains('sb')) return 'SOS';
+    if (s.contains('ing') || s.contains('eng')) return 'İNG';
+    if (s.contains('din') || s.contains('dkab') || s.contains('ahlak')) return 'DİN';
+    return subject.toUpperCase();
+  }
+
+  pw.Widget _buildSummaryAveragesTable(Map<dynamic, dynamic> nets, Map<dynamic, dynamic> counts) {
+    const subjects = ['TRK', 'SOS', 'DİN', 'İNG', 'MAT', 'FEN', 'T.NET'];
+    
+    dynamic getNet(String code) {
+      if (code == 'T.NET') {
+        double total = 0;
+        ['TRK', 'MAT', 'FEN', 'SOS', 'İNG', 'DİN'].forEach((c) => total += (nets[c] as num? ?? 0.0).toDouble());
+        return total > 0 ? total : (nets['T.NET'] ?? 0.0);
+      }
+      return nets[code] ?? 0.0;
+    }
+
+    pw.Widget _cell(String text, {bool bold = false}) => pw.Padding(
+      padding: const pw.EdgeInsets.all(5),
+      child: pw.Text(text, style: pw.TextStyle(fontSize: 8, fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal)),
+    );
+
+    List<pw.TableRow> rows = [
+      pw.TableRow(
+        decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+        children: ['', ...subjects].map((s) => _cell(s, bold: true)).toList()
+      ),
+      pw.TableRow(
+        children: [
+          _cell('ORTALAMA NET', bold: true),
+          ...subjects.map((s) => _cell(_formatNum(getNet(s)), bold: true))
+        ]
+      ),
+      pw.TableRow(
+        children: [
+          _cell('ORTALAMA SORU SAYISI', bold: true),
+          ...subjects.map((s) => _cell((counts[s] as num?)?.toString() ?? '0'))
+        ]
+      )
+    ];
+
+    return pw.Table(border: pw.TableBorder.all(color: PdfColors.grey300), children: rows);
+  }
+
+  String _formatNum(dynamic v, {int precision = 2}) {
+    if (v == null) return '0';
+    if (v is! num) {
+      final n = double.tryParse(v.toString());
+      if (n == null) return '0';
+      return n.toStringAsFixed(precision);
+    }
+    return v.toStringAsFixed(precision);
+  }
+
+  pw.Widget _sectionHeader(String title) {
+    return pw.Container(
+      padding: const pw.EdgeInsets.only(bottom: 5, top: 10),
+      decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(color: PdfColors.indigo900, width: 2))),
+      child: pw.Row(children: [
+         pw.Text(title, style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: PdfColors.indigo900)),
+      ]),
+    );
+  }
+
+  Future<List<pw.Widget>> _buildTrialExamsSection(Map<String, dynamic> data, bool newPage, pw.Font fontBold) async {
+    final trialExams = data['trialExams'] as List<dynamic>? ?? [];
+    final summary = data['summary'] as Map<String, dynamic>? ?? {};
+    
+    if (trialExams.isEmpty) return [if (newPage) pw.NewPage(), _sectionHeader('DENEME SINAVLARI ANALİZİ'), pw.Text('Deneme sınav verisi bulunamadı.')];
+
+    List<pw.Widget> widgets = [];
+    if (newPage) widgets.add(pw.NewPage());
+    widgets.add(_sectionHeader('DENEME SINAVLARI ANALİZİ'));
+    widgets.add(pw.SizedBox(height: 15));
+
+    widgets.add(_sectionMiniHeader('BİREYSEL SINAV SONUÇLARI', PdfColors.indigo900));
+    
+    List<pw.TableRow> examRows = [
+      pw.TableRow(
+        decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+        children: [
+            pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('SINAV ADI (TARİH)', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
+            pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('PUAN', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
+            pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('TOPLAM NET', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
+            ...['TRK', 'SOS', 'DİN', 'İNG', 'MAT', 'FEN'].map((s) => pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(s, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)))),
+        ]
+      )
+    ];
+
+    for (var e in trialExams) {
+        final examName = e['examName'] ?? 'Adsız Sınav';
+        final date = e['date'] ?? '';
+        final subjects = e['subjects'] as Map? ?? {};
+        
+        dynamic getVal(List<String> keys) {
+            String normalize(String s) {
+              return s.toLowerCase().trim()
+                  .replaceAll('i̇', 'i').replaceAll('ı', 'i')
+                  .replaceAll('ö', 'o').replaceAll('ü', 'u')
+                  .replaceAll('ş', 's').replaceAll('ç', 'c')
+                  .replaceAll('ğ', 'g');
+            }
+
+            for (var entry in subjects.entries) {
+              final kNorm = normalize(entry.key.toString());
+              for (var key in keys) {
+                final targetNorm = normalize(key);
+                if (kNorm == targetNorm || kNorm.contains(targetNorm)) {
+                  return entry.value['net'] ?? entry.value['netler'] ?? '0';
+                }
+              }
+            }
+            return '0';
+        }
+
+        final trk = getVal(['Türkçe', 'TRK', 'TUR']);
+        final sos = getVal(['Sosyal Bilgiler', 'SOS', 'SB', 'İnkılap Tarihi', 'İNK']);
+        final din = getVal(['Din Kültürü ve Ahlak Bilgisi', 'Din Kültürü', 'DİN', 'DKAB', 'Ahlak']);
+        final ing = getVal(['İngilizce', 'İNG', 'ENG', 'i̇ng', 'ıng']);
+        final mat = getVal(['İlköğretim Matematik', 'Matematik', 'MAT', 'MTM']);
+        final fen = getVal(['Fen Bilimleri', 'FEN', 'FB']);
+
+        examRows.add(pw.TableRow(
+            children: [
+                pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('$examName ($date)', style: const pw.TextStyle(fontSize: 7))),
+                pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(_formatNum(e['score'], precision: 3), style: const pw.TextStyle(fontSize: 8))),
+                pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(_formatNum(e['net'], precision: 2), style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.indigo900))),
+                ...[trk, sos, din, ing, mat, fen].map((v) => pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(_formatNum(v, precision: 2), style: const pw.TextStyle(fontSize: 8)))),
+            ]
+        ));
+    }
+
+    widgets.add(pw.Table(border: pw.TableBorder.all(color: PdfColors.grey300), children: examRows));
+    widgets.add(pw.SizedBox(height: 20));
+
+    widgets.add(_sectionMiniHeader('SINAVLARA GÖRE BAŞARI GRAFİĞİ', PdfColors.indigo900));
+    widgets.add(pw.Container(
+      height: 100,
+      padding: const pw.EdgeInsets.all(10),
+      decoration: pw.BoxDecoration(border: pw.TableBorder.all(color: PdfColors.grey300)),
+      child: pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
+        crossAxisAlignment: pw.CrossAxisAlignment.end,
+        children: trialExams.map((e) {
+          final double success = (e['success'] as num?)?.toDouble() ?? 0.0;
+          final double percent = success.clamp(0, 100);
+          
+          return pw.Column(
+            mainAxisAlignment: pw.MainAxisAlignment.end,
+            children: [
+              pw.Text('${percent.toStringAsFixed(0)}%', style: const pw.TextStyle(fontSize: 7, color: PdfColors.purple900)),
+              pw.SizedBox(height: 2),
+              pw.Container(
+                width: 20,
+                height: (percent * 0.6) + 2,
+                decoration: const pw.BoxDecoration(
+                  color: PdfColors.purple200,
+                  border: pw.Border(left: pw.BorderSide(color: PdfColors.purple800, width: 1)),
+                ),
+              ),
+              pw.SizedBox(height: 2),
+              pw.Text('${trialExams.indexOf(e) + 1}', style: const pw.TextStyle(fontSize: 7)),
+            ],
+          );
+        }).toList(),
+      ),
+    ));
+
+    // Success Chart removed percentile logic from here
+
+    final topicStats = summary['globalTopicStats'] as Map<String, dynamic>? ?? {};
+    
+    if (topicStats.isNotEmpty) {
+      widgets.add(pw.NewPage());
+      widgets.add(_sectionHeader('KONU / KAZANIM BAŞARI ANALİZİ'));
+      widgets.add(pw.SizedBox(height: 10));
+
+      List<pw.TableRow> tableRows = [
+        pw.TableRow(
+          decoration: const pw.BoxDecoration(color: PdfColors.purple900),
+          children: [
+            pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('DERS / KONU ADI', style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 8))),
+            pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('SS', style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 8))),
+            pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('D', style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 8))),
+            pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('Y', style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 8))),
+            pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('B', style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 8))),
+            pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('NET', style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 8))),
+            pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('BAŞARI', style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 8))),
+          ]
+        )
+      ];
+
+      for (var entry in topicStats.entries) {
+        final subj = entry.key;
+        final topics = entry.value as Map;
+        
+        await Future.delayed(const Duration(milliseconds: 5));
+
+        // Subject Header Row
+        tableRows.add(pw.TableRow(
+          decoration: const pw.BoxDecoration(color: PdfColors.purple50),
+          children: [
+            pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(subj.toUpperCase(), style: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.purple900, fontSize: 8))),
+            ...List.generate(6, (_) => pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(''))),
+          ]
+        ));
+
+        topics.forEach((tName, stats) {
+          final net = (stats['net'] as num?)?.toDouble() ?? 0.0;
+          final ss = (stats['ss'] as num?)?.toInt() ?? 1;
+          final d = stats['d'] ?? 0;
+          final y = stats['y'] ?? 0;
+          final b = stats['b'] ?? 0;
+          final success = (d / ss * 100).clamp(0, 100);
+          
+          PdfColor badgeColor = PdfColors.red;
+          if (success > 80) badgeColor = PdfColors.green;
+          else if (success > 50) badgeColor = PdfColors.orange;
+
+          tableRows.add(pw.TableRow(
+            children: [
+              pw.Padding(padding: const pw.EdgeInsets.only(left: 10, top: 4, bottom: 4), child: pw.Text(tName.toString(), style: const pw.TextStyle(fontSize: 7))),
+              pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(ss.toString(), style: const pw.TextStyle(fontSize: 7))),
+              pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(d.toString(), style: pw.TextStyle(fontSize: 7, color: PdfColors.green700))),
+              pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(y.toString(), style: pw.TextStyle(fontSize: 7, color: PdfColors.red700))),
+              pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(b.toString(), style: pw.TextStyle(fontSize: 7))),
+              pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(net.toStringAsFixed(2), style: const pw.TextStyle(fontSize: 7))),
+              pw.Padding(padding: const pw.EdgeInsets.all(4), 
+                child: pw.Container(
+                  padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  decoration: pw.BoxDecoration(color: badgeColor, borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4))),
+                  child: pw.Text('%${success.toInt()}', style: pw.TextStyle(color: PdfColors.white, fontSize: 7, fontWeight: pw.FontWeight.bold)),
+                )
+              ),
+            ]
+          ));
+        });
+      }
+
+      widgets.add(pw.Table(
+        border: pw.TableBorder.all(color: PdfColors.grey300),
+        columnWidths: {0: const pw.FlexColumnWidth(4), 6: const pw.IntrinsicColumnWidth()},
+        children: tableRows,
+      ));
+    }
+
+    return widgets;
+  }
+
+  List<pw.Widget> _buildPremiumFirstPage(Map<String, dynamic> data, Uint8List? logo, pw.Font fontBold) {
+     final summary = data['summary'] as Map<String, dynamic>? ?? {};
+     final studentPhoto = data['studentPhoto'] as Uint8List?;
+     final double avgPoint = (summary['avgPoint'] as num?)?.toDouble() ?? 0.0;
+
+     // Robust Percentile logic for the first page
+     String displayPercentile = "0.00";
+     if (avgPoint > 100) {
+        final trials = data['trialExams'] as List? ?? [];
+        double realP = 0.0;
+        if (trials.isNotEmpty) {
+          realP = (trials.first['percentile'] as num?)?.toDouble() ?? 0.0;
+        }
+        
+        if (realP > 0) {
+          displayPercentile = realP.toStringAsFixed(2);
+        } else {
+          // Fallback LGS estimation
+          if (avgPoint >= 490) displayPercentile = "0.10";
+          else if (avgPoint >= 450) displayPercentile = "2.00";
+          else if (avgPoint >= 400) displayPercentile = "8.00";
+          else if (avgPoint >= 350) displayPercentile = "15.00";
+          else if (avgPoint >= 300) displayPercentile = "25.00";
+          else displayPercentile = "45.00";
+        }
+     }
+     
+     return [
+         // Header with Student Profile
+         pw.Container(
+           padding: const pw.EdgeInsets.all(20),
+           decoration: const pw.BoxDecoration(
+             color: PdfColors.indigo900,
+             borderRadius: pw.BorderRadius.all(pw.Radius.circular(15)),
+           ),
+           child: pw.Row(
+             children: [
+               data['studentPhoto'] != null 
+                ? pw.ClipRRect(
+                  horizontalRadius: 40, verticalRadius: 40,
+                  child: pw.Image(pw.MemoryImage(data['studentPhoto'] as Uint8List), width: 80, height: 80, fit: pw.BoxFit.cover)
+                )
+                : pw.Container(
+                  width: 80, height: 80,
+                  decoration: const pw.BoxDecoration(color: PdfColors.white, shape: pw.BoxShape.circle),
+                  child: pw.Center(
+                    child: pw.Text(
+                      (data['fullName'] ?? data['name'] ?? 'X')[0].toUpperCase(),
+                      style: pw.TextStyle(fontSize: 40, fontWeight: pw.FontWeight.bold, color: PdfColors.indigo900)
+                    )
+                  )
+                ),
+               pw.SizedBox(width: 25),
+               pw.Column(
+                 crossAxisAlignment: pw.CrossAxisAlignment.start,
+                 children: [
+                    pw.Text((data['fullName'] ?? 'Öğrenci Adı Soyadı').toString().toUpperCase(), 
+                      style: pw.TextStyle(color: PdfColors.white, fontSize: 22, fontWeight: pw.FontWeight.bold)),
+                    pw.SizedBox(height: 8),
+                    pw.Row(children: [
+                      pw.Container(padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 4), 
+                        decoration: const pw.BoxDecoration(color: PdfColors.indigo700, borderRadius: pw.BorderRadius.all(pw.Radius.circular(20))),
+                        child: pw.Text(data['className'] ?? data['classLevel'] ?? 'Sınıf Bilgisi', style: const pw.TextStyle(color: PdfColors.white, fontSize: 10))),
+                      pw.SizedBox(width: 10),
+                      pw.Text('Okul No: ${data['studentNumber'] ?? data['schoolNumber'] ?? '-'}', style: const pw.TextStyle(color: PdfColors.white, fontSize: 12)),
+                    ]),
+                 ],
+               ),
+             ],
+           ),
+         ),
+         pw.SizedBox(height: 30),
+
+         // Summary Dashboard Section
+         _sectionHeader('GENEL BAKIŞ VE ÖZET'),
+         pw.SizedBox(height: 20),
+         pw.Container(
+           height: 70,
+           child: pw.Row(
+             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+             crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+             children: [
+               pw.Expanded(child: _dashboardCard('Sınav Ortalaması', ['${_formatNum(summary['avgPoint'], precision: 1)} Puan', '${_formatNum(summary['avgNet'], precision: 2)} Net'], PdfColors.blue50)),
+               pw.SizedBox(width: 10),
+               pw.Expanded(child: _dashboardCard('Ödev Takibi', ['Toplam: ${summary['totalHw'] ?? 0}', 'Tamam: ${summary['completedHw'] ?? 0}'], PdfColors.green50)),
+               pw.SizedBox(width: 10),
+               pw.Expanded(child: _dashboardCard('Devamsızlık', ['${_formatNum(summary['totalAbsence'], precision: 1)} Gün'], PdfColors.orange50)),
+             ],
+           ),
+         ),
+         pw.SizedBox(height: 30),
+
+         // Requested: Summary Averages on first page
+         if (summary.containsKey('subjectAvgNets')) ...[
+            _sectionMiniHeader('GENEL DENEME ORTALAMALARI', PdfColors.indigo900),
+            _buildSummaryAveragesTable(summary['subjectAvgNets'] ?? {}, summary['subjectQuestionCounts'] ?? {}),
+            
+            // Percentile Box moved here
+            if (avgPoint > 100) ...[
+              pw.SizedBox(height: 15),
+              pw.Container(
+                padding: const pw.EdgeInsets.all(12),
+                decoration: pw.BoxDecoration(
+                  color: PdfColors.purple50,
+                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(10)),
+                  border: pw.Border.all(color: PdfColors.purple200)
+                ),
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Row(
+                      children: [
+                        pw.Text('Tahmini Yüzdelik Dilim', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColors.purple900)),
+                        pw.Spacer(),
+                        pw.Text('2025 LGS Verilerine Göre', style: const pw.TextStyle(fontSize: 8, color: PdfColors.purple300)),
+                      ]
+                    ),
+                    pw.SizedBox(height: 10),
+                    pw.Center(
+                      child: pw.Text('%$displayPercentile', style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold, color: PdfColors.purple900)),
+                    ),
+                    pw.SizedBox(height: 10),
+                    pw.Text(
+                      "LGS'de yüzdelik dilimler sadece puana değil, o yıl sınava giren öğrenci sayısına ve standart sapmaya da bağlıdır. Bu veriler 'genel ortalamaları' yansıtır. Sistem, öğrenciye bu sonuçları gösterirken her zaman 'Tahmini Referans Değerleridir' ibaresini eklemelidir.",
+                      style: pw.TextStyle(fontSize: 7, color: PdfColors.grey700, fontStyle: pw.FontStyle.italic)
+                    ),
+                  ]
+                )
+              ),
+            ],
+            pw.SizedBox(height: 30),
+         ],
+ 
+         pw.Divider(thickness: 1, color: PdfColors.indigo900),
+         pw.Padding(
+           padding: const pw.EdgeInsets.symmetric(vertical: 10),
+           child: pw.Row(
+             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+             children: [
+               pw.Text('EDU-KN EĞİTİM YÖNETİM SİSTEMİ', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
+               pw.Text('Rapor Tarihi: ${DateFormat('dd.MM.yyyy HH:mm').format(DateTime.now())}', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
+             ],
+           ),
+         ),
+       ];
+  }
+
+  String _formatDate(dynamic date) {
+    if (date == null) return '-';
+    if (date is DateTime) return DateFormat('dd.MM.yyyy').format(date);
+    if (date is String) return date;
+    try {
+      if (date.runtimeType.toString().contains('Timestamp')) {
+        return DateFormat('dd.MM.yyyy').format(date.toDate());
+      }
+    } catch (_) {}
+    return date.toString();
+  }
+
+  pw.Widget _dashboardCard(String title, List<String> lines, PdfColor color) {
+    return pw.Container(
+      width: double.infinity, 
+      height: 65,
+      padding: const pw.EdgeInsets.all(10),
+      decoration: pw.BoxDecoration(
+        color: color,
+        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(12)),
+        border: pw.Border.all(color: PdfColors.grey300),
+      ),
+      child: pw.Column(
+        mainAxisAlignment: pw.MainAxisAlignment.center,
+        children: [
+          pw.Text(title.toUpperCase(), style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8, color: PdfColors.grey800)),
+          pw.SizedBox(height: 8),
+          ...lines.map((l) => pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(vertical: 2),
+            child: pw.Text(l, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: PdfColor.fromInt(0xFF1A237E))),
+          )),
+        ],
+      ),
+    );
+  }
+
+  pw.Widget _infoRowPlain(String label, dynamic val) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.only(bottom: 5),
+      child: pw.Row(
+        children: [
+          pw.SizedBox(width: 100, child: pw.Text('$label:', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700))),
+          pw.Expanded(child: pw.Text(val?.toString() ?? '-', style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold))),
+        ],
+      ),
+    );
+  }
+
+  List<pw.Widget> _buildWrittenExamsSection(Map<String, dynamic> data, bool newPage, pw.Font fontBold) {
+     final exams = data['writtenExams'] as List<dynamic>? ?? [];
+     return [
+       if (newPage) pw.NewPage(),
+       _sectionHeader('Yazılı Sınavlar'),
+       pw.SizedBox(height: 15),
+       if (exams.isEmpty) pw.Text('Yazılı sınav kaydı bulunmamaktadır.', style: const pw.TextStyle(fontSize: 10))
+       else pw.TableHelper.fromTextArray(
+         headerDecoration: const pw.BoxDecoration(color: PdfColors.indigo700),
+         headerStyle: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 10),
+         cellStyle: const pw.TextStyle(fontSize: 10),
+         data: [
+           ['Ders', 'Sınav', 'Tarih', 'Not'],
+           ...exams.map((e) => [e['subject'] ?? '-', e['examName'] ?? '-', _formatDate(e['date']), e['score']?.toString() ?? '-'])
+         ]
+       )
+     ];
+  }
+
+  List<pw.Widget> _buildHomeworkSection(Map<String, dynamic> data, bool newPage, pw.Font fontBold) {
+     final homeworks = data['homeworks'] as List<dynamic>? ?? [];
+     return [
+       if (newPage) pw.NewPage(),
+       _sectionHeader('Ödev Takibi'),
+       pw.SizedBox(height: 15),
+       if (homeworks.isEmpty) pw.Text('Ödev kaydı bulunmamaktadır.', style: const pw.TextStyle(fontSize: 10))
+       else pw.TableHelper.fromTextArray(
+         headerDecoration: const pw.BoxDecoration(color: PdfColors.indigo700),
+         headerStyle: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 10),
+         cellStyle: const pw.TextStyle(fontSize: 10),
+         data: [
+           ['Ders', 'Konu', 'Teslim Tarihi', 'Durum'],
+           ...homeworks.map((h) => [h['subject'] ?? '-', h['title'] ?? '-', _formatDate(h['deadline']), h['status'] ?? 'Bekliyor'])
+         ]
+       )
+     ];
+  }
+
+  List<pw.Widget> _buildAttendanceSection(Map<String, dynamic> data, bool newPage, pw.Font fontBold) {
+     final attendance = data['attendance'] as List<dynamic>? ?? [];
+     return [
+       if (newPage) pw.NewPage(),
+       _sectionHeader('Devamsızlık Takibi'),
+       pw.SizedBox(height: 15),
+       if (attendance.isEmpty) pw.Text('Devamsızlık kaydı bulunmamaktadır.', style: const pw.TextStyle(fontSize: 10))
+       else pw.TableHelper.fromTextArray(
+         headerDecoration: const pw.BoxDecoration(color: PdfColors.indigo700),
+         headerStyle: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 10),
+         cellStyle: const pw.TextStyle(fontSize: 10),
+         data: [
+           ['Tür', 'Tarih', 'Okul No', 'Durum / Açıklama'],
+           ...attendance.map((a) {
+             final status = a['status']?.toString().toLowerCase() ?? '';
+             String trStatus = 'Devamsız';
+             if (status == 'permitted' || status == 'izinli') trStatus = 'İzinli';
+             else if (status == 'late' || status == 'geç') trStatus = 'Geç';
+             else if (status == 'report' || status == 'raporlu') trStatus = 'Raporlu';
+             
+             return [
+               trStatus, 
+               _formatDate(a['date']), 
+               a['studentNumber']?.toString() ?? '-', 
+               a['description'] ?? trStatus
+             ];
+           })
+         ]
+       )
+     ];
+  }
+
+  List<pw.Widget> _buildInterviewsSection(Map<String, dynamic> data, bool newPage, pw.Font fontBold) {
+     final interviews = data['interviews'] as List<dynamic>? ?? [];
+     return [
+       if (newPage) pw.NewPage(),
+       _sectionHeader('Görüşmeler'),
+       pw.SizedBox(height: 15),
+       if (interviews.isEmpty) pw.Text('Görüşme kaydı bulunmamaktadır.', style: const pw.TextStyle(fontSize: 10))
+       else pw.TableHelper.fromTextArray(
+         headerDecoration: const pw.BoxDecoration(color: PdfColors.indigo700),
+         headerStyle: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 10),
+         cellStyle: const pw.TextStyle(fontSize: 10),
+         data: [
+           ['Görüşmeci', 'Tür', 'Tarih', 'Özet'],
+           ...interviews.map((i) => [i['counselorName'] ?? '-', i['type'] ?? 'Genel', _formatDate(i['date']), i['summary'] ?? '-'])
+         ]
+       )
+     ];
+  }
+
+  List<pw.Widget> _buildBooksSection(Map<String, dynamic> data, bool newPage, pw.Font fontBold) {
+     final books = data['books'] as List<dynamic>? ?? [];
+     return [
+       if (newPage) pw.NewPage(),
+       _sectionHeader('Kitap ve Okuma'),
+       pw.SizedBox(height: 15),
+       if (books.isEmpty) pw.Text('Okuma kaydı bulunmamaktadır.', style: const pw.TextStyle(fontSize: 10))
+       else pw.TableHelper.fromTextArray(
+         headerDecoration: const pw.BoxDecoration(color: PdfColors.indigo700),
+         headerStyle: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 10),
+         cellStyle: const pw.TextStyle(fontSize: 10),
+         data: [
+           ['Kitap Adı', 'Yazar', 'Bitiş Tarihi', 'Sayfa'],
+           ...books.map((b) => [b['bookName'] ?? '-', b['author'] ?? '-', _formatDate(b['finishDate']), b['pageCount']?.toString() ?? '-'])
+         ]
+       )
+     ];
+  }
+
+  List<pw.Widget> _buildStudyProgramsSection(Map<String, dynamic> data, bool newPage, pw.Font fontBold) {
+     final progs = data['studyPrograms'] as List<dynamic>? ?? [];
+     return [
+       if (newPage) pw.NewPage(),
+       _sectionHeader('Çalışma Programları'),
+       pw.SizedBox(height: 15),
+       if (progs.isEmpty) pw.Text('Program kaydı bulunmamaktadır.', style: const pw.TextStyle(fontSize: 10))
+       else pw.TableHelper.fromTextArray(
+         headerDecoration: const pw.BoxDecoration(color: PdfColors.indigo700),
+         headerStyle: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 10),
+         cellStyle: const pw.TextStyle(fontSize: 10),
+         data: [
+           ['Program Adı', 'Tarih', 'Tamamlama (%)'],
+           ...progs.map((p) => [p['name'] ?? '-', _formatDate(p['date']), '%${(p['progress'] ?? 0).toStringAsFixed(0)}'])
+         ]
+       )
+     ];
   }
 }

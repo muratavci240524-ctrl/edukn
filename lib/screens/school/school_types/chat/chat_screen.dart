@@ -374,8 +374,18 @@ class _ChatScreenState extends State<ChatScreen>
 
         if (isWide) {
           // DESKTOP / TABLET LAYOUT
-          return Row(
-            children: [
+          return Scaffold(
+            appBar: AppBar(
+              backgroundColor: Colors.indigo,
+              elevation: 0,
+              leading: const BackButton(color: Colors.white),
+              title: const Text(
+                'Mesajlar',
+                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+              ),
+            ),
+            body: Row(
+              children: [
               // Left Panel
               Container(
                 width: 380,
@@ -478,7 +488,7 @@ class _ChatScreenState extends State<ChatScreen>
                     : _buildEmptyState(),
               ),
             ],
-          );
+          ));
         } else {
           // MOBILE LAYOUT
           return GestureDetector(
@@ -495,6 +505,7 @@ class _ChatScreenState extends State<ChatScreen>
             child: Scaffold(
               appBar: AppBar(
                 automaticallyImplyLeading: false,
+                leading: const BackButton(color: Colors.white),
                 backgroundColor: Colors.indigo,
                 elevation: 0,
                 // Enhanced Search UI

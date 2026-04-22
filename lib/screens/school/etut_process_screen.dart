@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import '../../services/term_service.dart';
 import 'etut_settings_screen.dart';
+import 'etut_guide_page.dart';
 
 class EtutProcessScreen extends StatefulWidget {
   final String schoolTypeId;
@@ -248,7 +249,17 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
                 _loadClashData();
               },
             ),
-          const SizedBox(width: 16),
+          IconButton(
+            icon: const Icon(Icons.info_outline_rounded, color: Colors.indigo),
+            tooltip: 'Nasıl Kullanılır?',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const EtutGuidePage()),
+              );
+            },
+          ),
+          const SizedBox(width: 8),
         ],
       ),
       body: _isLoading

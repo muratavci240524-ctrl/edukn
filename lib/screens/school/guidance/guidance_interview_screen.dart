@@ -670,7 +670,7 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
           backgroundColor: Colors.grey.shade50,
           appBar: AppBar(
             title: Text(
-              _showFormMobile ? 'Görüşme Detayları' : 'Rehberlik Görüşmeleri',
+              _showFormMobile ? 'Görüşme Detayları' : 'Görüşmeler',
               style: TextStyle(
                 fontWeight: FontWeight.bold,
                 color: Colors.grey.shade900,

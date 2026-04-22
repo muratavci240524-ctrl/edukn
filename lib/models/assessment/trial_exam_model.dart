@@ -253,4 +253,24 @@ class TrialExamSession {
       uploadedAt: (map['uploadedAt'] as Timestamp?)?.toDate(),
     );
   }
+
+  TrialExamSession copyWith({
+    int? sessionNumber,
+    List<String>? selectedSubjects,
+    String? opticalFormId,
+    String? opticalFormName,
+    String? fileName,
+    String? fileUrl,
+    DateTime? uploadedAt,
+  }) {
+    return TrialExamSession(
+      sessionNumber: sessionNumber ?? this.sessionNumber,
+      selectedSubjects: selectedSubjects ?? this.selectedSubjects,
+      opticalFormId: opticalFormId ?? this.opticalFormId,
+      opticalFormName: opticalFormName ?? this.opticalFormName,
+      fileName: fileName ?? this.fileName,
+      fileUrl: fileUrl ?? this.fileUrl,
+      uploadedAt: uploadedAt ?? this.uploadedAt,
+    );
+  }
 }

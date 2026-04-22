@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../../constants/turkey_address_data.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:excel/excel.dart' hide Border;
+import 'package:file_saver/file_saver.dart';
+import 'dart:typed_data';
 import '../../services/user_permission_service.dart';
 import '../../services/term_service.dart';
+import 'student_bulk_upload_dialog.dart';
 
 // Helper metodlar - Her iki class da kullanabilir
 
@@ -114,12 +119,14 @@ class StudentRegistrationScreen extends StatefulWidget {
   final String? fixedSchoolTypeId;
   final String? fixedSchoolTypeName;
   final String? fixedInstitutionId;
+  final String? initialStudentId;
 
   const StudentRegistrationScreen({
     Key? key,
     this.fixedSchoolTypeId,
     this.fixedSchoolTypeName,
     this.fixedInstitutionId,
+    this.initialStudentId,
   }) : super(key: key);
 
   @override
@@ -618,11 +625,128 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
         _isLoading = false;
       });
 
+      // Eğer dışarıdan bir öğrenci ID'si geldiyse, onu bul ve seç
+      if (widget.initialStudentId != null) {
+        final initialStudent = _students.firstWhere(
+          (s) => s['id'] == widget.initialStudentId,
+          orElse: () => {},
+        );
+        if (initialStudent.isNotEmpty) {
+          setState(() {
+            _selectedStudent = initialStudent;
+            _selectedStudentId = initialStudent['id'];
+          });
+          // Tab 1'e (Düzenleme/Detay) geçmek isteyebiliriz ama genellikle liste ekranında seçili kalması yeterlidir
+        }
+      }
+
       // Filtrelemeyi her zaman uygula (dönem filtresi dahil)
       _filterStudents();
     } catch (e) {
       print('❌ Veri yükleme hatası: $e');
       setState(() => _isLoading = false);
+    }
+  }
+
+  void _showExcelUploadDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => StudentBulkUploadDialog(
+        institutionId: _institutionId ?? '',
+        schoolTypeId: _filterSchoolType ?? '',
+        termId: _selectedTermFilter,
+      ),
+    ).then((_) => _loadData()); // İşlem bitince listeyi yenile
+  }
+
+  Future<void> _downloadExcelTemplate() async {
+    try {
+      var excel = Excel.createExcel();
+      Sheet sheet = excel['Öğrenci Kayıt Şablonu'];
+      excel.delete('Sheet1');
+
+      // Stiller
+      CellStyle mandatoryStyle = CellStyle(
+        fontColorHex: ExcelColor.fromHexString("#FF0000"),
+        bold: true,
+        horizontalAlign: HorizontalAlign.Center,
+      );
+      CellStyle optionalStyle = CellStyle(
+        fontColorHex: ExcelColor.fromHexString("#000000"),
+        bold: true,
+        horizontalAlign: HorizontalAlign.Center,
+      );
+
+      final headers = [
+        {'text': 'TC Kimlik No', 'mandatory': true},
+        {'text': 'Ad', 'mandatory': true},
+        {'text': 'Soyad', 'mandatory': true},
+        {'text': 'Okul Numarası', 'mandatory': false},
+        {'text': 'Cinsiyet (E/K)', 'mandatory': false},
+        {'text': 'Sınıf Seviyesi', 'mandatory': false},
+        {'text': 'Şube', 'mandatory': false},
+        {'text': 'Doğum Tarihi (GG.AA.YYYY)', 'mandatory': false},
+        {'text': 'Öğrenci Telefon', 'mandatory': false},
+        {'text': 'Veli Ad Soyad', 'mandatory': false},
+        {'text': 'Veli TC', 'mandatory': false},
+        {'text': 'Veli Telefon', 'mandatory': false},
+        {'text': 'Veli Yakınlık', 'mandatory': false},
+      ];
+
+      for (int i = 0; i < headers.length; i++) {
+        var cell = sheet.cell(
+          CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0),
+        );
+        cell.value = TextCellValue(headers[i]['text'] as String);
+        cell.cellStyle = (headers[i]['mandatory'] as bool)
+            ? mandatoryStyle
+            : optionalStyle;
+        sheet.setColumnWidth(i, 20.0);
+      }
+
+      final sampleRow = [
+        '11111111111',
+        'Ali',
+        'Yılmaz',
+        '123',
+        'E',
+        '9',
+        'A',
+        '01.01.2010',
+        '05551112233',
+        'Ayşe Yılmaz',
+        '22222222222',
+        '05554445566',
+        'Anne',
+      ];
+      for (int i = 0; i < sampleRow.length; i++) {
+        var cell = sheet.cell(
+          CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 1),
+        );
+        cell.value = TextCellValue(sampleRow[i]);
+      }
+
+      List<int>? fileBytes = excel.save();
+      if (fileBytes != null) {
+        await FileSaver.instance.saveFile(
+          name: 'Ogrenci_Kayit_Sablonu',
+          bytes: Uint8List.fromList(fileBytes),
+          ext: 'xlsx',
+          mimeType: MimeType.microsoftExcel,
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('✅ Şablon indirildi.')));
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Hata: $e')));
+      }
     }
   }
 
@@ -753,11 +877,35 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
             PopupMenuButton<String>(
               icon: Icon(Icons.more_vert),
               onSelected: (value) {
-                if (value == 'delete_all') {
+                if (value == 'excel_template') {
+                  _downloadExcelTemplate();
+                } else if (value == 'excel_upload') {
+                  _showExcelUploadDialog();
+                } else if (value == 'delete_all') {
                   _deleteAllStudents();
                 }
               },
               itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: 'excel_template',
+                  child: Row(
+                    children: [
+                      Icon(Icons.download, size: 20, color: Colors.blue),
+                      SizedBox(width: 8),
+                      Text('Örnek Şablon İndir'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'excel_upload',
+                  child: Row(
+                    children: [
+                      Icon(Icons.backup_table, size: 20, color: Colors.indigo),
+                      SizedBox(width: 8),
+                      Text('Excel\'den Toplu Yükleme'),
+                    ],
+                  ),
+                ),
                 PopupMenuItem(
                   value: 'delete_all',
                   child: Row(
@@ -4105,41 +4253,52 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
     return Column(
       children: [
         DropdownButtonFormField<String?>(
-          value: ['İstanbul', 'Ankara', 'İzmir'].contains(tempData['city'])
-              ? tempData['city']
+          value: TurkeyAddressData.cities.contains(tempData['city']?.toString().toUpperCase())
+              ? tempData['city']?.toString().toUpperCase()
               : null,
           decoration: InputDecoration(
             labelText: 'İl',
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
             prefixIcon: Icon(Icons.location_city),
           ),
-          items: [
-            DropdownMenuItem(value: 'İstanbul', child: Text('İstanbul')),
-            DropdownMenuItem(value: 'Ankara', child: Text('Ankara')),
-            DropdownMenuItem(value: 'İzmir', child: Text('İzmir')),
-            // Diğer iller...
-          ],
+          items: TurkeyAddressData.cities
+              .map(
+                (city) => DropdownMenuItem<String?>(
+                  value: city,
+                  child: Text(city),
+                ),
+              )
+              .toList(),
           onChanged: (value) {
             setModalState(() {
               tempData['city'] = value;
+              tempData['district'] = null; // İl değişince ilçeyi sıfırla
             });
           },
         ),
         SizedBox(height: 16),
         DropdownButtonFormField<String?>(
-          value: ['Kadıköy', 'Beşiktaş'].contains(tempData['district'])
-              ? tempData['district']
+          value: (tempData['city'] != null &&
+                  TurkeyAddressData.getDistricts(tempData['city']).contains(
+                    tempData['district']?.toString().toUpperCase(),
+                  ))
+              ? tempData['district']?.toString().toUpperCase()
               : null,
           decoration: InputDecoration(
             labelText: 'İlçe',
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
             prefixIcon: Icon(Icons.location_on),
           ),
-          items: [
-            DropdownMenuItem(value: 'Kadıköy', child: Text('Kadıköy')),
-            DropdownMenuItem(value: 'Beşiktaş', child: Text('Beşiktaş')),
-            // Diğer ilçeler...
-          ],
+          items: (tempData['city'] != null)
+              ? TurkeyAddressData.getDistricts(tempData['city'])
+                  .map(
+                    (district) => DropdownMenuItem<String?>(
+                      value: district,
+                      child: Text(district),
+                    ),
+                  )
+                  .toList()
+              : [],
           onChanged: (value) {
             setModalState(() {
               tempData['district'] = value;
@@ -7552,8 +7711,14 @@ class __StudentRegistrationFormScreenState
     );
   }
 
-  // Adres dialog metodları - Ayrı sayfa için
   void _showAddAddressDialog() {
+    final Map<String, dynamic> addressTempData = {
+      'type': 'ev',
+      'city': null,
+      'district': null,
+      'country': 'TÜRKİYE',
+    };
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -7570,7 +7735,14 @@ class __StudentRegistrationFormScreenState
         ),
         content: Container(
           width: 600,
-          child: SingleChildScrollView(child: _buildAddressForm()),
+          child: SingleChildScrollView(
+            child: StatefulBuilder(
+              builder: (context, setModalState) => _buildAddressForm(
+                addressTempData,
+                setModalState,
+              ),
+            ),
+          ),
         ),
         actions: [
           TextButton(
@@ -7579,6 +7751,7 @@ class __StudentRegistrationFormScreenState
           ),
           ElevatedButton(
             onPressed: () {
+              // TODO: Kaydetme mantığını uygulayacağız
               Navigator.pop(context);
             },
             style: ElevatedButton.styleFrom(
@@ -7592,12 +7765,16 @@ class __StudentRegistrationFormScreenState
     );
   }
 
-  Widget _buildAddressForm() {
+  Widget _buildAddressForm(
+    Map<String, dynamic> tempData,
+    StateSetter setModalState,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         DropdownButtonFormField<String>(
           decoration: _inputDecoration('Adres Türü *'),
+          value: tempData['type'],
           items: [
             DropdownMenuItem(value: 'ev', child: Text('Ev Adresi')),
             DropdownMenuItem(value: 'posta', child: Text('Posta Adresi')),
@@ -7609,7 +7786,9 @@ class __StudentRegistrationFormScreenState
               child: Text('Diğer Kurum Adresi'),
             ),
           ],
-          onChanged: (value) {},
+          onChanged: (value) {
+            setModalState(() => tempData['type'] = value);
+          },
         ),
         SizedBox(height: 16),
         TextFormField(
@@ -7617,22 +7796,62 @@ class __StudentRegistrationFormScreenState
             'Adres *',
           ).copyWith(hintText: 'Sokak, Mahalle, Bina No...'),
           maxLines: 3,
+          onChanged: (value) => tempData['fullAddress'] = value,
         ),
         SizedBox(height: 16),
         TextFormField(
           decoration: _inputDecoration('Ülke *'),
           initialValue: 'TÜRKİYE',
+          onChanged: (value) => tempData['country'] = value,
         ),
         SizedBox(height: 16),
-        TextFormField(decoration: _inputDecoration('İl *')),
+        DropdownButtonFormField<String>(
+          decoration: _inputDecoration('İl *'),
+          value: TurkeyAddressData.cities.contains(tempData['city']?.toUpperCase())
+              ? tempData['city']?.toUpperCase()
+              : null,
+          items: TurkeyAddressData.cities
+              .map((city) => DropdownMenuItem(value: city, child: Text(city)))
+              .toList(),
+          onChanged: (value) {
+            setModalState(() {
+              tempData['city'] = value;
+              tempData['district'] = null;
+            });
+          },
+        ),
         SizedBox(height: 16),
-        TextFormField(decoration: _inputDecoration('İlçe')),
+        DropdownButtonFormField<String>(
+          decoration: _inputDecoration('İlçe'),
+          value: (tempData['city'] != null &&
+                  TurkeyAddressData.getDistricts(tempData['city']).contains(
+                    tempData['district']?.toUpperCase(),
+                  ))
+              ? tempData['district']?.toUpperCase()
+              : null,
+          items: (tempData['city'] != null)
+              ? TurkeyAddressData.getDistricts(tempData['city'])
+                  .map(
+                    (dist) => DropdownMenuItem(value: dist, child: Text(dist)),
+                  )
+                  .toList()
+              : [],
+          onChanged: (value) {
+            setModalState(() {
+              tempData['district'] = value;
+            });
+          },
+        ),
         SizedBox(height: 16),
-        TextFormField(decoration: _inputDecoration('Semt')),
+        TextFormField(
+          decoration: _inputDecoration('Semt'),
+          onChanged: (value) => tempData['neighborhood'] = value,
+        ),
         SizedBox(height: 16),
         TextFormField(
           decoration: _inputDecoration('Posta Kodu'),
           keyboardType: TextInputType.number,
+          onChanged: (value) => tempData['postalCode'] = value,
         ),
         SizedBox(height: 16),
         Row(
@@ -7641,6 +7860,7 @@ class __StudentRegistrationFormScreenState
               child: TextFormField(
                 decoration: _inputDecoration('Enlem'),
                 keyboardType: TextInputType.numberWithOptions(decimal: true),
+                onChanged: (value) => tempData['lat'] = value,
               ),
             ),
             SizedBox(width: 12),
@@ -7648,6 +7868,7 @@ class __StudentRegistrationFormScreenState
               child: TextFormField(
                 decoration: _inputDecoration('Boylam'),
                 keyboardType: TextInputType.numberWithOptions(decimal: true),
+                onChanged: (value) => tempData['lng'] = value,
               ),
             ),
             SizedBox(width: 12),

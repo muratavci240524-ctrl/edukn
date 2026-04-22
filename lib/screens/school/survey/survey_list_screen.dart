@@ -3,7 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../models/survey_model.dart';
 import '../../../services/survey_service.dart';
 import 'create_survey_screen.dart';
-import 'survey_stats_screen.dart'; // Will create this later
+import 'survey_stats_screen.dart';
+import 'survey_guide_page.dart';
 
 class SurveyListScreen extends StatefulWidget {
   final String institutionId;
@@ -72,7 +73,23 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Anket İşlemleri'), centerTitle: false),
+      appBar: AppBar(
+        title: const Text('Anket İşlemleri'),
+        centerTitle: false,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.info_outline_rounded),
+            tooltip: 'Nasıl Kullanılır?',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SurveyGuidePage()),
+              );
+            },
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
       body: Align(
         alignment: Alignment.topCenter,
         child: _isInitLoading

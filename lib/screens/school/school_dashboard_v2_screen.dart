@@ -10,8 +10,18 @@ import 'assessment/assessment_dashboard_screen.dart';
 import 'terms_screen.dart';
 import 'notes/personal_notes_screen.dart';
 import 'hr/hr_hub_screen.dart';
+import 'guidance/demand/demand_dashboard_screen.dart';
+import '../portfolio/portfolio_screen.dart';
 import 'dart:math' as math;
 import '../teacher/teacher_qr_scan_screen.dart';
+import 'student_registration_screen.dart';
+import '../../main.dart';
+
+import 'school_types/school_type_announcements_screen.dart';
+import 'school_types/school_type_social_media_screen.dart';
+import 'school_types/chat/chat_screen.dart';
+import 'school_types/school_type_detail_screen.dart';
+import '../../widgets/stylish_bottom_nav.dart';
 
 class SchoolDashboardV2Screen extends StatefulWidget {
   const SchoolDashboardV2Screen({Key? key}) : super(key: key);
@@ -21,11 +31,14 @@ class SchoolDashboardV2Screen extends StatefulWidget {
 }
 
 class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
+  int _currentIndex = 1;
   Map<String, dynamic>? schoolData;
   Map<String, dynamic>? userData; 
   Map<String, dynamic>? activeTerm; 
   Map<String, dynamic>? selectedTerm; 
   List<Map<String, dynamic>> allTerms = [];
+  Function? _pendingNavAction; 
+  StateSetter? _overlaySetState;
   bool isLoading = true;
   final TermService _termService = TermService();
   final TextEditingController _searchController = TextEditingController();
@@ -35,80 +48,228 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
   List<Map<String, dynamic>> _searchResults = [];
   bool _isSearching = false;
   bool _isMobileSearchActive = false;
+  String _selectedCategory = 'Tümü';
+
+  bool _suppressFocusListener = false;
 
   @override
   void initState() {
     super.initState();
     _loadInitialData();
     _searchFocusNode.addListener(() {
-      if (_searchFocusNode.hasFocus) { _showSearchOverlay(); } else { _hideSearchOverlay(); }
+      if (_suppressFocusListener) return;
+      if (_searchFocusNode.hasFocus) {
+        _showSearchOverlay();
+      } else {
+        // Gecikme ekle: butonların onPressed'ının overlay kapanmadan önce çalışmasına izin ver
+        // (_GlobalKeyboardUnfocusWrapper her tıklamada unfocus() çağırıyor)
+        Future.delayed(const Duration(milliseconds: 250), () {
+          if (mounted && !_searchFocusNode.hasFocus && !_suppressFocusListener) {
+            _hideSearchOverlay();
+          }
+        });
+      }
     });
   }
 
   @override
-  void dispose() { _searchController.dispose(); _searchFocusNode.dispose(); _hideSearchOverlay(); super.dispose(); }
+  void dispose() { 
+    _searchController.dispose(); 
+    _searchFocusNode.dispose(); 
+    _hideSearchOverlay(); 
+    super.dispose(); 
+  }
+
+  void _safeNavigate(Function action) {
+    debugPrint('eduKN: _safeNavigate - navigatorKey: ${MyApp.navigatorKey.currentState}');
+    
+    // Focus listener'ı geçici olarak sustur (unfocus → overlay kapanmasın)
+    _suppressFocusListener = true;
+    
+    // Önce aksiyonu çağır (MyApp.navigatorKey context bağımsız)
+    debugPrint('eduKN: Aksiyon çağrılıyor...');
+    action();
+    debugPrint('eduKN: Aksiyon çağrıldı.');
+    
+    // Sonra overlay ve state'i temizle
+    _hideSearchOverlay();
+    _overlaySetState = null;
+    _searchFocusNode.unfocus();
+    _suppressFocusListener = false;
+    
+    if (mounted) {
+      setState(() {
+        _isMobileSearchActive = false;
+        _searchController.clear();
+        _searchResults = [];
+      });
+    }
+  }
   void _showSearchOverlay() { if (_searchOverlayEntry != null) return; _searchOverlayEntry = _createSearchOverlayEntry(); Overlay.of(context).insert(_searchOverlayEntry!); }
   void _hideSearchOverlay() { _searchOverlayEntry?.remove(); _searchOverlayEntry = null; }
 
   OverlayEntry _createSearchOverlayEntry() {
-    final size = MediaQuery.of(context).size; final isMobile = size.width < 1100; final overlayWidth = isMobile ? (size.width - 32) : 450.0;
+    final size = MediaQuery.of(context).size;
+    final isMobile = size.width < 1100;
+    final overlayWidth = isMobile ? (size.width - 32) : 450.0;
     return OverlayEntry(
-      builder: (context) => Positioned(
-        width: overlayWidth,
-        child: CompositedTransformFollower(
-          link: _searchLayerLink,
-          showWhenUnlinked: false,
-          offset: Offset(isMobile ? - (size.width * 0.05) : 0, 52), 
-          child: Material(
-            elevation: 8,
-            shadowColor: Colors.black.withOpacity(0.05),
-            borderRadius: BorderRadius.circular(24),
-            color: Colors.white,
-            child: Container(
-              constraints: const BoxConstraints(maxHeight: 400),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(24), border: Border.all(color: Colors.indigo.shade100, width: 1.2)),
-              child: _isSearching 
-                ? const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator(strokeWidth: 2)))
-                : _searchResults.isEmpty && _searchController.text.isNotEmpty
-                  ? const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('Sonuç bulunamadı.', style: TextStyle(color: Colors.blueGrey, fontSize: 13, fontWeight: FontWeight.w500))))
-                  : _searchResults.isEmpty
-                    ? _buildInitialSearchItems()
-                    : ListView.separated(
-                        shrinkWrap: true,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        itemCount: _searchResults.length,
-                        separatorBuilder: (_, __) => Divider(height: 1, color: Colors.indigo.withOpacity(0.05)),
-                        itemBuilder: (context, index) {
-                          final item = _searchResults[index];
-                          return ListTile(
-                            onTap: () { _searchFocusNode.unfocus(); setState(() => _isMobileSearchActive = false); if (item['onTap'] != null) (item['onTap'] as Function)(); },
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-                            leading: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.indigo.shade50, borderRadius: BorderRadius.circular(10)), child: Icon(item['icon'] as IconData, color: Colors.indigo, size: 20)),
-                            title: Text(item['title'] as String, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1E293B))),
-                            subtitle: Text(item['subtitle'] as String, style: TextStyle(fontSize: 11, color: Colors.blueGrey.shade400)),
-                          );
-                        },
+      builder: (overlayCtx) => Stack(
+        children: [
+          CompositedTransformFollower(
+            link: _searchLayerLink,
+            showWhenUnlinked: false,
+            offset: Offset(isMobile ? -(size.width * 0.05) : 0, 52),
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: SizedBox(
+                width: overlayWidth,
+                child: StatefulBuilder(
+                  builder: (_, setOverlayState) {
+                    _overlaySetState = setOverlayState;
+                    return Material(
+                      elevation: 8,
+                      shadowColor: Colors.black.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(24),
+                      color: Colors.white,
+                      child: Container(
+                        constraints: const BoxConstraints(maxHeight: 400),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(color: Colors.indigo.shade100, width: 1.2),
+                        ),
+                        child: _isSearching
+                          ? const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator(strokeWidth: 2)))
+                          : _searchResults.isEmpty && _searchController.text.isNotEmpty
+                            ? const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('Sonuç bulunamadı.', style: TextStyle(color: Colors.blueGrey, fontSize: 13, fontWeight: FontWeight.w500))))
+                            : _searchResults.isEmpty
+                              ? _buildInitialSearchItems()
+                              : ListView.separated(
+                                  shrinkWrap: true,
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  itemCount: _searchResults.length,
+                                  separatorBuilder: (_, __) => Divider(height: 1, color: Colors.indigo.withOpacity(0.05)),
+                                  itemBuilder: (_, index) {
+                                    final item = _searchResults[index];
+                                    final isStudent = item['type'] == 'student';
+                                    final onTapAction = item['onTap'] as Function?;
+                                    final onRegTapAction = item['onRegTap'] as Function?;
+                                    return ListTile(
+                                      onTap: () { if (onTapAction != null) _safeNavigate(onTapAction); },
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                                      leading: Container(
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(color: Colors.indigo.shade50, borderRadius: BorderRadius.circular(10)),
+                                        child: Icon(item['icon'] as IconData, color: Colors.indigo, size: 20),
+                                      ),
+                                      title: Text(item['title'] as String, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1E293B))),
+                                      subtitle: Text(item['subtitle'] as String, style: TextStyle(fontSize: 11, color: Colors.blueGrey.shade400)),
+                                      trailing: isStudent ? Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          IconButton(
+                                            icon: const Icon(Icons.folder_shared_outlined, size: 18, color: Colors.indigo),
+                                            onPressed: () { if (onTapAction != null) _safeNavigate(onTapAction); },
+                                            constraints: const BoxConstraints(),
+                                            padding: const EdgeInsets.all(8),
+                                          ),
+                                          IconButton(
+                                            icon: const Icon(Icons.how_to_reg_outlined, size: 18, color: Colors.orange),
+                                            onPressed: () { if (onRegTapAction != null) _safeNavigate(onRegTapAction); },
+                                            constraints: const BoxConstraints(),
+                                            padding: const EdgeInsets.all(8),
+                                          ),
+                                        ],
+                                      ) : null,
+                                    );
+                                  },
+                                ),
                       ),
+                    );
+                  },
+                ),
+              ),
             ),
           ),
-        ),
+        ],
       ),
     );
   }
 
   Widget _buildInitialSearchItems() {
-    final List<Map<String, dynamic>> shortcuts = [{'title': 'Öğrenci Kaydı', 'subtitle': 'Eğitim Modülü', 'icon': Icons.person_add_outlined, 'onTap': () => Navigator.pushNamed(context, '/student-registration')}, {'title': 'Muhasebe', 'subtitle': 'Mali İşler', 'icon': Icons.account_balance_wallet_outlined, 'onTap': () => Navigator.pushNamed(context, '/accounting')}, {'title': 'İK / Personel', 'subtitle': 'Yönetim Modülü', 'icon': Icons.group_outlined, 'onTap': () => Navigator.pushNamed(context, '/hr')}];
-    return ListView(shrinkWrap: true, children: [Padding(padding: const EdgeInsets.fromLTRB(20, 16, 20, 12), child: Text('HIZLI ERİŞİM', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Colors.indigo.shade300, letterSpacing: 1.2))), ...shortcuts.map((s) => ListTile(onTap: () { _searchFocusNode.unfocus(); setState(() => _isMobileSearchActive = false); (s['onTap'] as Function)(); }, contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4), leading: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.indigo.shade50, borderRadius: BorderRadius.circular(10)), child: Icon(s['icon'] as IconData, color: Colors.indigo, size: 18)), title: Text(s['title'] as String, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1E293B))), subtitle: Text(s['subtitle'] as String, style: const TextStyle(fontSize: 11, color: Colors.blueGrey)))).toList()]);
+    final List<Map<String, dynamic>> shortcuts = [
+      {'title': 'Öğrenci Kaydı', 'subtitle': 'Eğitim Modülü', 'icon': Icons.person_add_outlined, 'onTap': () => MyApp.navigatorKey.currentState?.pushNamed('/student-registration')},
+      {'title': 'Muhasebe', 'subtitle': 'Mali İşler', 'icon': Icons.account_balance_wallet_outlined, 'onTap': () => MyApp.navigatorKey.currentState?.pushNamed('/accounting')},
+      {'title': 'İK / Personel', 'subtitle': 'Yönetim Modülü', 'icon': Icons.group_outlined, 'onTap': () => MyApp.navigatorKey.currentState?.pushNamed('/hr')}
+    ];
+    return ListView(
+      shrinkWrap: true,
+      children: [
+        Padding(padding: const EdgeInsets.fromLTRB(20, 16, 20, 12), child: Text('HIZLI ERİŞİM', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Colors.indigo.shade300, letterSpacing: 1.2))),
+        ...shortcuts.map((s) {
+          final shortcutAction = s['onTap'] as Function?;
+          return ListTile(
+          onTap: () {
+            if (shortcutAction != null) _safeNavigate(shortcutAction);
+          },
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+          leading: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.indigo.shade50, borderRadius: BorderRadius.circular(10)), child: Icon(s['icon'] as IconData, color: Colors.indigo, size: 18)),
+          title: Text(s['title'] as String, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1E293B))),
+          subtitle: Text(s['subtitle'] as String, style: const TextStyle(fontSize: 11, color: Colors.blueGrey)),
+        );}).toList()
+      ],
+    );
   }
 
   void _onSearchChanged(String value) async {
-    if (value.isEmpty) { if (mounted) setState(() => _searchResults = []); _searchOverlayEntry?.markNeedsBuild(); return; }
-    if (mounted) setState(() => _isSearching = true); _searchOverlayEntry?.markNeedsBuild();
+    if (value.isEmpty) {
+      if (mounted) setState(() => _searchResults = []);
+      _overlaySetState?.call(() {});
+      return;
+    }
+    if (mounted) setState(() => _isSearching = true);
+    _overlaySetState?.call(() {});
     try {
       final snapshot = await FirebaseFirestore.instance.collection('students').where('institutionId', isEqualTo: schoolData?['institutionId']).get();
-      final matches = snapshot.docs.where((doc) { final name = (doc['fullName'] ?? '').toString().toLowerCase(); return name.contains(value.toLowerCase()); }).take(5).map((doc) => {'title': doc['fullName'], 'subtitle': 'Öğrenci No: ${doc['studentNumber']}', 'icon': Icons.person_outline, 'onTap': () {}}).toList();
-      if (mounted) { setState(() { _searchResults = matches; _isSearching = false; }); _searchOverlayEntry?.markNeedsBuild(); }
-    } catch (e) { if (mounted) setState(() => _isSearching = false); _searchOverlayEntry?.markNeedsBuild(); }
+      final matches = snapshot.docs.where((doc) {
+        final name = (doc['fullName'] ?? '').toString().toLowerCase();
+        final number = (doc['studentNumber'] ?? '').toString().toLowerCase();
+        final query = value.toLowerCase();
+        return name.contains(query) || number.contains(query);
+      }).take(5).map((doc) {
+        final data = doc.data();
+        final studentId = doc.id;
+        final stId = data['schoolTypeId'] ?? '';
+        final stName = data['schoolTypeName'] ?? 'Okul Türü';
+
+        return {
+          'type': 'student',
+          'title': data['fullName'],
+          'subtitle': 'Öğrenci No: ${data['studentNumber']}',
+          'icon': Icons.person_outline,
+          'onTap': () {
+            MyApp.navigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => PortfolioScreen(
+              institutionId: schoolData!['institutionId'],
+              schoolTypeId: stId,
+              schoolTypeName: stName,
+              initialStudentId: studentId,
+            )));
+          },
+          'onRegTap': () {
+            MyApp.navigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => StudentRegistrationScreen(
+              initialStudentId: studentId,
+            )));
+          }
+        };
+      }).toList();
+      if (mounted) {
+        setState(() { _searchResults = matches; _isSearching = false; });
+        _overlaySetState?.call(() {});
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isSearching = false);
+      _overlaySetState?.call(() {});
+    }
   }
 
   Future<void> _loadInitialData() async { await _loadSchoolData(); }
@@ -168,19 +329,330 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
 
   @override
   Widget build(BuildContext context) {
-    if (isLoading) return const Scaffold(body: Center(child: EduKnLoader(size: 100)));
+    if (isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
     if (schoolData == null) return const Scaffold(body: Center(child: Text('Okul verileri yüklenemedi!')));
     final size = MediaQuery.of(context).size; final isMobile = size.width < 1100;
-    return Scaffold(backgroundColor: const Color(0xFFF8FAFC), appBar: _buildAppBar(isMobile), body: Stack(children: [const Positioned.fill(child: IgnorePointer(child: CustomPaint(painter: DoodlePainter()))), SingleChildScrollView(physics: const BouncingScrollPhysics(), child: Center(child: Container(constraints: const BoxConstraints(maxWidth: 1400), padding: EdgeInsets.symmetric(horizontal: isMobile ? 16 : 24, vertical: isMobile ? 24 : 32), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [_buildGreeting(isMobile), const SizedBox(height: 32), _buildGridSections(isMobile), const SizedBox(height: 64), _buildFeatureCards(isMobile), const SizedBox(height: 64), _buildFooter(isMobile)]))))]));
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
+      appBar: _buildAppBar(isMobile),
+      body: Stack(
+        children: [
+          const Positioned.fill(child: IgnorePointer(child: CustomPaint(painter: DoodlePainter()))),
+          IndexedStack(
+            index: _currentIndex,
+            children: [
+              _buildCommunicationTab(isMobile),
+              _buildDashboardTab(isMobile),
+              _buildOperationsTab(isMobile),
+            ],
+          ),
+        ],
+      ),
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          StylishBottomNav(
+            currentIndex: _currentIndex,
+            onTap: (index) {
+              setState(() {
+                _currentIndex = index;
+              });
+            },
+          ),
+          Container(
+            color: Colors.white,
+            width: double.infinity,
+            padding: const EdgeInsets.only(left: 16, right: 16, top: 4, bottom: 2),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  '© 2026 eduKN.',
+                  style: TextStyle(
+                    color: Colors.blueGrey.shade400,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildFooterLink('Destek', isMobile),
+                    const SizedBox(width: 16),
+                    _buildFooterLink('Gizlilik', isMobile),
+                    const SizedBox(width: 16),
+                    _buildFooterLink('Şartlar', isMobile),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCommunicationTab(bool isMobile) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 24, right: 24, top: 32, bottom: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Haberleşme',
+                style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: Colors.indigo.shade900, letterSpacing: -0.5),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Tüm kurum iletişim kanallarına tek bir yerden ulaşın.',
+                style: TextStyle(fontSize: 15, color: Colors.blueGrey.shade600, height: 1.4),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            physics: const BouncingScrollPhysics(),
+            children: [
+              _buildCommCard(
+                title: 'Duyurular',
+                description: 'Tüm okul türlerinin duyurularını görüntüleyin ve yönetin.',
+                icon: Icons.campaign_rounded,
+                color: Colors.orange,
+                onTap: () => Navigator.pushNamed(context, '/announcements'),
+              ),
+              const SizedBox(height: 20),
+              _buildCommCard(
+                title: 'Sosyal Medya',
+                description: 'Okulun global sosyal medya paylaşımlarını inceleyin.',
+                icon: Icons.share_rounded,
+                color: Colors.blue,
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SchoolTypeSocialMediaScreen(
+                  schoolTypeId: '',
+                  schoolTypeName: 'Tüm Okul Türleri',
+                  institutionId: schoolData!['institutionId'],
+                ))),
+              ),
+              const SizedBox(height: 20),
+              _buildCommCard(
+                title: 'Mesajlar',
+                description: 'Tüm kullanıcılara ve okul türlerine mesajlaşın.',
+                icon: Icons.forum_rounded,
+                color: Colors.green,
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(
+                  schoolTypeId: '',
+                  schoolTypeName: 'Tüm Okul Türleri',
+                  institutionId: schoolData!['institutionId'],
+                ))),
+              ),
+              const SizedBox(height: 100),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCommCard({required String title, required String description, required IconData icon, required MaterialColor color, required VoidCallback onTap}) {
+    return Container(
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(24), boxShadow: [BoxShadow(color: color.shade100.withOpacity(0.5), blurRadius: 20, offset: const Offset(0, 10))]),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(24),
+          splashColor: color.shade50.withOpacity(0.5),
+          highlightColor: color.shade50.withOpacity(0.5),
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Row(
+              children: [
+                Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: color.shade50, borderRadius: BorderRadius.circular(20)), child: Icon(icon, size: 32, color: color.shade700)),
+                const SizedBox(width: 20),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.indigo.shade900)),
+                      const SizedBox(height: 6),
+                      Text(description, style: TextStyle(fontSize: 13, color: Colors.blueGrey.shade600, height: 1.4)),
+                    ],
+                  ),
+                ),
+                Icon(Icons.arrow_forward_ios_rounded, size: 18, color: Colors.indigo.shade200),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDashboardTab(bool isMobile) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        bool isWideScreen = constraints.maxWidth > 900;
+
+        if (isWideScreen) {
+          return Row(
+            children: [
+              Expanded(
+                flex: 2,
+                child: SharedNotificationSection(
+                  schoolTypeId: '',
+                  institutionId: schoolData!['institutionId'],
+                ),
+              ),
+              Expanded(
+                flex: 3,
+                child: SharedCalendarSection(
+                  schoolTypeId: '',
+                  institutionId: schoolData!['institutionId'],
+                ),
+              ),
+            ],
+          );
+        } else {
+          return DefaultTabController(
+            length: 2,
+            child: Column(
+              children: [
+                Container(
+                  color: Colors.white,
+                  child: TabBar(
+                    labelColor: Colors.blue.shade700,
+                    unselectedLabelColor: Colors.grey,
+                    indicatorColor: Colors.blue.shade700,
+                    indicatorSize: TabBarIndicatorSize.label,
+                    tabs: const [
+                      Tab(
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.notifications_none_rounded, size: 20),
+                            SizedBox(width: 8),
+                            Text('Bildirimler'),
+                          ],
+                        ),
+                      ),
+                      Tab(
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.calendar_today_rounded, size: 18),
+                            SizedBox(width: 8),
+                            Text('Takvim'),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: TabBarView(
+                    children: [
+                      SharedNotificationSection(
+                        schoolTypeId: '',
+                        institutionId: schoolData!['institutionId'],
+                      ),
+                      SharedCalendarSection(
+                        schoolTypeId: '',
+                        institutionId: schoolData!['institutionId'],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+      },
+    );
+  }
+
+  Widget _buildOperationsTab(bool isMobile) {
+    return Column(
+      children: [
+        Expanded(
+          child: SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            child: Center(
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 1400),
+                padding: EdgeInsets.symmetric(horizontal: isMobile ? 16 : 24, vertical: isMobile ? 24 : 32),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildCategorySelector(isMobile),
+                    const SizedBox(height: 16),
+                    _buildGridSections(isMobile),
+                    const SizedBox(height: 32),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   PreferredSizeWidget _buildAppBar(bool isMobile) {
     String currentTermName = selectedTerm != null ? (selectedTerm!['termName'] ?? '${selectedTerm!['startYear']}-${selectedTerm!['endYear']}') : (activeTerm != null ? (activeTerm!['termName'] ?? 'Aktif Dönem') : 'Dönem Seçin');
-    return AppBar(backgroundColor: Colors.white.withOpacity(0.95), elevation: 0, centerTitle: true, flexibleSpace: Stack(children: [if (!_isMobileSearchActive) Positioned(left: 16, top: 0, bottom: 0, child: Row(children: [const EduKnLogo(iconSize: 28, type: EduKnLogoType.iconOnly), if (!isMobile) ...[const SizedBox(width: 12), Text('eduKN', style: TextStyle(color: Colors.indigo.shade900, fontWeight: FontWeight.w900, letterSpacing: -0.5, fontSize: 20))]]))]), title: _isMobileSearchActive ? _buildMobileSearchInput() : (!isMobile ? _buildSearchBar(isMobile) : const SizedBox.shrink()), actions: [if (isMobile && !_isMobileSearchActive) IconButton(icon: const Icon(Icons.search, color: Colors.indigo), onPressed: () { setState(() => _isMobileSearchActive = true); _searchFocusNode.requestFocus(); }), if (!_isMobileSearchActive) _buildTermSelectorButton(currentTermName, isMobile), const SizedBox(width: 8), if (!_isMobileSearchActive) _buildProfileButton(), const SizedBox(width: 16)]);
+    return AppBar(
+      backgroundColor: Colors.white.withOpacity(0.95),
+      elevation: 0,
+      centerTitle: true,
+      flexibleSpace: Stack(
+        children: [
+          if (!_isMobileSearchActive)
+            Positioned(
+              left: 16,
+              top: 0,
+              bottom: 0,
+              child: Row(
+                children: [
+                  const EduKnLogo(iconSize: 28, type: EduKnLogoType.iconOnly),
+                  const SizedBox(width: 12),
+                  Text(
+                    'eduKN',
+                    style: TextStyle(
+                      color: Colors.indigo.shade900,
+                      fontWeight: FontWeight.w900,
+                    letterSpacing: -0.5,
+                    fontSize: 20,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+      title: _isMobileSearchActive
+          ? _buildMobileSearchInput()
+          : (!isMobile ? _buildSearchBar(isMobile) : const SizedBox.shrink()),
+      actions: [
+        if (isMobile && !_isMobileSearchActive)
+          IconButton(
+            icon: const Icon(Icons.search, color: Colors.indigo),
+            onPressed: () {
+              setState(() => _isMobileSearchActive = true);
+              _searchFocusNode.requestFocus();
+            },
+          ),
+        if (!_isMobileSearchActive) _buildTermSelectorButton(currentTermName, isMobile),
+        const SizedBox(width: 8),
+        if (!_isMobileSearchActive) _buildProfileButton(),
+        const SizedBox(width: 16),
+      ],
+    );
   }
 
-  Widget _buildMobileSearchInput() { return CompositedTransformTarget(link: _searchLayerLink, child: Container(height: 42, decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(12)), child: Row(children: [IconButton(icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: Colors.blueGrey), onPressed: () => setState(() => _isMobileSearchActive = false)), Expanded(child: TextField(controller: _searchController, focusNode: _searchFocusNode, onChanged: _onSearchChanged, autofocus: true, decoration: InputDecoration(hintText: 'Arayın...', hintStyle: TextStyle(color: Colors.blueGrey.shade300, fontSize: 13), border: InputBorder.none)))]))); }
-  Widget _buildSearchBar(bool isMobile) { return CompositedTransformTarget(link: _searchLayerLink, child: Container(width: 450, height: 42, decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(20)), child: TextField(controller: _searchController, focusNode: _searchFocusNode, onChanged: _onSearchChanged, decoration: InputDecoration(hintText: 'Öğrenci, menü veya işlem ara...', hintStyle: TextStyle(color: Colors.blueGrey.shade300, fontSize: 13), prefixIcon: Icon(Icons.search, color: Colors.indigo.shade300, size: 20), border: InputBorder.none, contentPadding: const EdgeInsets.symmetric(vertical: 11))))); }
+  Widget _buildMobileSearchInput() { return CompositedTransformTarget(link: _searchLayerLink, child: Container(height: 42, decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(40)), child: Row(children: [IconButton(icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: Colors.blueGrey), onPressed: () => setState(() => _isMobileSearchActive = false)), Expanded(child: TextField(controller: _searchController, focusNode: _searchFocusNode, onChanged: _onSearchChanged, autofocus: true, decoration: InputDecoration(hintText: 'Arayın...', hintStyle: TextStyle(color: Colors.blueGrey.shade300, fontSize: 13), border: InputBorder.none)))]))); }
+  Widget _buildSearchBar(bool isMobile) { return CompositedTransformTarget(link: _searchLayerLink, child: Container(width: 450, height: 42, decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(40)), child: TextField(controller: _searchController, focusNode: _searchFocusNode, onChanged: _onSearchChanged, decoration: InputDecoration(hintText: 'Öğrenci, menü veya işlem ara...', hintStyle: TextStyle(color: Colors.blueGrey.shade300, fontSize: 13), prefixIcon: Icon(Icons.search, color: Colors.indigo.shade300, size: 20), border: InputBorder.none, contentPadding: const EdgeInsets.symmetric(vertical: 11))))); }
   Widget _buildTermSelectorButton(String currentTermName, bool isMobile) { return InkWell(onTap: _showTermSelector, borderRadius: BorderRadius.circular(10), child: Container(padding: EdgeInsets.symmetric(horizontal: isMobile ? 8 : 12, vertical: 8), decoration: BoxDecoration(color: selectedTerm != null ? Colors.orange.shade50 : Colors.indigo.shade50, borderRadius: BorderRadius.circular(10), border: Border.all(color: selectedTerm != null ? Colors.orange.shade200 : Colors.indigo.shade100)), child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.calendar_today_outlined, size: 14, color: selectedTerm != null ? Colors.orange.shade800 : Colors.indigo), if (!isMobile) ...[const SizedBox(width: 8), Text(currentTermName, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.indigo)), const SizedBox(width: 4), const Icon(Icons.keyboard_arrow_down, size: 14, color: Colors.indigo)]]))); }
 
   void _showTermSelector() {
@@ -208,7 +680,6 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
         }
       },
       itemBuilder: (context) => [
-        // --- Profil Bilgileri Başlık ---
         PopupMenuItem<String>(
           enabled: false,
           padding: EdgeInsets.zero,
@@ -237,7 +708,6 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
           ),
         ),
         const PopupMenuDivider(),
-        // --- Profilim / Düzenle ---
         PopupMenuItem<String>(
           value: 'profile',
           child: Row(children: [
@@ -250,7 +720,6 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
           ]),
         ),
         const PopupMenuDivider(),
-        // --- QR Giriş/Çıkış ---
         PopupMenuItem<String>(
           value: 'qr',
           child: Row(children: [
@@ -263,7 +732,6 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
           ]),
         ),
         const PopupMenuDivider(),
-        // --- Çıkış Yap ---
         PopupMenuItem<String>(
           value: 'logout',
           child: Row(children: [
@@ -284,29 +752,253 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
     );
   }
 
-
-
   Future<void> _migrateDataToActiveTerm() async { final confirm = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(title: const Text('Veri Aktarımı'), content: const Text('Dönem bilgisi bulunmayan veriler aktif döneme atanacak. Devam edilsin mi?'), actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('İptal')), ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Aktar'))])); if (confirm == true) { setState(() => isLoading = true); await _termService.migrateDataToActiveTerm(); await _loadInitialData(); } }
   Future<void> _deleteAllData() async { final confirm = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(title: const Text('DİKKAT: Veriler Silinecek', style: TextStyle(color: Colors.red)), content: const Text('Kurumun tüm verileri (öğrenciler, dersler, vb.) KALICI olarak silinecek. Bu işlem geri alınamaz!'), actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('İptal')), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.red), onPressed: () => Navigator.pop(ctx, true), child: const Text('Tümünü Sil'))])); if (confirm == true) { setState(() => isLoading = true); await _deleteAllData(); await _loadInitialData(); } }
-  Widget _buildGreeting(bool isMobile) { return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [if (selectedTerm != null) ...[Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: Colors.orange.shade100, borderRadius: BorderRadius.circular(6)), child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.warning_amber_rounded, color: Colors.orange.shade900, size: 14), const SizedBox(width: 8), Text('Görüntülenen Dönem: ${selectedTerm!['termName'] ?? '${selectedTerm!['startYear']}-${selectedTerm!['endYear']}'}', style: TextStyle(color: Colors.orange.shade900, fontSize: 12, fontWeight: FontWeight.bold))])), const SizedBox(height: 12)], Text('Hoş Geldiniz, ${_getUserDisplayName().split(' ')[0]}', style: TextStyle(fontSize: isMobile ? 32 : 42, fontWeight: FontWeight.w800, color: Colors.indigo.shade900, letterSpacing: -1)), const SizedBox(height: 8), Text('Kurumunuzun dijital ekosistemini buradan yönetebilirsiniz.', style: TextStyle(fontSize: isMobile ? 14 : 16, color: Colors.blueGrey.shade500, fontWeight: FontWeight.w400))]); }
+
+  Widget _buildCategorySelector(bool isMobile) {
+    final categories = [
+      {'label': 'Tümü', 'icon': Icons.apps_rounded, 'color': Colors.indigo},
+      {'label': 'Akademik', 'icon': Icons.school_rounded, 'color': Colors.indigo},
+      {'label': 'Rehberlik', 'icon': Icons.psychology_rounded, 'color': Colors.indigo},
+      {'label': 'Kurumsal', 'icon': Icons.groups_rounded, 'color': Colors.indigo},
+      {'label': 'Ölçme', 'icon': Icons.assignment_turned_in_rounded, 'color': Colors.indigo},
+      {'label': 'Finans', 'icon': Icons.account_balance_wallet_rounded, 'color': Colors.indigo},
+      {'label': 'Operasyon', 'icon': Icons.support_agent_rounded, 'color': Colors.indigo},
+      {'label': 'Sistem', 'icon': Icons.settings_suggest_rounded, 'color': Colors.indigo},
+      {'label': 'Kişisel', 'icon': Icons.person, 'color': Colors.indigo},
+    ];
+
+    final screenWidth = MediaQuery.of(context).size.width;
+    final contentWidth = screenWidth > 1400 ? 1400.0 : screenWidth;
+    final availableWidth = contentWidth - (isMobile ? 32 : 48);
+
+    return Container(
+      height: 100,
+      width: double.infinity,
+      child: ScrollConfiguration(
+        behavior: MyCustomScrollBehavior(),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          child: Container(
+            constraints: BoxConstraints(minWidth: availableWidth.isNegative ? 0.0 : availableWidth),
+            alignment: Alignment.center,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: categories.map((cat) {
+                final isSelected = _selectedCategory == cat['label'];
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  child: InkWell(
+                    onTap: () => setState(() => _selectedCategory = cat['label'] as String),
+                    borderRadius: BorderRadius.circular(16),
+                    child: AnimatedContainer(
+                      key: ValueKey('cat_${cat['label']}_$isMobile'),
+                      duration: const Duration(milliseconds: 200),
+                      width: isMobile ? 75 : 80,
+                      height: isMobile ? 75 : 80,
+                      decoration: BoxDecoration(
+                        color: isSelected ? const Color(0xFF3F51B5) : Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(isSelected ? 0.2 : 0.03),
+                            blurRadius: isSelected ? 12 : 8,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                        border: Border.all(
+                          color: isSelected ? Colors.indigo : Colors.indigo.withOpacity(0.05),
+                          width: 1,
+                        ),
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            cat['icon'] as IconData,
+                            color: isSelected ? Colors.white : Colors.indigo.shade400,
+                            size: isMobile ? 20 : 24,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            cat['label'] as String,
+                            style: TextStyle(
+                              fontSize: isMobile ? 9 : 10,
+                              fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                              color: isSelected ? Colors.white : Colors.blueGrey.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _buildGridSections(bool isMobile) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final contentWidth = screenWidth > 1400 ? 1400.0 : screenWidth;
+    final availableWidth = contentWidth - (isMobile ? 32 : 48);
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        double cardWidth; if (constraints.maxWidth > 1000) { cardWidth = (constraints.maxWidth - 48) / 3; } else if (constraints.maxWidth > 700) { cardWidth = (constraints.maxWidth - 24) / 2; } else { cardWidth = constraints.maxWidth; }
-        return Wrap(
-          spacing: 24, runSpacing: 24,
-          children: [
-            _ModuleCardWidget(title: 'EĞİTİM', badge: 'AKADEMİK', icon: Icons.school_outlined, color: Colors.indigo, cardWidth: cardWidth, isMobile: isMobile, items: [if (_hasModuleAccess('ogrenci_kayit')) {'title': 'Ön Kayıt', 'onTap': () => Navigator.pushNamed(context, '/pre-registration')}, if (_hasModuleAccess('ogrenci_kayit')) {'title': 'Öğrenci Kaydı', 'onTap': () => Navigator.pushNamed(context, '/student-registration')}, if (_hasModuleAccess('okul_turleri')) {'title': 'Okul Türleri', 'onTap': () => Navigator.pushNamed(context, '/school-types')}], onTap: () => _showEducationHub()), 
-            _ModuleCardWidget(title: 'İnsan Kaynakları', badge: 'KURUMSAL', icon: Icons.group_outlined, color: Colors.purple, cardWidth: cardWidth, isMobile: isMobile, items: _getHrItems(), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HrHubScreen()))),
-            _ModuleCardWidget(title: 'ÖLÇME DEĞERLENDİRME', badge: 'ANALİZ', icon: Icons.assignment_turned_in_outlined, color: Colors.teal, cardWidth: cardWidth, isMobile: isMobile, items: [{'title': 'Sınav Tanımları', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => AssessmentDashboardScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'])))}, {'title': 'Optik Formlar', 'onTap': () {}}, {'title': 'Soru Bankası', 'onTap': () {}}, if (_hasModuleAccess('yoklama')) {'title': 'Yoklama Raporları', 'onTap': () {}}, {'title': 'Gelişim Analizi', 'onTap': () {}}], onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AssessmentDashboardScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'])))),
-            _ModuleCardWidget(title: 'MALİ İŞLER', badge: 'FİNANS', icon: Icons.account_balance_wallet_outlined, color: Colors.blue, cardWidth: cardWidth, isMobile: isMobile, items: [if (_hasModuleAccess('muhasebe')) {'title': 'Gelir Kaydı', 'onTap': () => Navigator.pushNamed(context, '/accounting')}, {'title': 'Gider Kaydı', 'onTap': () => Navigator.pushNamed(context, '/accounting')}, {'title': 'Veli Tahsilat', 'onTap': () => Navigator.pushNamed(context, '/accounting')}, {'title': 'Makbuz Al', 'onTap': () => Navigator.pushNamed(context, '/accounting')}], onTap: () => Navigator.pushNamed(context, '/accounting')),
-            _ModuleCardWidget(title: 'HİZMETLER', badge: 'OPERASYON', icon: Icons.support_agent_outlined, color: Colors.orange, cardWidth: cardWidth, isMobile: isMobile, items: [ {'title': 'Yemekhane İşlemleri', 'onTap': () => Navigator.pushNamed(context, '/support-services')}, {'title': 'Servis İşlemleri', 'onTap': () => Navigator.pushNamed(context, '/support-services')}, {'title': 'Depo ve Satın Alma', 'onTap': () => Navigator.pushNamed(context, '/support-services')}], onTap: () => Navigator.pushNamed(context, '/support-services')),
-            _ModuleCardWidget(title: 'SİSTEM AYARLARI', badge: 'SİSTEM', icon: Icons.settings_outlined, color: Colors.blueGrey, cardWidth: cardWidth, isMobile: isMobile, items: [if (userData == null || _hasModuleAccess('kullanici_yonetimi')) {'title': 'Kullanıcı Yönetimi', 'onTap': () => Navigator.pushNamed(context, '/user-management')}, {'title': 'Yetki Tanımlama', 'onTap': () => Navigator.pushNamed(context, '/permission-definition')}, {'title': 'Uygulama Ayarları', 'onTap': () => Navigator.pushNamed(context, '/app-settings')}, {'title': 'Veri Yedekleme', 'onTap': () {}}], onTap: () => Navigator.pushNamed(context, '/app-settings'), buttonLabel: 'DÜZENLE'),
-          ],
-        );
-      },
+    final isFiltered = _selectedCategory != 'Tümü';
+    double cardWidth;
+    if (isFiltered) {
+      cardWidth = availableWidth;
+    } else if (availableWidth > 1000) {
+      cardWidth = (availableWidth - 48) / 3;
+    } else if (availableWidth > 700) {
+      cardWidth = (availableWidth - 24) / 2;
+    } else {
+      cardWidth = availableWidth;
+    }
+
+    final List<_ModuleCardWidget> allModules = [
+          _ModuleCardWidget(
+            title: 'EĞİTİM',
+            badge: 'Akademik',
+            icon: Icons.school_outlined,
+            color: Colors.indigo,
+            cardWidth: cardWidth,
+            isMobile: isMobile,
+            category: 'Akademik',
+            showAllItems: isFiltered,
+            items: [
+              if (_hasModuleAccess('ogrenci_kayit')) {'title': 'Ön Kayıt', 'onTap': () => Navigator.pushNamed(context, '/pre-registration')},
+              if (_hasModuleAccess('ogrenci_kayit')) {'title': 'Öğrenci Kaydı', 'onTap': () => Navigator.pushNamed(context, '/student-registration')},
+              if (_hasModuleAccess('okul_turleri')) {'title': 'Okul Türleri', 'onTap': () => Navigator.pushNamed(context, '/school-types')},
+            ],
+            onTap: () => _showEducationHub(),
+          ),
+          _ModuleCardWidget(
+            title: 'REHBERLİK İŞLEMLERİ',
+            badge: 'Rehberlik',
+            icon: Icons.psychology_outlined,
+            color: Colors.deepOrange,
+            cardWidth: cardWidth,
+            isMobile: isMobile,
+            category: 'Rehberlik',
+            showAllItems: isFiltered,
+            items: [
+              {'title': 'Öğrenci Portfolyosu', 'onTap': () => MyApp.navigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => PortfolioScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'], schoolTypeName: schoolData!['schoolName'] ?? '', showAllSchoolTypes: true)))},
+              {'title': 'Talepler (Yönlendirmeler)', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => DemandDashboardScreen(institutionId: schoolData!['institutionId'], schoolTypeId: '', showAllSchoolTypes: true, userData: userData)))},
+              {'title': 'Görüşme Kayıtları', 'onTap': () {}},
+              {'title': 'Rehberlik Testleri', 'onTap': () {}},
+            ],
+            onTap: () => _showGuidanceHub(),
+          ),
+          _ModuleCardWidget(
+            title: 'İnsan Kaynakları',
+            badge: 'Kurumsal',
+            icon: Icons.group_outlined,
+            color: Colors.purple,
+            cardWidth: cardWidth,
+            isMobile: isMobile,
+            category: 'Kurumsal',
+            showAllItems: isFiltered,
+            items: _getHrItems(),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HrHubScreen())),
+          ),
+          _ModuleCardWidget(
+            title: 'ÖLÇME DEĞERLENDİRME',
+            badge: 'Ölçme',
+            icon: Icons.assignment_turned_in_outlined,
+            color: Colors.teal,
+            cardWidth: cardWidth,
+            isMobile: isMobile,
+            category: 'Ölçme',
+            showAllItems: isFiltered,
+            items: [
+              {'title': 'Sınav Tanımları', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => AssessmentDashboardScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'])))},
+              {'title': 'Optik Formlar', 'onTap': () {}},
+              {'title': 'Soru Bankası', 'onTap': () {}},
+              {'title': 'Hata Kitapçığı', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => AssessmentDashboardScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'], initialTab: 2)))},
+              if (_hasModuleAccess('yoklama')) {'title': 'Yoklama Raporları', 'onTap': () {}},
+              {'title': 'Gelişim Analizi', 'onTap': () {}},
+            ],
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AssessmentDashboardScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id']))),
+          ),
+          _ModuleCardWidget(
+            title: 'MALİ İŞLER',
+            badge: 'Finans',
+            icon: Icons.account_balance_wallet_outlined,
+            color: Colors.blue,
+            cardWidth: cardWidth,
+            isMobile: isMobile,
+            category: 'Finans',
+            showAllItems: isFiltered,
+            items: [
+              if (_hasModuleAccess('muhasebe')) {'title': 'Gelir Kaydı', 'onTap': () => Navigator.pushNamed(context, '/accounting')},
+              {'title': 'Gider Kaydı', 'onTap': () => Navigator.pushNamed(context, '/accounting')},
+              {'title': 'Veli Tahsilat', 'onTap': () => Navigator.pushNamed(context, '/accounting')},
+              {'title': 'Makbuz Al', 'onTap': () => Navigator.pushNamed(context, '/accounting')},
+            ],
+            onTap: () => Navigator.pushNamed(context, '/accounting'),
+          ),
+          _ModuleCardWidget(
+            title: 'HİZMETLER',
+            badge: 'Operasyon',
+            icon: Icons.support_agent_outlined,
+            color: Colors.orange,
+            cardWidth: cardWidth,
+            isMobile: isMobile,
+            category: 'Operasyon',
+            showAllItems: isFiltered,
+            items: [
+              {'title': 'Yemekhane İşlemleri', 'onTap': () => Navigator.pushNamed(context, '/support-services')},
+              {'title': 'Servis İşlemleri', 'onTap': () => Navigator.pushNamed(context, '/support-services')},
+              {'title': 'Depo ve Satın Alma', 'onTap': () => Navigator.pushNamed(context, '/support-services')},
+            ],
+            onTap: () => Navigator.pushNamed(context, '/support-services'),
+          ),
+          _ModuleCardWidget(
+            title: 'SİSTEM AYARLARI',
+            badge: 'Sistem',
+            icon: Icons.settings_outlined,
+            color: Colors.blueGrey,
+            cardWidth: cardWidth,
+            isMobile: isMobile,
+            category: 'Sistem',
+            showAllItems: isFiltered,
+            items: [
+              if (userData == null || _hasModuleAccess('kullanici_yonetimi')) {'title': 'Kullanıcı Yönetimi', 'onTap': () => Navigator.pushNamed(context, '/user-management')},
+              {'title': 'Yetki Tanımlama', 'onTap': () => Navigator.pushNamed(context, '/permission-definition')},
+              {'title': 'Uygulama Ayarları', 'onTap': () => Navigator.pushNamed(context, '/app-settings')},
+              {'title': 'Veri Yedekleme', 'onTap': () {}},
+            ],
+            onTap: () => Navigator.pushNamed(context, '/app-settings'),
+            buttonLabel: 'DÜZENLE',
+          ),
+          _ModuleCardWidget(
+            title: 'KİŞİSEL İŞLEMLER',
+            badge: 'Kişisel',
+            icon: Icons.person,
+            color: Colors.pink,
+            cardWidth: cardWidth,
+            isMobile: isMobile,
+            category: 'Kişisel',
+            showAllItems: isFiltered,
+            items: [
+              {'title': 'Notlarım', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PersonalNotesScreen()))},
+            ],
+            onTap: () => setState(() => _selectedCategory = 'Kişisel'),
+          ),
+        ];
+
+    final filteredModules = _selectedCategory == 'Tümü' ? allModules : allModules.where((m) => m.category == _selectedCategory).toList();
+
+    return Wrap(
+      key: ValueKey('grid_${_selectedCategory}_$isMobile'),
+      spacing: 24,
+      runSpacing: 24,
+      children: filteredModules,
     );
   }
 
@@ -322,6 +1014,73 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
       {'title': 'İK Raporlama', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HrHubScreen()))},
     ]); 
     return items; 
+  }
+
+  Widget _buildFooterLink(String label, bool isMobile) {
+    return InkWell(
+      onTap: () {},
+      child: Text(
+        label,
+        style: TextStyle(
+          color: Colors.blueGrey.shade400,
+          fontSize: isMobile ? 10 : 12,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  void _showGuidanceHub() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: const BoxDecoration(
+          color: Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(40)),
+        ),
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)))),
+            const SizedBox(height: 32),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildSmallHubCard(
+                    title: 'Öğrenci Portfolyosu',
+                    subtitle: 'Öğrenci gelişimini ve sınav geçmişini inceleyin.',
+                    icon: Icons.assignment_ind_rounded,
+                    color: Colors.indigo,
+                    onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => PortfolioScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'], schoolTypeName: schoolData!['schoolName'] ?? '', showAllSchoolTypes: true))); },
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _buildSmallHubCard(
+                    title: 'Talepler',
+                    subtitle: 'Görüşme ve yönlendirme taleplerini yönetin.',
+                    icon: Icons.task_alt_rounded,
+                    color: Colors.orange,
+                    onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => DemandDashboardScreen(institutionId: schoolData!['institutionId'], schoolTypeId: '', showAllSchoolTypes: true, userData: userData))); },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+             _buildLargeHubCard(
+              title: 'Rehberlik Analizi',
+              subtitle: 'Kurum genelindeki talep yoğunluğunu ve başarı oranlarını inceleyin.',
+              buttonLabel: 'Analizi Aç',
+              onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => DemandDashboardScreen(institutionId: schoolData!['institutionId'], schoolTypeId: '', showAllSchoolTypes: true, userData: userData))); },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _showEducationHub() {
@@ -450,45 +1209,188 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
     );
   }
 
-  Widget _buildFeatureCards(bool isMobile) { return LayoutBuilder(builder: (context, constraints) { final stackAt = 800.0; final shouldStack = constraints.maxWidth < stackAt; if (shouldStack) return Column(children: [_buildFeatureCard(title: 'Hızlı Haberleşme Merkezi', subtitle: 'Tanımlı kullanıcılara hızlı duyurular yapın.', icon: Icons.campaign_rounded, color: Colors.indigo, isMobile: isMobile, onTap: () => Navigator.pushNamed(context, '/announcements')), const SizedBox(height: 16), _buildFeatureCard(title: 'Notlarım', subtitle: 'Kendinize özel hatırlatıcılı notlar oluşturun.', icon: Icons.edit_note_rounded, color: Colors.purple, isMobile: isMobile, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PersonalNotesScreen())))]); return Row(children: [Expanded(child: _buildFeatureCard(title: 'Hızlı Haberleşme Merkezi', subtitle: 'Tanımlı kullanıcılara hızlı duyurular yapın.', icon: Icons.campaign_rounded, color: Colors.indigo, isMobile: isMobile, onTap: () => Navigator.pushNamed(context, '/announcements'))), const SizedBox(width: 24), Expanded(child: _buildFeatureCard(title: 'Notlarım', subtitle: 'Kendinize özel hatırlatıcılı notlar oluşturun.', icon: Icons.edit_note_rounded, color: Colors.purple, isMobile: isMobile, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PersonalNotesScreen()))))]); }); }
-  Widget _buildFeatureCard({required String title, required String subtitle, required IconData icon, required Color color, required bool isMobile, VoidCallback? onTap}) { return InkWell(onTap: onTap, borderRadius: BorderRadius.circular(24), child: Container(height: 160, padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20), decoration: BoxDecoration(color: color.withOpacity(0.05), borderRadius: BorderRadius.circular(24)), child: Row(children: [Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(12)), child: Icon(icon, color: Colors.white, size: 28)), const SizedBox(width: 16), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: color)), const SizedBox(height: 4), Text(subtitle, style: TextStyle(fontSize: 12, color: color.withOpacity(0.7), height: 1.4))]))]))); }
-  Widget _buildFooter(bool isMobile) { String footerText = '© 2026 eduKN. Tüm Hakları Saklıdır.'; return Column(children: [Divider(color: Colors.blueGrey.shade100), const SizedBox(height: 24), if (isMobile) ...[Text(footerText, textAlign: TextAlign.center, style: TextStyle(color: Colors.blueGrey.shade400, fontSize: 11)), const SizedBox(height: 12), Row(mainAxisAlignment: MainAxisAlignment.center, children: [_buildFooterLink('Destek'), const SizedBox(width: 16), _buildFooterLink('Gizlilik Politikası'), const SizedBox(width: 16), _buildFooterLink('Kullanım Şartları')])] else ...[Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(footerText, style: TextStyle(color: Colors.blueGrey.shade400, fontSize: 12)), Row(children: [_buildFooterLink('Destek'), const SizedBox(width: 24), _buildFooterLink('Gizlilik Politikası'), const SizedBox(width: 24), _buildFooterLink('Kullanım Şartları')])])]],); }
-  Widget _buildFooterLink(String label) { return Text(label, style: TextStyle(color: Colors.blueGrey.shade400, fontSize: 11, fontWeight: FontWeight.w500)); }
+  // Removed _buildFeatureCards, _buildFeatureCard, _buildFooter, and _buildFooterLink, since we are using StylishBottomNav now.
 }
 
 class _ModuleCardWidget extends StatefulWidget {
-  final String title; final String badge; final IconData icon; final Color color; final List<Map<String, dynamic>> items; final VoidCallback onTap; final double cardWidth; final bool isMobile; final String? buttonLabel;
-  const _ModuleCardWidget({Key? key, required this.title, required this.badge, required this.icon, required this.color, required this.items, required this.onTap, required this.cardWidth, required this.isMobile, this.buttonLabel}) : super(key: key);
+  final String title;
+  final String badge;
+  final IconData icon;
+  final Color color;
+  final List<Map<String, dynamic>> items;
+  final VoidCallback onTap;
+  final double cardWidth;
+  final bool isMobile;
+  final String? buttonLabel;
+  final String category;
+  final bool showAllItems;
+
+  const _ModuleCardWidget({
+    Key? key,
+    required this.title,
+    required this.badge,
+    required this.icon,
+    required this.color,
+    required this.items,
+    required this.onTap,
+    required this.cardWidth,
+    required this.isMobile,
+    this.buttonLabel,
+    required this.category,
+    this.showAllItems = false,
+  }) : super(key: key);
   @override State<_ModuleCardWidget> createState() => _ModuleCardWidgetState();
 }
 
 class _ModuleCardWidgetState extends State<_ModuleCardWidget> {
   bool isCardHovered = false; int? hoveredItemIndex;
   @override Widget build(BuildContext context) {
-    final displayedItems = widget.items.take(3).toList(); final remainingCount = widget.items.length - 3; final String label = remainingCount > 0 ? '+$remainingCount işlem daha görüntüle' : (widget.buttonLabel ?? 'GÖRÜNTÜLE');
+    final displayedItems = widget.showAllItems ? widget.items : widget.items.take(3).toList(); final remainingCount = widget.items.length - displayedItems.length; final String label = remainingCount > 0 ? '+$remainingCount işlem daha görüntüle' : (widget.buttonLabel ?? 'GÖRÜNTÜLE');
     return MouseRegion(
-      onEnter: (_) => setState(() => isCardHovered = true), 
-      onExit: (_) => setState(() => isCardHovered = false), 
-      child: Container(
-        width: widget.cardWidth, 
-        height: widget.isMobile ? null : 360, 
-        decoration: BoxDecoration(color: Colors.white.withOpacity(0.9), borderRadius: BorderRadius.circular(widget.isMobile ? 24 : 32), border: Border.all(color: isCardHovered ? widget.color : Colors.transparent, width: 1.5)), 
-        padding: EdgeInsets.all(widget.isMobile ? 24 : 32), 
+      onEnter: (_) => setState(() => isCardHovered = true),
+      onExit: (_) => setState(() => isCardHovered = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        width: widget.cardWidth,
+        height: (widget.isMobile || widget.showAllItems) ? null : 380,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(isCardHovered || widget.showAllItems ? 0.08 : 0.03),
+              blurRadius: isCardHovered || widget.showAllItems ? 30 : 20,
+              offset: const Offset(0, 10),
+            ),
+          ],
+          border: Border.all(
+            color: isCardHovered || widget.showAllItems ? widget.color.withOpacity(0.3) : Colors.indigo.withOpacity(0.05),
+            width: 1.5,
+          ),
+        ),
+        padding: EdgeInsets.all(widget.isMobile ? 20 : 24),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start, 
-          mainAxisSize: MainAxisSize.min, 
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: widget.color.withOpacity(0.1), borderRadius: BorderRadius.circular(16)), child: Icon(widget.icon, color: widget.color, size: 24)), Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: widget.color.withOpacity(0.1), borderRadius: BorderRadius.circular(100)), child: Text(widget.badge, style: TextStyle(color: widget.color, fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 0.5)))]), 
-            const SizedBox(height: 24), 
-            Text(widget.title, style: TextStyle(fontSize: widget.isMobile ? 18 : 20, fontWeight: FontWeight.bold, color: const Color(0xFF1E293B))), 
-            const SizedBox(height: 20), 
-            ListView.builder(shrinkWrap: true, padding: EdgeInsets.zero, physics: const NeverScrollableScrollPhysics(), itemCount: displayedItems.length, itemBuilder: (context, index) { final item = displayedItems[index]; final isHovered = hoveredItemIndex == index; return Padding(padding: const EdgeInsets.only(bottom: 8.0), child: MouseRegion(onEnter: (_) => setState(() => hoveredItemIndex = index), onExit: (_) => setState(() => hoveredItemIndex = null), child: InkWell(onTap: item['onTap'] as VoidCallback, borderRadius: BorderRadius.circular(8), child: Padding(padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 8.0), child: Row(children: [Container(width: 5, height: 5, decoration: BoxDecoration(color: isHovered ? widget.color : Colors.blueGrey.shade200, shape: BoxShape.circle)), const SizedBox(width: 10), Expanded(child: Text(item['title'] as String, style: TextStyle(color: isHovered ? widget.color : Colors.blueGrey.shade600, fontSize: 14, fontWeight: isHovered ? FontWeight.bold : FontWeight.w400))), Icon(Icons.chevron_right, size: 14, color: isHovered ? widget.color : Colors.blueGrey.shade300)]))))); }), 
-            if (!widget.isMobile) const Spacer(), 
-            const SizedBox(height: 16), 
-            SizedBox(width: double.infinity, child: ElevatedButton(onPressed: widget.onTap, style: ElevatedButton.styleFrom(backgroundColor: isCardHovered ? widget.color : const Color(0xFFF1F5F9), foregroundColor: isCardHovered ? Colors.white : Colors.blueGrey.shade700, elevation: 0, padding: const EdgeInsets.symmetric(vertical: 20), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))), child: Text(label, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold))))
-          ]
-        )
-      )
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: widget.color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Icon(widget.icon, color: widget.color, size: 28),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: widget.color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    widget.badge,
+                    style: TextStyle(
+                      color: widget.color,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 28),
+            Text(
+              widget.title,
+              style: TextStyle(
+                fontSize: widget.isMobile ? 18 : 22,
+                fontWeight: FontWeight.w900,
+                color: const Color(0xFF1E293B),
+                letterSpacing: -0.5,
+              ),
+            ),
+            const SizedBox(height: 24),
+            ListView.builder(
+              shrinkWrap: true,
+              padding: EdgeInsets.zero,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: displayedItems.length,
+              itemBuilder: (context, index) {
+                final item = displayedItems[index];
+                final isHovered = hoveredItemIndex == index;
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12.0),
+                  child: MouseRegion(
+                    onEnter: (_) => setState(() => hoveredItemIndex = index),
+                    onExit: (_) => setState(() => hoveredItemIndex = null),
+                    child: InkWell(
+                      onTap: item['onTap'] as VoidCallback,
+                      borderRadius: BorderRadius.circular(8),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4.0),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: BoxDecoration(
+                                color: isHovered ? widget.color : Colors.blueGrey.shade200,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                item['title'] as String,
+                                style: TextStyle(
+                                  color: isHovered ? widget.color : Colors.blueGrey.shade600,
+                                  fontSize: 14,
+                                  fontWeight: isHovered ? FontWeight.w900 : FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            Icon(
+                              Icons.chevron_right_rounded,
+                              size: 16,
+                              color: isHovered ? widget.color : Colors.blueGrey.shade300,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+            if (!widget.isMobile && !widget.showAllItems) const Spacer(),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: widget.onTap,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: isCardHovered ? widget.color : const Color(0xFFF1F5F9),
+                  foregroundColor: isCardHovered ? Colors.white : Colors.blueGrey.shade700,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(vertical: 18),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                ),
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -500,4 +1402,12 @@ class DoodlePainter extends CustomPainter {
     for (double x = 0; x < size.width + spacing; x += spacing) { for (double y = 0; y < size.height + spacing; y += spacing) { final iconData = icons[random.nextInt(icons.length)]; final jitterX = random.nextDouble() * 40 - 20; final jitterY = random.nextDouble() * 40 - 20; final rotation = random.nextDouble() * 0.5 - 0.25; final textPainter = TextPainter(textDirection: TextDirection.ltr, text: TextSpan(text: String.fromCharCode(iconData.codePoint), style: TextStyle(fontSize: iconSize, fontFamily: iconData.fontFamily, package: iconData.fontPackage, color: Colors.indigo.withOpacity(0.02 + random.nextDouble() * 0.03)))); textPainter.layout(); canvas.save(); canvas.translate(x + jitterX, y + jitterY); canvas.rotate(rotation); textPainter.paint(canvas, Offset(-textPainter.width / 2, -textPainter.height / 2)); canvas.restore(); } }
   }
   @override bool shouldRepaint(CustomPainter oldDelegate) => false;
+}
+
+class MyCustomScrollBehavior extends MaterialScrollBehavior {
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+        PointerDeviceKind.touch,
+        PointerDeviceKind.mouse,
+      };
 }

@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:printing/printing.dart';
 import 'package:flutter/gestures.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import '../../services/term_service.dart';
 import '../../services/class_schedule_sync_service.dart';
 import '../../services/auto_schedule_service.dart';
+import 'class_schedule_guide_page.dart';
+import '../../services/pdf_service.dart';
+import '../../services/excel_service.dart';
 
 class ClassScheduleScreen extends StatefulWidget {
   final String schoolTypeId;
@@ -196,6 +200,19 @@ class _ClassScheduleScreenState extends State<ClassScheduleScreen> {
             ),
           ],
         ),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.info_outline_rounded, color: Colors.purple),
+            tooltip: 'Program Hazırlama Rehberi',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ClassScheduleGuidePage()),
+              );
+            },
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: Center(
         child: ConstrainedBox(
@@ -487,6 +504,7 @@ class _ScheduleEditorScreenState extends State<_ScheduleEditorScreen> {
       {}; // Şubeye atanmış dersler
   Map<String, int> _remainingHours = {}; // Kalan ders saatleri
   Map<String, int> _dailyLessonCounts = {}; // Her gün için ders sayısı
+  Map<String, String> _lessonShortNames = {}; // lessonId -> shortName
   bool _isLoading = true;
 
   // Filtre değişkenleri
@@ -530,6 +548,19 @@ class _ScheduleEditorScreenState extends State<_ScheduleEditorScreen> {
           .get();
 
       print('📚 Bulunan şube sayısı: ${classesSnapshot.docs.length}');
+
+      // Base dersleri yükle (kısa isimler için)
+      final lessonsSnapshot = await FirebaseFirestore.instance
+          .collection('lessons')
+          .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .get();
+
+      final Map<String, String> lessonShortNames = {};
+      for (var doc in lessonsSnapshot.docs) {
+        final data = doc.data();
+        lessonShortNames[doc.id] = data['shortName'] ?? '';
+      }
 
       final classes = classesSnapshot.docs.map((doc) {
         final data = doc.data();
@@ -797,6 +828,7 @@ class _ScheduleEditorScreenState extends State<_ScheduleEditorScreen> {
         _lessonHours = hours;
         _classLessons = classLessons;
         _remainingHours = remainingHours;
+        _lessonShortNames = lessonShortNames;
         _scheduleData = scheduleData;
         _availableClassLevels = classLevels;
         _availableClassTypes = classTypes;
@@ -842,73 +874,65 @@ class _ScheduleEditorScreenState extends State<_ScheduleEditorScreen> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
           title: Row(
             children: [
-              Icon(Icons.filter_list, color: Colors.purple),
-              SizedBox(width: 8),
-              Text('Filtrele'),
+              Icon(Icons.filter_list_rounded, color: Colors.purple.shade700),
+              SizedBox(width: 12),
+              Text('Filtrele', style: TextStyle(fontWeight: FontWeight.bold)),
             ],
           ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Sınıf Seviyesi',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                children: [
-                  ChoiceChip(
-                    label: Text('Tümü'),
-                    selected: _selectedClassLevel == null,
-                    onSelected: (selected) {
-                      setDialogState(() => _selectedClassLevel = null);
-                    },
-                  ),
-                  ...(_availableClassLevels.toList()..sort()).map(
-                    (level) => ChoiceChip(
-                      label: Text('$level. Sınıf'),
-                      selected: _selectedClassLevel == level,
-                      onSelected: (selected) {
-                        setDialogState(
-                          () => _selectedClassLevel = selected ? level : null,
-                        );
-                      },
+          content: Container(
+            width: 350,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildFilterHeader('Sınıf Seviyesi'),
+                SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _buildFilterChip(
+                      label: 'Tümü',
+                      selected: _selectedClassLevel == null,
+                      onSelected: (selected) => setDialogState(() => _selectedClassLevel = null),
                     ),
-                  ),
-                ],
-              ),
-              SizedBox(height: 16),
-              Text('Sınıf Tipi', style: TextStyle(fontWeight: FontWeight.bold)),
-              SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                children: [
-                  ChoiceChip(
-                    label: Text('Tümü'),
-                    selected: _selectedClassType == null,
-                    onSelected: (selected) {
-                      setDialogState(() => _selectedClassType = null);
-                    },
-                  ),
-                  ..._availableClassTypes.map(
-                    (type) => ChoiceChip(
-                      label: Text(type),
-                      selected: _selectedClassType == type,
-                      onSelected: (selected) {
-                        setDialogState(
-                          () => _selectedClassType = selected ? type : null,
-                        );
-                      },
+                    ...(_availableClassLevels.toList()..sort()).map(
+                      (level) => _buildFilterChip(
+                        label: '$level. Sınıf',
+                        selected: _selectedClassLevel == level,
+                        onSelected: (selected) => setDialogState(() => _selectedClassLevel = selected ? level : null),
+                      ),
                     ),
-                  ),
-                ],
-              ),
-            ],
+                  ],
+                ),
+                SizedBox(height: 24),
+                _buildFilterHeader('Sınıf Tipi'),
+                SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _buildFilterChip(
+                      label: 'Tümü',
+                      selected: _selectedClassType == null,
+                      onSelected: (selected) => setDialogState(() => _selectedClassType = null),
+                    ),
+                    ..._availableClassTypes.map(
+                      (type) => _buildFilterChip(
+                        label: type,
+                        selected: _selectedClassType == type,
+                        onSelected: (selected) => setDialogState(() => _selectedClassType = selected ? type : null),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
+          actionsPadding: EdgeInsets.fromLTRB(16, 0, 16, 16),
           actions: [
             TextButton(
               onPressed: () {
@@ -919,15 +943,21 @@ class _ScheduleEditorScreenState extends State<_ScheduleEditorScreen> {
                 _applyFilter();
                 Navigator.pop(context);
               },
-              child: Text('Temizle'),
+              child: Text('Temizle', style: TextStyle(color: Colors.grey.shade600)),
             ),
             ElevatedButton(
               onPressed: () {
                 _applyFilter();
                 Navigator.pop(context);
               },
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.purple),
-              child: Text('Uygula', style: TextStyle(color: Colors.white)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.purple.shade700,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                elevation: 0,
+              ),
+              child: Text('Uygula', style: TextStyle(fontWeight: FontWeight.bold)),
             ),
           ],
         ),
@@ -935,84 +965,570 @@ class _ScheduleEditorScreenState extends State<_ScheduleEditorScreen> {
     );
   }
 
-  void _showPrintOptions() {
+  Widget _buildFilterHeader(String title) {
+    return Text(
+      title,
+      style: TextStyle(
+        fontSize: 14,
+        fontWeight: FontWeight.bold,
+        color: Colors.grey.shade800,
+      ),
+    );
+  }
+
+  Widget _buildFilterChip({
+    required String label,
+    required bool selected,
+    required Function(bool) onSelected,
+  }) {
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: onSelected,
+      selectedColor: Colors.purple.shade100,
+      labelStyle: TextStyle(
+        color: selected ? Colors.purple.shade900 : Colors.grey.shade700,
+        fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+        fontSize: 13,
+      ),
+      backgroundColor: Colors.grey.shade100,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: selected ? Colors.purple.shade200 : Colors.transparent,
+        ),
+      ),
+      elevation: 0,
+      pressElevation: 0,
+      padding: EdgeInsets.symmetric(horizontal: 4),
+    );
+  }
+
+  void _showPrintDialog() {
     showModalBottomSheet(
       context: context,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => Container(
-        padding: EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Yazdır',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            SizedBox(height: 16),
-            ListTile(
-              leading: Icon(Icons.person, color: Colors.blue),
-              title: Text('Öğretmen Programı Yazdır'),
-              subtitle: Text('Tek öğretmenin haftalık programı'),
-              onTap: () {
-                Navigator.pop(context);
-                _showTeacherPrintSelector();
-              },
-            ),
-            ListTile(
-              leading: Icon(Icons.class_, color: Colors.green),
-              title: Text('Sınıf Programı Yazdır'),
-              subtitle: Text('Tek sınıfın haftalık programı'),
-              onTap: () {
-                Navigator.pop(context);
-                _showClassPrintSelector();
-              },
-            ),
-            Divider(),
-            ListTile(
-              leading: Icon(Icons.grid_on, color: Colors.orange),
-              title: Text('Öğretmen Çarşaf Program'),
-              subtitle: Text('Tüm öğretmenlerin programı tek sayfada'),
-              onTap: () {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Öğretmen çarşaf programı hazırlanıyor...'),
+      isScrollControlled: true,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      backgroundColor: Colors.white,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        minChildSize: 0.4,
+        maxChildSize: 0.9,
+        expand: false,
+        builder: (context, scrollController) => SingleChildScrollView(
+          controller: scrollController,
+          padding: EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: EdgeInsets.all(8),
+                    decoration: BoxDecoration(color: Colors.purple.shade50, borderRadius: BorderRadius.circular(12)),
+                    child: Icon(Icons.print_rounded, color: Colors.purple.shade700),
                   ),
-                );
-              },
-            ),
-            ListTile(
-              leading: Icon(Icons.table_chart, color: Colors.purple),
-              title: Text('Sınıf Çarşaf Program'),
-              subtitle: Text('Tüm sınıfların programı tek sayfada'),
-              onTap: () {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Sınıf çarşaf programı hazırlanıyor...'),
+                  SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Yazdır / Dışa Aktar', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.grey.shade900)),
+                        Text(widget.periodData['periodName'] ?? '', style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                      ],
+                    ),
                   ),
-                );
-              },
-            ),
-          ],
+                ],
+              ),
+              SizedBox(height: 32),
+              _buildPrintOption(
+                icon: Icons.class_rounded,
+                color: Colors.blue,
+                title: 'Tekli Sınıf Programı',
+                subtitle: 'Sınıf seçerek PDF/Excel çıktısı alın',
+                onPdf: () => _handlePrint('class_single', 'pdf'),
+                onExcel: () => _handlePrint('class_single', 'excel'),
+              ),
+              _buildPrintOption(
+                icon: Icons.person_rounded,
+                color: Colors.orange,
+                title: 'Tekli Öğretmen Programı',
+                subtitle: 'Öğretmen seçerek PDF/Excel çıktısı alın',
+                onPdf: () => _handlePrint('teacher_single', 'pdf'),
+                onExcel: () => _handlePrint('teacher_single', 'excel'),
+              ),
+              _buildPrintOption(
+                icon: Icons.grid_view_rounded,
+                color: Colors.purple,
+                title: 'Sınıf Çarşaf Listesi',
+                subtitle: 'Tüm sınıfları toplu tablo olarak indir',
+                onPdf: () => _handlePrint('class_master', 'pdf'),
+                onExcel: () => _handlePrint('class_master', 'excel'),
+              ),
+              _buildPrintOption(
+                icon: Icons.person_search_rounded,
+                color: Colors.green,
+                title: 'Öğretmen Çarşaf Listesi',
+                subtitle: 'Tüm öğretmenleri toplu tablo olarak indir',
+                onPdf: () => _handlePrint('teacher_master', 'pdf'),
+                onExcel: () => _handlePrint('teacher_master', 'excel'),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  void _showTeacherPrintSelector() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Öğretmen seçici yakında eklenecek')),
+  Widget _buildPrintOption({
+    required IconData icon,
+    required Color color,
+    required String title,
+    required String subtitle,
+    required VoidCallback onPdf,
+    required VoidCallback onExcel,
+  }) {
+    return Container(
+      margin: EdgeInsets.only(bottom: 12),
+      padding: EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: EdgeInsets.all(10),
+            decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+            child: Icon(icon, color: color, size: 24),
+          ),
+          SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.grey.shade900)),
+                Text(subtitle, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+              ],
+            ),
+          ),
+          _buildTinyPrintButton('PDF', Colors.red, onPdf),
+          SizedBox(width: 8),
+          _buildTinyPrintButton('EXCEL', Colors.green.shade700, onExcel),
+        ],
+      ),
     );
   }
 
-  void _showClassPrintSelector() {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('Sınıf seçici yakında eklenecek')));
+  Widget _buildTinyPrintButton(String label, Color color, VoidCallback onPressed) {
+    return InkWell(
+      onTap: onPressed,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withOpacity(0.3)),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handlePrint(String type, String format) async {
+    Navigator.pop(context);
+    
+    // Kurum bilgilerini sor ve kaydet
+    final info = await _showInstitutionInfoDialog();
+    if (info == null) return;
+
+    try {
+      final pdfService = PdfService();
+      final excelService = ExcelService();
+
+      if (type == 'class_single') {
+        // Sınıf seçtir (Çoklu Seçim)
+        final List<String> classNames = _classes.map((c) => c['className'] as String? ?? '').where((s) => s.isNotEmpty).toList();
+        final selectedClassNames = await _showMultiSelectionDialog('Yazdırılacak Sınıfları Seçin', classNames, Icons.class_outlined);
+        if (selectedClassNames == null || selectedClassNames.isEmpty) return;
+
+        _showLoadingIndicator();
+
+        // Her seçilen sınıf için veri hazırla
+        List<Map<String, dynamic>> multiClassData = [];
+
+        for (var className in selectedClassNames) {
+          final targetClass = _classes.firstWhere((c) => c['className'] == className);
+          final classId = targetClass['id'];
+
+          Map<String, dynamic> scheduleData = {};
+          Map<String, int> lessonCounts = {};
+          Map<String, String> lessonTeachers = {};
+          Map<String, String> lessonNameToShort = {};
+
+          _scheduleData.forEach((key, data) {
+            if (data['classId'] == classId) {
+              final scheduleKey = '${data['day']}_${data['hourIndex']}';
+              scheduleData[scheduleKey] = {
+                'lessonName': data['lessonName'],
+                'shortName': _lessonShortNames[data['lessonId']] ?? '',
+                'teacherName': data['teacherName'],
+              };
+              lessonNameToShort[data['lessonName'] ?? ''] = _lessonShortNames[data['lessonId']] ?? '';
+              final lessonName = data['lessonName'] as String?;
+              if (lessonName != null) {
+                lessonCounts[lessonName] = (lessonCounts[lessonName] ?? 0) + 1;
+                lessonTeachers[lessonName] = data['teacherName'] ?? '';
+              }
+            }
+          });
+
+          final lessonStats = lessonCounts.entries.map((e) => {
+            'lessonName': e.key,
+            'shortName': lessonNameToShort[e.key] ?? '',
+            'count': e.value,
+            'teacherName': lessonTeachers[e.key],
+          }).toList();
+
+          multiClassData.add({
+            'className': className,
+            'scheduleData': scheduleData,
+            'lessonStats': lessonStats,
+          });
+        }
+
+        if (format == 'pdf') {
+          final bytes = await pdfService.generateClassSchedulePdf(
+            multiClassData: multiClassData,
+            days: _days,
+            lessonHours: _lessonHours,
+            institutionInfo: info,
+          );
+          await Printing.sharePdf(bytes: bytes, filename: 'Sinif_Programlari.pdf');
+        } else {
+          // Excel için (Çoklu sayfalı excel servisi henüz yoksa ilkini atalım veya geliştirelim)
+          await excelService.exportScheduleToExcel(
+            title: '${selectedClassNames.first} Haftalık Ders Programı',
+            days: _days,
+            lessonHours: _lessonHours,
+            scheduleData: multiClassData.first['scheduleData'],
+            institutionInfo: info,
+            fileName: 'Sinif_Programi',
+          );
+        }
+      } else if (type == 'teacher_single') {
+        // Öğretmen seçtir (Çoklu Seçim)
+        final teachers = _scheduleData.values
+            .map((e) => e['teacherName'] as String?)
+            .whereType<String>()
+            .toSet()
+            .toList()
+          ..sort();
+        
+        if (teachers.isEmpty) {
+           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Henüz programda öğretmen atanmamış.')));
+           return;
+        }
+
+        final selectedTeacherNames = await _showMultiSelectionDialog('Yazdırılacak Öğretmenleri Seçin', teachers, Icons.person_outline);
+        if (selectedTeacherNames == null || selectedTeacherNames.isEmpty) return;
+
+        _showLoadingIndicator();
+
+        List<Map<String, dynamic>> multiTeacherData = [];
+
+        for (var teacherName in selectedTeacherNames) {
+          Map<String, dynamic> scheduleData = {};
+          // İstatistikler için Key: "Ders Adı | Sınıf Adı"
+          Map<String, int> lessonCounts = {};
+          Map<String, String> lessonNameToShort = {};
+
+          _scheduleData.forEach((key, data) {
+            if (data['teacherName'] == teacherName) {
+              final scheduleKey = '${data['day']}_${data['hourIndex']}';
+              scheduleData[scheduleKey] = {
+                'lessonName': data['lessonName'],
+                'shortName': _lessonShortNames[data['lessonId']] ?? '',
+                'className': data['className'],
+              };
+              
+              final lessonName = data['lessonName'] as String?;
+              final className = data['className'] as String? ?? 'Bilinmiyor';
+              if (lessonName != null) {
+                final statsKey = '$lessonName|$className';
+                lessonCounts[statsKey] = (lessonCounts[statsKey] ?? 0) + 1;
+                lessonNameToShort[lessonName] = _lessonShortNames[data['lessonId']] ?? '';
+              }
+            }
+          });
+
+          final lessonStats = lessonCounts.entries.map((e) {
+            final parts = e.key.split('|');
+            final lName = parts[0];
+            final cName = parts[1];
+            return {
+              'lessonName': lName,
+              'shortName': lessonNameToShort[lName] ?? '',
+              'count': e.value,
+              'className': cName,
+            };
+          }).toList();
+
+          multiTeacherData.add({
+            'teacherName': teacherName,
+            'scheduleData': scheduleData,
+            'lessonStats': lessonStats,
+          });
+        }
+
+        if (format == 'pdf') {
+          final bytes = await pdfService.generateTeacherSchedulePdf(
+            multiTeacherData: multiTeacherData,
+            days: _days,
+            lessonHours: _lessonHours,
+            institutionInfo: info,
+          );
+          await Printing.sharePdf(bytes: bytes, filename: 'Ogretmen_Programlari.pdf');
+        } else {
+          // Excel için master yapısını kullanalım
+          List<Map<String, dynamic>> rows = multiTeacherData.map((e) => {
+            'name': e['teacherName'],
+            'scheduleData': e['scheduleData'],
+          }).toList();
+
+          await excelService.exportMasterScheduleToExcel(
+            days: _days,
+            lessonHours: _lessonHours,
+            rows: rows,
+            institutionInfo: info,
+            typeLabel: 'Öğretmen Programı',
+            fileName: 'Ogretmen_Programi',
+          );
+        }
+      } else if (type == 'class_master' || type == 'teacher_master') {
+        _showLoadingIndicator();
+        List<Map<String, dynamic>> masterRows = [];
+
+        if (type == 'class_master') {
+          for (var cls in _classes) {
+            final classId = cls['id'];
+            Map<String, dynamic> rowSchedule = {};
+            
+            _scheduleData.forEach((key, data) {
+              if (data != null && data['classId'] == classId) {
+                final scheduleKey = '${data['day']}_${data['hourIndex']}';
+                rowSchedule[scheduleKey] = {
+                  'lessonName': data['lessonName'],
+                  'shortName': _lessonShortNames[data['lessonId']] ?? '',
+                  'teacherName': data['teacherName'],
+                };
+              }
+            });
+
+            masterRows.add({
+              'name': cls['className'] ?? 'Sınıf',
+              'scheduleData': rowSchedule,
+            });
+          }
+        } else {
+          // Öğretmen bazlı gruplandırma
+          Map<String, Map<String, dynamic>> teacherSchedules = {};
+          _scheduleData.forEach((key, data) {
+            if (data == null) return;
+            final teacherName = data['teacherName'] ?? 'Bilinmeyen';
+            final scheduleKey = '${data['day']}_${data['hourIndex']}';
+            
+            if (!teacherSchedules.containsKey(teacherName)) {
+              teacherSchedules[teacherName] = {};
+            }
+            teacherSchedules[teacherName]![scheduleKey] = {
+              'lessonName': data['lessonName'],
+              'shortName': _lessonShortNames[data['lessonId']] ?? '',
+              'className': data['className'],
+            };
+          });
+
+          teacherSchedules.forEach((name, schedule) {
+            masterRows.add({'name': name, 'scheduleData': schedule});
+          });
+        }
+
+        if (format == 'pdf') {
+          final bytes = await pdfService.generateMasterSchedulePdf(
+            days: _days,
+            lessonHours: _lessonHours,
+            rows: masterRows,
+            institutionInfo: info,
+            typeLabel: type == 'class_master' ? 'Sınıflar' : 'Öğretmenler',
+          );
+          await Printing.sharePdf(bytes: bytes, filename: 'Carsaf_Liste.pdf');
+        } else {
+          await excelService.exportMasterScheduleToExcel(
+            days: _days,
+            lessonHours: _lessonHours,
+            rows: masterRows,
+            institutionInfo: info,
+            typeLabel: type == 'class_master' ? 'Sınıflar' : 'Öğretmenler',
+            fileName: 'Carsaf_Liste',
+          );
+        }
+      }
+
+      if (mounted && Navigator.canPop(context)) Navigator.pop(context); // Yükleniyor'u kapat
+    } catch (e) {
+      if (mounted && Navigator.canPop(context)) Navigator.pop(context);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e')));
+    }
+  }
+
+  void _showLoadingIndicator() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Center(
+        child: Container(
+          padding: EdgeInsets.all(24),
+          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+          child: CircularProgressIndicator(),
+        ),
+      ),
+    );
+  }
+
+  Future<List<String>?> _showMultiSelectionDialog(
+      String title, List<String> items, IconData icon) async {
+    
+    final isMobile = MediaQuery.of(context).size.width < 600;
+
+    if (isMobile) {
+      return Navigator.push<List<String>>(
+        context,
+        MaterialPageRoute(
+          builder: (context) => FullSelectionPage(title: title, items: items, icon: icon),
+          fullscreenDialog: true,
+        ),
+      );
+    }
+
+    return showDialog<List<String>>(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        child: _MultiSelectionContent(
+          title: title,
+          items: items,
+          icon: icon,
+          isDialog: true,
+        ),
+      ),
+    );
+  }
+
+  Future<Map<String, String>?> _showInstitutionInfoDialog() async {
+    final schoolTypeDoc = await FirebaseFirestore.instance.collection('schoolTypes').doc(widget.schoolTypeId).get();
+    final savedInfo = Map<String, dynamic>.from(schoolTypeDoc.data()?['institutionalInfo'] ?? {});
+
+    final cityCtrl = TextEditingController(text: savedInfo['city'] ?? 'Ankara');
+    final districtCtrl = TextEditingController(text: savedInfo['district'] ?? 'Etimesgut');
+    final schoolCtrl = TextEditingController(text: savedInfo['schoolName'] ?? 'ABC Ortaokulu');
+    final principalCtrl = TextEditingController(text: savedInfo['principalName'] ?? 'Zafer Yaz');
+
+    final result = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: Row(
+          children: [
+            Icon(Icons.business_rounded, color: Colors.blue),
+            SizedBox(width: 12),
+            Text('Yazdırma Bilgileri', style: TextStyle(fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildModernField(cityCtrl, 'İl', Icons.location_city),
+              SizedBox(height: 16),
+              _buildModernField(districtCtrl, 'İlçe', Icons.map),
+              SizedBox(height: 16),
+              _buildModernField(schoolCtrl, 'Okul Adı', Icons.school),
+              SizedBox(height: 16),
+              _buildModernField(principalCtrl, 'Okul Müdürü', Icons.person),
+              SizedBox(height: 20),
+              Container(
+                padding: EdgeInsets.all(12),
+                decoration: BoxDecoration(color: Colors.blue.withOpacity(0.05), borderRadius: BorderRadius.circular(12)),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, size: 16, color: Colors.blue.shade700),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Bu bilgiler her okul türü için kaydedilir.', 
+                        style: TextStyle(fontSize: 11, color: Colors.blue.shade800)
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        actionsPadding: EdgeInsets.fromLTRB(16, 0, 16, 16),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: Text('İptal', style: TextStyle(color: Colors.grey))),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, {
+              'city': cityCtrl.text,
+              'district': districtCtrl.text,
+              'schoolName': schoolCtrl.text,
+              'principalName': principalCtrl.text,
+            }),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue.shade600,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            ),
+            child: Text('Kaydet ve Devam Et', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null) {
+      // Bilgileri Firestore'a kaydet
+      await FirebaseFirestore.instance
+          .collection('schoolTypes')
+          .doc(widget.schoolTypeId)
+          .set({'institutionalInfo': result}, SetOptions(merge: true));
+    }
+    
+    return result;
+  }
+
+  Widget _buildModernField(TextEditingController controller, String label, IconData icon) {
+    return TextField(
+      controller: controller,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, size: 20, color: Colors.grey.shade600),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.blue, width: 2)),
+        filled: true,
+        fillColor: Colors.grey.shade50,
+        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      ),
+    );
   }
 
   void _showCopyToAnotherPeriodDialog() async {
@@ -1638,8 +2154,8 @@ class _ScheduleEditorScreenState extends State<_ScheduleEditorScreen> {
           ),
           // Yazdır butonu
           IconButton(
-            icon: Icon(Icons.print, color: Colors.grey.shade700),
-            onPressed: _showPrintOptions,
+            icon: Icon(Icons.print, color: Colors.purple),
+            onPressed: _showPrintDialog,
             tooltip: 'Yazdır',
           ),
           // 3 nokta menüsü (kopyala vb.)
@@ -2095,5 +2611,265 @@ class _ScheduleEditorScreenState extends State<_ScheduleEditorScreen> {
       return words.map((w) => w.isNotEmpty ? w[0] : '').join('').toUpperCase();
     }
     return lessonName.substring(0, 3).toUpperCase();
+  }
+}
+
+class _MultiSelectionContent extends StatefulWidget {
+  final String title;
+  final List<String> items;
+  final IconData icon;
+  final bool isDialog;
+
+  const _MultiSelectionContent({
+    required this.title,
+    required this.items,
+    required this.icon,
+    this.isDialog = false,
+  });
+
+  @override
+  State<_MultiSelectionContent> createState() => _MultiSelectionContentState();
+}
+
+class _MultiSelectionContentState extends State<_MultiSelectionContent> {
+  List<String> selectedItems = [];
+  late Map<String, List<String>> levelGroups;
+  late List<String> sortedLevels;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeGroups();
+  }
+
+  void _initializeGroups() {
+    levelGroups = {};
+    for (var item in widget.items) {
+      String level = 'Diğer';
+      final digitsMatch = RegExp(r'^(\d+)').firstMatch(item);
+      if (digitsMatch != null) {
+        String digits = digitsMatch.group(1)!;
+        if (digits.length >= 3) {
+          level = '${digits.substring(0, digits.length - 2)}. Sınıf';
+        } else {
+          level = '$digits. Sınıf';
+        }
+      }
+      if (!levelGroups.containsKey(level)) levelGroups[level] = [];
+      levelGroups[level]!.add(item);
+    }
+    sortedLevels = levelGroups.keys.toList()..sort((a, b) {
+      if (a == 'Diğer') return 1;
+      if (b == 'Diğer') return -1;
+      return a.compareTo(b);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: widget.isDialog ? 600 : double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: widget.isDialog ? BorderRadius.circular(28) : null,
+      ),
+      child: Column(
+        mainAxisSize: widget.isDialog ? MainAxisSize.min : MainAxisSize.max,
+        children: [
+          Container(
+            padding: EdgeInsets.fromLTRB(24, widget.isDialog ? 24 : 48, 16, 24),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(colors: [Colors.purple.shade700, Colors.indigo.shade700]),
+              borderRadius: widget.isDialog ? BorderRadius.vertical(top: Radius.circular(28)) : null,
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: EdgeInsets.all(12),
+                  decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(16)),
+                  child: Icon(widget.icon, color: Colors.white, size: 28),
+                ),
+                SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(widget.title, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20)),
+                      Text('Lütfen yazdırılacak öğeleri seçin', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: Icon(Icons.close, color: Colors.white70),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: EdgeInsets.fromLTRB(20, 16, 20, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Hızlı Seçim', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey.shade700)),
+                SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    FilterChip(
+                      label: Text('Tümünü Seç'),
+                      selected: selectedItems.length == widget.items.length && widget.items.isNotEmpty,
+                      onSelected: (val) {
+                        setState(() {
+                          if (val) selectedItems = List.from(widget.items);
+                          else selectedItems.clear();
+                        });
+                      },
+                    ),
+                    if (levelGroups.length > 1)
+                      ...sortedLevels.map((lvl) {
+                        final lvlItems = levelGroups[lvl]!;
+                        final isAllSelected = lvlItems.every((i) => selectedItems.contains(i));
+                        return FilterChip(
+                          label: Text('$lvl ler'),
+                          selected: isAllSelected,
+                          selectedColor: Colors.purple.withOpacity(0.2),
+                          onSelected: (val) {
+                            setState(() {
+                              if (val) {
+                                for (var i in lvlItems) if (!selectedItems.contains(i)) selectedItems.add(i);
+                              } else {
+                                for (var i in lvlItems) selectedItems.remove(i);
+                              }
+                            });
+                          },
+                        );
+                      }),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          Divider(height: 1),
+          Expanded(
+            flex: widget.isDialog ? 0 : 1,
+            child: Container(
+              constraints: widget.isDialog ? BoxConstraints(maxHeight: 400) : null,
+              padding: EdgeInsets.all(20),
+              child: widget.items.length > 8
+                ? GridView.builder(
+                    shrinkWrap: widget.isDialog,
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: MediaQuery.of(context).size.width > 600 ? 3 : 2,
+                      childAspectRatio: 3.5,
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                    ),
+                    itemCount: widget.items.length,
+                    itemBuilder: (context, index) => _buildItemCard(widget.items[index]),
+                  )
+                : ListView.builder(
+                    shrinkWrap: widget.isDialog,
+                    itemCount: widget.items.length,
+                    itemBuilder: (context, index) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8.0),
+                      child: _buildItemCard(widget.items[index]),
+                    ),
+                  ),
+            ),
+          ),
+          Container(
+            padding: EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: widget.isDialog ? BorderRadius.vertical(bottom: Radius.circular(28)) : null,
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: Offset(0, -5))],
+            ),
+            child: Row(
+              children: [
+                Text('${selectedItems.length} öğe seçildi', style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w500)),
+                Spacer(),
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text('İptal', style: TextStyle(color: Colors.grey.shade600)),
+                ),
+                SizedBox(width: 12),
+                Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(colors: [Colors.purple.shade600, Colors.indigo.shade600]),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [BoxShadow(color: Colors.purple.withOpacity(0.3), blurRadius: 8, offset: Offset(0, 4))],
+                  ),
+                  child: ElevatedButton(
+                    onPressed: selectedItems.isEmpty ? null : () => Navigator.pop(context, selectedItems),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.transparent,
+                      shadowColor: Colors.transparent,
+                      foregroundColor: Colors.white,
+                      padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    ),
+                    child: Text('Hemen Yazdır', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildItemCard(String item) {
+    final isSelected = selectedItems.contains(item);
+    return InkWell(
+      onTap: () {
+        setState(() {
+          if (isSelected) selectedItems.remove(item);
+          else selectedItems.add(item);
+        });
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: AnimatedContainer(
+        duration: Duration(milliseconds: 200),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.purple.shade50 : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? Colors.purple.shade300 : Colors.grey.shade300,
+            width: isSelected ? 2 : 1,
+          ),
+          boxShadow: isSelected ? [BoxShadow(color: Colors.purple.withOpacity(0.1), blurRadius: 4, offset: Offset(0, 2))] : null,
+        ),
+        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          children: [
+            Icon(
+              isSelected ? Icons.check_circle : Icons.circle_outlined,
+              color: isSelected ? Colors.purple : Colors.grey.shade400,
+              size: 20,
+            ),
+            SizedBox(width: 8),
+            Expanded(child: Text(item, style: TextStyle(fontWeight: isSelected ? FontWeight.bold : FontWeight.normal, fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class FullSelectionPage extends StatelessWidget {
+  final String title;
+  final List<String> items;
+  final IconData icon;
+
+  const FullSelectionPage({required this.title, required this.items, required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: _MultiSelectionContent(title: title, items: items, icon: icon, isDialog: false),
+    );
   }
 }

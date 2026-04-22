@@ -90,6 +90,9 @@ class MyApp extends StatelessWidget {
   ); // Hafif gri arka plan
   static const Color cardBackgroundColor = Colors.white;
 
+  // Global Navigator Key
+  static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
   @override
   Widget build(BuildContext context) {
     return _buildApp(context);
@@ -98,6 +101,7 @@ class MyApp extends StatelessWidget {
   // Orijinal MaterialApp'i oluşturan yardımcı bir metod
   Widget _buildApp(BuildContext context) {
     return MaterialApp(
+      navigatorKey: navigatorKey,
       builder: (context, child) {
         return _GlobalKeyboardUnfocusWrapper(child: child!);
       },

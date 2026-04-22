@@ -16,42 +16,74 @@ class StylishBottomNav extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       color: Colors.transparent,
-      height: 70, // Reduced height since we removed top gap
+      height: 95, // Kartların bittiği yer (90.0) + biraz shadow payı
       child: Stack(
         clipBehavior: Clip.none,
-        alignment: Alignment.bottomCenter,
+        alignment: Alignment.topCenter,
         children: [
-          // Background Curve
+          // Background Cards with Concave Curve
           CustomPaint(
-            size: Size(MediaQuery.of(context).size.width, 70),
+            size: Size(MediaQuery.of(context).size.width, 95),
             painter: _CurvedPainter(),
           ),
 
-          // Items Row
-          SizedBox(
-            height: 70,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                Expanded(child: _buildNavItem(0, Icons.campaign, 'Duyurular')),
-                Expanded(child: _buildNavItem(1, Icons.share, 'Sosyal')),
-                const SizedBox(width: 48), // Gap for center button
-                Expanded(child: _buildNavItem(3, Icons.message, 'Mesajlar')),
-                Expanded(child: _buildNavItem(4, Icons.grid_view, 'İşlemler')),
-              ],
+          // Left Item (Haberleşme)
+          Positioned(
+            left: 16,
+            right: MediaQuery.of(context).size.width / 2 + 6,
+            top: 25, // matches cardTop in painter
+            bottom: 5, // matches cardBottom (95 - 90 = 5)
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(20),
+                onTap: () => onTap(0),
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 12, right: 38), // Right padding to avoid the cutout
+                  child: _buildFeatureContent(
+                    title: 'Haberleşme',
+                    subtitle: 'İletişim merkezi',
+                    icon: Icons.campaign_rounded,
+                    color: Colors.indigo,
+                    isSelected: currentIndex == 0,
+                  ),
+                ),
+              ),
             ),
           ),
 
-          // Floating Center Button
+          // Right Item (İşlemler)
           Positioned(
-            top: -25, // Adjusted slightly to sit nicely in the new curve
+            left: MediaQuery.of(context).size.width / 2 + 6,
+            right: 16,
+            top: 25,
+            bottom: 5,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(20),
+                onTap: () => onTap(2),
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 38, right: 12), // Left padding to avoid the cutout
+                  child: _buildFeatureContent(
+                    title: 'İşlemler',
+                    subtitle: 'Notlarım ve diğerleri',
+                    icon: Icons.edit_note_rounded, // matches "Notlarım" icon
+                    color: Colors.purple,
+                    isSelected: currentIndex == 2,
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          // Floating Center Button (Dashboard)
+          Positioned(
+            top: 0, // So the center of a 60x60 button is exactly at y=30, matching 'cy' inside painter
             child: GestureDetector(
-              onTap: () {
-                onTap(2);
-              },
+              onTap: () => onTap(1),
               child: Container(
-                width:
-                    60, // Slightly smaller to fit better if needed, or keep 64
+                width: 60,
                 height: 60,
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
@@ -84,87 +116,65 @@ class StylishBottomNav extends StatelessWidget {
     );
   }
 
-  Widget _buildNavItem(int index, IconData icon, String label) {
-    final isSelected = currentIndex == index;
-    final count = badgeCounts?[index] ?? 0;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => onTap(index),
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+  Widget _buildFeatureContent({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+    required bool isSelected,
+  }) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: color.withOpacity(0.4),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
+                    )
+                  ]
+                : null,
+          ),
+          child: Icon(icon, color: Colors.white, size: 20),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
           child: Column(
-            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Icon(
-                    icon,
-                    color: isSelected
-                        ? const Color(0xFF1565C0) // Blue 800
-                        : Colors.grey.shade400,
-                    size: 26,
-                  ),
-                  if (count > 0)
-                    Positioned(
-                      top: -4,
-                      right: -6,
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF43F5E), // Rose 500
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 2),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.1),
-                              blurRadius: 4,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        constraints: const BoxConstraints(
-                          minWidth: 18,
-                          minHeight: 18,
-                        ),
-                        child: Center(
-                          child: Text(
-                            count > 9 ? '9+' : count.toString(),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 9,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 4),
               FittedBox(
                 fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
                 child: Text(
-                  label,
+                  title,
                   style: TextStyle(
-                    color: isSelected
-                        ? const Color(0xFF1565C0) // Blue 800
-                        : Colors.grey.shade400,
-                    fontSize: 11,
-                    fontWeight: isSelected
-                        ? FontWeight.bold
-                        : FontWeight.normal,
+                    fontSize: 14,
+                    fontWeight: isSelected ? FontWeight.w900 : FontWeight.bold,
+                    color: color.withOpacity(0.9),
                   ),
                 ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 10,
+                  color: color.withOpacity(0.6),
+                  height: 1.1,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ],
           ),
         ),
-      ),
+      ],
     );
   }
 }
@@ -172,50 +182,62 @@ class StylishBottomNav extends StatelessWidget {
 class _CurvedPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.fill;
+    final cx = size.width / 2;
+    final cy = 30.0; // Center of the floating button
+    final cR = 38.0; // Radius of the concave cutout (slightly larger than button radius 30 for padding)
 
-    final path = Path();
-    // Start at 0 instead of 20 to remove top gap
-    path.moveTo(0, 0);
-    path.lineTo(size.width * 0.35, 0);
+    final cardTop = 25.0; // Top of the background cards
+    final cardBottom = 90.0; // Bottom of the background cards (65px height)
 
-    // Curve for the button
-    path.quadraticBezierTo(
-      size.width * 0.40,
-      0,
-      size.width * 0.40,
-      0, // Start of dip
+    // Left card shape
+    Path leftRect = Path()
+      ..addRRect(RRect.fromRectAndRadius(
+        Rect.fromLTRB(16, cardTop, cx - 6, cardBottom), // Leaves a 6px gap to center
+        const Radius.circular(20),
+      ));
+    Path cutout = Path()..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: cR));
+    Path leftPath = Path.combine(PathOperation.difference, leftRect, cutout);
+
+    // Right card shape
+    Path rightRect = Path()
+      ..addRRect(RRect.fromRectAndRadius(
+        Rect.fromLTRB(cx + 6, cardTop, size.width - 16, cardBottom), // Starts 6px past center
+        const Radius.circular(20),
+      ));
+    Path rightPath = Path.combine(PathOperation.difference, rightRect, cutout);
+
+    // Provide visual styling matched identically to _buildFeatureCards from Dashboard V2
+    // Left card (Indigo)
+    canvas.drawPath(
+      leftPath,
+      Paint()
+        ..color = Colors.indigo.withOpacity(0.05)
+        ..style = PaintingStyle.fill,
     );
-    path.cubicTo(
-      size.width * 0.40,
-      0,
-      size.width * 0.42,
-      40, // Dip down (depth 40)
-      size.width * 0.5,
-      40, // Bottom of dip
-    );
-    path.cubicTo(
-      size.width * 0.58,
-      40,
-      size.width * 0.60,
-      0,
-      size.width * 0.60,
-      0, // End of dip
+    canvas.drawPath(
+      leftPath,
+      Paint()
+        ..color = Colors.indigo.withOpacity(0.15)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5,
     );
 
-    path.lineTo(size.width, 0);
-    path.lineTo(size.width, size.height);
-    path.lineTo(0, size.height);
-    path.close();
-
-    // Shadow
-    canvas.drawShadow(path, Colors.black.withOpacity(0.1), 4.0, true);
-
-    canvas.drawPath(path, paint);
+    // Right card (Purple)
+    canvas.drawPath(
+      rightPath,
+      Paint()
+        ..color = Colors.purple.withOpacity(0.05)
+        ..style = PaintingStyle.fill,
+    );
+    canvas.drawPath(
+      rightPath,
+      Paint()
+        ..color = Colors.purple.withOpacity(0.15)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5,
+    );
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(CustomPainter oldDelegate) => false;
 }

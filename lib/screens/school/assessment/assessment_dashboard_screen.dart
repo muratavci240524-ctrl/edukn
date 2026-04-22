@@ -7,15 +7,18 @@ import 'assessment_reports_screen.dart';
 import '../../../services/assessment_service.dart';
 import '../../../models/assessment/trial_exam_model.dart';
 import '../../../models/assessment/outcome_list_model.dart';
+import 'error_booklet/error_booklet_dashboard_screen.dart';
 
 class AssessmentDashboardScreen extends StatefulWidget {
   final String institutionId;
   final String schoolTypeId;
+  final int initialTab;
 
   const AssessmentDashboardScreen({
     Key? key,
     required this.institutionId,
     required this.schoolTypeId,
+    this.initialTab = 0,
   }) : super(key: key);
 
   @override
@@ -131,6 +134,28 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
                       );
                     }
                   },
+                ),
+                
+                const SizedBox(height: 24),
+
+                // Row 3: Hata Kitapçığı (New)
+                _buildSecondaryCard(
+                  title: 'Hata Kitapçığı Designer',
+                  subtitle: 'Sınav PDF\'lerini sisteme yükleyin, soruları kırpın ve öğrencilere özel hata kitapçıkları oluşturun.',
+                  icon: Icons.auto_stories_rounded,
+                  iconColor: Colors.deepOrange,
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (ctx) => ErrorBookletDashboardScreen(
+                          institutionId: widget.institutionId,
+                          schoolTypeId: widget.schoolTypeId,
+                        ),
+                      ),
+                    );
+                  },
+                  actions: ['PDF Yükle', 'Soru Kırp', 'Kitapçık Oluştur'],
                 ),
               ],
             ),
