@@ -24,6 +24,7 @@ class TrialExam {
   final List<String> selectedBranches; // Filter branches
   final String? resultsJson; // Stores computed results
   final Map<String, dynamic> sharingSettings; // Sharing configuration
+  final Map<String, Map<String, String>> bookletMapping; // NEW: Booklet -> Subject -> MappingString (e.g. "4,3,2,1")
 
   static AnswerStatus evaluateAnswer(String studentChar, String refChar) {
     studentChar = studentChar.toUpperCase();
@@ -38,7 +39,7 @@ class TrialExam {
     }
 
     // 2. Standard comparison
-    if (studentChar == ' ' || studentChar == '*' || studentChar == '.') {
+    if (studentChar == ' ' || studentChar == '*' || studentChar == '.' || studentChar == '-' || studentChar == '_' || studentChar.isEmpty) {
       return AnswerStatus.empty;
     }
 
@@ -69,6 +70,7 @@ class TrialExam {
     this.isLaunched = false, // Default false
     this.resultsJson,
     this.sharingSettings = const {},
+    this.bookletMapping = const {},
   });
 
   Map<String, dynamic> toMap() {
@@ -92,6 +94,7 @@ class TrialExam {
       'isLaunched': isLaunched,
       'resultsJson': resultsJson,
       'sharingSettings': sharingSettings,
+      'bookletMapping': bookletMapping,
     };
   }
 
@@ -136,6 +139,20 @@ class TrialExam {
           .toList();
     }
 
+    // Booklet Mapping Parsing
+    Map<String, Map<String, String>> parsedMapping = {};
+    if (map['bookletMapping'] != null) {
+      Map<String, dynamic> bm = Map<String, dynamic>.from(map['bookletMapping']);
+      bm.forEach((booklet, subjects) {
+        parsedMapping[booklet] = {};
+        if (subjects is Map) {
+          subjects.forEach((subj, mapping) {
+            parsedMapping[booklet]![subj.toString()] = mapping.toString();
+          });
+        }
+      });
+    }
+
     return TrialExam(
       id: id,
       institutionId: map['institutionId'] ?? '',
@@ -159,6 +176,7 @@ class TrialExam {
       isLaunched: map['isLaunched'] ?? false, // Load from map
       resultsJson: map['resultsJson'],
       sharingSettings: map['sharingSettings'] ?? {},
+      bookletMapping: parsedMapping,
     );
   }
 

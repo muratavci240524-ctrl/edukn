@@ -54,6 +54,8 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
   String? _groupFilterBranch;
   final Set<String> _selectedStudentIds = {};
   Set<String>? _selectedTimeSlots;
+  Map<String, StudentResult>? _cachedResults;
+  Map<String, Map<String, Set<String>>>? _cachedWeakOutcomes;
 
   @override
   void initState() {
@@ -973,15 +975,15 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
               itemCount: assignments.length,
               itemBuilder: (context, i) {
                 final a = assignments[i];
-                final isSelected = _selectedStudentIds.contains(a.ogrenciId);
+                final isSelected = _selectedStudentIds.contains(a.id);
 
                 return InkWell(
                   onTap: () {
                     setState(() {
                       if (isSelected) {
-                        _selectedStudentIds.remove(a.ogrenciId);
+                        _selectedStudentIds.remove(a.id);
                       } else {
-                        _selectedStudentIds.add(a.ogrenciId);
+                        _selectedStudentIds.add(a.id);
                       }
                     });
                   },
@@ -1107,13 +1109,14 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
   /// Grubun ortalama başarı yüzdesi (ihtiyacSkoru'ndan hesapla)
   Widget _buildGroupAvgBadge(AgmGroup group) {
     final assignments = _assignmentsByGroup[group.id] ?? [];
-    if (assignments.isEmpty) return const SizedBox.shrink();
+    final validAssignments = assignments.where((a) => !a.isAbsent).toList();
+    if (validAssignments.isEmpty) return const SizedBox.shrink();
 
     double total = 0;
-    for (final a in assignments) {
+    for (final a in validAssignments) {
       total += (1.0 - a.ihtiyacSkoru).clamp(0.0, 1.0);
     }
-    final avg = total / assignments.length;
+    final avg = total / validAssignments.length;
     final pct = (avg * 100).toStringAsFixed(0);
     final color = avg < 0.4
         ? Colors.red.shade600
@@ -1150,6 +1153,8 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
 
   /// Öğrencinin ihtiyacSkoru'ndan hesaplanmış başarı badge'i
   Widget _buildStudentScoreBadge(AgmAssignment a, AgmGroup group) {
+    if (a.isAbsent) return const SizedBox.shrink();
+
     final basari = (1.0 - a.ihtiyacSkoru).clamp(0.0, 1.0);
     final pct = (basari * 100).toStringAsFixed(0);
     final color = basari < 0.4
@@ -1174,6 +1179,18 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
         ),
       ),
     );
+  }
+
+  double _getGroupSuccessAvg(String groupId) {
+    final assignments = _assignmentsByGroup[groupId] ?? [];
+    final valid = assignments.where((a) => !a.isAbsent).toList();
+    if (valid.isEmpty) return 0.0; // Assume 0% for empty groups to prioritize them if needed, or 1.0 to avoid them.
+    // User wants "en alt düşük ortalamalar", so we want groups with lowest success.
+    double total = 0;
+    for (final a in valid) {
+      total += (1.0 - a.ihtiyacSkoru).clamp(0.0, 1.0);
+    }
+    return total / valid.length;
   }
 
   // ─── GRUP TAKAS DİALOGU ───────────────────────────────────────────────────
@@ -1599,8 +1616,10 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
           ? widget.cycle.referansDenemeSinavIds 
           : [widget.cycle.referansDenemeSinavId];
 
-      final Map<String, StudentResult> aggregatedResults = {};
-      final Map<String, Map<String, Set<String>>> aggregatedWeakOutcomes = {};
+      _cachedResults = {};
+      _cachedWeakOutcomes = {};
+      final Map<String, StudentResult> aggregatedResults = _cachedResults!;
+      final Map<String, Map<String, Set<String>>> aggregatedWeakOutcomes = _cachedWeakOutcomes!;
       final Set<String> allStudentsWhoEnteredExam = {};
       final List<String> selectedBranches = [];
       String classLevel = '';
@@ -2292,17 +2311,19 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
           children: [
             Icon(Icons.warning_amber_rounded, color: Colors.red.shade400),
-            const SizedBox(width: 8),
-            const Text('Gruptan Çıkar'),
+            const SizedBox(width: 10),
+            const Text('Gruptan Çıkar', style: TextStyle(fontSize: 16)),
           ],
         ),
         content: Text(
           studentsToRemove.length == 1
               ? '${studentsToRemove.first.ogrenciAdi} adlı öğrenciyi gruptan çıkarmak istediğinize emin misiniz? Öğrenci yerleşemeyenler listesine eklenecektir.'
               : '${studentsToRemove.length} öğrenciyi gruptan çıkarmak istediğinize emin misiniz? Öğrenciler yerleşemeyenler listesine eklenecektir.',
+          style: const TextStyle(fontSize: 13),
         ),
         actions: [
           TextButton(
@@ -2310,32 +2331,60 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
             child: const Text('İptal'),
           ),
           ElevatedButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(ctx);
-              setState(() {
-                for (final a in studentsToRemove) {
-                  _assignmentsByGroup[a.groupId]?.removeWhere(
-                    (x) => x.ogrenciId == a.ogrenciId,
-                  );
+              setState(() => _loading = true);
 
-                  // Yerleşemeyenlere ekle
-                  if (!_unassignedStudents.contains(a.ogrenciId)) {
-                    _unassignedStudents.add(a.ogrenciId);
+              try {
+                // Call service to persist removal
+                await _service.removeAssignments(studentsToRemove);
+
+                setState(() {
+                  for (final a in studentsToRemove) {
+                    _assignmentsByGroup[a.groupId]?.removeWhere(
+                      (x) => x.id == a.id,
+                    );
+
+                    // Yerleşemeyenlere ekle (local state sync)
+                    if (!_unassignedStudents.contains(a.ogrenciId)) {
+                      _unassignedStudents.add(a.ogrenciId);
+                    }
+
+                    // Nedenlere ekle
+                    final reasons = _unassignedReasons[a.ogrenciId] ?? [];
+                    reasons.add('Kullanıcı tarafından gruptan çıkarıldı.');
+                    _unassignedReasons[a.ogrenciId] = reasons;
                   }
+                  _selectedStudentIds.clear();
+                });
 
-                  // Nedenlere ekle
-                  final reasons = _unassignedReasons[a.ogrenciId] ?? [];
-                  reasons.add('Kullanıcı tarafından gruptan çıkarıldı.');
-                  _unassignedReasons[a.ogrenciId] = reasons;
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Öğrenciler başarıyla çıkarıldı.'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
                 }
-                _selectedStudentIds.clear();
-              });
-
-              // İsteğe bağlı: _saveDraftUpdates();
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Hata: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              } finally {
+                if (mounted) setState(() => _loading = false);
+              }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
               foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
             ),
             child: const Text('Çıkar'),
           ),
@@ -2531,6 +2580,22 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
 
                         try {
                           for (final assignment in studentsToMove) {
+                            // [x] Recalculate success level for the target branch <!-- id: 11 -->
+                            double? calculatedScore;
+                            if (_cachedResults != null && _cachedResults!.containsKey(assignment.ogrenciId)) {
+                              final res = _cachedResults![assignment.ogrenciId]!;
+                              if (res.subjects.containsKey(selectedGroup!.dersAdi)) {
+                                final stats = res.subjects[selectedGroup!.dersAdi]!;
+                                final total = stats.correct + stats.wrong + stats.empty;
+                                if (total > 0) {
+                                  calculatedScore = 1.0 - (stats.correct / total);
+                                }
+                              }
+                            } else if (originalGrp?.dersAdi == selectedGroup?.dersAdi) {
+                                // If same branch, keep existing score
+                                calculatedScore = assignment.ihtiyacSkoru;
+                            }
+
                             await _service.moveStudent(
                               assignmentId: assignment.id,
                               cycleId: widget.cycle.id,
@@ -2542,6 +2607,8 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
                               yeniGrupAdi:
                                   '${selectedGroup!.dersAdi} – ${selectedGroup!.saatDilimiAdi}',
                               isOverride: override,
+                              transferKazanimlar: originalGrp?.kazanimlar,
+                              newIhtiyacSkoru: calculatedScore,
                             );
                           }
                           await _loadData();
@@ -3315,6 +3382,25 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
             .collection('agm_assignments')
             .doc()
             .id;
+        // [x] Recalculate success level (ihtiyacSkoru) if we have data <!-- id: 11 -->
+        double calculatedScore = 0.0;
+        if (_cachedResults != null && _cachedResults!.containsKey(studentId)) {
+          final res = _cachedResults![studentId]!;
+          if (res.subjects.containsKey(newGroup.dersAdi)) {
+            final stats = res.subjects[newGroup.dersAdi]!;
+            final total = stats.correct + stats.wrong + stats.empty;
+            if (total > 0) {
+              calculatedScore = 1.0 - (stats.correct / total);
+            }
+          }
+        } else if (oldAssign != null && oldAssign.ihtiyacSkoru > 0) {
+            // Keep existing if same branch
+            final oldGroup = _groups.firstWhere((g) => g.id == oldAssign.groupId, orElse: () => newGroup);
+            if (oldGroup.dersAdi == newGroup.dersAdi) {
+              calculatedScore = oldAssign.ihtiyacSkoru;
+            }
+        }
+
         final assignment = AgmAssignment(
           id: aId,
           cycleId: widget.cycle.id,
@@ -3324,7 +3410,7 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
           ogrenciAdi: student['name'] ?? 'İsimsiz',
           subeId: student['subeId'] ?? '',
           subeAdi: student['branch'] ?? '',
-          ihtiyacSkoru: 0.0,
+          ihtiyacSkoru: calculatedScore,
           atamaTipi: AgmAssignmentType.manual,
           groupName: newGroup.dersAdi,
           olusturulmaZamani: DateTime.now(),
@@ -3387,7 +3473,7 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
               onPressed: () {
                 final selectedAssignments = _assignmentsByGroup.values
                     .expand((list) => list)
-                    .where((a) => _selectedStudentIds.contains(a.ogrenciId))
+                    .where((a) => _selectedStudentIds.contains(a.id))
                     .toList();
                 _showMoveDialog(selectedAssignments);
               },
@@ -3430,7 +3516,16 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
 
       bool atamaYapildi = false;
 
-      for (final grup in _groups) {
+      // Group prioritization: Active groups (count > 0) first, then Empty groups.
+      // Both subgroups are sorted by success average (ascending).
+      final activeGroups = _groups.where((g) => (_assignmentsByGroup[g.id]?.length ?? 0) > 0).toList()
+        ..sort((a, b) => _getGroupSuccessAvg(a.id).compareTo(_getGroupSuccessAvg(b.id)));
+      
+      final emptyGroups = _groups.where((g) => (_assignmentsByGroup[g.id]?.length ?? 0) == 0).toList();
+      
+      final prioritizedGroups = [...activeGroups, ...emptyGroups];
+
+      for (final grup in prioritizedGroups) {
         if (assignedSubjects.contains(grup.dersAdi)) continue; // Zaten aldı
         if (occupiedTimeSlots.contains(grup.saatDilimiId))
           continue; // Bu saat dolu
@@ -3454,6 +3549,7 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
             atamaTipi: AgmAssignmentType.manual,
             groupName: grup.dersAdi,
             olusturulmaZamani: DateTime.now(),
+            isAbsent: true,
           );
 
           await FirebaseFirestore.instance
@@ -3575,7 +3671,15 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
 
         bool ogrenciIcinAtamaYapildi = false;
 
-        for (final grup in _groups) {
+        // Group prioritization: Active groups (count > 0) first, then Empty groups.
+        final activeGroups = _groups.where((g) => (_assignmentsByGroup[g.id]?.length ?? 0) > 0).toList()
+          ..sort((a, b) => _getGroupSuccessAvg(a.id).compareTo(_getGroupSuccessAvg(b.id)));
+        
+        final emptyGroups = _groups.where((g) => (_assignmentsByGroup[g.id]?.length ?? 0) == 0).toList();
+        
+        final prioritizedGroups = [...activeGroups, ...emptyGroups];
+
+        for (final grup in prioritizedGroups) {
           if (assignedSubjects.contains(grup.dersAdi)) continue; // Zaten aldı
           if (occupiedTimeSlots.contains(grup.saatDilimiId))
             continue; // Bu saat dolu
@@ -3599,6 +3703,7 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
               atamaTipi: AgmAssignmentType.manual,
               groupName: grup.dersAdi,
               olusturulmaZamani: DateTime.now(),
+              isAbsent: true,
             );
 
             await FirebaseFirestore.instance

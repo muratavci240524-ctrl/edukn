@@ -4,6 +4,7 @@ import '../../../../services/assessment_service.dart';
 
 class OutcomeMatchingScreen extends StatefulWidget {
   final Map<String, List<OutcomeItem>> allOutcomes; // Key: BranchName
+  final List<String> orderedBranchNames;
   final String institutionId;
   final String classLevel;
   final String initialBranchName;
@@ -11,6 +12,7 @@ class OutcomeMatchingScreen extends StatefulWidget {
   const OutcomeMatchingScreen({
     Key? key,
     required this.allOutcomes,
+    required this.orderedBranchNames,
     required this.institutionId,
     required this.classLevel,
     required this.initialBranchName,
@@ -157,21 +159,26 @@ class _OutcomeMatchingScreenState extends State<OutcomeMatchingScreen> {
 
       bool matched = false;
 
-      // 1. Exact Text Match (OLD RULE - PRIMARY)
-      String currentClean = _normalizeText(_stripCode(current.description));
-      if (currentClean.isNotEmpty) {
-        try {
-          final textMatch = _masterOutcomes.firstWhere(
-            (m) => _normalizeText(_stripCode(m.description)) == currentClean,
-          );
-          branchMatches[i] = textMatch;
-          matched = true;
-        } catch (_) {}
+      // 1. PRIORITY: Description Similarity Match (>= 80%)
+      double bestScore = 0;
+      OutcomeItem? bestMaster;
+
+      for (var master in _masterOutcomes) {
+        double score = _calculateSimilarity(current, master);
+        if (score > bestScore) {
+          bestScore = score;
+          bestMaster = master;
+        }
+      }
+
+      if (bestMaster != null && bestScore >= 0.8) {
+        branchMatches[i] = bestMaster;
+        matched = true;
       }
 
       if (matched) continue;
 
-      // 2. Exact K12 Code Match
+      // 2. PRIORITY: K12 Code Match
       if (current.k12Code.isNotEmpty) {
         try {
           final masterMatch = _masterOutcomes.firstWhere(
@@ -184,12 +191,10 @@ class _OutcomeMatchingScreenState extends State<OutcomeMatchingScreen> {
 
       if (matched) continue;
 
-      // 3. Kazanım Kodu (Code) Match or Greedy Parent Match (FALLBACK)
+      // 3. PRIORITY: Kazanım Kodu Match (Greedy Parent Match)
       if (current.code.isNotEmpty) {
         String currentNorm = _normalizeKodu(current.code);
         if (currentNorm.isNotEmpty) {
-          // Greedy search: Start from full code, keep removing last parts until match found
-          // e.g. 8.1.2.1.2 -> 8.1.2.1 -> 8.1.2 -> 8.1
           List<String> parts = currentNorm.split('.');
           while (parts.isNotEmpty) {
             String testCode = parts.join('.');
@@ -199,31 +204,11 @@ class _OutcomeMatchingScreenState extends State<OutcomeMatchingScreen> {
               );
               branchMatches[i] = masterMatch;
               matched = true;
-              break; // Found it!
+              break;
             } catch (_) {}
             parts.removeLast();
           }
         }
-      }
-
-      if (matched) continue;
-
-      // 2. Exact Description Similarity Match (Lowered threshold to 80%)
-      double bestScore = 0;
-      OutcomeItem? bestMaster;
-
-      for (var master in _masterOutcomes) {
-        double score = _calculateSimilarity(current, master);
-
-        if (score > bestScore) {
-          bestScore = score;
-          bestMaster = master;
-        }
-      }
-
-      // Automatically match if score is 80% or higher
-      if (bestMaster != null && bestScore >= 0.8) {
-        branchMatches[i] = bestMaster;
       }
     }
     setState(() {});
@@ -312,55 +297,42 @@ class _OutcomeMatchingScreenState extends State<OutcomeMatchingScreen> {
   }
 
   double _calculateSimilarity(OutcomeItem item1, OutcomeItem item2) {
-    // 3. Tokenize
-    Set<String> tokenize(String s) {
-      // 1. Remove punctuation
-      String cleaned = s.replaceAll(
-        RegExp(
-          r'[.,;:\-()""'
-          '\’\‘\“\”\!]',
-        ),
-        ' ',
-      );
+    String s1 = _normalizeText(_stripCode(item1.description));
+    String s2 = _normalizeText(_stripCode(item2.description));
 
-      // 2. Multi-language lowercase normalization
-      cleaned = cleaned.toLowerCase();
+    if (s1.isEmpty && s2.isEmpty) return 1.0;
+    if (s1.isEmpty || s2.isEmpty) return 0.0;
+    if (s1 == s2) return 1.0;
 
-      // Normalize Turkish-specific confusion to support both TR and EN
-      cleaned = cleaned
-          .replaceAll('ı', 'i')
-          .replaceAll('ü', 'u')
-          .replaceAll('ö', 'o')
-          .replaceAll('ş', 's')
-          .replaceAll('ç', 'c')
-          .replaceAll('ğ', 'g');
-
-      return cleaned
-          .trim()
-          .split(RegExp(r'\s+'))
-          .where((e) => e.isNotEmpty)
-          .toSet();
+    // Character-based N-Gram Similarity (Sorensen-Dice Coefficient)
+    // This is much more robust for typos and almost-identical strings
+    List<String> getBigrams(String s) {
+      if (s.length < 2) return [s];
+      List<String> bigrams = [];
+      for (int i = 0; i < s.length - 1; i++) {
+        bigrams.add(s.substring(i, i + 2));
+      }
+      return bigrams;
     }
 
-    String s1 = "${item1.k12Code} ${item1.code} ${item1.description}".trim();
-    String s2 = "${item2.k12Code} ${item2.code} ${item2.description}".trim();
+    final bigrams1 = getBigrams(s1);
+    final bigrams2 = getBigrams(s2);
 
-    var set1 = tokenize(s1);
-    var set2 = tokenize(s2);
+    int matches = 0;
+    final copy2 = List<String>.from(bigrams2);
+    for (var b1 in bigrams1) {
+      int index = copy2.indexOf(b1);
+      if (index != -1) {
+        matches++;
+        copy2.removeAt(index);
+      }
+    }
 
-    if (set1.isEmpty && set2.isEmpty) return 1.0;
-    if (set1.isEmpty || set2.isEmpty) return 0.0;
-
-    var intersection = set1.intersection(set2).length;
-    var union = set1.union(set2).length;
-    double score = union == 0 ? 0 : intersection / union;
-
-    // Fallback: If description parts match exactly after stripping codes, prioritze it (User Request)
-    String desc1 = _stripCode(item1.description);
-    String desc2 = _stripCode(item2.description);
-
-    if (desc1.isNotEmpty && _normalizeText(desc1) == _normalizeText(desc2)) {
-      return 1.0; // Perfect text match regardless of leading codes
+    double score = (2.0 * matches) / (bigrams1.length + bigrams2.length);
+    
+    // Also consider K12 or Code matches as fallback/boost
+    if (item1.k12Code.isNotEmpty && item1.k12Code == item2.k12Code) {
+      score = score < 0.95 ? 0.95 : score; // Boost if K12 matches
     }
 
     return score;
@@ -369,13 +341,16 @@ class _OutcomeMatchingScreenState extends State<OutcomeMatchingScreen> {
   // Advanced recursive stripCode: Removes multiples like "E8.5.SP1. E8.5.SP1. Text"
   String _stripCode(String s) {
     String result = s.trim();
+    // Improved regex: Must look like a code followed by space or dot
+    // e.g., "F.8.3.1.2 ", "1. ", "E.1.2. ", etc.
     final regex = RegExp(
-      r'^\p{L}*\.?[0-9]+(\.[\p{L}0-9]+)*[.\s]+',
+      r'^[\p{L}0-9]{1,10}(\.[\p{L}0-9]{1,10})*[.\s]+',
       caseSensitive: false,
       unicode: true,
     );
 
-    while (true) {
+    // Only strip if the remaining part is long enough (don't strip short sentences that might look like codes)
+    while (result.length > 10) {
       String stripped = result.replaceFirst(regex, '').trim();
       if (stripped == result) break;
       result = stripped;
@@ -385,6 +360,7 @@ class _OutcomeMatchingScreenState extends State<OutcomeMatchingScreen> {
 
   // Normalize TR chars and strip punctuation for perfect matching
   String _normalizeText(String s) {
+    if (s.isEmpty || s.toLowerCase() == 'null') return "";
     String n = s
         .toLowerCase()
         .replaceAll('ı', 'i')
@@ -393,9 +369,11 @@ class _OutcomeMatchingScreenState extends State<OutcomeMatchingScreen> {
         .replaceAll('ş', 's')
         .replaceAll('ç', 'c')
         .replaceAll('ğ', 'g');
-    // Remove all punctuation to prevent `'` vs `’` mismatches
-    n = n.replaceAll(RegExp(r'[.,;:\-()""\’\‘\“\”\!' + r"']"), '');
-    // Remove extra spaces
+    
+    // Remove all punctuation and special characters
+    n = n.replaceAll(RegExp(r'[^\p{L}0-9\s]', unicode: true), '');
+    
+    // Normalize spaces
     return n.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
@@ -447,6 +425,7 @@ class _OutcomeMatchingScreenState extends State<OutcomeMatchingScreen> {
               code: matchedItem.code,
               description: matchedItem.description,
               depth: updatedList[index].depth,
+              k12Code: matchedItem.k12Code, // Keep K12 code in sync
             );
           }
         });
@@ -595,7 +574,9 @@ class _OutcomeMatchingScreenState extends State<OutcomeMatchingScreen> {
                     child: DropdownButton<String>(
                       isExpanded: true,
                       value: _currentBranch,
-                      items: widget.allOutcomes.keys.map((String value) {
+                      items: widget.orderedBranchNames
+                          .where((name) => widget.allOutcomes.containsKey(name))
+                          .map((String value) {
                         return DropdownMenuItem<String>(
                           value: value,
                           child: Text(
@@ -707,7 +688,7 @@ class _OutcomeMatchingScreenState extends State<OutcomeMatchingScreen> {
                                     ),
                                   ),
                                 Text(
-                                  item.description.isNotEmpty
+                                  (item.description.isNotEmpty && item.description.toLowerCase() != 'null')
                                       ? item.description
                                       : (item.code.isNotEmpty
                                             ? 'Kod: ${item.code}'

@@ -13,6 +13,12 @@ import 'hr/hr_hub_screen.dart';
 import 'guidance/demand/demand_dashboard_screen.dart';
 import '../portfolio/portfolio_screen.dart';
 import 'dart:math' as math;
+import 'assessment/assessment_definitions_screen.dart';
+import 'assessment/assessment_reports_screen.dart';
+import 'assessment/trial_exam_list_screen.dart';
+import 'assessment/active_exam_list_screen.dart';
+import 'assessment/error_booklet/error_booklet_dashboard_screen.dart';
+import 'assessment/question_pool/question_pool_screen.dart';
 import '../teacher/teacher_qr_scan_screen.dart';
 import 'student_registration_screen.dart';
 import '../../main.dart';
@@ -916,12 +922,12 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
             category: 'Ölçme',
             showAllItems: isFiltered,
             items: [
-              {'title': 'Sınav Tanımları', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => AssessmentDashboardScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'])))},
-              {'title': 'Optik Formlar', 'onTap': () {}},
-              {'title': 'Soru Bankası', 'onTap': () {}},
-              {'title': 'Hata Kitapçığı', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => AssessmentDashboardScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'], initialTab: 2)))},
-              if (_hasModuleAccess('yoklama')) {'title': 'Yoklama Raporları', 'onTap': () {}},
-              {'title': 'Gelişim Analizi', 'onTap': () {}},
+              {'title': 'Tanımlar', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => AssessmentDefinitionsScreen(institutionId: schoolData!['institutionId'])))},
+              {'title': 'Raporlar', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => AssessmentReportsScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'])))},
+              {'title': 'Denemeler', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => TrialExamListScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'])))},
+              {'title': 'Sınavlar', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => ActiveExamListScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'])))},
+              {'title': 'Hata Kitapçığı', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => ErrorBookletDashboardScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'])))},
+              {'title': 'Soru Havuzu', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => QuestionPoolScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'])))},
             ],
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AssessmentDashboardScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id']))),
           ),

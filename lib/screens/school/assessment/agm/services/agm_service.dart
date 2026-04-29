@@ -339,6 +339,8 @@ class AgmService {
     String? subeId,
     String? subeAdi,
     String? overrideNedeni,
+    List<String>? transferKazanimlar,
+    double? newIhtiyacSkoru,
   }) async {
     // 0) Cycle bilgilerini al (min ders sayısı ve instId için)
     final cycleDoc = await _db.collection('agm_cycles').doc(cycleId).get();
@@ -356,19 +358,42 @@ class AgmService {
         ogrenciAdi: ogrenciAdi,
         subeId: subeId ?? '',
         subeAdi: subeAdi ?? '',
-        ihtiyacSkoru: 0.0,
+        ihtiyacSkoru: newIhtiyacSkoru ?? 0.0,
         atamaTipi: AgmAssignmentType.manual,
         olusturulmaZamani: DateTime.now(),
         isAbsent: true,
       );
       await _repo.batchWriteAssignments([yeniAtama]);
     } else {
-      await _repo.moveAssignment(assignmentId, yeniGrupId, yeniGrupAdi);
+      // Update existing assignment with new group and potentially new score
+      final Map<String, dynamic> updates = {
+        'groupId': yeniGrupId,
+        'groupName': yeniGrupAdi,
+        'atamaTipi': AgmAssignmentType.manual.name,
+      };
+      if (newIhtiyacSkoru != null) {
+        updates['ihtiyacSkoru'] = newIhtiyacSkoru;
+      }
+      await _db.collection('agm_assignments').doc(assignmentId).update(updates);
+
       if (eskiGrupId.isNotEmpty) {
         await _repo.updateGroupStudentCount(eskiGrupId, -1);
       }
     }
     await _repo.updateGroupStudentCount(yeniGrupId, 1);
+
+    // [x] Transfer kazanımlar if provided and target group is empty <!-- id: 10 -->
+    if (transferKazanimlar != null && transferKazanimlar.isNotEmpty) {
+      final targetGroupDoc = await _db.collection('agm_groups').doc(yeniGrupId).get();
+      if (targetGroupDoc.exists) {
+        final currentKazanimlar = List<String>.from(targetGroupDoc.data()?['kazanimlar'] ?? []);
+        if (currentKazanimlar.isEmpty) {
+          await _db.collection('agm_groups').doc(yeniGrupId).update({
+            'kazanimlar': transferKazanimlar,
+          });
+        }
+      }
+    }
 
     // 1) Döngü listelerini güncelle
     final currentAssignments = await _repo.getAssignmentsByStudent(
@@ -393,7 +418,7 @@ class AgmService {
       AgmAssignmentLog(
         id: '',
         cycleId: cycleId,
-        institutionId: '',
+        institutionId: cycle.institutionId,
         ogrenciId: ogrenciId,
         ogrenciAdi: ogrenciAdi,
         eskiGrupId: eskiGrupId,
@@ -406,6 +431,44 @@ class AgmService {
         overrideNedeni: overrideNedeni,
         tarih: DateTime.now(),
       ),
+    );
+  }
+
+  Future<void> removeAssignments(List<AgmAssignment> assignments) async {
+    if (assignments.isEmpty) return;
+
+    final batch = _db.batch();
+    final Map<String, int> groupDeltas = {};
+    final Set<String> absentIds = {};
+    final Set<String> normalIds = {};
+    final String cycleId = assignments.first.cycleId;
+
+    for (final a in assignments) {
+      batch.delete(_db.collection('agm_assignments').doc(a.id));
+      groupDeltas[a.groupId] = (groupDeltas[a.groupId] ?? 0) - 1;
+      
+      if (a.isAbsent) {
+        absentIds.add(a.ogrenciId);
+      } else {
+        normalIds.add(a.ogrenciId);
+      }
+    }
+
+    // Update group counts
+    for (final entry in groupDeltas.entries) {
+      batch.update(_db.collection('agm_groups').doc(entry.key), {
+        'mevcutOgrenciSayisi': FieldValue.increment(entry.value),
+      });
+    }
+
+    await batch.commit();
+
+    // Update cycle lists
+    await _repo.updateCycleStudentLists(
+      cycleId,
+      unassignedAdd: normalIds.toList(),
+      absentAdd: absentIds.toList(),
+      underAssignedRemove: [...normalIds, ...absentIds],
     );
   }
 

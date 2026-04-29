@@ -6,6 +6,7 @@ import 'package:excel/excel.dart' hide Border;
 import 'package:file_saver/file_saver.dart';
 import '../../../../models/assessment/exam_type_model.dart';
 import '../../../../models/assessment/outcome_list_model.dart';
+import '../../../../services/assessment_service.dart';
 import 'outcome_matching_screen.dart';
 
 class TrialExamAnswerKeyScreen extends StatefulWidget {
@@ -13,6 +14,7 @@ class TrialExamAnswerKeyScreen extends StatefulWidget {
   final ExamType examType;
   final Map<String, Map<String, String>> initialAnswerKeys;
   final Map<String, Map<String, List<String>>> initialOutcomes;
+  final Map<String, Map<String, String>> initialMapping;
 
   const TrialExamAnswerKeyScreen({
     Key? key,
@@ -20,6 +22,7 @@ class TrialExamAnswerKeyScreen extends StatefulWidget {
     required this.examType,
     required this.initialAnswerKeys,
     required this.initialOutcomes,
+    this.initialMapping = const {},
   }) : super(key: key);
 
   @override
@@ -40,8 +43,9 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
   _kazanimCodes; // New state for Kazanım Codes
 
   // Controllers are transient, we will rebuild them from state when needed or keep a cache
-  // Caching controllers for performance
   final Map<String, Map<String, TextEditingController>> _keyControllers = {};
+  final Map<String, Map<String, TextEditingController>> _conversionControllers = {};
+  final Map<String, TextEditingController> _bulkControllers = {};
 
   @override
   void initState() {
@@ -87,11 +91,15 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
     );
 
     for (var booklet in bookletNames) {
+      _bulkControllers.putIfAbsent(booklet, () => TextEditingController());
       _keyControllers.putIfAbsent(booklet, () => {});
+      _conversionControllers.putIfAbsent(booklet, () => {});
       _answerKeys.putIfAbsent(booklet, () => {});
       _outcomes.putIfAbsent(booklet, () => {}); // Ensure initial map exists
       _k12Codes.putIfAbsent(booklet, () => {});
       _kazanimCodes.putIfAbsent(booklet, () => {});
+
+      final bookletMapping = widget.initialMapping[booklet] ?? {};
 
       for (var subject in widget.examType.subjects) {
         String currentKey = _answerKeys[booklet]?[subject.branchName] ?? '';
@@ -104,6 +112,14 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
             _answerKeys[booklet]![subject.branchName] =
                 _keyControllers[booklet]![subject.branchName]!.text;
             setState(() {}); // Rebuild for counter
+          });
+          
+          final currentMapping = bookletMapping[subject.branchName] ?? '';
+          _conversionControllers[booklet]![subject.branchName] = TextEditingController(
+            text: currentMapping,
+          );
+          _conversionControllers[booklet]![subject.branchName]!.addListener(() {
+            _applyConversion(booklet, subject.branchName, _conversionControllers[booklet]![subject.branchName]!.text);
           });
         } else {
           _keyControllers[booklet]![subject.branchName]!.text = currentKey;
@@ -140,11 +156,96 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
         ctrl.dispose();
       }
     }
+    for (var booklet in _conversionControllers.values) {
+      for (var ctrl in booklet.values) {
+        ctrl.dispose();
+      }
+    }
+    for (var ctrl in _bulkControllers.values) {
+      ctrl.dispose();
+    }
     super.dispose();
   }
 
+  void _applyConversion(String booklet, String branchName, String conversionText) {
+    if (booklet == 'A') return;
+    
+    // Parse conversion string: Support both '4, 3, 2' and '1(4), 2(3), 3(2)' formats
+    List<int> mapping = [];
+    if (conversionText.contains('(')) {
+      final RegExp regexParentheses = RegExp(r'\((\d+)\)');
+      mapping = regexParentheses.allMatches(conversionText).map((m) => int.parse(m.group(1)!)).toList();
+    } else {
+      final RegExp regexNumbers = RegExp(r'\d+');
+      mapping = regexNumbers.allMatches(conversionText).map((m) => int.parse(m.group(0)!)).toList();
+    }
+    
+    final subject = widget.examType.subjects.firstWhere((s) => s.branchName == branchName);
+    final int qCount = subject.questionCount;
+    
+    String answerA = _answerKeys['A']![branchName] ?? '';
+    List<String> outcomesA = _outcomes['A']![branchName] ?? [];
+    List<String> k12A = _k12Codes['A']![branchName] ?? [];
+    List<String> kazanimA = _kazanimCodes['A']![branchName] ?? [];
+    
+    // Pad A's data to ensure we don't get out of bounds
+    answerA = answerA.padRight(qCount, ' ');
+    if (outcomesA.length < qCount) outcomesA.addAll(List.filled(qCount - outcomesA.length, ''));
+    if (k12A.length < qCount) k12A.addAll(List.filled(qCount - k12A.length, ''));
+    if (kazanimA.length < qCount) kazanimA.addAll(List.filled(qCount - kazanimA.length, ''));
+    
+    String newAnswerB = '';
+    List<String> newOutcomesB = List.filled(qCount, '');
+    List<String> newK12B = List.filled(qCount, '');
+    List<String> newKazanimB = List.filled(qCount, '');
+    
+    for (int i = 0; i < mapping.length && i < qCount; i++) {
+      int mappedIndex = mapping[i] - 1; // 1-based to 0-based
+      if (mappedIndex >= 0 && mappedIndex < qCount) {
+        newAnswerB += answerA[mappedIndex];
+        newOutcomesB[i] = outcomesA[mappedIndex];
+        newK12B[i] = k12A[mappedIndex];
+        newKazanimB[i] = kazanimA[mappedIndex];
+      } else {
+        newAnswerB += ' ';
+      }
+    }
+    
+    // Pad remaining
+    if (newAnswerB.length < qCount) newAnswerB = newAnswerB.padRight(qCount, ' ');
+    
+    // Update internal state without triggering controller listener loops
+    _answerKeys[booklet]![branchName] = newAnswerB;
+    _outcomes[booklet]![branchName] = newOutcomesB;
+    _k12Codes[booklet]![branchName] = newK12B;
+    _kazanimCodes[booklet]![branchName] = newKazanimB;
+    
+    // Update visual textfield for answer key if needed (though we might hide it)
+    if (_keyControllers[booklet]![branchName]!.text != newAnswerB) {
+      _keyControllers[booklet]![branchName]!.value = TextEditingValue(
+        text: newAnswerB,
+        selection: TextSelection.collapsed(offset: newAnswerB.length),
+      );
+    }
+    
+    setState(() {}); // Trigger UI update for read-only preview
+  }
+
   void _onSave() {
-    Navigator.pop(context, {'answerKeys': _answerKeys, 'outcomes': _outcomes});
+    // Collect mappings
+    Map<String, Map<String, String>> bookletMapping = {};
+    _conversionControllers.forEach((booklet, subjects) {
+      bookletMapping[booklet] = {};
+      subjects.forEach((subj, ctrl) {
+        bookletMapping[booklet]![subj] = ctrl.text;
+      });
+    });
+
+    Navigator.pop(context, {
+      'answerKeys': _answerKeys,
+      'outcomes': _outcomes,
+      'bookletMapping': bookletMapping,
+    });
   }
 
   Future<void> _matchSubjectOutcomes(String booklet) async {
@@ -191,6 +292,7 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
       MaterialPageRoute(
         builder: (context) => OutcomeMatchingScreen(
           allOutcomes: outcomesMap,
+          orderedBranchNames: widget.examType.subjects.map((s) => s.branchName).toList(),
           institutionId: widget.examType.institutionId,
           classLevel: widget.examType.gradeLevel,
           initialBranchName: initialBranch,
@@ -201,7 +303,7 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
     if (result != null) {
       setState(() {
         // 1. Build Mapping Dictionary
-        final Map<String, String> rawToStandardMap = {};
+        final Map<String, OutcomeItem> rawToStandardMap = {};
 
         result.forEach((branch, newItems) {
           final originalItems = originalBookletState[branch] ?? [];
@@ -211,16 +313,17 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
             i++
           ) {
             String raw = normalize(originalItems[i]);
-            String standard = newItems[i].description;
+            OutcomeItem standardItem = newItems[i];
+            
             if (raw.isNotEmpty) {
-              rawToStandardMap[raw] = standard;
+              rawToStandardMap[raw] = standardItem;
             }
           }
 
-          // Update current booklet
-          _outcomes[booklet]![branch] = newItems
-              .map((e) => e.description)
-              .toList();
+          // Update current booklet maps
+          _outcomes[booklet]![branch] = newItems.map((e) => e.description).toList();
+          _k12Codes[booklet]![branch] = newItems.map((e) => e.k12Code).toList();
+          _kazanimCodes[booklet]![branch] = newItems.map((e) => e.code).toList();
         });
 
         // 2. Propagate to OTHER booklets
@@ -232,7 +335,14 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
               String raw = itemList[i];
               String norm = normalize(raw);
               if (rawToStandardMap.containsKey(norm)) {
-                itemList[i] = rawToStandardMap[norm]!;
+                itemList[i] = rawToStandardMap[norm]!.description;
+                // Also update other maps for consistency
+                if (_k12Codes[otherBooklet] != null && _k12Codes[otherBooklet]![branch] != null) {
+                  _k12Codes[otherBooklet]![branch]![i] = rawToStandardMap[norm]!.k12Code;
+                }
+                if (_kazanimCodes[otherBooklet] != null && _kazanimCodes[otherBooklet]![branch] != null) {
+                  _kazanimCodes[otherBooklet]![branch]![i] = rawToStandardMap[norm]!.code;
+                }
               }
             }
           });
@@ -348,6 +458,7 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
           Map<String, Map<String, List<String>>> tempOutcomes = {};
           Map<String, Map<String, List<String>>> tempK12 = {};
           Map<String, Map<String, List<String>>> tempKazanimKod = {};
+          Map<String, Map<String, List<int>>> tempMapping = {};
 
           List<String> bookletNames = List.generate(
             widget.bookletCount,
@@ -359,14 +470,13 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
             tempOutcomes[b] = {};
             tempK12[b] = {};
             tempKazanimKod[b] = {};
+            tempMapping[b] = {};
             for (var s in widget.examType.subjects) {
               tempAnswers[b]![s.branchName] = List.filled(s.questionCount, ' ');
               tempOutcomes[b]![s.branchName] = List.filled(s.questionCount, '');
               tempK12[b]![s.branchName] = List.filled(s.questionCount, '');
-              tempKazanimKod[b]![s.branchName] = List.filled(
-                s.questionCount,
-                '',
-              );
+              tempKazanimKod[b]![s.branchName] = List.filled(s.questionCount, '');
+              tempMapping[b]![s.branchName] = List.filled(s.questionCount, 0);
             }
           }
 
@@ -414,17 +524,20 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
             String outcome = '';
             if (row.length > outcomeColIndex) {
               outcome = row[outcomeColIndex]?.value.toString().trim() ?? '';
+              if (outcome.toLowerCase() == 'null') outcome = '';
             }
 
             String k12 = '';
             if (row.length > k12ColIndex) {
               k12 = row[k12ColIndex]?.value.toString().trim() ?? '';
+              if (k12.toLowerCase() == 'null') k12 = '';
             }
 
             String kazanimKod = '';
             if (row.length > kazanimKodColIndex) {
               kazanimKod =
                   row[kazanimKodColIndex]?.value.toString().trim() ?? '';
+              if (kazanimKod.toLowerCase() == 'null') kazanimKod = '';
             }
 
             // Fill (A)
@@ -449,9 +562,9 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
                 tempOutcomes[bookletChar]![subject.branchName]![qNoOther - 1] =
                     outcome;
                 tempK12[bookletChar]![subject.branchName]![qNoOther - 1] = k12;
-                tempKazanimKod[bookletChar]![subject.branchName]![qNoOther -
-                        1] =
+                tempKazanimKod[bookletChar]![subject.branchName]![qNoOther - 1] =
                     kazanimKod;
+                tempMapping[bookletChar]![subject.branchName]![qNoOther - 1] = qNoA;
               }
             }
             processedRows++;
@@ -459,6 +572,8 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
 
           setState(() {
             for (var b in bookletNames) {
+              List<String> formattedBulkParts = [];
+              
               for (var s in widget.examType.subjects) {
                 String keyString =
                     tempAnswers[b]?[s.branchName]?.join('') ?? '';
@@ -475,6 +590,31 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
                 _k12Codes[b]![s.branchName] = tempK12[b]![s.branchName]!;
                 _kazanimCodes[b]![s.branchName] =
                     tempKazanimKod[b]![s.branchName]!;
+                    
+                if (b != 'A') {
+                   List<int> mapping = tempMapping[b]![s.branchName]!;
+                   List<String> formattedParts = [];
+                   for (int i = 0; i < mapping.length; i++) {
+                     if (mapping[i] > 0) {
+                        formattedParts.add('${i + 1}(${mapping[i]})');
+                     } else {
+                        formattedParts.add('${i + 1}(?)');
+                     }
+                   }
+                   String sliceStr = formattedParts.join(',  ');
+                   
+                   if (_conversionControllers[b]![s.branchName] != null) {
+                      _conversionControllers[b]![s.branchName]!.text = sliceStr;
+                   }
+                   formattedBulkParts.add('[${s.branchName}]\n$sliceStr');
+                } else {
+                   String spacedSlice = keyString.split('').join(' ');
+                   formattedBulkParts.add('[${s.branchName}]\n$spacedSlice');
+                }
+              }
+              
+              if (_bulkControllers[b] != null) {
+                 _bulkControllers[b]!.text = formattedBulkParts.join('\n\n');
               }
             }
           });
@@ -491,6 +631,19 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
                   : Colors.green,
             ),
           );
+
+          // Auto-trigger fetch if there are K12 codes but no descriptions
+          bool hasK12ButNoDesc = false;
+          _k12Codes['A']?.forEach((branch, codes) {
+             final descs = _outcomes['A']?[branch] ?? [];
+             if (codes.any((c) => c.isNotEmpty) && descs.any((d) => d.isEmpty || d.toLowerCase() == 'null')) {
+               hasK12ButNoDesc = true;
+             }
+          });
+
+          if (hasK12ButNoDesc) {
+            _autoFetchDescriptionsFromK12(silent: true);
+          }
           break;
         }
       }
@@ -529,13 +682,23 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
                 );
                 _matchSubjectOutcomes(currentBooklet);
               }
+              if (value == 'autofetch') {
+                _autoFetchDescriptionsFromK12();
+              }
             },
             itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+              const PopupMenuItem<String>(
+                value: 'autofetch',
+                child: ListTile(
+                  leading: Icon(Icons.auto_fix_high, color: Colors.teal),
+                  title: Text('K12\'den Metinleri Getir'),
+                ),
+              ),
               const PopupMenuItem<String>(
                 value: 'match',
                 child: ListTile(
                   leading: Icon(Icons.compare_arrows, color: Colors.orange),
-                  title: Text('Kazanım Eşleştir'),
+                  title: Text('Kazanım Eşleştirme Ekranı'),
                 ),
               ),
               const PopupMenuDivider(),
@@ -616,13 +779,345 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
   }
 
   Widget _buildBookletView(String booklet) {
-    return ListView.builder(
+    return ListView(
       padding: EdgeInsets.all(16),
-      itemCount: widget.examType.subjects.length,
-      itemBuilder: (context, index) {
-        final subject = widget.examType.subjects[index];
-        return _buildSubjectCard(booklet, subject);
-      },
+      children: [
+        _buildBulkPasteCard(booklet),
+        ...widget.examType.subjects.map((subject) {
+          if (booklet == 'A') {
+            return _buildSubjectCard(booklet, subject);
+          } else {
+            return _buildConversionCard(booklet, subject);
+          }
+        }).toList(),
+      ],
+    );
+  }
+
+  Widget _buildBulkPasteCard(String booklet) {
+    final bool isA = booklet == 'A';
+    int totalQuestions = widget.examType.subjects.fold(0, (sum, s) => sum + s.questionCount);
+    
+    return Card(
+      elevation: 4,
+      margin: EdgeInsets.only(bottom: 24),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.indigo.shade200, width: 2),
+      ),
+      color: Colors.indigo.shade50,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.flash_on, color: Colors.orange.shade700, size: 28),
+                SizedBox(width: 8),
+                Text(
+                  'Hızlı Toplu Yapıştırma ($totalQuestions Soru)',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.indigo.shade900,
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 8),
+            Text(
+              isA 
+                ? 'Tüm derslerin cevaplarını peş peşe buraya yapıştırın. Sistem derslerin soru sayılarına göre otomatik olarak dağıtacaktır.'
+                : 'Tüm derslerin dönüşüm numaralarını virgüllü veya boşluklu olarak buraya yapıştırın. Sistem otomatik olarak dağıtacaktır.',
+              style: TextStyle(fontSize: 13, color: Colors.indigo.shade700),
+            ),
+            SizedBox(height: 12),
+            TextField(
+              controller: _bulkControllers[booklet],
+              maxLines: null,
+              minLines: 2,
+              decoration: InputDecoration(
+                hintText: isA ? 'Örn: ADDCBBAA...' : 'Örn: 4, 3, 2, 1, 6...',
+                filled: true,
+                fillColor: Colors.white,
+                contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none,
+                ),
+                suffixIcon: Tooltip(
+                  message: 'Yapıştırdığınız anda dağıtılır',
+                  child: Icon(Icons.auto_awesome, color: Colors.indigo),
+                ),
+              ),
+              onChanged: (val) {
+                // To avoid jumping cursor during normal typing, we only format 
+                // if they pasted a large chunk or it ends with newline/space
+                if (val.trim().isNotEmpty) {
+                  _handleBulkPaste(booklet, val);
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _handleBulkPaste(String booklet, String text) {
+    if (booklet == 'A') {
+      // Ignore text inside brackets [Ders Adı] so "TÜRKÇE" doesn't parse 'E' as answer
+      String textWithoutTags = text.replaceAll(RegExp(r'\[.*?\]'), '');
+      String cleanText = textWithoutTags.toUpperCase().replaceAll(RegExp(r'[^A-EXS#]'), '');
+      
+      int currentIndex = 0;
+      List<String> formattedBulkParts = [];
+      
+      for (var subject in widget.examType.subjects) {
+        int qCount = subject.questionCount;
+        if (currentIndex < cleanText.length) {
+          int end = currentIndex + qCount;
+          if (end > cleanText.length) end = cleanText.length;
+          String slice = cleanText.substring(currentIndex, end);
+          
+          if (_keyControllers[booklet]![subject.branchName]!.text != slice) {
+            _keyControllers[booklet]![subject.branchName]!.value = TextEditingValue(
+              text: slice,
+              selection: TextSelection.collapsed(offset: slice.length),
+            );
+          }
+          
+          // Format with spaces for readability: A D D C B B
+          String spacedSlice = slice.split('').join(' ');
+          formattedBulkParts.add('[${subject.branchName}]\n$spacedSlice');
+          
+          currentIndex += qCount;
+        }
+      }
+      
+      // Update the bulk text field to show the formatted branch summary
+      String newBulkText = formattedBulkParts.join('\n\n');
+      // Only update if it's a significant change to avoid cursor locking on manual typing
+      if (!text.contains('[') && cleanText.length > 5) {
+        _bulkControllers[booklet]!.value = TextEditingValue(
+          text: newBulkText,
+          selection: TextSelection.collapsed(offset: newBulkText.length),
+        );
+      }
+
+    } else {
+      // It's a comma/space/newline separated list of numbers for Conversion
+      List<String> numbers = [];
+      if (text.contains('(')) {
+        // If it's already formatted as 1(4), 2(3), we extract the target numbers inside ()
+        final RegExp regexParentheses = RegExp(r'\((\d+)\)');
+        numbers = regexParentheses.allMatches(text).map((m) => m.group(1)!).toList();
+      } else {
+        // Raw numbers
+        final RegExp regexNumbers = RegExp(r'\d+');
+        numbers = regexNumbers.allMatches(text).map((m) => m.group(0)!).toList();
+      }
+      
+      int currentIndex = 0;
+      List<String> formattedBulkParts = [];
+      
+      for (var subject in widget.examType.subjects) {
+        int qCount = subject.questionCount;
+        if (currentIndex < numbers.length) {
+          int end = currentIndex + qCount;
+          if (end > numbers.length) end = numbers.length;
+          List<String> slice = numbers.sublist(currentIndex, end);
+          
+          // Format elegantly as 1(4), 2(3), 3(2)...
+          List<String> formattedParts = [];
+          for (int i = 0; i < slice.length; i++) {
+             formattedParts.add('${i + 1}(${slice[i]})');
+          }
+          String sliceStr = formattedParts.join(',  ');
+          
+          if (_conversionControllers[booklet]![subject.branchName]!.text != sliceStr) {
+            _conversionControllers[booklet]![subject.branchName]!.value = TextEditingValue(
+              text: sliceStr,
+              selection: TextSelection.collapsed(offset: sliceStr.length),
+            );
+          }
+          
+          formattedBulkParts.add('[${subject.branchName}]\n$sliceStr');
+          currentIndex += qCount;
+        }
+      }
+      
+      // Update the bulk text field to show the formatted branch summary
+      String newBulkText = formattedBulkParts.join('\n\n');
+      if (!text.contains('[') && numbers.length > 5) {
+        _bulkControllers[booklet]!.value = TextEditingValue(
+          text: newBulkText,
+          selection: TextSelection.collapsed(offset: newBulkText.length),
+        );
+      }
+    }
+  }
+
+  Widget _buildConversionCard(String booklet, ExamSubject subject) {
+    final conversionController = _conversionControllers[booklet]![subject.branchName]!;
+    final currentAnswerKey = _answerKeys[booklet]?[subject.branchName] ?? '';
+
+    return Card(
+      elevation: 3,
+      margin: EdgeInsets.only(bottom: 16),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Row 1: Title & Info
+            Row(
+              children: [
+                Container(
+                  width: 120,
+                  padding: EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.indigo.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.indigo.shade100),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        subject.branchName,
+                        style: TextStyle(
+                          color: Colors.indigo.shade800,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        '${subject.questionCount} Soru',
+                        style: TextStyle(
+                          color: Colors.indigo.shade400,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(width: 16),
+                Expanded(
+                  child: Text(
+                    '$booklet Kitapçığındaki soruların, A Kitapçığında kaçıncı soruya denk geldiğini sırasıyla yazınız. (Örn: 4, 3, 2, 1, 6...)',
+                    style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 16),
+            
+            // Conversion TextField
+            TextField(
+              controller: conversionController,
+              decoration: InputDecoration(
+                hintText: 'Örn: 1(4), 2(3), 3(2)... veya yapıştırın',
+                filled: true,
+                fillColor: Colors.teal.shade50,
+                prefixIcon: Icon(Icons.transform, color: Colors.teal),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: Colors.teal.shade200),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: Colors.teal, width: 2),
+                ),
+                suffixIcon: IconButton(
+                  icon: Icon(Icons.auto_fix_high, color: Colors.indigo),
+                  tooltip: 'Düzenle (1(4) Formatına Çevir)',
+                  onPressed: () {
+                    final val = conversionController.text;
+                    if (!val.contains('(')) {
+                      final RegExp regexNumbers = RegExp(r'\d+');
+                      final numbers = regexNumbers.allMatches(val).map((m) => m.group(0)!).toList();
+                      if (numbers.isNotEmpty) {
+                        List<String> formattedParts = [];
+                        for (int i = 0; i < numbers.length; i++) {
+                          formattedParts.add('${i + 1}(${numbers[i]})');
+                        }
+                        final newText = formattedParts.join(',  ');
+                        conversionController.value = TextEditingValue(
+                          text: newText,
+                          selection: TextSelection.collapsed(offset: newText.length),
+                        );
+                      }
+                    }
+                  },
+                ),
+              ),
+              onChanged: (val) {
+                // Sadece kullanıcı uzun bir boşluklu metin yapıştırdığında otomatik formatı tetikleyelim.
+                // Manuel yazarken imleç zıplamasını engellemek için.
+                if (!val.contains('(') && val.length > 5 && val.contains(' ') && val.endsWith(' ')) {
+                   final RegExp regexNumbers = RegExp(r'\d+');
+                   final numbers = regexNumbers.allMatches(val).map((m) => m.group(0)!).toList();
+                   if (numbers.length > 2) {
+                     List<String> formattedParts = [];
+                     for (int i = 0; i < numbers.length; i++) {
+                       formattedParts.add('${i + 1}(${numbers[i]})');
+                     }
+                     final newText = formattedParts.join(',  ');
+                     conversionController.value = TextEditingValue(
+                       text: newText,
+                       selection: TextSelection.collapsed(offset: newText.length),
+                     );
+                   }
+                }
+              },
+            ),
+            
+            SizedBox(height: 16),
+            // Read-Only Generated Answer Key Preview
+            Container(
+              width: double.infinity,
+              padding: EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.shade200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Otomatik Oluşturulan Cevap Anahtarı ($booklet)',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.bold),
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    currentAnswerKey.isEmpty ? 'Henüz dönüşüm girilmedi.' : currentAnswerKey,
+                    style: TextStyle(
+                      fontFamily: 'Monospace',
+                      letterSpacing: 2.0,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: currentAnswerKey.isEmpty ? Colors.grey : Colors.indigo.shade800,
+                    ),
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    'Kazanımlar da A kitapçığından otomatik olarak aktarılmaktadır.',
+                    style: TextStyle(fontSize: 11, color: Colors.green.shade700, fontStyle: FontStyle.italic),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -798,6 +1293,7 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
                     itemCount: subject.questionCount,
                     separatorBuilder: (c, i) => Divider(height: 1),
                     itemBuilder: (context, qIndex) {
+                      final k12Code = (_k12Codes[booklet]?[subject.branchName] ?? [])[qIndex];
                       return Row(
                         children: [
                           Container(
@@ -811,6 +1307,29 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
                               ),
                             ),
                           ),
+                          // K12 Code Field (Smaller)
+                          Container(
+                            width: 80,
+                            child: TextFormField(
+                              initialValue: k12Code,
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                              decoration: InputDecoration(
+                                border: InputBorder.none,
+                                hintText: 'K12...',
+                                isDense: true,
+                                contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+                              ),
+                              onChanged: (val) {
+                                _k12Codes[booklet]![subject.branchName]![qIndex] = val;
+                                // Auto-lookup if K12 is entered
+                                if (val.isNotEmpty) {
+                                   _lookupFromK12(booklet, subject.branchName, qIndex, val);
+                                }
+                              },
+                            ),
+                          ),
+                          const VerticalDivider(width: 1),
+                          // Kazanım Description Field
                           Expanded(
                             child: TextFormField(
                               initialValue: outcomeList[qIndex],
@@ -824,9 +1343,8 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
                                 ),
                               ),
                               onChanged: (val) {
-                                _outcomes[booklet]![subject
-                                        .branchName]![qIndex] =
-                                    val;
+                                _outcomes[booklet]![subject.branchName]![qIndex] = val;
+                                // Could auto-lookup K12 if description is unique, but K12-first is safer
                               },
                             ),
                           ),
@@ -841,6 +1359,102 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
         ),
       ),
     );
+  }
+
+  Future<void> _autoFetchDescriptionsFromK12({bool silent = false}) async {
+    if (!mounted) return;
+    
+    if (!silent) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('K12 kodları üzerinden metinler getiriliyor...')),
+      );
+    }
+
+    try {
+      final assessmentService = AssessmentService();
+      final allMasterLists = await assessmentService.getOutcomeLists(widget.examType.institutionId).first;
+      
+      bool updated = false;
+      
+      // We'll map K12 -> OutcomeItem for all relevant master lists
+      final Map<String, OutcomeItem> masterMap = {};
+      for (var list in allMasterLists) {
+        // Filter by grade level
+        bool relevantClass = list.classLevel.contains(widget.examType.gradeLevel.replaceAll(RegExp(r'[^0-9]'), ''));
+        if (relevantClass) {
+          for (var item in list.outcomes) {
+            if (item.k12Code.isNotEmpty) {
+              masterMap[item.k12Code] = item;
+            }
+          }
+        }
+      }
+
+      setState(() {
+        _outcomes.forEach((booklet, branchMap) {
+          branchMap.forEach((branch, itemList) {
+            final k12List = _k12Codes[booklet]?[branch] ?? [];
+            for (int i = 0; i < itemList.length; i++) {
+              // If description is empty or 'null', and we have a K12 code
+              if ((itemList[i].isEmpty || itemList[i].toLowerCase() == 'null') && i < k12List.length) {
+                final k12 = k12List[i];
+                if (k12.isNotEmpty && masterMap.containsKey(k12)) {
+                  itemList[i] = masterMap[k12]!.description;
+                  if (_kazanimCodes[booklet] != null && _kazanimCodes[booklet]![branch] != null) {
+                    _kazanimCodes[booklet]![branch]![i] = masterMap[k12]!.code;
+                  }
+                  updated = true;
+                }
+              }
+            }
+          });
+        });
+      });
+
+      if (updated) {
+        if (!silent) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Kazanım metinleri başarıyla güncellendi.'), backgroundColor: Colors.green),
+          );
+        }
+      } else if (!silent) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('K12 kodlarıyla eşleşen yeni metin bulunamadı.')),
+        );
+      }
+    } catch (e) {
+      print('Auto-fetch error: $e');
+      if (!silent) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hata oluştu: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _lookupFromK12(String booklet, String branch, int index, String k12) async {
+    // This is a simplified version of the auto-fetch logic for a single item
+    // It uses the already loaded master lists if possible, or fetches them
+    try {
+      final assessmentService = AssessmentService();
+      final allMasterLists = await assessmentService.getOutcomeLists(widget.examType.institutionId).first;
+      
+      for (var list in allMasterLists) {
+        for (var item in list.outcomes) {
+          if (item.k12Code == k12) {
+             setState(() {
+               _outcomes[booklet]![branch]![index] = item.description;
+               if (_kazanimCodes[booklet] != null && _kazanimCodes[booklet]![branch] != null) {
+                  _kazanimCodes[booklet]![branch]![index] = item.code;
+               }
+             });
+             return;
+          }
+        }
+      }
+    } catch (e) {
+      print('Lookup error: $e');
+    }
   }
 }
 

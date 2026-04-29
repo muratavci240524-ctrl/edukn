@@ -65,6 +65,8 @@ class _TrialExamFormState extends State<TrialExamForm>
   Map<String, Map<String, String>> _answerKeys = {};
   // Booklet -> Subject -> List<Outcome>
   Map<String, Map<String, List<String>>> _outcomes = {};
+  // Booklet -> Subject -> MappingString
+  Map<String, Map<String, String>> _bookletMapping = {};
 
   List<ExamType> _examTypes = [];
   List<String> _classLevels = [];
@@ -157,6 +159,7 @@ class _TrialExamFormState extends State<TrialExamForm>
 
       _answerKeys = Map.from(widget.trialExam!.answerKeys);
       _outcomes = Map.from(widget.trialExam!.outcomes);
+      _bookletMapping = Map.from(widget.trialExam!.bookletMapping);
 
       if (widget.trialExam!.sessions.isNotEmpty) {
         _sessions = widget.trialExam!.sessions
@@ -488,6 +491,7 @@ class _TrialExamFormState extends State<TrialExamForm>
           examType: selectedExamType,
           initialAnswerKeys: _answerKeys,
           initialOutcomes: _outcomes,
+          initialMapping: _bookletMapping,
         ),
       ),
     );
@@ -512,9 +516,18 @@ class _TrialExamFormState extends State<TrialExamForm>
         ),
       );
 
+      final newMapping = (result['bookletMapping'] as Map?)?.map(
+            (key, value) => MapEntry(
+              key.toString(),
+              (value as Map).map((k, v) => MapEntry(k.toString(), v.toString())),
+            ),
+          ) ??
+          {};
+
       setState(() {
         _answerKeys = newAnswerKeys;
         _outcomes = newOutcomes;
+        _bookletMapping = newMapping;
       });
     }
   }
@@ -910,6 +923,7 @@ class _TrialExamFormState extends State<TrialExamForm>
           isLaunched: _isLaunched, // Persist launched status
           resultsJson: finalResultsJson,
           sharingSettings: _sharingSettings,
+          bookletMapping: _bookletMapping,
         );
 
         await _service.saveTrialExam(exam);

@@ -14,6 +14,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:http/http.dart' as http;
 import 'package:file_picker/file_picker.dart';
 import '../../../../models/assessment/trial_exam_model.dart';
+import '../../../../widgets/edukn_logo.dart';
 
 // ───────────────────────────────────────────────────────────────────────────
 // Browser-native canvas crop – GPU-accelerated, truly non-blocking on web.
@@ -101,10 +102,15 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
   int _questionNo = 1;
   List<String> _subjects = [];
   List<Map<String, dynamic>> _localCrops = [];
+  
+  // Subject -> QuestionNo -> { 'success': 85.0, 'outcome': 'Topic Name', 'correctAnswer': 'A' }
+  Map<String, Map<int, Map<String, dynamic>>> _questionStats = {};
 
   bool _isPublishing = false;
   int _publishCount = 0;
   int _publishTotal = 0;
+
+  String _selectedBooklet = 'A'; // Which booklet does this PDF represent?
 
   // ═══════════════════════════════════════════════════════════════════════════
   @override
@@ -119,10 +125,154 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
     _loadAllPdfs();
 
     if (_localSessions.isNotEmpty) {
-      _subjects = _localSessions[0].selectedSubjects;
-      if (_subjects.isNotEmpty) _selectedSubject = _subjects.first;
+      _subjects = List.from(_localSessions[0].selectedSubjects);
     }
+    // Fallback if subjects aren't defined in the session
+    if (_subjects.isEmpty && widget.exam.answerKeys.isNotEmpty) {
+      final bookletKeys = widget.exam.answerKeys['A']?.keys ?? widget.exam.answerKeys.values.first.keys;
+      _subjects = bookletKeys.toList();
+    }
+    if (_subjects.isNotEmpty) {
+      _sortSubjects();
+      _selectedSubject = _subjects.first;
+    }
+    
     _loadPublishedCrops();
+    _precalculateStats();
+  }
+
+  void _sortSubjects() {
+    const order = [
+      'türkçe',
+      't.c. inkılap',
+      'inkılap tarihi',
+      'sosyal bilgiler',
+      'din kültürü',
+      'yabancı dil',
+      'ingilizce',
+      'matematik',
+      'fen bilimleri',
+      'fen bilgisi'
+    ];
+    
+    _subjects.sort((a, b) {
+      int getIdx(String s) {
+        final lower = s.toLowerCase();
+        for (int i = 0; i < order.length; i++) {
+          if (lower.contains(order[i])) return i;
+        }
+        return 999;
+      }
+      return getIdx(a).compareTo(getIdx(b));
+    });
+  }
+
+  /// Populate _questionStats from exam.resultsJson and outcomes
+  void _precalculateStats() {
+    if (widget.exam.resultsJson == null || widget.exam.resultsJson!.isEmpty) return;
+
+    List<dynamic> results = [];
+    try {
+      results = jsonDecode(widget.exam.resultsJson!);
+    } catch (e) {
+      debugPrint('Error parsing resultsJson: $e');
+      return;
+    }
+    if (results.isEmpty) return;
+
+    try {
+      var subjects = widget.exam.sessions.expand((s) => s.selectedSubjects).toSet().toList();
+      if (subjects.isEmpty && widget.exam.answerKeys.isNotEmpty) {
+        subjects = (widget.exam.answerKeys['A']?.keys ?? widget.exam.answerKeys.values.first.keys).toList();
+      }
+      for (var subject in subjects) {
+        // Find Master Booklet (preferably 'A')
+        String refBooklet = '';
+        if (widget.exam.outcomes.containsKey('A') &&
+            widget.exam.outcomes['A']!.containsKey(subject)) {
+          refBooklet = 'A';
+        } else {
+          refBooklet = widget.exam.outcomes.keys.firstWhere(
+            (k) => widget.exam.outcomes[k]!.containsKey(subject),
+            orElse: () => '',
+          );
+        }
+        if (refBooklet.isEmpty) continue;
+
+        final String masterKey = widget.exam.answerKeys[refBooklet]?[subject] ?? '';
+        final List<String> masterTopics = widget.exam.outcomes[refBooklet]?[subject] ?? [];
+        if (masterKey.isEmpty) continue;
+
+        _questionStats[subject] = {};
+
+        final int qCount = masterKey.length;
+        for (int i = 0; i < qCount; i++) {
+          final String correctAns = masterKey[i];
+          final String topic = i < masterTopics.length ? masterTopics[i] : 'Diğer';
+
+          int correctCount = 0;
+          int totalCount = 0;
+
+          for (var student in results) {
+            totalCount++;
+            final String studentBooklet = student['booklet']?.toString() ?? 'A';
+            String studentAnswerStr = '';
+
+            final Map<String, dynamic> subMap = (student['subjects'] is Map) ? Map<String, dynamic>.from(student['subjects']) : {};
+            if (subMap[subject] != null) {
+              final sData = subMap[subject];
+              if (sData is Map) {
+                studentAnswerStr = (sData['answers'] ?? sData['cevaplar'] ?? sData['cevap_anahtari'] ?? '').toString();
+              }
+            }
+            if (studentAnswerStr.isEmpty && student['answers'] is Map) {
+              studentAnswerStr = (student['answers'][subject] ?? '').toString();
+            }
+
+            if (studentAnswerStr.isEmpty) continue;
+
+            int targetIndex = i;
+            if (studentBooklet != refBooklet) {
+              if (widget.exam.outcomes.containsKey(studentBooklet)) {
+                final List<String> studTopics = widget.exam.outcomes[studentBooklet]?[subject] ?? [];
+                int masterTopicOccurrence = 0;
+                for (int m = 0; m < i; m++) {
+                  if (m < masterTopics.length && masterTopics[m] == topic) masterTopicOccurrence++;
+                }
+                int currentOccurrence = 0;
+                int foundIdx = -1;
+                for (int sIdx = 0; sIdx < studTopics.length; sIdx++) {
+                  if (studTopics[sIdx] == topic) {
+                    if (currentOccurrence == masterTopicOccurrence) {
+                      foundIdx = sIdx;
+                      break;
+                    }
+                    currentOccurrence++;
+                  }
+                }
+                if (foundIdx != -1) targetIndex = foundIdx;
+              }
+            }
+
+            if (targetIndex < studentAnswerStr.length) {
+              if (studentAnswerStr[targetIndex].toUpperCase() == correctAns.toUpperCase()) {
+                correctCount++;
+              }
+            }
+          }
+
+          final double success = totalCount > 0 ? (correctCount / totalCount) * 100 : 0;
+          _questionStats[subject]![i + 1] = {
+            'success': success,
+            'outcome': topic,
+            'correctAnswer': correctAns,
+          };
+        }
+      }
+    } catch (e) {
+      debugPrint('_precalculateStats error: $e');
+      // Non-fatal – stats map stays empty; crop still works without metadata.
+    }
   }
 
   /// Load already published questions from Firestore subcollection
@@ -135,16 +285,65 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
           .get();
           
       final loaded = <Map<String, dynamic>>[];
-      for(var doc in snap.docs) {
+      for (var doc in snap.docs) {
         final data = doc.data();
+        final subject = data['subject'];
+        final qNo = data['questionNo'];
+
+        var difficulty = data['difficulty'];
+        var outcome = data['outcome'];
+        var correctAnswer = data['correctAnswer'];
+
+        // Older questions might not have metadata. Backfill them from _questionStats!
+        bool needsUpdate = false;
+        final updateMap = <String, dynamic>{};
+
+        if (difficulty == null || outcome == null || correctAnswer == null) {
+          final stat = _questionStats[subject]?[qNo];
+          if (stat != null) {
+            if (difficulty == null && stat['success'] != null) {
+              difficulty = stat['success'];
+              updateMap['difficulty'] = difficulty;
+              needsUpdate = true;
+            }
+            if (outcome == null && stat['outcome'] != null) {
+              outcome = stat['outcome'];
+              updateMap['outcome'] = outcome;
+              needsUpdate = true;
+            }
+            if (correctAnswer == null && stat['correctAnswer'] != null) {
+              correctAnswer = stat['correctAnswer'];
+              updateMap['correctAnswer'] = correctAnswer;
+              needsUpdate = true;
+            }
+          } else {
+            // Unlikely, but if stat is not present, we can fallback correctAnswer from answerKeys
+            if (correctAnswer == null) {
+              final fallbackAns = _correctAnswer(subject as String, qNo as int);
+              if (fallbackAns != null) {
+                correctAnswer = fallbackAns;
+                updateMap['correctAnswer'] = correctAnswer;
+                needsUpdate = true;
+              }
+            }
+          }
+        }
+
+        // Fire-and-forget update to persist backfilled metadata to the DB
+        if (needsUpdate) {
+          doc.reference.update(updateMap).catchError((_) {});
+        }
+
         loaded.add({
           'bytes': null,
           'imageUrl': data['imageUrl'],
           'base64Image': data['base64Image'], // New Base64 field
-          'subject': data['subject'],
-          'questionNo': data['questionNo'],
+          'subject': subject,
+          'questionNo': qNo,
           'isWide': data['isWide'] ?? false,
-          'correctAnswer': data['correctAnswer'],
+          'correctAnswer': correctAnswer,
+          'difficulty': difficulty,
+          'outcome': outcome,
           'loading': false,
           'sessionIdx': data['sessionIdx'] ?? 0,
           'docId': doc.id,
@@ -186,7 +385,12 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
   void _switchToSession(int idx) {
     setState(() {
       _sessionIdx = idx;
-      _subjects = _localSessions[idx].selectedSubjects;
+      _subjects = List.from(_localSessions[idx].selectedSubjects);
+      if (_subjects.isEmpty && widget.exam.answerKeys.isNotEmpty) {
+        final bookletKeys = widget.exam.answerKeys['A']?.keys ?? widget.exam.answerKeys.values.first.keys;
+        _subjects = bookletKeys.toList();
+      }
+      _sortSubjects();
       _selectedSubject =
           _subjects.isNotEmpty ? _subjects.first : null;
       _questionNo = 1;
@@ -227,6 +431,11 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
       await _renderAllPages(sessionIdx);
     } catch (e) {
       debugPrint('openDoc[$sessionIdx]: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('PDF yüklenirken hata: $e')),
+        );
+      }
     }
   }
 
@@ -356,10 +565,99 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
-  String? _correctAnswer(String subject, int qNo) {
-    final answers = widget.exam.answerKeys['A']?[subject];
-    if (answers == null || qNo > answers.length) return null;
-    return answers[qNo - 1];
+  String? _correctAnswer(String subject, int qNoInCurrentBooklet) {
+    final int masterQNo = _getMasterQuestionNo(_selectedBooklet, subject, qNoInCurrentBooklet);
+    
+    // First try pre-calculated stats (usually indexed by Master A)
+    final statAns = _questionStats[subject]?[masterQNo]?['correctAnswer'];
+    if (statAns != null) return statAns as String;
+    
+    // Iterate all booklets to find one that has this subject
+    for (final booklet in widget.exam.answerKeys.keys) {
+      final ansStr = widget.exam.answerKeys[booklet]?[subject];
+      // If we are looking in A, use masterQNo. If looking in the current booklet, use qNoInCurrentBooklet.
+      final int targetIdx = (booklet == 'A') ? masterQNo - 1 : (booklet == _selectedBooklet ? qNoInCurrentBooklet - 1 : -1);
+      
+      if (ansStr != null && ansStr.isNotEmpty && targetIdx >= 0 && targetIdx < ansStr.length) {
+        return ansStr[targetIdx];
+      }
+    }
+    return null;
+  }
+
+  int _getMasterQuestionNo(String booklet, String subject, int qNo) {
+    if (booklet == 'A') return qNo;
+
+    final mappingStr = widget.exam.bookletMapping[booklet]?[subject];
+    if (mappingStr == null || mappingStr.isEmpty) return qNo;
+
+    // 1. Try to parse "1(4), 2(3)" format
+    final RegExp pairRegex = RegExp(r'(\d+)\((\d+)\)');
+    final matches = pairRegex.allMatches(mappingStr);
+    for (var m in matches) {
+      if (int.tryParse(m.group(1)!) == qNo) {
+        return int.tryParse(m.group(2)!) ?? qNo;
+      }
+    }
+
+    // 2. Fallback to comma-separated list "4, 3, 2, 1"
+    final RegExp numRegex = RegExp(r'\d+');
+    final numbers = numRegex.allMatches(mappingStr).map((m) => int.parse(m.group(0)!)).toList();
+    if (qNo > 0 && qNo <= numbers.length) {
+      return numbers[qNo - 1];
+    }
+
+    return qNo;
+  }
+
+  String _getAllBookletMappings(String subject, int masterQNo) {
+    List<String> mappings = [];
+    for (int i = 0; i < widget.exam.bookletCount; i++) {
+      final char = String.fromCharCode(65 + i);
+      if (char == 'A') continue;
+
+      final mappingStr = widget.exam.bookletMapping[char]?[subject] ?? '';
+      if (mappingStr.isEmpty) continue;
+
+      // 1. Check "1(4)" format
+      final RegExp pairRegex = RegExp(r'(\d+)\((\d+)\)');
+      final matches = pairRegex.allMatches(mappingStr);
+      bool found = false;
+      for (var m in matches) {
+        if (int.tryParse(m.group(2)!) == masterQNo) {
+          mappings.add('$char-${m.group(1)}');
+          found = true;
+          break;
+        }
+      }
+
+      // 2. Check "4,3,2,1" format
+      if (!found) {
+        final RegExp numRegex = RegExp(r'\d+');
+        final List<int> numbers = numRegex.allMatches(mappingStr).map((m) => int.parse(m.group(0)!)).toList();
+        final int idx = numbers.indexOf(masterQNo);
+        if (idx != -1) {
+          mappings.add('$char-${idx + 1}');
+        }
+      }
+    }
+    return mappings.isEmpty ? '' : ' (${mappings.join(', ')})';
+  }
+
+  String _getDifficultyLabel(double success) {
+    if (success <= 20) return 'Çok Zor';
+    if (success <= 40) return 'Zor';
+    if (success <= 60) return 'Orta';
+    if (success <= 80) return 'Kolay';
+    return 'Çok Kolay';
+  }
+
+  Color _getDifficultyColor(double success) {
+    if (success <= 20) return Colors.red.shade700;
+    if (success <= 40) return Colors.orange.shade700;
+    if (success <= 60) return Colors.amber.shade700;
+    if (success <= 80) return Colors.lightGreen.shade700;
+    return Colors.green.shade700;
   }
 
   // ─── Crop – main thread: coords only | isolate: pixel work ─────────────────
@@ -369,85 +667,114 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
         _selectedSubject == null) return;
 
     // ── Capture all state NOW (before any await) ──
-    final subject    = _selectedSubject!;
-    final qNo        = _questionNo;
-    final correctAns = _correctAnswer(subject, qNo);
-    final txSnapshot = Matrix4.copy(_tx.value);
-    final startPt    = _startPt!;
-    final endPt      = _endPt!;
+    try {
+      final subject    = _selectedSubject!;
+      final qNoInBooklet = _questionNo;
+      final masterQNo  = _getMasterQuestionNo(_selectedBooklet, subject, qNoInBooklet);
+      
+      final stat       = _questionStats[subject]?[masterQNo];
+      final correctAns = stat?['correctAnswer'] ?? _correctAnswer(subject, qNoInBooklet);
+      final difficulty = stat?['success'];
+      final outcome    = stat?['outcome'];
 
-    // ── Compute pixel coordinates on main thread (fast, no allocation) ──
-    final inverse  = Matrix4.inverted(txSnapshot);
-    final ls = MatrixUtils.transformPoint(inverse, startPt);
-    final le = MatrixUtils.transformPoint(inverse, endPt);
+      final txSnapshot = Matrix4.copy(_tx.value);
+      final startPt    = _startPt!;
+      final endPt      = _endPt!;
 
-    // We need image dimensions to map coords; grab them synchronously from a
-    // 1-pixel decode is too slow – use the known display size instead.
-    const displayW = 800.0;
-    // Approximate aspect from first page bytes (decode header only is not
-    // available in the image package, so we pass raw pixels to the isolate
-    // and let it handle the coordinate math there with the real dimensions).
-    final left   = (ls.dx < le.dx ? ls.dx : le.dx);
-    final top    = (ls.dy < le.dy ? ls.dy : le.dy);
-    final right  = (ls.dx > le.dx ? ls.dx : le.dx);
-    final bottom = (ls.dy > le.dy ? ls.dy : le.dy);
+      // ── Compute pixel coordinates on main thread (fast, no allocation) ──
+      final inverse  = Matrix4.inverted(txSnapshot);
+      final ls = MatrixUtils.transformPoint(inverse, startPt);
+      final le = MatrixUtils.transformPoint(inverse, endPt);
 
-    // ── Auto-advance: if questionNo exceeds this subject's answer count,
-    //    move to the next subject in the list and restart at question 1.
-    void _autoAdvanceSubject() {
-      if (_selectedSubject == null) return;
-      final answers = widget.exam.answerKeys['A']?[_selectedSubject!];
-      if (answers == null) return;
-      if (_questionNo > answers.length) {
-        final idx = _subjects.indexOf(_selectedSubject!);
-        if (idx >= 0 && idx < _subjects.length - 1) {
-          _selectedSubject = _subjects[idx + 1];
-          _questionNo = 1;
+      // We need image dimensions to map coords; grab them synchronously from a
+      // 1-pixel decode is too slow – use the known display size instead.
+      const displayW = 800.0;
+      final left   = (ls.dx < le.dx ? ls.dx : le.dx);
+      final top    = (ls.dy < le.dy ? ls.dy : le.dy);
+      final right  = (ls.dx > le.dx ? ls.dx : le.dx);
+      final bottom = (ls.dy > le.dy ? ls.dy : le.dy);
+
+      // ── Auto-advance: if questionNo exceeds this subject's answer count,
+      //    move to the next subject in the list and restart at question 1.
+      void _autoAdvanceSubject() {
+        try {
+          if (_selectedSubject == null) return;
+          // Find any booklet that has this subject's answer key, default to A
+          String? answers = widget.exam.answerKeys['A']?[_selectedSubject!];
+          if (answers == null || answers.isEmpty) {
+            for (final booklet in widget.exam.answerKeys.keys) {
+              if (widget.exam.answerKeys[booklet]?[_selectedSubject!]?.isNotEmpty == true) {
+                answers = widget.exam.answerKeys[booklet]?[_selectedSubject!];
+                break;
+              }
+            }
+          }
+          if (answers == null || answers.isEmpty) return;
+          if (_questionNo > answers.length) {
+            final idx = _subjects.indexOf(_selectedSubject!);
+            if (idx >= 0 && idx < _subjects.length - 1) {
+              _selectedSubject = _subjects[idx + 1];
+              _questionNo = 1;
+            }
+          }
+        } catch (e) {
+          debugPrint('auto advance error: $e');
         }
       }
-    }
 
-    // ── Immediately register a loading placeholder ↔ sidebar stays live ──
-    final placeholder = <String, dynamic>{
-      'bytes': null, 'subject': subject, 'questionNo': qNo,
-      'isWide': false, 'correctAnswer': correctAns, 'loading': true,
-    };
-    setState(() {
-      _localCrops.add(placeholder);
-      _questionNo++;
-      _startPt = null;
-      _endPt   = null;
-      _isSelectionMode = false;   // back to navigate immediately
-      _autoAdvanceSubject();      // check if we should jump to next subject
-    });
+      // ── Immediately register a loading placeholder ↔ sidebar stays live ──
+      final placeholder = <String, dynamic>{
+        'bytes': null, 'subject': subject, 'questionNo': masterQNo,
+        'isWide': false, 'correctAnswer': correctAns, 
+        'difficulty': difficulty, 'outcome': outcome,
+        'loading': true,
+        'originalQNo': qNoInBooklet, // Keep track of source
+        'sourceBooklet': _selectedBooklet,
+      };
+      setState(() {
+        _localCrops.add(placeholder);
+        _questionNo++;
+        _startPt = null;
+        _endPt   = null;
+        _isSelectionMode = false;   // back to navigate immediately
+        _autoAdvanceSubject();      // check if we should jump to next subject
+      });
 
-    // ── Wait for exactly one frame so placeholder paints before canvas work ──
-    await SchedulerBinding.instance.endOfFrame;
+      // ── Wait for exactly one frame so placeholder paints before canvas work ──
+      await SchedulerBinding.instance.endOfFrame;
 
-    // ── Browser canvas crop: GPU-accelerated, truly non-blocking ──
-    // dart:html canvas decode/encode runs in the browser's rendering pipeline.
-    // srcBytes are read (not transferred), so the page image stays intact.
-    try {
-      final cropBytes = await _cropNativeCanvas(
-        imgBytes,                                // original stays intact
-        left, top, right - left, bottom - top,
-        displayW,
-      );
 
-      if (mounted) {
-        setState(() {
-          final idx = _localCrops.indexOf(placeholder);
-          if (idx != -1) {
-            _localCrops[idx] = {
-              'bytes': cropBytes, 'subject': subject, 'questionNo': qNo,
-              'isWide': false, 'correctAnswer': correctAns, 'loading': false,
-            };
-          }
-        });
+      // ── Browser canvas crop: GPU-accelerated, truly non-blocking ──
+      // dart:html canvas decode/encode runs in the browser's rendering pipeline.
+      // srcBytes are read (not transferred), so the page image stays intact.
+      try {
+        final cropBytes = await _cropNativeCanvas(
+          imgBytes,                                // original stays intact
+          left, top, right - left, bottom - top,
+          displayW,
+        );
+
+        if (mounted) {
+          setState(() {
+            final idx = _localCrops.indexOf(placeholder);
+            if (idx != -1) {
+              _localCrops[idx] = {
+                'bytes': cropBytes, 'subject': subject, 'questionNo': masterQNo,
+                'isWide': false, 'correctAnswer': correctAns, 
+                'difficulty': difficulty, 'outcome': outcome,
+                'loading': false,
+                'originalQNo': qNoInBooklet,
+                'sourceBooklet': _selectedBooklet,
+              };
+            }
+          });
+        }
+      } catch (e) {
+        debugPrint('crop isolate error: $e');
+        if (mounted) setState(() => _localCrops.remove(placeholder));
       }
     } catch (e) {
-      debugPrint('crop isolate error: $e');
-      if (mounted) setState(() => _localCrops.remove(placeholder));
+      debugPrint('Outer saveCrop error: $e');
     }
   }
 
@@ -519,6 +846,44 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
                 ),
               ),
             ),
+          if (widget.exam.bookletCount > 1)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.indigo.shade50,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.indigo.shade100),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.menu_book_outlined, size: 14, color: Colors.indigo),
+                      const SizedBox(width: 6),
+                      const Text('PDF TÜRÜ:',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.indigo)),
+                      const SizedBox(width: 8),
+                      DropdownButton<String>(
+                        value: _selectedBooklet,
+                        isDense: true,
+                        underline: const SizedBox.shrink(),
+                        icon: const Icon(Icons.arrow_drop_down, color: Colors.indigo, size: 18),
+                        style: const TextStyle(fontSize: 13, color: Colors.indigo, fontWeight: FontWeight.bold),
+                        items: List.generate(widget.exam.bookletCount, (i) {
+                          final char = String.fromCharCode(65 + i);
+                          return DropdownMenuItem(value: char, child: Text('$char Kitapçığı'));
+                        }),
+                        onChanged: (v) {
+                          if (v != null) setState(() => _selectedBooklet = v);
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           const SizedBox(width: 8),
         ],
       );
@@ -544,9 +909,9 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
             icon: const Icon(Icons.zoom_out, size: 18),
             onPressed: () => _applyZoom(_zoom - 0.05),
           ),
-          // ─ Slider (wider)
+          // ─ Slider (more compact)
           SizedBox(
-            width: 200,
+            width: 120,
             child: Slider(
               value: _zoom.clamp(0.3, 8.0),
               min: 0.3, max: 8.0, divisions: 77,
@@ -580,8 +945,8 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
             ),
           ),
           if (_isSelectionMode) ...[
-            const SizedBox(width: 16),
-            const VerticalDivider(indent: 8, endIndent: 8),
+            const SizedBox(width: 12),
+            const VerticalDivider(indent: 10, endIndent: 10),
             const SizedBox(width: 8),
             DropdownButton<String>(
               value: _selectedSubject,
@@ -589,25 +954,41 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
               underline: const SizedBox.shrink(),
               items: _subjects
                   .map((s) => DropdownMenuItem(
-                      value: s, child: Text(s, style: const TextStyle(fontSize: 13))))
+                      value: s, child: Text(s, style: const TextStyle(fontSize: 12))))
                   .toList(),
               onChanged: (v) => setState(() => _selectedSubject = v),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 4),
             IconButton(
-                icon: const Icon(Icons.remove_circle_outline, size: 18),
+                icon: const Icon(Icons.remove_circle_outline, size: 16),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
                 onPressed: () =>
                     setState(() => _questionNo = (_questionNo - 1).clamp(1, 999))),
+            const SizedBox(width: 8),
             GestureDetector(
               onTap: _showManualQuestionNo,
               child: MouseRegion(
                 cursor: SystemMouseCursors.click,
-                child: Text('Soru $_questionNo',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.indigo, decoration: TextDecoration.underline)),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('$_selectedBooklet-$_questionNo. Soru',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.indigo, decoration: TextDecoration.underline)),
+                    if (_selectedBooklet != 'A')
+                      Text(
+                        '➔ A-${_getMasterQuestionNo(_selectedBooklet, _selectedSubject ?? '', _questionNo)}',
+                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.orange.shade800),
+                      ),
+                  ],
+                ),
               ),
             ),
+            const SizedBox(width: 8),
             IconButton(
-                icon: const Icon(Icons.add_circle_outline, size: 18),
+                icon: const Icon(Icons.add_circle_outline, size: 16),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
                 onPressed: () => setState(() => _questionNo++)),
           ],
           const Spacer(),
@@ -621,7 +1002,11 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
                           strokeWidth: 2, color: Colors.white))
                   : const Icon(Icons.content_cut, size: 16),
               label: const Text('KES & HAVUZA AT'),
-              style: FilledButton.styleFrom(backgroundColor: Colors.indigo),
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.indigo,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
             ),
         ]),
       );
@@ -651,11 +1036,29 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
   // ─── Canvas ───────────────────────────────────────────────────────────────
   Widget _canvas() {
     final pageImg = _pageImage;
+    final sessionUrl = _localSessions[_sessionIdx].fileUrl;
+    final isWaitingForPdf = sessionUrl != null && pageImg == null;
 
-    if (_isLoadingPdf) {
+    if (_isLoadingPdf || isWaitingForPdf) {
       return Container(
-        color: const Color(0xFFCBD5E1),
-        child: const Center(child: CircularProgressIndicator()),
+        color: const Color(0xFFF8FAFC),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              EduKnLoader(size: 100),
+              const SizedBox(height: 16),
+              Text(
+                _isLoadingPdf ? 'PDF Hazırlanıyor...' : 'PDF İndiriliyor...',
+                style: GoogleFonts.outfit(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.indigo.shade900,
+                ),
+              ),
+            ],
+          ),
+        ),
       );
     }
 
@@ -771,43 +1174,56 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
   }
 
   // ─── Empty state ──────────────────────────────────────────────────────────
-  Widget _emptyState() => Container(
-        color: const Color(0xFFCBD5E1),
-        child: Center(
-          child: Container(
-            padding: const EdgeInsets.all(32),
-            decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(24),
-                boxShadow: [
-                  BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 24)
-                ]),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Icon(Icons.picture_as_pdf_outlined,
-                  size: 64, color: Colors.indigo.shade200),
-              const SizedBox(height: 16),
-              Text('PDF yüklü değil',
-                  style: GoogleFonts.outfit(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey.shade700)),
-              const SizedBox(height: 8),
-              Text('Bu oturum için bir PDF dosyası seçin',
-                  style:
-                      TextStyle(color: Colors.grey.shade500, fontSize: 13)),
-              const SizedBox(height: 24),
-              FilledButton.icon(
-                onPressed: _pickPDF,
-                icon: const Icon(Icons.upload_file_rounded),
-                label: const Text('PDF YÜKLE'),
-                style: FilledButton.styleFrom(
-                    backgroundColor: Colors.indigo,
-                    minimumSize: const Size(180, 48)),
-              ),
-            ]),
-          ),
-        ),
+  Widget _emptyState() {
+    final sessionUrl = _localSessions[_sessionIdx].fileUrl;
+    
+    // If URL exists but no image, we are still loading (handled in _canvas)
+    // but just in case, show loader here too
+    if (sessionUrl != null) {
+      return Container(
+        color: const Color(0xFFF1F5F9),
+        child: Center(child: EduKnLoader(size: 80)),
       );
+    }
+
+    return Container(
+      color: const Color(0xFFCBD5E1),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.all(32),
+          decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 24)
+              ]),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.picture_as_pdf_outlined,
+                size: 64, color: Colors.indigo.shade200),
+            const SizedBox(height: 16),
+            Text('PDF yüklü değil',
+                style: GoogleFonts.outfit(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey.shade700)),
+            const SizedBox(height: 8),
+            Text('Bu oturum için bir PDF dosyası seçin',
+                style:
+                    TextStyle(color: Colors.grey.shade500, fontSize: 13)),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: _pickPDF,
+              icon: const Icon(Icons.upload_file_rounded),
+              label: const Text('PDF YÜKLE'),
+              style: FilledButton.styleFrom(
+                  backgroundColor: Colors.indigo,
+                  minimumSize: const Size(180, 48)),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
 
   // ─── Sidebar ──────────────────────────────────────────────────────────────
   Widget _sidebar() {
@@ -817,7 +1233,7 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
         ..sort((a, b) => (a['questionNo'] as int).compareTo(b['questionNo']));
     }
     return Container(
-      width: 300,
+      width: 360,
       color: Colors.white,
       child: Column(children: [
         Container(
@@ -831,11 +1247,38 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
                 style: GoogleFonts.outfit(
                     fontWeight: FontWeight.bold, fontSize: 15)),
             const Spacer(),
-            if (_pageImage == null)
+            if (_localSessions[_sessionIdx].fileUrl == null)
               TextButton.icon(
                   onPressed: _pickPDF,
                   icon: const Icon(Icons.upload_file, size: 16),
-                  label: const Text('PDF Yükle', style: TextStyle(fontSize: 12))),
+                  label: const Text('PDF Yükle', style: TextStyle(fontSize: 12)))
+            else
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert, size: 20),
+                tooltip: 'PDF İşlemleri',
+                onSelected: (val) {
+                  if (val == 'change') _pickPDF();
+                  if (val == 'remove') _removePDF();
+                },
+                itemBuilder: (ctx) => [
+                  const PopupMenuItem(
+                    value: 'change',
+                    child: Row(children: [
+                      Icon(Icons.refresh, size: 18, color: Colors.blue),
+                      SizedBox(width: 8),
+                      Text('PDF Değiştir'),
+                    ]),
+                  ),
+                  const PopupMenuItem(
+                    value: 'remove',
+                    child: Row(children: [
+                      Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                      SizedBox(width: 8),
+                      Text('PDF Kaldır', style: TextStyle(color: Colors.red)),
+                    ]),
+                  ),
+                ],
+              ),
           ]),
         ),
         Expanded(
@@ -876,6 +1319,9 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
     final hasRemote = c['imageUrl'] != null || c['base64Image'] != null;
     final hasLocal = c['bytes'] != null;
     
+    final qNo = c['questionNo'] as int;
+    final otherMappings = _getAllBookletMappings(c['subject'], qNo);
+
     return ListTile(
       dense: true,
       onTap: isLoading ? null : () => _showPreview(c),
@@ -889,16 +1335,52 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
                    ? Image.memory(base64Decode(c['base64Image']), width: 44, height: 44, fit: BoxFit.cover)
                    : (c['imageUrl'] != null ? Image.network(c['imageUrl'], width: 44, height: 44, fit: BoxFit.cover) : const Icon(Icons.image_not_supported))),
             ),
-      title: Text('${c['questionNo']}. Soru',
-          style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: isLoading ? Colors.grey : (hasRemote ? Colors.green.shade700 : null))),
+      title: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 8,
+        children: [
+          Text('A-$qNo. Soru$otherMappings',
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: isLoading ? Colors.grey : (hasRemote ? Colors.green.shade700 : null))),
+          if (c['difficulty'] != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: _getDifficultyColor((c['difficulty'] as num).toDouble()).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: _getDifficultyColor((c['difficulty'] as num).toDouble()).withOpacity(0.3)),
+              ),
+              child: Text(
+                _getDifficultyLabel((c['difficulty'] as num).toDouble()),
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.bold,
+                  color: _getDifficultyColor((c['difficulty'] as num).toDouble()),
+                ),
+              ),
+            ),
+        ],
+      ),
       subtitle: isLoading
           ? const Text('Hazırlanıyor...', style: TextStyle(fontSize: 10, color: Colors.indigo))
-          : Text(
-              '${c['correctAnswer'] ?? '?'} | ${c['isWide'] ? '2 sütun' : '1 sütun'}${hasRemote ? ' (Yayında)' : ''}',
-              style: const TextStyle(fontSize: 10)),
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (c['outcome'] != null)
+                  Text(
+                    c['outcome'] as String,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 10, color: Colors.indigo.shade400, fontWeight: FontWeight.w500),
+                  ),
+                const SizedBox(height: 2),
+                Text(
+                  '${c['correctAnswer'] ?? '?'} | ${c['isWide'] ? '2 sütun' : '1 sütun'}${hasRemote ? ' (Yayında)' : ''}',
+                  style: const TextStyle(fontSize: 10)),
+              ],
+            ),
       trailing: isLoading
           ? null
           : Row(mainAxisSize: MainAxisSize.min, children: [
@@ -1039,18 +1521,64 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
                 const SizedBox(height: 8),
                 Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                   const Text('Doğru Cevap: ',
-                      style: TextStyle(fontWeight: FontWeight.bold)),
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                   CircleAvatar(
                       radius: 14,
                       backgroundColor: Colors.indigo,
                       child: Text(crop['correctAnswer'] ?? '?',
                            style: const TextStyle(
-                              color: Colors.white, fontWeight: FontWeight.bold))),
+                               color: Colors.white, fontWeight: FontWeight.bold))),
+                  if (crop['difficulty'] != null) ...[
+                    const SizedBox(width: 16),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: _getDifficultyColor((crop['difficulty'] as num).toDouble()).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: _getDifficultyColor((crop['difficulty'] as num).toDouble()).withOpacity(0.3)),
+                      ),
+                      child: Text(
+                        'Zorluk: ${_getDifficultyLabel((crop['difficulty'] as num).toDouble())}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: _getDifficultyColor((crop['difficulty'] as num).toDouble()),
+                        ),
+                      ),
+                    ),
+                  ],
                   const SizedBox(width: 16),
                   Text('${idx + 1} / ${viewable.length}',
                       style: const TextStyle(
                           fontSize: 12, color: Colors.grey)),
                 ]),
+                if (crop['outcome'] != null) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.psychology_outlined, size: 18, color: Colors.indigo),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            crop['outcome'] as String,
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.indigo.shade900,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ]),
             ),
           );
@@ -1060,22 +1588,52 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
   }
 
   Future<void> _pickPDF() async {
-    final result = await FilePicker.platform
-        .pickFiles(type: FileType.custom, allowedExtensions: ['pdf']);
-    if (result == null || result.files.isEmpty) return;
-    final bytes = result.files.first.bytes;
-    if (bytes == null) return;
-
-    setState(() => _isLoadingPdf = true);
     try {
-      await _openDoc(bytes, sessionIdx: _sessionIdx);
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf'],
+        withData: true,
+      );
+
+      if (result == null || result.files.isEmpty) return;
+      final bytes = result.files.first.bytes;
+      
+      if (bytes == null || bytes.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Dosya verisi okunamadı.')),
+          );
+        }
+        return;
+      }
+
+      setState(() => _isLoadingPdf = true);
+      
+      // IMPORTANT FIX: 
+      // PdfDocument.openData transfers the ArrayBuffer to a Web Worker.
+      // This detaches the original buffer, causing the subsequent upload to fail!
+      // We must pass a COPY of the bytes to the PDF viewer.
+      final pdfBytesCopy = Uint8List.fromList(bytes);
+      await _openDoc(pdfBytesCopy, sessionIdx: _sessionIdx);
+      
       _zoom = 1.0;
       _tx.value = Matrix4.identity();
+      
+      // Upload background logic using the ORIGINAL bytes
+      await _uploadBg(bytes, result.files.first.name);
+      
+    } catch (e) {
+      debugPrint('PickPDF Error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Dosya seçilirken hata oluştu: $e')),
+        );
+      }
     } finally {
-      setState(() => _isLoadingPdf = false);
+      if (mounted) setState(() => _isLoadingPdf = false);
     }
-    _uploadBg(bytes, result.files.first.name);
   }
+
 
   Future<void> _uploadBg(Uint8List bytes, String fileName) async {
     try {
@@ -1093,8 +1651,35 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
           .update({'sessions': updated.map((s) => s.toMap()).toList()});
       if (mounted) setState(() => _localSessions = updated);
     } catch (e) {
-      debugPrint('upload: $e');
+      debugPrint('upload error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Dosya sunucuya yüklenemedi: $e'),
+            action: SnackBarAction(
+              label: 'CORS Yardımı', 
+              onPressed: () => _showCorsHelp(),
+            ),
+          ),
+        );
+      }
     }
+  }
+
+  void _showCorsHelp() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('CORS Yapılandırması Gerekli'),
+        content: const Text(
+          'Canlı sistemde dosya yükleyebilmek için Firebase Storage CORS ayarlarının yapılmış olması gerekir. '
+          'Lütfen projenizdeki "CORS_FIX_INSTRUCTIONS.md" dosyasındaki adımları takip ederek CORS ayarlarını güncelleyin.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Anladım')),
+        ],
+      ),
+    );
   }
 
   // ─── Publish – Firestore direct (Bypasses Storage Hangs) ────────────────────
@@ -1137,6 +1722,8 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
           'base64Image': base64Image,
           'isWide': crop['isWide'] ?? false,
           'correctAnswer': crop['correctAnswer'],
+          'difficulty': crop['difficulty'],
+          'outcome': crop['outcome'],
           'updatedAt': FieldValue.serverTimestamp(),
         });
         
@@ -1164,6 +1751,59 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
       }
     } finally {
       if (mounted) setState(() => _isPublishing = false);
+    }
+  }
+
+  Future<void> _removePDF() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('PDF\'i Kaldır'),
+        content: const Text('Bu oturuma ait PDF dosyasını silmek istediğinize emin misiniz?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Vazgeç')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Evet, Sil'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      setState(() => _isLoadingPdf = true);
+      
+      // Update local state
+      final updated = List<TrialExamSession>.from(_localSessions);
+      updated[_sessionIdx] = updated[_sessionIdx].copyWith(fileUrl: null, fileName: null);
+      
+      // Update Firestore
+      await FirebaseFirestore.instance
+          .collection('trial_exams')
+          .doc(widget.exam.id)
+          .update({'sessions': updated.map((s) => s.toMap()).toList()});
+      
+      // Close doc and clear pages
+      _docs[_sessionIdx]?.close();
+      _docs[_sessionIdx] = null;
+      _pages[_sessionIdx] = [];
+      _totalPages[_sessionIdx] = 0;
+      _currentPage[_sessionIdx] = 1;
+
+      setState(() {
+        _localSessions = updated;
+        _isLoadingPdf = false;
+      });
+      
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PDF başarıyla kaldırıldı.')));
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoadingPdf = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e')));
+      }
     }
   }
 }

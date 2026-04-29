@@ -5,6 +5,7 @@ import 'combined_exam_results_screen.dart';
 import 'reinforcement/reinforcement_dashboard_screen.dart';
 import 'agm/screens/agm_dashboard_screen.dart';
 import '../guidance/guidance_study_program_screen.dart';
+import 'action_plan/assessment_action_plan_screen.dart';
 
 class AssessmentReportsScreen extends StatelessWidget {
   final String institutionId;
@@ -156,7 +157,7 @@ class AssessmentReportsScreen extends StatelessWidget {
                             const SizedBox(width: 24),
                             Expanded(
                               flex: 1,
-                              child: _buildCustomReportCard(context, isCompact: true),
+                              child: _buildActionPlanCard(context, isCompact: true),
                             ),
                           ],
                         ),
@@ -166,7 +167,7 @@ class AssessmentReportsScreen extends StatelessWidget {
                         children: [
                           _buildPerformanceBanner(context),
                           const SizedBox(height: 24),
-                          _buildCustomReportCard(context, isCompact: false),
+                          _buildActionPlanCard(context, isCompact: false),
                         ],
                       );
                     }
@@ -363,7 +364,7 @@ class AssessmentReportsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildCustomReportCard(BuildContext context, {required bool isCompact}) {
+  Widget _buildActionPlanCard(BuildContext context, {required bool isCompact}) {
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
@@ -388,11 +389,11 @@ class AssessmentReportsScreen extends StatelessWidget {
                 ),
               ],
             ),
-            child: Icon(Icons.insert_chart_outlined_rounded, color: Colors.blue.shade600, size: 28),
+            child: Icon(Icons.assignment_turned_in_rounded, color: Colors.deepOrange.shade400, size: 28),
           ),
           const SizedBox(height: 20),
           Text(
-            'Özel Rapor Oluştur',
+            'Eylem Planları',
             textAlign: isCompact ? TextAlign.center : TextAlign.start,
             style: const TextStyle(
               fontSize: 18,
@@ -402,7 +403,7 @@ class AssessmentReportsScreen extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Kendi kriterlerinize göre özelleştirilmiş analizler hazırlayın.',
+            'Sınav sonuçlarına göre şube ve öğrenci eylem planları hazırlayın.',
             textAlign: isCompact ? TextAlign.center : TextAlign.start,
             style: TextStyle(
               fontSize: 13,
@@ -413,8 +414,14 @@ class AssessmentReportsScreen extends StatelessWidget {
           const SizedBox(height: 24),
           TextButton(
             onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Özel Rapor Oluşturma yakında sizlerle!')),
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => AssessmentActionPlanScreen(
+                    institutionId: institutionId,
+                    schoolTypeId: schoolTypeId,
+                  ),
+                ),
               );
             },
             style: TextButton.styleFrom(

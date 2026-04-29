@@ -8,6 +8,7 @@ import '../../../services/assessment_service.dart';
 import '../../../models/assessment/trial_exam_model.dart';
 import '../../../models/assessment/outcome_list_model.dart';
 import 'error_booklet/error_booklet_dashboard_screen.dart';
+import 'question_pool/question_pool_screen.dart';
 
 class AssessmentDashboardScreen extends StatefulWidget {
   final String institutionId;
@@ -89,7 +90,7 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             Expanded(child: _buildSecondaryCard(
-                              title: 'Denemeler (Sınav Tanımları)',
+                              title: 'Denemeler',
                               subtitle: 'Yeni deneme sınavları kurgulayın, soru dağılımlarını belirleyin ve uygulama takvimini yayınlayın.',
                               icon: Icons.edit_note_rounded,
                               iconColor: Colors.purple,
@@ -98,7 +99,7 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
                             )),
                             const SizedBox(width: 24),
                             Expanded(child: _buildSecondaryCard(
-                              title: 'Sınavlar (Uygulama & Sonuç)',
+                              title: 'Sınavlar',
                               subtitle: 'Yayınlanmış sınavların uygulama süreçlerini takip edin ve optik okuma sonuçlarını sisteme aktarın.',
                               icon: Icons.assignment_turned_in_rounded,
                               iconColor: Colors.teal,
@@ -113,7 +114,7 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
                       return Column(
                         children: [
                           _buildSecondaryCard(
-                            title: 'Denemeler (Sınav Tanımları)',
+                            title: 'Denemeler',
                             subtitle: 'Yeni deneme sınavları kurgulayın...',
                             icon: Icons.edit_note_rounded,
                             iconColor: Colors.purple,
@@ -122,7 +123,7 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
                           ),
                           const SizedBox(height: 24),
                           _buildSecondaryCard(
-                            title: 'Sınavlar (Uygulama & Sonuç)',
+                            title: 'Sınavlar',
                             subtitle: 'Yayınlanmış sınavların uygulama süreçlerini takip edin...',
                             icon: Icons.assignment_turned_in_rounded,
                             iconColor: Colors.teal,
@@ -138,9 +139,9 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
                 
                 const SizedBox(height: 24),
 
-                // Row 3: Hata Kitapçığı (New)
+                // Row 3: Hata Kitapçığı
                 _buildSecondaryCard(
-                  title: 'Hata Kitapçığı Designer',
+                  title: 'Hata Kitapçığı',
                   subtitle: 'Sınav PDF\'lerini sisteme yükleyin, soruları kırpın ve öğrencilere özel hata kitapçıkları oluşturun.',
                   icon: Icons.auto_stories_rounded,
                   iconColor: Colors.deepOrange,
@@ -156,6 +157,28 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
                     );
                   },
                   actions: ['PDF Yükle', 'Soru Kırp', 'Kitapçık Oluştur'],
+                ),
+
+                const SizedBox(height: 24),
+
+                // Row 4: Soru Havuzu
+                _buildSecondaryCard(
+                  title: 'Soru Havuzu',
+                  subtitle: 'Biriktirilen sorulardan test, deneme sınavı veya ödev oluşturun. Konu bazlı otomatik seçim ve akıllı sıralama algoritmasıyla optimum soru dizgisi elde edin.',
+                  icon: Icons.layers_rounded,
+                  iconColor: Colors.indigo,
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (ctx) => QuestionPoolScreen(
+                          institutionId: widget.institutionId,
+                          schoolTypeId: widget.schoolTypeId,
+                        ),
+                      ),
+                    );
+                  },
+                  actions: ['Test', 'Deneme Sınavı', 'Ödev'],
                 ),
               ],
             ),

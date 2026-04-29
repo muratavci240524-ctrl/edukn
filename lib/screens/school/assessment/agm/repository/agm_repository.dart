@@ -62,16 +62,24 @@ class AgmRepository {
 
   Future<void> updateCycleStudentLists(
     String cycleId, {
+    List<String>? unassignedAdd,
     List<String>? unassignedRemove,
+    List<String>? absentAdd,
     List<String>? absentRemove,
     List<String>? underAssignedAdd,
     List<String>? underAssignedRemove,
   }) async {
     final Map<String, dynamic> updates = {};
+    if (unassignedAdd != null && unassignedAdd.isNotEmpty) {
+      updates['unassignedStudentIds'] = FieldValue.arrayUnion(unassignedAdd);
+    }
     if (unassignedRemove != null && unassignedRemove.isNotEmpty) {
       updates['unassignedStudentIds'] = FieldValue.arrayRemove(
         unassignedRemove,
       );
+    }
+    if (absentAdd != null && absentAdd.isNotEmpty) {
+      updates['absentStudentIds'] = FieldValue.arrayUnion(absentAdd);
     }
     if (absentRemove != null && absentRemove.isNotEmpty) {
       updates['absentStudentIds'] = FieldValue.arrayRemove(absentRemove);

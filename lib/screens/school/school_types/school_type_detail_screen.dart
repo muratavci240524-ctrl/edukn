@@ -26,6 +26,8 @@ import '../assessment/trial_exam_list_screen.dart';
 import '../assessment/active_exam_list_screen.dart';
 import '../assessment/assessment_definitions_screen.dart';
 import '../assessment/assessment_reports_screen.dart';
+import '../assessment/error_booklet/error_booklet_dashboard_screen.dart';
+import '../assessment/question_pool/question_pool_screen.dart';
 import '../../portfolio/portfolio_screen.dart';
 import '../tasks/todo_list_screen.dart';
 import '../tasks/substitute_teacher_list_screen.dart';
@@ -870,10 +872,12 @@ class _OperationsTabState extends State<_OperationsTab> {
         category: 'Ölçme',
         showAllItems: isFiltered,
         items: [
+          {'title': 'Tanımlar', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => AssessmentDefinitionsScreen(institutionId: widget.institutionId)))},
           {'title': 'Raporlar', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => AssessmentReportsScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
           {'title': 'Denemeler', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => TrialExamListScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
           {'title': 'Sınavlar', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ActiveExamListScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
-          {'title': 'Tanımlar', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => AssessmentDefinitionsScreen(institutionId: widget.institutionId)))},
+          {'title': 'Hata Kitapçığı', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ErrorBookletDashboardScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
+          {'title': 'Soru Havuzu', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => QuestionPoolScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
         ],
         onTap: () => setState(() => _selectedCategory = 'Ölçme'),
       ),
