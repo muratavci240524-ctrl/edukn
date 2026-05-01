@@ -8,6 +8,7 @@ import '../../services/pdf_service.dart';
 import 'package:file_saver/file_saver.dart';
 
 class PortfolioReportDialog extends StatefulWidget {
+  final bool isPage;
   final List<Map<String, dynamic>> filteredStudents;
   final Map<String, dynamic>? selectedStudent;
   final String institutionId;
@@ -16,6 +17,7 @@ class PortfolioReportDialog extends StatefulWidget {
 
   const PortfolioReportDialog({
     Key? key,
+    this.isPage = false,
     required this.filteredStudents,
     this.selectedStudent,
     required this.institutionId,
@@ -211,32 +213,158 @@ class _PortfolioReportDialogState extends State<PortfolioReportDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final body = _isProcessing ? _buildProcessingView() : _buildSelectionView();
+    final footer = _isProcessing ? const SizedBox.shrink() : _buildFooter();
+
+    if (widget.isPage) {
+      return Scaffold(
+        backgroundColor: Colors.white,
+        appBar: AppBar(
+          backgroundColor: Colors.white,
+          elevation: 0,
+          leading: const BackButton(color: Colors.indigo),
+          title: Text(
+            'Rapor Oluştur',
+            style: GoogleFonts.poppins(
+              color: Colors.indigo.shade900,
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+            ),
+          ),
+          centerTitle: true,
+        ),
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+          child: body,
+        ),
+        bottomNavigationBar: footer != null ? Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 10,
+                offset: const Offset(0, -5),
+              ),
+            ],
+          ),
+          padding: EdgeInsets.fromLTRB(
+            24, 12, 24, 12 + MediaQuery.of(context).padding.bottom
+          ),
+          child: footer,
+        ) : null,
+      );
+    }
+
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      child: Container(
-        width: 500,
-        padding: const EdgeInsets.all(24),
-        child: _isProcessing ? _buildProcessingView() : _buildSelectionView(),
+      backgroundColor: Colors.white,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 500, maxHeight: 800),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: body,
+              ),
+            ),
+            if (footer != null)
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  border: Border(top: BorderSide(color: Colors.grey.shade100)),
+                ),
+                child: footer,
+              ),
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _buildFooter() {
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    
+    if (isMobile) {
+      return SizedBox(
+        width: double.infinity,
+        height: 54,
+        child: ElevatedButton.icon(
+          onPressed: () => _handleAction(false),
+          icon: Icon(_reportForAll ? Icons.folder_zip_rounded : Icons.save_alt_rounded, size: 22),
+          label: Text(
+            _reportForAll ? 'Tüm Raporları Kaydet (ZIP)' : 'Raporu Kaydet (PDF)',
+            style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 15),
+          ),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.indigo,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            elevation: 0,
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text('İptal', style: GoogleFonts.poppins(color: Colors.grey.shade600, fontWeight: FontWeight.w500)),
+        ),
+        const SizedBox(width: 12),
+        // PDF Download Button
+        ElevatedButton.icon(
+          onPressed: () => _handleAction(false),
+          icon: Icon(_reportForAll ? Icons.folder_zip_rounded : Icons.download_rounded, size: 20),
+          label: Text(_reportForAll ? 'ZIP İndir' : 'PDF İndir'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.indigo,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            elevation: 0,
+          ),
+        ),
+        if (!_reportForAll) ...[
+          const SizedBox(width: 12),
+          // Print Button
+          ElevatedButton.icon(
+            onPressed: () => _handleAction(true),
+            icon: const Icon(Icons.print_rounded, size: 20),
+            label: const Text('Yazdır'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.indigo.shade900,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              elevation: 0,
+            ),
+          ),
+        ],
+      ],
     );
   }
 
   Widget _buildSelectionView() {
     return Column(
-      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Icon(Icons.print_rounded, color: Colors.indigo.shade900, size: 28),
-            const SizedBox(width: 12),
-            Text(
-              'Portfolyo Raporu Oluştur',
-              style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-        const SizedBox(height: 24),
+        if (!widget.isPage) // Header only in dialog
+          Row(
+            children: [
+              Icon(Icons.print_rounded, color: Colors.indigo.shade900, size: 28),
+              const SizedBox(width: 12),
+              Text(
+                'Portfolyo Raporu Oluştur',
+                style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+        if (!widget.isPage) const SizedBox(height: 24),
         
         // Scope Selection
         Text('Kapsam Seçimi', style: GoogleFonts.poppins(fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
@@ -283,10 +411,11 @@ class _PortfolioReportDialogState extends State<PortfolioReportDialog> {
         Text('Rapor İçerik Başlıkları', style: GoogleFonts.poppins(fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
         const SizedBox(height: 12),
         SizedBox(
-          height: 250,
+          height: 280,
           child: GridView.count(
-            crossAxisCount: 2,
-            childAspectRatio: 4,
+            crossAxisCount: MediaQuery.of(context).size.width < 400 ? 1 : 2,
+            childAspectRatio: MediaQuery.of(context).size.width < 400 ? 6 : 4,
+            physics: const BouncingScrollPhysics(),
             children: _modules.keys.map((key) {
               return CheckboxListTile(
                 title: Text(_moduleLabels[key]!, style: const TextStyle(fontSize: 12)),
@@ -300,39 +429,6 @@ class _PortfolioReportDialogState extends State<PortfolioReportDialog> {
           ),
         ),
         
-        const SizedBox(height: 24),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('İptal'),
-            ),
-            const SizedBox(width: 8),
-            ElevatedButton.icon(
-              onPressed: () => _handleAction(false),
-              icon: Icon(_reportForAll ? Icons.folder_zip_rounded : Icons.download_rounded),
-              label: Text(_reportForAll ? 'ZIP Olarak İndir' : 'PDF İndir'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.indigo,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-            const SizedBox(width: 8),
-            if (!_reportForAll)
-              ElevatedButton.icon(
-                onPressed: () => _handleAction(true),
-                icon: const Icon(Icons.print_rounded),
-                label: const Text('Yazdır'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.indigo.shade900,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-              ),
-          ],
-        ),
       ],
     );
   }

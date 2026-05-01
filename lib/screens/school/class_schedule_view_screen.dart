@@ -810,97 +810,112 @@ class _ClassScheduleViewScreenState extends State<ClassScheduleViewScreen> {
 
     return Column(
       children: [
-        // Başlık
-        Container(
-          padding: EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Colors.purple.shade400, Colors.purple.shade600],
-            ),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.calendar_view_week, color: Colors.white),
-              SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  '${_selectedClass!['className']} - Haftalık Program',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.18),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      padding: EdgeInsets.zero,
-                      constraints: BoxConstraints(minWidth: 28, minHeight: 28),
-                      onPressed: () {
-                        setState(() {
-                          _weekStart = _weekStart.subtract(Duration(days: 7));
-                        });
-                      },
-                      icon: Icon(Icons.chevron_left, color: Colors.white),
-                    ),
-                    SizedBox(width: 6),
-                    Text(
-                      _formatWeekRange(_weekStart),
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    SizedBox(width: 6),
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      padding: EdgeInsets.zero,
-                      constraints: BoxConstraints(minWidth: 28, minHeight: 28),
-                      onPressed: () {
-                        setState(() {
-                          _weekStart = _weekStart.add(Duration(days: 7));
-                        });
-                      },
-                      icon: Icon(Icons.chevron_right, color: Colors.white),
-                    ),
-                    SizedBox(width: 10),
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      padding: EdgeInsets.zero,
-                      constraints: BoxConstraints(minWidth: 28, minHeight: 28),
-                      onPressed: () {
-                        setState(() {
-                          _showTableViewWide = !_showTableViewWide;
-                        });
-                      },
-                      icon: Icon(
-                        _showTableViewWide
-                            ? Icons.view_agenda_outlined
-                            : Icons.table_rows_outlined,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
+        _buildDateSelectorRow(),
         Expanded(
           child: _showTableViewWide
               ? _buildTableScheduleWide(maxHours)
               : _buildCardScheduleWide(),
         ),
       ],
+    );
+  }
+
+  Widget _buildDateSelectorRow() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.purple.shade50),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.purple.shade900.withOpacity(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                onPressed: () {
+                  setState(() {
+                    _weekStart = _weekStart.subtract(Duration(days: 7));
+                  });
+                },
+                icon: Icon(Icons.arrow_back_ios_new, size: 14, color: Colors.purple.shade700),
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.purple.shade50,
+                  padding: const EdgeInsets.all(8),
+                  minimumSize: const Size(32, 32),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _selectedClass?['className']?.toString().toUpperCase() ?? 'ŞUBE PROGRAMI',
+                    style: TextStyle(
+                      fontSize: 9,
+                      color: Colors.purple.shade300,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  Text(
+                    _formatWeekRange(_weekStart),
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.purple.shade900,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 12),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                onPressed: () {
+                  setState(() {
+                    _weekStart = _weekStart.add(Duration(days: 7));
+                  });
+                },
+                icon: Icon(Icons.arrow_forward_ios, size: 14, color: Colors.purple.shade700),
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.purple.shade50,
+                  padding: const EdgeInsets.all(8),
+                  minimumSize: const Size(32, 32),
+                ),
+              ),
+            ],
+          ),
+          IconButton(
+            icon: Icon(
+              _showTableViewWide ? Icons.table_rows_outlined : Icons.view_agenda_outlined,
+              color: Colors.purple.shade700,
+              size: 20,
+            ),
+            onPressed: () {
+              setState(() {
+                _showTableViewWide = !_showTableViewWide;
+              });
+            },
+            style: IconButton.styleFrom(
+              backgroundColor: Colors.purple.shade50,
+              padding: const EdgeInsets.all(8),
+              minimumSize: const Size(36, 36),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1666,49 +1681,6 @@ class _ClassScheduleDetailViewState extends State<_ClassScheduleDetailView> {
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
-          Container(
-            margin: EdgeInsets.only(right: 4),
-            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            decoration: BoxDecoration(
-              color: Colors.purple.withOpacity(0.08),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  padding: EdgeInsets.zero,
-                  constraints: BoxConstraints(minWidth: 28, minHeight: 28),
-                  onPressed: () {
-                    setState(() {
-                      _weekStart = _weekStart.subtract(Duration(days: 7));
-                    });
-                  },
-                  icon: Icon(Icons.chevron_left, color: Colors.purple),
-                ),
-                Text(
-                  _formatWeekRange(_weekStart),
-                  style: TextStyle(
-                    color: Colors.purple,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  padding: EdgeInsets.zero,
-                  constraints: BoxConstraints(minWidth: 28, minHeight: 28),
-                  onPressed: () {
-                    setState(() {
-                      _weekStart = _weekStart.add(Duration(days: 7));
-                    });
-                  },
-                  icon: Icon(Icons.chevron_right, color: Colors.purple),
-                ),
-              ],
-            ),
-          ),
           IconButton(
             icon: Icon(
               _showTableView
@@ -1732,9 +1704,117 @@ class _ClassScheduleDetailViewState extends State<_ClassScheduleDetailView> {
           ),
         ),
       ),
-      body: _showTableView
-          ? _buildTableScheduleView()
-          : _buildCardScheduleView(),
+      body: Column(
+        children: [
+          _buildDateSelectorRow(),
+          Expanded(
+            child: _showTableView
+                ? _buildTableScheduleView()
+                : _buildCardScheduleView(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDateSelectorRow() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.purple.shade50),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.purple.shade900.withOpacity(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                onPressed: () {
+                  setState(() {
+                    _weekStart = _weekStart.subtract(Duration(days: 7));
+                  });
+                  _loadSchedule();
+                },
+                icon: Icon(Icons.arrow_back_ios_new, size: 14, color: Colors.purple.shade700),
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.purple.shade50,
+                  padding: const EdgeInsets.all(8),
+                  minimumSize: const Size(32, 32),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'ŞUBE PROGRAMI',
+                    style: TextStyle(
+                      fontSize: 9,
+                      color: Colors.purple.shade300,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  Text(
+                    _formatWeekRange(_weekStart),
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.purple.shade900,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 12),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                onPressed: () {
+                  setState(() {
+                    _weekStart = _weekStart.add(Duration(days: 7));
+                  });
+                  _loadSchedule();
+                },
+                icon: Icon(Icons.arrow_forward_ios, size: 14, color: Colors.purple.shade700),
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.purple.shade50,
+                  padding: const EdgeInsets.all(8),
+                  minimumSize: const Size(32, 32),
+                ),
+              ),
+            ],
+          ),
+          IconButton(
+            icon: Icon(
+              _showTableView ? Icons.table_rows_outlined : Icons.view_agenda_outlined,
+              color: Colors.purple.shade700,
+              size: 20,
+            ),
+            onPressed: () {
+              setState(() {
+                _showTableView = !_showTableView;
+              });
+            },
+            style: IconButton.styleFrom(
+              backgroundColor: Colors.purple.shade50,
+              padding: const EdgeInsets.all(8),
+              minimumSize: const Size(36, 36),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+        ],
+      ),
     );
   }
 

@@ -47,13 +47,18 @@ class AssessmentReportsScreen extends StatelessWidget {
                 LayoutBuilder(
                   builder: (context, constraints) {
                     final crossAxisCount = constraints.maxWidth > 800 ? 4 : (constraints.maxWidth > 500 ? 2 : 1);
+                    final isSmallMobile = constraints.maxWidth < 360;
                     return GridView.count(
                       crossAxisCount: crossAxisCount,
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
                       crossAxisSpacing: 20,
                       mainAxisSpacing: 20,
-                      childAspectRatio: constraints.maxWidth > 800 ? 0.85 : (constraints.maxWidth > 500 ? 1.1 : 2.2),
+                      childAspectRatio: constraints.maxWidth > 800
+                          ? 0.85
+                          : (constraints.maxWidth > 500
+                              ? 1.1
+                              : (isSmallMobile ? 1.8 : 2.2)),
                       children: [
                         _buildHubCard(
                           context,
@@ -327,20 +332,20 @@ class AssessmentReportsScreen extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'Haftalık Performans Özeti',
                       style: TextStyle(
                         color: Colors.white,
-                        fontSize: 24,
+                        fontSize: MediaQuery.of(context).size.width < 360 ? 20 : 24,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                     const SizedBox(height: 12),
-                    const Text(
-                      'Kurum genelindeki başarı oranlarını ve gelişim grafiklerini\nanlık olarak takip edin.',
+                    Text(
+                      'Kurum genelindeki başarı oranlarını ve gelişim grafiklerini anlık olarak takip edin.',
                       style: TextStyle(
                         color: Colors.white70,
-                        fontSize: 14,
+                        fontSize: MediaQuery.of(context).size.width < 360 ? 12 : 14,
                         height: 1.5,
                       ),
                     ),

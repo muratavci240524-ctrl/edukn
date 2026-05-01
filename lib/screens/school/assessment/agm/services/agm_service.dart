@@ -660,6 +660,7 @@ class AgmService {
         'dersId': grup.dersId,
         'dersAdi': grup.dersAdi,
         'lessonName': grup.dersAdi,
+        'topic': grup.kazanimlar.join(', '),
         'gun': grup.gun,
         'baslangicSaat': grup.baslangicSaat,
         'bitisSaat': grup.bitisSaat,
@@ -694,7 +695,6 @@ class AgmService {
       }
     }
 
-    await batch.commit();
     await batch.commit();
   }
 

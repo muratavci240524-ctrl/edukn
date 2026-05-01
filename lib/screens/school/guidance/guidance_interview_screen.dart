@@ -709,6 +709,7 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
                   icon: Icon(Icons.arrow_forward),
                   label: Text('İlerle (${_selectedIds.length})'),
                   backgroundColor: Colors.indigo,
+                  foregroundColor: Colors.white,
                 )
               : null,
         );

@@ -10,6 +10,8 @@ import '../school/assessment/student_report_card_dialog.dart';
 import '../../models/assessment/lgs_data.dart';
 
 import 'dart:convert';
+import 'dart:math' as math;
+import 'package:flutter/services.dart';
 import '../../services/assessment_service.dart';
 import '../../models/assessment/trial_exam_model.dart';
 import '../../models/assessment/exam_type_model.dart';
@@ -783,10 +785,11 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
   String _selectedGraphSubject = 'Tümü';
   String? _expandedExamId;
   Set<String> _availableSubjects = {'Tümü'};
-  String _graphMetric = 'net'; // 'net' or 'score'
+  String _graphMetric = 'score'; // Default to score ('net' or 'score')
   String _selectedLgsYear = '2025'; // Default to latest LGS year
   String _selectedWrittenSubject = 'Tümü';
   String _selectedHomeworkSubject = 'Tümü';
+  int? _touchedIndex;
   String _selectedAttendanceLesson = 'Tümü';
   String _selectedInterviewTitle = 'Tümü';
   BookType _activeBookTabFilter = BookType.questionBank;
@@ -882,7 +885,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
     _etutlerStream = FirebaseFirestore.instance
         .collection('etut_requests')
         .where('institutionId', isEqualTo: widget.institutionId)
-        .where('studentId', isEqualTo: sid)
+        .where('studentIds', arrayContains: sid)
         .orderBy('date', descending: true)
         .snapshots();
 
@@ -954,11 +957,26 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
           ],
         ),
         actions: [
-          if (MediaQuery.of(context).size.width > 900) ...[
-            IconButton(
-              icon: const Icon(Icons.print_rounded, color: Colors.indigo),
-              tooltip: 'Rapor Yazdır',
-              onPressed: () {
+          IconButton(
+            icon: const Icon(Icons.print_rounded, color: Colors.indigo),
+            tooltip: 'Rapor Yazdır',
+            onPressed: () {
+              final isMobile = MediaQuery.of(context).size.width < 700;
+              if (isMobile) {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => PortfolioReportDialog(
+                      isPage: true,
+                      filteredStudents: widget.filteredStudents,
+                      selectedStudent: widget.student,
+                      institutionId: widget.institutionId,
+                      termId: widget.activeTermId ?? '',
+                      schoolSettings: widget.schoolSettings,
+                    ),
+                  ),
+                );
+              } else {
                 showDialog(
                   context: context,
                   builder: (context) => PortfolioReportDialog(
@@ -969,19 +987,19 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                     schoolSettings: widget.schoolSettings,
                   ),
                 );
-              },
-            ),
-            IconButton(
-              icon: const Icon(Icons.info_outline_rounded, color: Colors.indigo),
-              tooltip: 'Nasıl Kullanılır?',
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const PortfolioGuidePage()),
-                );
-              },
-            ),
-          ],
+              }
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.info_outline_rounded, color: Colors.indigo),
+            tooltip: 'Nasıl Kullanılır?',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const PortfolioGuidePage()),
+              );
+            },
+          ),
           if (widget.onClose != null && MediaQuery.of(context).size.width > 900)
             IconButton(
               icon: Icon(Icons.close, color: Colors.grey),
@@ -1282,13 +1300,25 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
   Widget _buildSummaryStats(List<Map<String, dynamic>> results) {
     if (results.isEmpty) return SizedBox.shrink();
 
-    // Calculate Averages
     double totalScore = 0;
     double totalNet = 0;
 
     for (var r in results) {
       totalScore += (r['score'] as num).toDouble();
-      totalNet += (r['net'] as num).toDouble();
+      
+      if (_selectedGraphSubject == 'Tümü') {
+        totalNet += (r['net'] as num).toDouble();
+      } else {
+        final subMap = r['subjects'];
+        if (subMap is Map && subMap.containsKey(_selectedGraphSubject)) {
+          final subData = subMap[_selectedGraphSubject];
+          if (subData is Map) {
+            totalNet += (subData['net'] ?? 0).toDouble();
+          } else if (subData is num) {
+            totalNet += subData.toDouble();
+          }
+        }
+      }
     }
 
     double avgScore = totalScore / results.length;
@@ -1955,9 +1985,15 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
           (a, b) => (a['date'] as DateTime).compareTo(b['date']),
         );
 
-        return SingleChildScrollView(
-          padding: EdgeInsets.all(16),
-          child: Column(
+        return GestureDetector(
+          onTap: () {
+            if (_touchedIndex != null) {
+              setState(() => _touchedIndex = null);
+            }
+          },
+          child: SingleChildScrollView(
+            padding: EdgeInsets.all(16),
+            child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               // FILTERS ROW
@@ -2055,8 +2091,15 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                             );
                           }).toList(),
                           onChanged: (val) {
-                            if (val != null)
-                              setState(() => _selectedGraphSubject = val);
+                            if (val != null) {
+                              setState(() {
+                                _selectedGraphSubject = val;
+                                // Automatically switch to Net mode when a branch is selected
+                                if (val != 'Tümü') {
+                                  _graphMetric = 'net';
+                                }
+                              });
+                            }
                           },
                         ),
                       ),
@@ -2154,7 +2197,76 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                     Expanded(
                       child: Padding(
                         padding: const EdgeInsets.only(top: 24.0, right: 16),
-                        child: LineChart(_getLineChartData(filteredRes)),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final isMobile = constraints.maxWidth < 600;
+                            final List<Map<String, dynamic>> chartData = (isMobile && filteredRes.length > 10) 
+                                ? filteredRes.sublist(filteredRes.length - 10) 
+                                : filteredRes;
+
+                            return Column(
+                              children: [
+                                Expanded(
+                                  child: Stack(
+                                    children: [
+                                      LineChart(_getLineChartData(chartData)),
+                                      // Fixed Info Bar at the bottom of the chart
+                                      if (_touchedIndex != null)
+                                        Positioned(
+                                          bottom: 30, // Tangent to zero line
+                                          left: 30,   // Final alignment to remove the last tiny gap
+                                          right: 0,
+                                          child: _buildChartDetailBar(chartData, _touchedIndex!),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                                if (isMobile && filteredRes.length > 10)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 12.0),
+                                    child: Column(
+                                      children: [
+                                        Text(
+                                          'Grafikte son 10 sınav verisi listelenmektedir.\nTüm sınav geçmişini incelemek için:',
+                                          textAlign: TextAlign.center,
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 10,
+                                            color: Colors.grey.shade500,
+                                            fontWeight: FontWeight.w500,
+                                            height: 1.4,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        TextButton.icon(
+                                          onPressed: () {
+                                            Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (context) => FullScreenTrialChartPage(
+                                                  allResults: filteredRes,
+                                                  examType: _selectedExamType ?? '',
+                                                  subject: _selectedGraphSubject,
+                                                  metric: _graphMetric,
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                          icon: const Icon(Icons.fullscreen_rounded, size: 18),
+                                          label: const Text('Tümünü Gör', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                          style: TextButton.styleFrom(
+                                            foregroundColor: Colors.indigo,
+                                            padding: EdgeInsets.zero,
+                                            minimumSize: Size.zero,
+                                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                              ],
+                            );
+                          },
+                        ),
                       ),
                     ),
                   ],
@@ -2168,15 +2280,29 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
               _buildTopicAnalysis(studentRes),
               SizedBox(height: 24),
 
-              Text(
-                "Sınav Geçmişi",
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.indigo.shade900,
-                ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    "Sınav Geçmişi",
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.indigo.shade900,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    "${widget.student['fullName'] ?? widget.student['name'] ?? 'Öğrenci'} uygulanan toplam ${exams.where((e) => e.isActive && e.isPublished && e.examTypeName == _selectedExamType).length} deneme sınavının ${filteredRes.length}'sine katılım sağlamıştır.",
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey.shade600,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
               ),
-              SizedBox(height: 12),
+              const SizedBox(height: 16),
 
               // Detailed List (Latest First)
               ...filteredRes.reversed.map((res) {
@@ -2240,44 +2366,58 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                     ),
                     title: Text(
                       res['examName'],
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
-                        fontSize: 15,
+                        fontSize: 14,
                         color: Colors.indigo.shade900,
                       ),
                     ),
                     subtitle: Padding(
                       padding: const EdgeInsets.only(top: 4.0),
-                      child: Row(
+                      child: Wrap(
+                        spacing: 12,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
-                          Icon(
-                            Icons.calendar_today_rounded,
-                            size: 14,
-                            color: Colors.grey.shade600,
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.calendar_today_rounded,
+                                size: 12,
+                                color: Colors.grey.shade600,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                DateFormat('dd.MM.yyyy').format(res['date']),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade700,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
                           ),
-                          SizedBox(width: 4),
-                          Text(
-                            DateFormat('dd.MM.yyyy').format(res['date']),
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.grey.shade700,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          SizedBox(width: 12),
-                          Icon(
-                            Icons.analytics_rounded,
-                            size: 14,
-                            color: Colors.grey.shade600,
-                          ),
-                          SizedBox(width: 4),
-                          Text(
-                            "${(res['net'] as num).toStringAsFixed(2)} Net",
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.grey.shade700,
-                              fontWeight: FontWeight.bold,
-                            ),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.analytics_rounded,
+                                size: 12,
+                                color: Colors.grey.shade600,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                "${(res['net'] as num).toStringAsFixed(2)} Net",
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade700,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -2540,9 +2680,9 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
               }).toList(),
             ],
           ),
-        );
-      },
-    );
+        ),
+      );
+    });
   }
 
   // Helper method for Chart Data
@@ -2606,10 +2746,11 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
               final index = value.toInt();
               if (index >= 0 && index < filteredRes.length) {
                 final date = filteredRes[index]['date'] as DateTime;
+                final isMobile = MediaQuery.of(context).size.width < 600;
                 return Padding(
                   padding: const EdgeInsets.only(top: 8.0),
                   child: Text(
-                    DateFormat('dd.MM').format(date),
+                    isMobile ? "${index + 1}" : DateFormat('dd.MM').format(date),
                     style: TextStyle(
                       color: Colors.grey.shade600,
                       fontWeight: FontWeight.bold,
@@ -2699,19 +2840,69 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
       ],
       lineTouchData: LineTouchData(
         touchTooltipData: LineTouchTooltipData(
-          getTooltipColor: (touchedSpot) => Colors.indigo,
-          getTooltipItems: (touchedSpots) {
-            return touchedSpots.map((spot) {
-              return LineTooltipItem(
-                "${spot.y.toStringAsFixed(2)} ${_selectedGraphSubject == 'Tümü' && _graphMetric == 'score' ? 'Puan' : 'Net'}",
-                const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-              );
-            }).toList();
-          },
+          getTooltipColor: (touchedSpot) => Colors.transparent, // Invisible
+          getTooltipItems: (touchedSpots) => [], // Return empty list instead of null
         ),
+        handleBuiltInTouches: true,
+        touchCallback: (FlTouchEvent event, LineTouchResponse? touchResponse) {
+          if (!event.isInterestedForInteractions ||
+              touchResponse == null ||
+              touchResponse.lineBarSpots == null ||
+              touchResponse.lineBarSpots!.isEmpty) {
+            return;
+          }
+          final spotIndex = touchResponse.lineBarSpots!.first.spotIndex;
+          setState(() {
+            _touchedIndex = spotIndex;
+          });
+        },
+      ),
+    );
+  }
+
+  Widget _buildChartDetailBar(List<Map<String, dynamic>> results, int index) {
+    if (index < 0 || index >= results.length) return const SizedBox.shrink();
+    final exam = results[index];
+    final name = exam['examName'] ?? 'Sınav';
+    final date = DateFormat('dd.MM.yyyy').format(exam['date']);
+    final metric = _graphMetric == 'score' ? 'Puan' : 'Net';
+    final val = _graphMetric == 'score' 
+        ? (exam['score'] as num).toStringAsFixed(2)
+        : (_selectedGraphSubject == 'Tümü' 
+            ? (exam['net'] as num).toStringAsFixed(2)
+            : (exam['subjects']?[_selectedGraphSubject]?['net'] ?? 0).toStringAsFixed(2));
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.indigo.shade900.withOpacity(0.85),
+        // Flat strip aligned with the graph base
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Flexible(
+            child: Text(
+              name,
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(width: 1, height: 10, color: Colors.white30),
+          const SizedBox(width: 8),
+          Text(
+            date,
+            style: const TextStyle(color: Colors.white70, fontSize: 10),
+          ),
+          const SizedBox(width: 8),
+          Container(width: 1, height: 10, color: Colors.white30),
+          const SizedBox(width: 8),
+          Text(
+            "$val $metric",
+            style: const TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold, fontSize: 11),
+          ),
+        ],
       ),
     );
   }
@@ -5339,3 +5530,298 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
     );
   }
 } // End of _PortfolioScreenState class
+
+class FullScreenTrialChartPage extends StatefulWidget {
+  final List<Map<String, dynamic>> allResults;
+  final String examType;
+  final String subject;
+  final String metric;
+
+  const FullScreenTrialChartPage({
+    Key? key,
+    required this.allResults,
+    required this.examType,
+    required this.subject,
+    required this.metric,
+  }) : super(key: key);
+
+  @override
+  State<FullScreenTrialChartPage> createState() => _FullScreenTrialChartPageState();
+}
+
+class _FullScreenTrialChartPageState extends State<FullScreenTrialChartPage> {
+  int? _fullTouchedIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    // Force Landscape for this page on mobile
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+  }
+
+  @override
+  void dispose() {
+    // Restore Portrait when leaving
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Sort ascending for graph
+    final results = List<Map<String, dynamic>>.from(widget.allResults);
+    results.sort((a, b) => (a['date'] as DateTime).compareTo(b['date']));
+
+    // Dynamic width based on exam count
+    final chartWidth = math.max(MediaQuery.of(context).size.width, results.length * 60.0);
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          if (_fullTouchedIndex != null) {
+            setState(() => _fullTouchedIndex = null);
+          }
+        },
+        child: Stack(
+        children: [
+          SafeArea(
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        "${widget.examType} - ${widget.subject == 'Tümü' ? (widget.metric == 'score' ? 'Toplam Puan' : 'Toplam Net') : widget.subject}",
+                        style: GoogleFonts.poppins(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                          color: Colors.indigo.shade900,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        "(Tüm Geçmiş)",
+                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Container(
+                      width: chartWidth,
+                      padding: const EdgeInsets.fromLTRB(24, 24, 48, 24),
+                      child: Stack(
+                        children: [
+                          LineChart(_getLineChartData(results)),
+                          if (_fullTouchedIndex != null)
+                            Positioned(
+                              bottom: 30, // Tangent to zero line
+                              left: 30,   // Final alignment
+                              right: 0,
+                              child: _buildFullScreenDetailBar(results, _fullTouchedIndex!),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Positioned(
+            top: 10,
+            left: 10,
+            child: SafeArea(
+              child: CircleAvatar(
+                backgroundColor: Colors.black.withOpacity(0.05),
+                child: IconButton(
+                  icon: const Icon(Icons.close, color: Colors.black87),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+    );
+  }
+
+  // Reuse the same logic for chart data
+  LineChartData _getLineChartData(List<Map<String, dynamic>> filteredRes) {
+    double calculatedMaxY = 100.0;
+    if (widget.metric == 'score') {
+      calculatedMaxY = 500.0;
+    } else {
+      calculatedMaxY = widget.subject == 'Tümü' ? 100.0 : 20.0;
+    }
+
+    double interval = calculatedMaxY > 100 ? 50.0 : 10.0;
+
+    return LineChartData(
+      gridData: FlGridData(
+        show: true,
+        drawVerticalLine: false,
+        horizontalInterval: interval,
+        getDrawingHorizontalLine: (value) => FlLine(color: Colors.grey.shade100, strokeWidth: 1),
+      ),
+      titlesData: FlTitlesData(
+        show: true,
+        rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        bottomTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            reservedSize: 30,
+            interval: 1,
+            getTitlesWidget: (value, meta) {
+              final index = value.toInt();
+              if (index >= 0 && index < filteredRes.length) {
+                final date = filteredRes[index]['date'] as DateTime;
+                return Padding(
+                  padding: const EdgeInsets.only(top: 8.0),
+                  child: Text(
+                    DateFormat('dd.MM.yy').format(date),
+                    style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.bold, fontSize: 10),
+                  ),
+                );
+              }
+              return const Text('');
+            },
+          ),
+        ),
+        leftTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            interval: interval,
+            getTitlesWidget: (value, meta) => Text(
+              value.toInt().toString(),
+              style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.bold, fontSize: 10),
+            ),
+            reservedSize: 30,
+          ),
+        ),
+      ),
+      borderData: FlBorderData(show: false),
+      minX: 0,
+      maxX: (filteredRes.length - 1).toDouble(),
+      minY: 0,
+      maxY: calculatedMaxY,
+      lineBarsData: [
+        LineChartBarData(
+          spots: filteredRes.asMap().entries.map((e) {
+            double yVal = 0;
+            if (widget.metric == 'score') {
+              yVal = (e.value['score'] as num).toDouble();
+            } else {
+              if (widget.subject == 'Tümü') {
+                yVal = (e.value['net'] as num).toDouble();
+              } else {
+                final subMap = e.value['subjects'];
+                if (subMap is Map && subMap.containsKey(widget.subject)) {
+                  final subData = subMap[widget.subject];
+                  yVal = subData is Map ? (subData['net'] ?? 0).toDouble() : (subData as num? ?? 0).toDouble();
+                }
+              }
+            }
+            return FlSpot(e.key.toDouble(), yVal);
+          }).toList(),
+          isCurved: true,
+          color: Colors.indigo,
+          barWidth: 3,
+          isStrokeCapRound: true,
+          dotData: FlDotData(
+            show: true,
+            getDotPainter: (spot, percent, barData, index) => FlDotCirclePainter(
+              radius: 4, color: Colors.white, strokeWidth: 2, strokeColor: Colors.indigo,
+            ),
+          ),
+          belowBarData: BarAreaData(
+            show: true,
+            gradient: LinearGradient(
+              colors: [Colors.indigo.withOpacity(0.3), Colors.indigo.withOpacity(0.0)],
+              begin: Alignment.topCenter, end: Alignment.bottomCenter,
+            ),
+          ),
+        ),
+      ],
+      lineTouchData: LineTouchData(
+        touchTooltipData: LineTouchTooltipData(
+          getTooltipColor: (touchedSpot) => Colors.transparent,
+          getTooltipItems: (touchedSpots) => [],
+        ),
+        handleBuiltInTouches: true,
+        touchCallback: (FlTouchEvent event, LineTouchResponse? touchResponse) {
+          if (!event.isInterestedForInteractions ||
+              touchResponse == null ||
+              touchResponse.lineBarSpots == null ||
+              touchResponse.lineBarSpots!.isEmpty) {
+            return;
+          }
+          final spotIndex = touchResponse.lineBarSpots!.first.spotIndex;
+          setState(() {
+            _fullTouchedIndex = spotIndex;
+          });
+        },
+      ),
+    );
+  }
+
+  Widget _buildFullScreenDetailBar(List<Map<String, dynamic>> results, int index) {
+    if (index < 0 || index >= results.length) return const SizedBox.shrink();
+    final exam = results[index];
+    final name = exam['examName'] ?? 'Sınav';
+    final date = DateFormat('dd.MM.yyyy').format(exam['date']);
+    final metric = widget.metric == 'score' ? 'Puan' : 'Net';
+    final val = widget.metric == 'score' 
+        ? (exam['score'] as num).toStringAsFixed(2)
+        : (widget.subject == 'Tümü' 
+            ? (exam['net'] as num).toStringAsFixed(2)
+            : (exam['subjects']?[widget.subject]?['net'] ?? 0).toStringAsFixed(2));
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.indigo.shade900.withOpacity(0.85),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Flexible(
+            child: Text(
+              name,
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Container(width: 1, height: 14, color: Colors.white30),
+          const SizedBox(width: 12),
+          Text(
+            date,
+            style: const TextStyle(color: Colors.white70, fontSize: 11),
+          ),
+          const SizedBox(width: 12),
+          Container(width: 1, height: 14, color: Colors.white30),
+          const SizedBox(width: 12),
+          Text(
+            "$val $metric",
+            style: const TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold, fontSize: 13),
+          ),
+        ],
+      ),
+    );
+  }
+}

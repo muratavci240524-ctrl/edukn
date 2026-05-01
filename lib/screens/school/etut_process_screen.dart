@@ -1101,14 +1101,21 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
       ),
       child: Row(
         children: [
-          Text(
-            '${DateFormat('d MMMM', 'tr').format(startOfWeek)} - ${DateFormat('d MMMM yyyy', 'tr').format(endOfWeek)}',
-            style: TextStyle(
-              color: Colors.grey.shade600,
-              fontWeight: FontWeight.w500,
+          Expanded(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '${DateFormat('d MMMM', 'tr').format(startOfWeek)} - ${DateFormat('d MMMM yyyy', 'tr').format(endOfWeek)}',
+                style: TextStyle(
+                  color: Colors.grey.shade600,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
             ),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 8),
           IconButton(
             icon: const Icon(Icons.chevron_left),
             onPressed: () => setState(
@@ -1516,329 +1523,280 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
       return;
     }
 
-    // Stylish Dialog for Etüts
+    // Stylish Bottom Sheet for Etüts
     final notesController = TextEditingController(
       text: etutList.first['teacherNotes'] ?? '',
     );
 
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      barrierDismissible: false,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) {
-          return Dialog(
-            backgroundColor: Colors.transparent,
-            insetPadding: const EdgeInsets.all(16),
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: 450, maxHeight: 700),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.2),
-                    blurRadius: 20,
-                    offset: const Offset(0, 10),
+          return Container(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom,
+            ),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header handle
+                const SizedBox(height: 12),
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
                   ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Header
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade50,
-                      borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(20),
+                ),
+                const SizedBox(height: 16),
+
+                // Header
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(Icons.class_outlined, color: Colors.blue.shade700, size: 20),
                       ),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(Icons.class_outlined, color: Colors.blue.shade700),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            'Etüt Detayı',
-                            style: TextStyle(
-                              color: Colors.blue.shade900,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 18,
-                            ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Etüt Detayı',
+                          style: TextStyle(
+                            color: Colors.blue.shade900,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
                           ),
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.close, color: Colors.grey),
-                          onPressed: () => Navigator.pop(context),
-                        ),
-                      ],
-                    ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.grey),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
                   ),
+                ),
+                const Divider(),
 
-                  // Content
-                  Flexible(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Info Card
-                          Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: Colors.grey.shade50,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: Colors.grey.shade200),
-                            ),
-                            child: Column(
-                              children: [
-                                _detailRow('Konu', details['topic'] ?? '-'),
-                                const Divider(height: 16),
-                                _detailRow(
-                                  'Aktivite',
-                                  details['action'] ?? '-',
-                                  valueColor: Colors.orange.shade800,
-                                ),
-                                const Divider(height: 16),
-                                _detailRow(
-                                  'Zaman',
-                                  DateFormat('d MMMM, HH:mm', 'tr').format(
-                                    (details['startTime'] as Timestamp)
-                                        .toDate(),
-                                  ),
-                                ),
-                              ],
-                            ),
+                // Content
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Info Card
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.grey.shade200),
                           ),
-                          const SizedBox(height: 24),
-
-                          // Student List
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          child: Column(
                             children: [
-                              Text(
-                                'Öğrenci Listesi (${etutList.length})',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 15,
+                              _detailRow('Konu', details['topic'] ?? '-'),
+                              const Divider(height: 16),
+                              _detailRow(
+                                'Aktivite',
+                                details['action'] ?? '-',
+                                valueColor: Colors.orange.shade800,
+                              ),
+                              const Divider(height: 16),
+                              _detailRow(
+                                'Zaman',
+                                DateFormat('d MMMM, HH:mm', 'tr').format(
+                                  (details['startTime'] as Timestamp).toDate(),
                                 ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 8),
-                          if (etutList.isEmpty)
-                            const Padding(
-                              padding: EdgeInsets.all(16.0),
-                              child: Center(
-                                child: Text('Öğrenci kaydı bulunamadı'),
+                        ),
+                        const SizedBox(height: 24),
+
+                        // Student List
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Öğrenci Listesi (${etutList.length})',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
                               ),
-                            )
-                          else
-                            Container(
-                              decoration: BoxDecoration(
-                                border: Border.all(color: Colors.grey.shade200),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Column(
-                                children: List.generate(etutList.length, (
-                                  index,
-                                ) {
-                                  final item = etutList[index];
-                                  final isLast = index == etutList.length - 1;
-                                  return Container(
-                                    decoration: BoxDecoration(
-                                      border: Border(
-                                        bottom: isLast
-                                            ? BorderSide.none
-                                            : BorderSide(
-                                                color: Colors.grey.shade100,
-                                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        if (etutList.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.all(16.0),
+                            child: Center(child: Text('Öğrenci kaydı bulunamadı')),
+                          )
+                        else
+                          Container(
+                            decoration: BoxDecoration(
+                              border: Border.all(color: Colors.grey.shade200),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Column(
+                              children: List.generate(etutList.length, (index) {
+                                final item = etutList[index];
+                                final isLast = index == etutList.length - 1;
+                                return Container(
+                                  decoration: BoxDecoration(
+                                    border: Border(
+                                      bottom: isLast ? BorderSide.none : BorderSide(color: Colors.grey.shade100),
+                                    ),
+                                  ),
+                                  child: ListTile(
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                                    leading: CircleAvatar(
+                                      radius: 14,
+                                      backgroundColor: Colors.blue.shade50,
+                                      child: Text(
+                                        (item['studentName'] ?? '?')[0],
+                                        style: TextStyle(
+                                          color: Colors.blue.shade700,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 10,
+                                        ),
                                       ),
                                     ),
-                                    child: ListTile(
-                                      contentPadding:
-                                          const EdgeInsets.symmetric(
-                                            horizontal: 12,
-                                            vertical: 4,
+                                    title: Text(
+                                      item['studentName'] ?? 'İsimsiz',
+                                      style: const TextStyle(fontSize: 13),
+                                    ),
+                                    trailing: IconButton(
+                                      icon: const Icon(Icons.delete_outline, color: Colors.red, size: 18),
+                                      onPressed: () async {
+                                        final confirmed = await showDialog<bool>(
+                                          context: context,
+                                          builder: (ctx) => AlertDialog(
+                                            title: const Text('Öğrenciyi Sil'),
+                                            content: Text('${item['studentName']} etütten çıkarılsın mı?'),
+                                            actions: [
+                                              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Hayır')),
+                                              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Evet')),
+                                            ],
                                           ),
-                                      leading: CircleAvatar(
-                                        radius: 16,
-                                        backgroundColor: Colors.blue.shade50,
-                                        child: Text(
-                                          (item['studentName'] ?? '?')[0],
-                                          style: TextStyle(
-                                            color: Colors.blue.shade700,
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 12,
-                                          ),
-                                        ),
-                                      ),
-                                      title: Text(
-                                        item['studentName'] ?? 'İsimsiz',
-                                        style: const TextStyle(fontSize: 14),
-                                      ),
-                                      trailing: IconButton(
-                                        icon: const Icon(
-                                          Icons.delete_outline,
-                                          color: Colors.red,
-                                          size: 20,
-                                        ),
-                                        onPressed: () async {
-                                          final confirmed = await showDialog<bool>(
-                                            context: context,
-                                            builder: (ctx) => AlertDialog(
-                                              title: const Text(
-                                                'Öğrenciyi Sil',
-                                              ),
-                                              content: Text(
-                                                '${item['studentName']} etütten çıkarılsın mı?',
-                                              ),
-                                              actions: [
-                                                TextButton(
-                                                  onPressed: () =>
-                                                      Navigator.pop(ctx, false),
-                                                  child: const Text('Hayır'),
-                                                ),
-                                                TextButton(
-                                                  onPressed: () =>
-                                                      Navigator.pop(ctx, true),
-                                                  child: const Text('Evet'),
-                                                ),
-                                              ],
-                                            ),
-                                          );
+                                        );
 
-                                          if (confirmed == true) {
-                                            await _cancelEtut(item['id']);
+                                        if (confirmed == true) {
+                                          await _cancelEtut(item['id']);
+                                          setDialogState(() {
                                             etutList.removeAt(index);
-                                            setDialogState(() {});
-                                            if (etutList.isEmpty) {
-                                              Navigator.pop(context);
-                                            }
-                                          }
-                                        },
-                                      ),
+                                          });
+                                          if (etutList.isEmpty) Navigator.pop(context);
+                                        }
+                                      },
                                     ),
-                                  );
-                                }),
-                              ),
-                            ),
-                          const SizedBox(height: 24),
-
-                          // Teacher Notes
-                          const Text(
-                            'Öğretmen Notları',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 15,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          TextField(
-                            controller: notesController,
-                            maxLines: 3,
-                            decoration: InputDecoration(
-                              hintText: 'Etüt ile ilgili notlar...',
-                              filled: true,
-                              fillColor: Colors.grey.shade50,
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide(
-                                  color: Colors.grey.shade200,
-                                ),
-                              ),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide(
-                                  color: Colors.grey.shade200,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  // Actions
-                  Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Row(
-                      children: [
-                        TextButton(
-                          onPressed: () async {
-                            final confirmed = await showDialog<bool>(
-                              context: context,
-                              builder: (ctx) => AlertDialog(
-                                title: const Text('Tüm Etütü İptal Et'),
-                                content: const Text(
-                                  'Bu işlem tüm öğrenciler için etütü silecektir. Emin misiniz?',
-                                ),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(ctx, false),
-                                    child: const Text('Vazgeç'),
                                   ),
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(ctx, true),
-                                    style: TextButton.styleFrom(
-                                      foregroundColor: Colors.red,
-                                    ),
-                                    child: const Text('Sil'),
-                                  ),
-                                ],
-                              ),
-                            );
+                                );
+                              }),
+                            ),
+                          ),
+                        const SizedBox(height: 24),
 
-                            if (confirmed == true) {
-                              for (var item in etutList) {
-                                await _cancelEtut(item['id']);
-                              }
-                              Navigator.pop(context);
-                            }
-                          },
-                          style: TextButton.styleFrom(
-                            foregroundColor: Colors.red,
-                          ),
-                          child: const Text('TÜMÜNÜ İPTAL ET'),
+                        // Teacher Notes
+                        const Text(
+                          'Öğretmen Notları',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                         ),
-                        const Spacer(),
-                        TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text('KAPAT'),
-                        ),
-                        const SizedBox(width: 8),
-                        ElevatedButton(
-                          onPressed: () async {
-                            final ids = etutList
-                                .map((e) => e['id'] as String)
-                                .toList();
-                            await _updateEtutNotes(ids, notesController.text);
-                            Navigator.pop(context);
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue.shade600,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 24,
-                              vertical: 12,
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: notesController,
+                          maxLines: 2,
+                          decoration: InputDecoration(
+                            hintText: 'Etüt ile ilgili notlar...',
+                            hintStyle: const TextStyle(fontSize: 13),
+                            filled: true,
+                            fillColor: Colors.grey.shade50,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: Colors.grey.shade200),
                             ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: Colors.grey.shade200),
                             ),
                           ),
-                          child: const Text('KAYDET'),
                         ),
+                        const SizedBox(height: 12),
                       ],
                     ),
                   ),
-                ],
-              ),
+                ),
+
+                // Actions
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                  child: Row(
+                    children: [
+                      TextButton(
+                        onPressed: () async {
+                          final confirmed = await showDialog<bool>(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text('Tüm Etütü İptal Et'),
+                              content: const Text('Bu işlem tüm öğrenciler için etütü silecektir. Emin misiniz?'),
+                              actions: [
+                                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Vazgeç')),
+                                TextButton(
+                                  onPressed: () => Navigator.pop(ctx, true),
+                                  style: TextButton.styleFrom(foregroundColor: Colors.red),
+                                  child: const Text('Sil'),
+                                ),
+                              ],
+                            ),
+                          );
+
+                          if (confirmed == true) {
+                            for (var item in etutList) {
+                              await _cancelEtut(item['id']);
+                            }
+                            Navigator.pop(context);
+                          }
+                        },
+                        style: TextButton.styleFrom(foregroundColor: Colors.red),
+                        child: const Text('TÜMÜNÜ İPTAL ET', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      ),
+                      const Spacer(),
+                      ElevatedButton(
+                        onPressed: () async {
+                          final ids = etutList.map((e) => e['id'] as String).toList();
+                          await _updateEtutNotes(ids, notesController.text);
+                          Navigator.pop(context);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue.shade600,
+                          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: const Text('KAYDET', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           );
         },
       ),
     );
+    return;
   }
 
   Future<void> _updateEtutNotes(List<String> etutIds, String notes) async {

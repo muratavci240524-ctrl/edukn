@@ -527,90 +527,113 @@ class _CreateSurveyScreenState extends State<CreateSurveyScreen> {
               ),
             ),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                Icon(typeIcon, size: 16, color: Colors.indigo.shade300),
-                const SizedBox(width: 8),
-                Text(
-                  _getTypeLabel(question.type),
-                  style: GoogleFonts.inter(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.indigo.shade300,
+                Icon(typeIcon, size: 14, color: Colors.indigo.shade400),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    _getTypeLabel(question.type),
+                    style: GoogleFonts.inter(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.indigo.shade400,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                const Spacer(),
-                // Move arrows
+                const SizedBox(width: 4),
+                // Move arrows (More Compact)
                 IconButton(
-                  icon: Icon(
-                    Icons.keyboard_arrow_up,
-                    size: 20,
-                    color: Colors.indigo.shade400,
-                  ),
-                  onPressed: questionIndex > 0
-                      ? () => _moveQuestion(sectionIndex, questionIndex, -1)
-                      : null,
+                  icon: Icon(Icons.keyboard_arrow_up, size: 18, color: Colors.indigo.shade400),
+                  onPressed: questionIndex > 0 ? () => _moveQuestion(sectionIndex, questionIndex, -1) : null,
                   padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  splashRadius: 18,
+                  constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
                 ),
-                const SizedBox(width: 8),
                 IconButton(
-                  icon: Icon(
-                    Icons.keyboard_arrow_down,
-                    size: 20,
-                    color: Colors.indigo.shade400,
-                  ),
-                  onPressed: questionIndex < totalQuestions - 1
-                      ? () => _moveQuestion(sectionIndex, questionIndex, 1)
-                      : null,
+                  icon: Icon(Icons.keyboard_arrow_down, size: 18, color: Colors.indigo.shade400),
+                  onPressed: questionIndex < totalQuestions - 1 ? () => _moveQuestion(sectionIndex, questionIndex, 1) : null,
                   padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  splashRadius: 18,
+                  constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
                 ),
-                const SizedBox(width: 12),
-                const VerticalDivider(width: 1),
-                const SizedBox(width: 12),
-                // Actions
-                IconButton(
-                  icon: Icon(
-                    Icons.content_copy,
-                    size: 18,
-                    color: Colors.indigo.shade400,
+                // Responsive Actions
+                if (MediaQuery.of(context).size.width >= 700) ...[
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: Icon(Icons.content_copy, size: 16, color: Colors.indigo.shade400),
+                    onPressed: () => _duplicateQuestion(sectionIndex, questionIndex),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                    tooltip: 'Çoğalt',
                   ),
-                  onPressed: () =>
-                      _duplicateQuestion(sectionIndex, questionIndex),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  splashRadius: 18,
-                  tooltip: 'Çoğalt',
-                ),
-                const SizedBox(width: 12),
-                IconButton(
-                  icon: Icon(
-                    Icons.edit_outlined,
-                    size: 18,
-                    color: Colors.blue.shade400,
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: Icon(Icons.edit_outlined, size: 16, color: Colors.blue.shade400),
+                    onPressed: () => _editQuestion(sectionIndex, questionIndex),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                    tooltip: 'Düzenle',
                   ),
-                  onPressed: () => _editQuestion(sectionIndex, questionIndex),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  splashRadius: 18,
-                  tooltip: 'Düzenle',
-                ),
-                const SizedBox(width: 12),
-                IconButton(
-                  icon: Icon(
-                    Icons.delete_outline,
-                    size: 18,
-                    color: Colors.red.shade400,
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: Icon(Icons.delete_outline, size: 16, color: Colors.red.shade400),
+                    onPressed: () => _deleteQuestion(sectionIndex, questionIndex),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                    tooltip: 'Sil',
                   ),
-                  onPressed: () => _deleteQuestion(sectionIndex, questionIndex),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  splashRadius: 18,
-                  tooltip: 'Sil',
-                ),
+                ] else
+                  // Action Menu (3 Dots) for mobile
+                  PopupMenuButton<String>(
+                    icon: Icon(Icons.more_vert, size: 20, color: Colors.indigo.shade400),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                    onSelected: (value) {
+                      switch (value) {
+                        case 'duplicate':
+                          _duplicateQuestion(sectionIndex, questionIndex);
+                          break;
+                        case 'edit':
+                          _editQuestion(sectionIndex, questionIndex);
+                          break;
+                        case 'delete':
+                          _deleteQuestion(sectionIndex, questionIndex);
+                          break;
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      PopupMenuItem(
+                        value: 'duplicate',
+                        child: Row(
+                          children: [
+                            Icon(Icons.content_copy, size: 18, color: Colors.indigo.shade600),
+                            const SizedBox(width: 12),
+                            const Text('Çoğalt'),
+                          ],
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'edit',
+                        child: Row(
+                          children: [
+                            Icon(Icons.edit_outlined, size: 18, color: Colors.blue.shade600),
+                            const SizedBox(width: 12),
+                            const Text('Düzenle'),
+                          ],
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'delete',
+                        child: Row(
+                          children: [
+                            Icon(Icons.delete_outline, size: 18, color: Colors.red.shade600),
+                            const SizedBox(width: 12),
+                            const Text('Sil', style: TextStyle(color: Colors.red)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
               ],
             ),
           ),
@@ -1075,50 +1098,53 @@ class _QuestionEditorState extends State<QuestionEditor> {
             ),
           ),
           const SizedBox(height: 12),
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.indigo.withOpacity(0.02),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.indigo.shade100),
+          DropdownButtonFormField<SurveyQuestionType>(
+            value: type,
+            isExpanded: true,
+            elevation: 8,
+            icon: const Icon(
+              Icons.keyboard_arrow_down_rounded,
+              color: Colors.indigo,
             ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButtonFormField<SurveyQuestionType>(
-                value: type,
-                isExpanded: true,
-                elevation: 8,
-                icon: const Icon(
-                  Icons.keyboard_arrow_down_rounded,
-                  color: Colors.indigo,
-                ),
-                dropdownColor: Colors.white,
+            dropdownColor: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            menuMaxHeight: 400,
+            decoration: InputDecoration(
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 12,
+              ),
+              filled: true,
+              fillColor: Colors.indigo.withOpacity(0.02),
+              enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                menuMaxHeight: 400,
-                decoration: InputDecoration(
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                  border: InputBorder.none,
-                ),
-                style: GoogleFonts.inter(
-                  color: Colors.indigo.shade900,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                ),
-                alignment: AlignmentDirectional.centerStart,
-                items: SurveyQuestionType.values.map((e) {
-                  return DropdownMenuItem(
-                    value: e,
-                    child: Text(
-                      _CreateSurveyScreenState._getStaticTypeLabel(e),
-                    ),
-                  );
-                }).toList(),
-                onChanged: (v) {
-                  if (v != null) setState(() => type = v);
-                },
+                borderSide: BorderSide(color: Colors.indigo.shade100),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.indigo, width: 2),
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
               ),
             ),
+            style: GoogleFonts.inter(
+              color: Colors.indigo.shade900,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
+            alignment: AlignmentDirectional.centerStart,
+            items: SurveyQuestionType.values.map((e) {
+              return DropdownMenuItem(
+                value: e,
+                child: Text(
+                  _CreateSurveyScreenState._getStaticTypeLabel(e),
+                ),
+              );
+            }).toList(),
+            onChanged: (v) {
+              if (v != null) setState(() => type = v);
+            },
           ),
           if (type == SurveyQuestionType.singleChoice ||
               type == SurveyQuestionType.multipleChoice) ...[

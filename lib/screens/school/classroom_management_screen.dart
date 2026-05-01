@@ -350,6 +350,8 @@ class _ClassroomManagementScreenState extends State<ClassroomManagementScreen>
               onPressed: () => _showClassroomFormDialog(),
               icon: Icon(Icons.add),
               label: Text('Yeni Derslik'),
+              backgroundColor: Colors.indigo.shade400,
+              foregroundColor: Colors.white,
             ),
     );
   }
@@ -441,6 +443,7 @@ class _ClassroomManagementScreenState extends State<ClassroomManagementScreen>
               ),
             ],
           ),
+          SizedBox(height: 12),
           // Arama
           SizedBox(
             height: 40,
