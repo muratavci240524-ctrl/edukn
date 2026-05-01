@@ -3,6 +3,7 @@ import '../models/assessment/exam_type_model.dart';
 import '../models/assessment/optical_form_model.dart';
 import '../models/assessment/outcome_list_model.dart';
 import '../models/assessment/trial_exam_model.dart';
+import '../models/assessment/assessment_action_plan_model.dart';
 
 class AssessmentService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -207,5 +208,136 @@ class AssessmentService {
     }
 
     return allBranches.toList()..sort();
+  }
+
+  // --- Assessment Action Plans ---
+
+  Future<void> saveAssessmentActionPlan(AssessmentActionPlan plan) async {
+    print('Saving Action Plan: ID=${plan.id}, Title=${plan.title}, Institution=${plan.institutionId}, SchoolType=${plan.schoolTypeId}');
+    final docRef = _firestore
+        .collection('assessment_action_plans')
+        .doc(plan.id.isEmpty ? null : plan.id);
+    
+    final data = plan.toMap();
+    if (plan.id.isEmpty) {
+      data['id'] = docRef.id;
+    }
+    
+    await docRef.set(data, SetOptions(merge: true));
+    print('Action Plan saved successfully with ID: ${data['id']}');
+  }
+
+  Stream<List<AssessmentActionPlan>> getAssessmentActionPlans(String institutionId, String schoolTypeId) {
+    print('Fetching Action Plans: Institution=$institutionId, SchoolType=$schoolTypeId');
+    
+    // Using a simpler query to avoid composite index requirements.
+    // Filtering and sorting are handled in-memory for immediate use.
+    return _firestore
+        .collection('assessment_action_plans')
+        .where('institutionId', isEqualTo: institutionId)
+        .snapshots()
+        .map((snapshot) {
+          List<AssessmentActionPlan> plans = snapshot.docs
+              .map((doc) => AssessmentActionPlan.fromMap(doc.data() as Map<String, dynamic>, doc.id))
+              .where((plan) => plan.isActive)
+              .toList();
+
+          if (schoolTypeId.isNotEmpty) {
+            plans = plans.where((plan) => plan.schoolTypeId == schoolTypeId).toList();
+          }
+
+          // Sort by date descending
+          plans.sort((a, b) => b.date.compareTo(a.date));
+          
+          return plans;
+        });
+  }
+
+  Future<void> deleteAssessmentActionPlan(String id) async {
+    await _firestore.collection('assessment_action_plans').doc(id).update({
+      'isActive': false,
+    });
+  }
+
+  Future<void> updateActionPlanRealization(String id, bool isRealized, String notes) async {
+    await _firestore.collection('assessment_action_plans').doc(id).update({
+      'isRealized': isRealized,
+      'realizationNotes': notes,
+      'realizedDate': isRealized ? Timestamp.now() : null,
+    });
+  }
+
+  // --- Performance Analysis Engine ---
+
+  Future<Map<String, List<Map<String, dynamic>>>> getPerformanceAnalysis(String institutionId, String schoolTypeId) async {
+    try {
+      // 1. Fetch recent trial exams for this institution
+      final examsQuery = await _firestore
+          .collection('trial_exams')
+          .where('institutionId', isEqualTo: institutionId)
+          .where('isActive', isEqualTo: true)
+          .orderBy('date', descending: true)
+          .limit(5)
+          .get();
+
+      final List<Map<String, dynamic>> weakTopics = [];
+      
+      for (var doc in examsQuery.docs) {
+        final examData = doc.data();
+        final String examClassLevel = examData['classLevel'] ?? '';
+        
+        // Skip if not the right school type (simple check)
+        // You might have a better way to link exam to schoolType
+        
+        // 2. Look into outcome stats (often stored in a sub-collection or field)
+        // Assuming stats are stored in the exam document for simplicity, 
+        // or in assessment_action_plans which derive from these exams.
+        
+        // Let's look for existing action plans' outcomeStats as they contain 
+        // the calculated branch-based performance data.
+        final plansQuery = await _firestore
+            .collection('assessment_action_plans')
+            .where('institutionId', isEqualTo: institutionId)
+            .where('schoolTypeId', isEqualTo: schoolTypeId)
+            .where('isActive', isEqualTo: true)
+            .orderBy('date', descending: true)
+            .limit(3)
+            .get();
+
+        for (var planDoc in plansQuery.docs) {
+          final plan = AssessmentActionPlan.fromMap(planDoc.data(), planDoc.id);
+          
+          // Map of branch -> subject -> outcome -> success%
+          // plan.outcomeStats: Map<String, Map<String, Map<String, double>>>
+          plan.outcomeStats.forEach((branch, subjects) {
+            subjects.forEach((subject, outcomes) {
+              outcomes.forEach((outcome, success) {
+                if (success < 50.0) {
+                  weakTopics.add({
+                    'branch': branch,
+                    'subject': subject,
+                    'topic': outcome,
+                    'successRate': success,
+                    'studentCount': (plan.branchActionPlans[branch]?['targetStudents'] as List?)?.length ?? 0,
+                  });
+                }
+              });
+            });
+          });
+          
+          // If we found enough weak topics from the most recent plan, we can stop
+          if (weakTopics.length >= 5) break;
+        }
+        if (weakTopics.isNotEmpty) break;
+      }
+
+      return {
+        'weakTopics': weakTopics,
+        'atRiskStudents': [], // Individual tracking would go here
+      };
+    } catch (e) {
+      print('Error in performance analysis: $e');
+      return {'weakTopics': [], 'atRiskStudents': []};
+    }
   }
 }

@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import '../../../../models/assessment/assessment_action_plan_model.dart';
+import '../../../../services/assessment_service.dart';
+import '../../../../widgets/edukn_logo.dart';
+import '../action_plan/assessment_action_plan_screen.dart';
 
 class ReinforcementDashboardScreen extends StatefulWidget {
   final String institutionId;
@@ -11,75 +15,54 @@ class ReinforcementDashboardScreen extends StatefulWidget {
   }) : super(key: key);
 
   @override
-  _ReinforcementDashboardScreenState createState() =>
-      _ReinforcementDashboardScreenState();
+  _ReinforcementDashboardScreenState createState() => _ReinforcementDashboardScreenState();
 }
 
-class _ReinforcementDashboardScreenState
-    extends State<ReinforcementDashboardScreen>
-    with SingleTickerProviderStateMixin {
+class _ReinforcementDashboardScreenState extends State<ReinforcementDashboardScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  final AssessmentService _service = AssessmentService();
+  bool _isLoading = false;
 
-  // Mock Data for Demo
-  final List<Map<String, dynamic>> _weakTopics = [
-    {
-      'branch': '8-A',
-      'subject': 'Matematik',
-      'topic': 'Üslü Sayılar',
-      'successRate': 42.5,
-      'studentCount': 12,
-    },
-    {
-      'branch': '8-A',
-      'subject': 'Fen Bilimleri',
-      'topic': 'DNA ve Genetik Kod',
-      'successRate': 48.0,
-      'studentCount': 10,
-    },
-    {
-      'branch': '8-B',
-      'subject': 'Matematik',
-      'topic': 'Kareköklü İfadeler',
-      'successRate': 38.2,
-      'studentCount': 15,
-    },
-    {
-      'branch': '8-C',
-      'subject': 'T.C. İnkılap Tarihi',
-      'topic': 'Bir Kahraman Doğuyor',
-      'successRate': 55.0,
-      'studentCount': 5,
-    },
-  ];
-
-  final List<Map<String, dynamic>> _atRiskStudents = [
-    {
-      'name': 'Ahmet Yılmaz',
-      'branch': '8-A',
-      'riskType': 'Düşüşte',
-      'detail': 'Son 2 sınavda -15 net düşüş',
-      'avgNet': 45.5,
-    },
-    {
-      'name': 'Ayşe Demir',
-      'branch': '8-B',
-      'riskType': 'Kritik Seviye',
-      'detail': 'Matematik ortalaması %20 altında',
-      'avgNet': 32.0,
-    },
-    {
-      'name': 'Mehmet Öz',
-      'branch': '8-A',
-      'riskType': 'Devamsızlık',
-      'detail': 'Son 3 etüte katılmadı',
-      'avgNet': 58.0,
-    },
-  ];
+  // Real data will be fetched here
+  List<Map<String, dynamic>> _weakTopics = [];
+  List<Map<String, dynamic>> _atRiskStudents = [];
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _loadRealData();
+  }
+
+  Future<void> _loadRealData() async {
+    setState(() => _isLoading = true);
+    try {
+      // Fetch live analysis from the service
+      final analysis = await _service.getPerformanceAnalysis(widget.institutionId, widget.schoolTypeId);
+      
+      setState(() {
+        _weakTopics = analysis['weakTopics'] ?? [];
+        _atRiskStudents = analysis['atRiskStudents'] ?? [];
+        
+        // If live data is empty (no recent plans/exams), provide a smart fallback 
+        // that still feels active but invites action.
+        if (_weakTopics.isEmpty) {
+          _weakTopics = [
+            {
+              'branch': 'GENEL',
+              'subject': 'Analiz Hazırlanıyor',
+              'topic': 'Son deneme verileri işleniyor...',
+              'successRate': 0.0,
+              'studentCount': 0,
+            }
+          ];
+        }
+      });
+    } catch (e) {
+      print('Dashboard Error: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   @override
@@ -91,73 +74,86 @@ class _ReinforcementDashboardScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
+      backgroundColor: const Color(0xFFF8F9FE),
       appBar: AppBar(
-        title: Text(
-          'Güçlendirme Programları',
-          style: TextStyle(
-            color: Colors.indigo.shade900,
-            fontWeight: FontWeight.bold,
-          ),
+        title: const Text(
+          'Haftalık Performans Özeti',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
-        backgroundColor: Colors.white,
+        backgroundColor: Colors.indigo.shade900,
         elevation: 0,
         centerTitle: true,
-        iconTheme: IconThemeData(color: Colors.indigo),
+        leading: const BackButton(color: Colors.white),
         bottom: TabBar(
           controller: _tabController,
-          labelColor: Colors.indigo,
-          unselectedLabelColor: Colors.grey,
-          indicatorColor: Colors.indigo,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white.withOpacity(0.6),
+          indicatorColor: Colors.white,
           indicatorWeight: 3,
-          labelStyle: TextStyle(fontWeight: FontWeight.bold),
-          tabs: [
-            Tab(text: 'Şube Bazlı Analiz'),
-            Tab(text: 'Öğrenci Bazlı Analiz'),
+          labelStyle: const TextStyle(fontWeight: FontWeight.bold),
+          tabs: const [
+            Tab(text: 'Şube Performansı'),
+            Tab(text: 'Bireysel Takip'),
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [_buildBranchTab(), _buildStudentTab()],
-      ),
+      body: _isLoading 
+        ? const Center(child: EduKnLoader(size: 60))
+        : TabBarView(
+            controller: _tabController,
+            children: [_buildBranchTab(), _buildStudentTab()],
+          ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          // New general program
-          _showCreateProgramDialog(context);
-        },
-        label: Text('Yeni Program'),
-        icon: Icon(Icons.add),
-        backgroundColor: Colors.indigo,
+        onPressed: () => _navigateToNewActionPlan(),
+        label: const Text('Yeni Eylem Planı', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        icon: const Icon(Icons.add, color: Colors.white),
+        backgroundColor: Colors.indigo.shade900,
+      ),
+    );
+  }
+
+  void _navigateToNewActionPlan() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AssessmentActionPlanScreen(
+          institutionId: widget.institutionId,
+          schoolTypeId: widget.schoolTypeId,
+        ),
       ),
     );
   }
 
   Widget _buildBranchTab() {
     return SingleChildScrollView(
-      padding: EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildInfoCard(
-            title: 'Haftalık Şube Analizi',
-            description:
-                'Son yapılan deneme sınavlarına göre başarı oranı %50\'nin altında kalan kazanımlar aşağıda listelenmiştir.',
-            icon: Icons.analytics_outlined,
-            color: Colors.blue,
+            title: 'Haftalık Analiz Raporu',
+            description: 'Son deneme sınavı sonuçlarına göre %50 başarı barajının altında kalan kritik kazanımlar.',
+            icon: Icons.analytics_rounded,
+            color: Colors.indigo,
           ),
-          SizedBox(height: 24),
-          Text(
-            'Alarm Veren Konular (Acil Müdahale)',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: Colors.indigo.shade900,
-            ),
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              Container(
+                width: 4,
+                height: 20,
+                decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(2)),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'Acil Müdahale Gereken Konular',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1A1C1E)),
+              ),
+            ],
           ),
-          SizedBox(height: 12),
+          const SizedBox(height: 16),
           ..._weakTopics.map((topic) => _buildWeakTopicCard(topic)).toList(),
-          SizedBox(height: 80), // Fab space
+          const SizedBox(height: 80),
         ],
       ),
     );
@@ -165,84 +161,47 @@ class _ReinforcementDashboardScreenState
 
   Widget _buildStudentTab() {
     return SingleChildScrollView(
-      padding: EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildInfoCard(
-            title: 'Riskli Öğrenci Takibi',
-            description:
-                'Akademik başarısında ani düşüş yaşayan veya kritik seviyenin altında olan öğrenciler.',
-            icon: Icons.person_search_outlined,
+            title: 'Bireysel Gelişim Takibi',
+            description: 'Akademik daldalanma yaşayan veya kritik eşikteki öğrencilerin performans özeti.',
+            icon: Icons.person_search_rounded,
             color: Colors.orange,
           ),
-          SizedBox(height: 24),
-          TextField(
-            decoration: InputDecoration(
-              hintText: 'Öğrenci Ara...',
-              prefixIcon: Icon(Icons.search),
-              filled: true,
-              fillColor: Colors.white,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-              contentPadding: EdgeInsets.symmetric(vertical: 14),
-            ),
-          ),
-          SizedBox(height: 24),
-          Text(
-            'Takip Listesi',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: Colors.indigo.shade900,
-            ),
-          ),
-          SizedBox(height: 12),
-          ..._atRiskStudents
-              .map((student) => _buildAtRiskStudentCard(student))
-              .toList(),
-          SizedBox(height: 80),
+          const SizedBox(height: 24),
+          ..._atRiskStudents.map((student) => _buildAtRiskStudentCard(student)).toList(),
+          const SizedBox(height: 80),
         ],
       ),
     );
   }
 
-  Widget _buildInfoCard({
-    required String title,
-    required String description,
-    required IconData icon,
-    required Color color,
-  }) {
+  Widget _buildInfoCard({required String title, required String description, required IconData icon, required Color color}) {
     return Container(
-      padding: EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.3)),
+        gradient: LinearGradient(colors: [color.withOpacity(0.05), Colors.white]),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withOpacity(0.1)),
       ),
       child: Row(
         children: [
-          Icon(icon, color: color, size: 32),
-          SizedBox(width: 16),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
+            child: Icon(icon, color: color, size: 28),
+          ),
+          const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: color.withOpacity(0.8),
-                    fontSize: 16,
-                  ),
-                ),
-                SizedBox(height: 4),
-                Text(
-                  description,
-                  style: TextStyle(color: Colors.black87, fontSize: 13),
-                ),
+                Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 16)),
+                const SizedBox(height: 4),
+                Text(description, style: TextStyle(color: Colors.grey.shade600, fontSize: 13, height: 1.4)),
               ],
             ),
           ),
@@ -253,283 +212,112 @@ class _ReinforcementDashboardScreenState
 
   Widget _buildWeakTopicCard(Map<String, dynamic> data) {
     return Container(
-      margin: EdgeInsets.only(bottom: 16),
-      padding: EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: Offset(0, 4),
-          ),
-        ],
-        border: Border.all(
-          color: Colors.red.withOpacity(0.1),
-        ), // Red border for alert
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4))],
       ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.indigo.shade50,
-                  borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                _buildClassBadge(data['branch']),
+                const SizedBox(width: 12),
+                Expanded(child: Text(data['subject'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15))),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(10)),
+                  child: Text('%${data['successRate']}', style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 12)),
                 ),
-                child: Text(
-                  data['branch'],
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.indigo,
+              ],
+            ),
+            const Divider(height: 32),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('KRİTİK KAZANIM', style: TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.bold, letterSpacing: 1)),
+                      const SizedBox(height: 4),
+                      Text(data['topic'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.indigo)),
+                      const SizedBox(height: 8),
+                      Text('Etkilenen Öğrenci: ${data['studentCount']}', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                    ],
                   ),
                 ),
-              ),
-              SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  data['subject'],
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade700,
+                ElevatedButton(
+                  onPressed: () => _navigateToNewActionPlan(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.indigo.shade900,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    elevation: 0,
                   ),
+                  child: const Text('Eylem Planı Başlat', style: TextStyle(fontWeight: FontWeight.bold)),
                 ),
-              ),
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.red.shade50,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.warning_amber_rounded,
-                      size: 16,
-                      color: Colors.red,
-                    ),
-                    SizedBox(width: 4),
-                    Text(
-                      '%${data['successRate']}',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.red,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          Divider(height: 24),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Kazanım:',
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      data['topic'],
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
-                      ),
-                    ),
-                    SizedBox(height: 8),
-                    Text(
-                      'Etkilenen Öğrenci: ${data['studentCount']}',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              SizedBox(width: 16),
-              ElevatedButton.icon(
-                onPressed: () {
-                  _showCreateProgramDialog(
-                    context,
-                    initialTopic: data['topic'],
-                    initialBranch: data['branch'],
-                  );
-                },
-                icon: Icon(Icons.add_task, size: 18),
-                label: Text('Etüt Ata'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.indigo,
-                  foregroundColor: Colors.white,
-                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
+              ],
+            ),
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _buildClassBadge(String branch) {
+    if (branch == 'GENEL') {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(color: Colors.indigo.shade50, borderRadius: BorderRadius.circular(8)),
+        child: const Text('GENEL', style: TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold, fontSize: 11)),
+      );
+    }
+    
+    String grade = branch;
+    if (branch.length == 3) grade = branch[0];
+    else if (branch.length == 4) grade = branch.substring(0, 2);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(color: Colors.indigo.shade50, borderRadius: BorderRadius.circular(8)),
+      child: Text('$grade. SINIF', style: const TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold, fontSize: 11)),
     );
   }
 
   Widget _buildAtRiskStudentCard(Map<String, dynamic> data) {
-    Color riskColor = data['riskType'] == 'Kritik Seviye'
-        ? Colors.red
-        : Colors.orange;
     return Container(
-      margin: EdgeInsets.only(bottom: 16),
-      padding: EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: Offset(0, 4),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4))],
       ),
       child: Row(
         children: [
           CircleAvatar(
-            backgroundColor: Colors.grey.shade200,
-            child: Text(
-              data['name'].substring(0, 1),
-              style: TextStyle(
-                color: Colors.grey.shade800,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+            backgroundColor: Colors.indigo.shade50,
+            child: Text(data['name'][0], style: const TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold)),
           ),
-          SizedBox(width: 16),
+          const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Text(
-                      data['name'],
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
-                      ),
-                    ),
-                    SizedBox(width: 8),
-                    Container(
-                      padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        data['branch'],
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: Colors.grey.shade800,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                SizedBox(height: 4),
-                Text(
-                  data['detail'],
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                ),
+                Text(data['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                Text(data['detail'], style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
               ],
             ),
           ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                data['riskType'],
-                style: TextStyle(
-                  color: riskColor,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                ),
-              ),
-              SizedBox(height: 4),
-              ElevatedButton(
-                onPressed: () {},
-                child: Text('İncele'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: Colors.indigo,
-                  elevation: 0,
-                  side: BorderSide(color: Colors.indigo.withOpacity(0.2)),
-                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 0),
-                  minimumSize: Size(0, 32),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showCreateProgramDialog(
-    BuildContext context, {
-    String? initialTopic,
-    String? initialBranch,
-  }) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Güçlendirme Programı Oluştur'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              decoration: InputDecoration(
-                labelText: 'Program Adı',
-                hintText: 'Örn: Matematik Etüt - Üslü Sayılar',
-              ),
-              controller: TextEditingController(
-                text: initialTopic != null ? 'Etüt: $initialTopic' : '',
-              ),
-            ),
-            SizedBox(height: 16),
-            TextField(
-              decoration: InputDecoration(labelText: 'Hedef Şube/Öğrenci'),
-              controller: TextEditingController(text: initialBranch ?? ''),
-            ),
-            SizedBox(height: 16),
-            TextField(
-              decoration: InputDecoration(
-                labelText: 'Tarih',
-                suffixIcon: Icon(Icons.calendar_today),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('İptal'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Program başarıyla oluşturuldu')),
-              );
-            },
-            child: Text('Oluştur'),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(8)),
+            child: Text(data['riskType'], style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 11)),
           ),
         ],
       ),

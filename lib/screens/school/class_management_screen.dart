@@ -188,11 +188,12 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
     );
   }
 
-  void _showClassFormDialog({ClassModel? classToEdit}) {
-    showDialog(
+  void _showClassFormBottomSheet({ClassModel? classToEdit}) {
+    showModalBottomSheet(
       context: context,
-      barrierDismissible: false,
-      builder: (context) => _ClassFormDialog(
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _ClassFormSheet(
         schoolTypeId: widget.schoolTypeId,
         schoolTypeName: widget.schoolTypeName,
         institutionId: widget.institutionId,
@@ -345,10 +346,10 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
       floatingActionButton: _isViewingPastTerm
           ? null
           : FloatingActionButton.extended(
-              onPressed: () => _showClassFormDialog(),
+              onPressed: () => _showClassFormBottomSheet(),
               backgroundColor: Colors.indigo,
-              icon: Icon(Icons.add, color: Colors.white),
-              label: Text('Yeni Şube Ekle', style: TextStyle(color: Colors.white)),
+              icon: const Icon(Icons.add, color: Colors.white),
+              label: const Text('Yeni Şube Ekle', style: TextStyle(color: Colors.white)),
             ),
       body: Row(
         children: [
@@ -716,7 +717,7 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
                                       classTypes: _classTypes,
                                       onEdit: () {
                                         Navigator.pop(context);
-                                        _showClassFormDialog(
+                                        _showClassFormBottomSheet(
                                           classToEdit: classItem,
                                         );
                                       },
@@ -884,7 +885,7 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
                           updatedAt: _selectedClass!['updatedAt'],
                           isActive: _selectedClass!['isActive'],
                         );
-                        _showClassFormDialog(classToEdit: classModel);
+                        _showClassFormBottomSheet(classToEdit: classModel);
                       },
                       onDelete: () {
                         _deleteClass(
@@ -2438,8 +2439,8 @@ class _ClassTypeDialogState extends State<_ClassTypeDialog> {
   }
 }
 
-// Sınıf Form Dialog
-class _ClassFormDialog extends StatefulWidget {
+// Sınıf Form Sheet (Premium Bottom Sheet)
+class _ClassFormSheet extends StatefulWidget {
   final String schoolTypeId;
   final String schoolTypeName;
   final String institutionId;
@@ -2448,7 +2449,7 @@ class _ClassFormDialog extends StatefulWidget {
   final ClassModel? classToEdit;
   final VoidCallback onClassSaved;
 
-  const _ClassFormDialog({
+  const _ClassFormSheet({
     required this.schoolTypeId,
     required this.schoolTypeName,
     required this.institutionId,
@@ -2459,10 +2460,10 @@ class _ClassFormDialog extends StatefulWidget {
   });
 
   @override
-  State<_ClassFormDialog> createState() => _ClassFormDialogState();
+  State<_ClassFormSheet> createState() => _ClassFormSheetState();
 }
 
-class _ClassFormDialogState extends State<_ClassFormDialog> {
+class _ClassFormSheetState extends State<_ClassFormSheet> {
   final _formKey = GlobalKey<FormState>();
   final _classNameController = TextEditingController();
   final _shortNameController = TextEditingController();
@@ -2484,12 +2485,15 @@ class _ClassFormDialogState extends State<_ClassFormDialog> {
       final c = widget.classToEdit!;
       _classNameController.text = c.className;
       _shortNameController.text = c.shortName;
-      _selectedClassTypeId = c.classTypeId;
+      
+      // Güvenli seçim: Liste içinde varsa seç, yoksa null bırak (crash engelleme)
+      bool typeExists = widget.classTypes.any((t) => t.id == c.classTypeId);
+      _selectedClassTypeId = typeExists ? c.classTypeId : (widget.classTypes.isNotEmpty ? widget.classTypes.first.id : null);
+      
       _selectedTeacherId = c.classTeacherId;
       _selectedLevel = c.classLevel;
       _descriptionController.text = c.description ?? '';
     } else if (widget.classTypes.isNotEmpty) {
-      // Varsayılan "Ders Sınıfı" tipini seç
       final defaultType = widget.classTypes.firstWhere(
         (t) => t.isDefault,
         orElse: () => widget.classTypes.first,
@@ -2515,21 +2519,14 @@ class _ClassFormDialogState extends State<_ClassFormDialog> {
           .where('isActive', isEqualTo: true)
           .get();
 
-      // Sadece bu okul türünde çalışan öğretmenleri filtrele
       final teachers = snapshot.docs.where((doc) {
         final data = doc.data();
         final title = (data['title'] ?? '').toString().toLowerCase();
-        
-        // Öğretmen mi kontrol et
         if (title != 'ogretmen') return false;
-
-        // Bu okul türünde çalışıyor mu kontrol et
         if (data['workLocations'] != null && data['workLocations'] is List) {
           final locations = List<String>.from(data['workLocations']);
           return locations.contains(widget.schoolTypeName);
         }
-
-        // workLocations yoksa tüm öğretmenleri göster (geriye uyumluluk)
         return true;
       }).map((doc) {
         final data = doc.data();
@@ -2550,12 +2547,17 @@ class _ClassFormDialogState extends State<_ClassFormDialog> {
 
   Future<void> _saveClass() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_selectedClassTypeId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Lütfen sınıf tipi seçiniz')));
+      return;
+    }
 
     setState(() => _isSaving = true);
 
     try {
       final selectedType = widget.classTypes.firstWhere(
         (t) => t.id == _selectedClassTypeId,
+        orElse: () => widget.classTypes.first,
       );
 
       String? teacherName;
@@ -2567,7 +2569,6 @@ class _ClassFormDialogState extends State<_ClassFormDialog> {
         teacherName = teacher['fullName'];
       }
 
-      // Yeni kayıtlar için aktif dönemi otomatik al
       final activeTermId = await TermService().getActiveTermId();
 
       final classData = ClassModel(
@@ -2579,9 +2580,7 @@ class _ClassFormDialogState extends State<_ClassFormDialog> {
         classTeacherId: _selectedTeacherId,
         classTeacherName: teacherName,
         classLevel: _selectedLevel,
-        description: _descriptionController.text.trim().isEmpty
-            ? null
-            : _descriptionController.text.trim(),
+        description: _descriptionController.text.trim().isEmpty ? null : _descriptionController.text.trim(),
         schoolTypeId: widget.schoolTypeId,
         schoolTypeName: widget.schoolTypeName,
         institutionId: widget.institutionId,
@@ -2592,303 +2591,238 @@ class _ClassFormDialogState extends State<_ClassFormDialog> {
       );
 
       if (widget.classToEdit == null) {
-        // Yeni şube ekle
-        await FirebaseFirestore.instance
-            .collection('classes')
-            .add(classData.toMap());
+        await FirebaseFirestore.instance.collection('classes').add(classData.toMap());
       } else {
-        // Mevcut şubeyi güncelle
-        await FirebaseFirestore.instance
-            .collection('classes')
-            .doc(widget.classToEdit!.id)
-            .update(classData.toMap());
+        await FirebaseFirestore.instance.collection('classes').doc(widget.classToEdit!.id).update(classData.toMap());
       }
 
       widget.onClassSaved();
-
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(widget.classToEdit == null
-                ? '✅ Şube eklendi'
-                : '✅ Şube güncellendi'),
+            content: Text(widget.classToEdit == null ? '✅ Şube eklendi' : '✅ Şube güncellendi'),
             backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('❌ Hata: $e'), backgroundColor: Colors.red),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Hata: $e'), backgroundColor: Colors.red));
       }
     } finally {
-      if (mounted) {
-        setState(() => _isSaving = false);
-      }
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Container(
-        width: 600,
-        constraints: BoxConstraints(maxHeight: 700),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Header
-            Container(
-              padding: EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.indigo.shade50,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.class_outlined, color: Colors.indigo),
-                  SizedBox(width: 12),
-                  Text(
-                    widget.classToEdit == null
-                        ? 'Yeni Şube Ekle'
-                        : 'Şubeyi Düzenle',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Spacer(),
-                  IconButton(
-                    icon: Icon(Icons.close),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ],
-              ),
-            ),
+    // Crash Fix: Dropdown değerlerinin listede olduğundan emin ol
+    final String? safeClassTypeId = widget.classTypes.any((t) => t.id == _selectedClassTypeId) 
+        ? _selectedClassTypeId 
+        : (widget.classTypes.isNotEmpty ? widget.classTypes.first.id : null);
+    
+    final String? safeTeacherId = _teachers.any((t) => t['id'] == _selectedTeacherId)
+        ? _selectedTeacherId
+        : null; // Eğer listede yoksa "Seçilmedi"ye düşür
 
-            // Form
-            Expanded(
-              child: SingleChildScrollView(
-                padding: EdgeInsets.all(20),
-                child: Form(
-                  key: _formKey,
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.75,
+      ),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Drag Handle
+          const SizedBox(height: 12),
+          Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+          
+          // Header
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 16, 12, 8),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(color: Colors.indigo.shade50, borderRadius: BorderRadius.circular(12)),
+                  child: Icon(Icons.class_outlined, color: Colors.indigo.shade900, size: 24),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Şube Adı
-                      TextFormField(
-                        controller: _classNameController,
-                        decoration: InputDecoration(
-                          labelText: 'Şube Adı *',
-                          hintText: 'Örn: 8-A, 12-B',
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          isDense: true,
-                        ),
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return 'Şube adı zorunludur';
-                          }
-                          return null;
-                        },
+                      Text(
+                        widget.classToEdit == null ? 'Yeni Şube Ekle' : 'Şubeyi Düzenle',
+                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1A1C1E)),
                       ),
-                      SizedBox(height: 12),
-
-                      // Kısa Ad
-                      TextFormField(
-                        controller: _shortNameController,
-                        decoration: InputDecoration(
-                          labelText: 'Kısa Ad *',
-                          hintText: 'Örn: 8A, 12B (Max 5 karakter)',
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          isDense: true,
-                        ),
-                        inputFormatters: [
-                          LengthLimitingTextInputFormatter(5),
-                        ],
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return 'Kısa ad zorunludur';
-                          }
-                          if (value.length > 5) {
-                            return 'Kısa ad maksimum 5 karakter olabilir';
-                          }
-                          return null;
-                        },
-                      ),
-                      SizedBox(height: 12),
-
-                      // Sınıf Tipi
-                      DropdownButtonFormField<String>(
-                        value: _selectedClassTypeId,
-                        decoration: InputDecoration(
-                          labelText: 'Sınıf Tipi *',
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          isDense: true,
-                        ),
-                        items: widget.classTypes.map((type) {
-                          return DropdownMenuItem(
-                            value: type.id,
-                            child: Row(
-                              children: [
-                                Text(type.typeName),
-                                if (type.isDefault) ...[
-                                  SizedBox(width: 8),
-                                  Container(
-                                    padding: EdgeInsets.symmetric(
-                                      horizontal: 6,
-                                      vertical: 2,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.green.shade50,
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Text(
-                                      'Varsayılan',
-                                      style: TextStyle(
-                                        fontSize: 9,
-                                        color: Colors.green,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          );
-                        }).toList(),
-                        onChanged: (value) {
-                          setState(() {
-                            _selectedClassTypeId = value;
-                          });
-                        },
-                        validator: (value) {
-                          if (value == null) {
-                            return 'Sınıf tipi seçimi zorunludur';
-                          }
-                          return null;
-                        },
-                      ),
-                      SizedBox(height: 12),
-
-                      // Sınıf Seviyesi
-                      DropdownButtonFormField<int>(
-                        value: _selectedLevel,
-                        decoration: InputDecoration(
-                          labelText: 'Sınıf Seviyesi *',
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          isDense: true,
-                        ),
-                        items: List.generate(12, (i) => i + 1).map((level) {
-                          return DropdownMenuItem(
-                            value: level,
-                            child: Text('$level. Sınıf'),
-                          );
-                        }).toList(),
-                        onChanged: (value) {
-                          setState(() {
-                            _selectedLevel = value!;
-                          });
-                        },
-                      ),
-                      SizedBox(height: 12),
-
-                      // Sınıf Öğretmeni
-                      _isLoadingTeachers
-                          ? Center(child: CircularProgressIndicator())
-                          : DropdownButtonFormField<String>(
-                              value: _selectedTeacherId,
-                              decoration: InputDecoration(
-                                labelText: 'Sınıf Öğretmeni (Opsiyonel)',
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                isDense: true,
-                              ),
-                              items: [
-                                DropdownMenuItem<String>(
-                                  value: null,
-                                  child: Text('Seçilmedi'),
-                                ),
-                                ..._teachers.map((teacher) {
-                                  return DropdownMenuItem<String>(
-                                    value: teacher['id'] as String,
-                                    child: Text(teacher['fullName'] as String),
-                                  );
-                                }).toList(),
-                              ],
-                              onChanged: (value) {
-                                setState(() {
-                                  _selectedTeacherId = value;
-                                });
-                              },
-                            ),
-                      SizedBox(height: 12),
-                      SizedBox(height: 12),
-
-                      // Açıklama
-                      TextFormField(
-                        controller: _descriptionController,
-                        decoration: InputDecoration(
-                          labelText: 'Açıklama (Opsiyonel)',
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          isDense: true,
-                        ),
-                        maxLines: 3,
-                      ),
+                      Text(widget.schoolTypeName, style: TextStyle(color: Colors.grey.shade500, fontSize: 13)),
                     ],
                   ),
                 ),
-              ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: Icon(Icons.close_rounded, color: Colors.grey.shade400),
+                ),
+              ],
             ),
-
-            // Kaydet butonu
-            Padding(
-              padding: EdgeInsets.all(20),
-              child: SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _isSaving ? null : _saveClass,
-                  icon: _isSaving
-                      ? SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              Colors.white,
-                            ),
-                          ),
-                        )
-                      : Icon(Icons.save),
-                  label: Text(_isSaving
-                      ? 'Kaydediliyor...'
-                      : widget.classToEdit == null
-                          ? 'Şubeyi Ekle'
-                          : 'Değişiklikleri Kaydet'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.indigo,
-                    foregroundColor: Colors.white,
-                    padding: EdgeInsets.symmetric(vertical: 14),
-                  ),
+          ),
+          const Divider(),
+          
+          // Form Content
+          Flexible(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  children: [
+                    _buildInputField(
+                      controller: _classNameController,
+                      label: 'Şube Adı *',
+                      hint: 'Örn: 8-A, 12-B',
+                      icon: Icons.edit_note_rounded,
+                      validator: (v) => (v == null || v.isEmpty) ? 'Zorunlu alan' : null,
+                    ),
+                    const SizedBox(height: 12),
+                    _buildInputField(
+                      controller: _shortNameController,
+                      label: 'Kısa Ad *',
+                      hint: 'Örn: 8A, 12B',
+                      icon: Icons.short_text_rounded,
+                      maxLength: 5,
+                      validator: (v) => (v == null || v.isEmpty) ? 'Zorunlu alan' : null,
+                    ),
+                    const SizedBox(height: 12),
+                    _buildDropdown<String>(
+                      value: safeClassTypeId,
+                      label: 'Sınıf Tipi *',
+                      items: widget.classTypes.map((t) => DropdownMenuItem(value: t.id, child: Text(t.typeName))).toList(),
+                      onChanged: (v) => setState(() => _selectedClassTypeId = v),
+                    ),
+                    const SizedBox(height: 12),
+                    _buildDropdown<int>(
+                      value: _selectedLevel,
+                      label: 'Sınıf Seviyesi *',
+                      items: List.generate(12, (i) => i + 1).map((l) => DropdownMenuItem(value: l, child: Text('$l. Sınıf'))).toList(),
+                      onChanged: (v) => setState(() => _selectedLevel = v ?? 1),
+                    ),
+                    const SizedBox(height: 12),
+                    _isLoadingTeachers 
+                      ? const LinearProgressIndicator()
+                      : _buildDropdown<String?>(
+                          value: safeTeacherId,
+                          label: 'Sınıf Öğretmeni (Opsiyonel)',
+                          items: [
+                            const DropdownMenuItem(value: null, child: Text('Seçilmedi')),
+                            ..._teachers.map((t) => DropdownMenuItem(value: t['id'] as String, child: Text(t['fullName'] as String))),
+                          ],
+                          onChanged: (v) => setState(() => _selectedTeacherId = v),
+                        ),
+                    const SizedBox(height: 12),
+                    _buildInputField(
+                      controller: _descriptionController,
+                      label: 'Açıklama',
+                      hint: 'Opsiyonel notlar...',
+                      icon: Icons.description_outlined,
+                      maxLines: 2,
+                    ),
+                    const SizedBox(height: 32),
+                    
+                    // Action Button
+                    SizedBox(
+                      width: double.infinity,
+                      height: 56,
+                      child: ElevatedButton(
+                        onPressed: _isSaving ? null : _saveClass,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.indigo.shade900,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          elevation: 0,
+                        ),
+                        child: _isSaving
+                          ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                          : Text(widget.classToEdit == null ? 'Şubeyi Oluştur' : 'Değişiklikleri Kaydet', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
+    );
+  }
+
+  Widget _buildInputField({
+    required TextEditingController controller,
+    required String label,
+    required String hint,
+    required IconData icon,
+    int? maxLength,
+    int maxLines = 1,
+    String? Function(String?)? validator,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black87)),
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: controller,
+          maxLength: maxLength,
+          maxLines: maxLines,
+          validator: validator,
+          decoration: InputDecoration(
+            hintText: hint,
+            prefixIcon: Icon(icon, size: 20, color: Colors.indigo.shade300),
+            filled: true,
+            fillColor: Colors.grey.shade50,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
+            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.indigo.shade200, width: 2)),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            counterText: "",
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDropdown<T>({
+    T? value,
+    required String label,
+    required List<DropdownMenuItem<T>> items,
+    required ValueChanged<T?> onChanged,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black87)),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<T>(
+          value: value,
+          items: items,
+          onChanged: onChanged,
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.grey.shade50,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          ),
+        ),
+      ],
     );
   }
 }

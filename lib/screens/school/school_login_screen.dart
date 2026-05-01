@@ -187,25 +187,41 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
   // ─── WEB: Split-screen ────────────────────────────────────────────────────
 
   Widget _buildWebLayout(Size size) {
+    // Total content height estimate for left panel
+    const double contentHeight = 40 + 36 + 6 + 13 + 40 // header
+        + 16 + 52 + 16 // kurum id
+        + 16 + 52 + 16 // kullanıcı adı
+        + 16 + 52 + 18 // şifre
+        + 24 + 24 + 52 + 24 // kvkk + button
+        + 20 + 16 + 52 + 16 // divider + social
+        + 32 + 16; // footer gap + footer text
+    // ≈ 700px; if screen height < contentHeight + 80(vertical padding), scroll opens
+
     return Scaffold(
       backgroundColor: const Color(0xFFF0F4FF),
       body: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── LEFT PANEL: Login Form ──────────────────────────────────────
+          // ── LEFT PANEL ─────────────────────────────────────────────────────
           SizedBox(
             width: 440,
-            child: Container(
-              color: Colors.white,
-              child: SafeArea(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 48),
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(minHeight: size.height - 96),
-                    child: IntrinsicHeight(
-                      child: Column(
+            height: size.height,
+            child: SingleChildScrollView(
+              physics: const ClampingScrollPhysics(),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: size.height),
+                child: Container(
+                  color: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 40),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      // ── GROUP 1: Logo + Slogan ──
+                      Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          // Logo
                           Row(children: [
                             const EduKnLogo(type: EduKnLogoType.iconOnly, iconSize: 36),
                             const SizedBox(width: 10),
@@ -214,165 +230,158 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                               child: Text('eduKN', style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.w900, color: const Color(0xFF1E2661))),
                             ),
                           ]),
-
-                          const Spacer(),
-
-                          // Title
-                          Text('Tekrar Hoş Geldiniz 👋', style: GoogleFonts.inter(fontSize: 26, fontWeight: FontWeight.w800, color: const Color(0xFF1E2661), letterSpacing: -0.5)),
-                          const SizedBox(height: 6),
-                          Text('Kurumunuza giriş yapın', style: GoogleFonts.inter(fontSize: 14, color: Colors.grey.shade500, fontWeight: FontWeight.w500)),
-                          const SizedBox(height: 36),
-
-                          // Form
-                          Form(
-                            key: _formKey,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                _buildLabel('Kurum ID'),
-                                _buildInputField(controller: _institutionController, hint: 'Kurum numarası', icon: Icons.business_rounded),
-                                const SizedBox(height: 18),
-
-                                _buildLabel('Kullanıcı Adı'),
-                                _buildInputField(controller: _usernameController, hint: 'Kullanıcı adı', icon: Icons.person_outline_rounded),
-                                const SizedBox(height: 18),
-
-                                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                                  _buildLabel('Şifre'),
-                                  GestureDetector(
-                                    onTap: _forgotPassword,
-                                    child: Text('Şifremi Unuttum', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: const Color(0xFF4C59BC))),
-                                  ),
-                                ]),
-                                _buildInputField(controller: _passwordController, hint: '••••••••', icon: Icons.lock_outline_rounded, isPassword: true),
-                                const SizedBox(height: 20),
-
-                                _buildKvkkRow(),
-                                const SizedBox(height: 28),
-
-                                // Giriş Yap butonu
-                                SizedBox(
-                                  width: double.infinity,
-                                  height: 54,
-                                  child: ElevatedButton(
-                                    onPressed: _isLoading ? null : _login,
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFF4C59BC),
-                                      foregroundColor: Colors.white,
-                                      elevation: 0,
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                                    ),
-                                    child: _isLoading
-                                        ? const SizedBox(width: 24, height: 24, child: EduKnLoader(size: 24))
-                                        : Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                                            Text('Giriş Yap', style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w700)),
-                                            const SizedBox(width: 8),
-                                            const Icon(Icons.login_rounded, size: 18),
-                                          ]),
-                                  ),
-                                ),
-                                const SizedBox(height: 28),
-
-                                // Divider
-                                Row(children: [
-                                  Expanded(child: Divider(color: Colors.grey.shade200)),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 14),
-                                    child: Text('Veya şununla devam et', style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400, fontWeight: FontWeight.w500)),
-                                  ),
-                                  Expanded(child: Divider(color: Colors.grey.shade200)),
-                                ]),
-                                const SizedBox(height: 18),
-
-                                // Google + QR
-                                Row(children: [
-                                  _buildSocialButton(icon: 'https://cdn-icons-png.flaticon.com/512/2991/2991148.png', label: 'Google', onTap: _loginWithGmail),
-                                  const SizedBox(width: 14),
-                                  _buildSocialButton(icon: 'qr_code', label: 'QR Kod', onTap: _showQrLoginDialog),
-                                ]),
-                              ],
+                          const SizedBox(height: 16),
+                          Row(children: [
+                            Expanded(child: Divider(color: Colors.grey.shade300)),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              child: Text('Daha Planlı, Daha Hızlı', style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400, fontWeight: FontWeight.w500)),
                             ),
-                          ),
-
-                          const Spacer(),
-
-                          // Footer
-                          Center(child: Text('© 2026 eduKN. Tüm hakları saklıdır.', style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400))),
+                            Expanded(child: Divider(color: Colors.grey.shade300)),
+                          ]),
                         ],
                       ),
-                    ),
+
+                      // ── GROUP 2: Form ──
+                      Form(
+                        key: _formKey,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _buildLabel('Kurum ID'),
+                            _buildInputField(controller: _institutionController, hint: 'Kurum numarası', icon: Icons.business_rounded),
+                            const SizedBox(height: 16),
+                            _buildLabel('Kullanıcı Adı'),
+                            _buildInputField(controller: _usernameController, hint: 'Kullanıcı adı', icon: Icons.person_outline_rounded),
+                            const SizedBox(height: 16),
+                            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                              _buildLabel('Şifre'),
+                              GestureDetector(
+                                onTap: _forgotPassword,
+                                child: Text('Şifremi Unuttum', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: const Color(0xFF4C59BC))),
+                              ),
+                            ]),
+                            _buildInputField(controller: _passwordController, hint: '••••••••', icon: Icons.lock_outline_rounded, isPassword: true),
+                            const SizedBox(height: 18),
+                            _buildKvkkRow(),
+                            const SizedBox(height: 24),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 52,
+                              child: ElevatedButton(
+                                onPressed: _isLoading ? null : _login,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF4C59BC),
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                                child: _isLoading
+                                    ? const SizedBox(width: 24, height: 24, child: EduKnLoader(size: 24))
+                                    : Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                                        Text('Giriş Yap', style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w700)),
+                                        const SizedBox(width: 8),
+                                        const Icon(Icons.login_rounded, size: 18),
+                                      ]),
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                            Row(children: [
+                              Expanded(child: Divider(color: Colors.grey.shade200)),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 12),
+                                child: Text('Veya şununla devam et', style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade400)),
+                              ),
+                              Expanded(child: Divider(color: Colors.grey.shade200)),
+                            ]),
+                            const SizedBox(height: 16),
+                            Row(children: [
+                              _buildSocialButton(icon: 'https://cdn-icons-png.flaticon.com/512/2991/2991148.png', label: 'Google', onTap: _loginWithGmail),
+                              const SizedBox(width: 12),
+                              _buildSocialButton(icon: 'qr_code', label: 'QR Kod', onTap: _showQrLoginDialog),
+                            ]),
+                          ],
+                        ),
+                      ),
+
+                      // ── GROUP 3: Footer ──
+                      Center(child: Text('© 2026 eduKN. Tüm hakları saklıdır.', style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400))),
+                    ],
                   ),
+
                 ),
               ),
             ),
           ),
 
-          // ── RIGHT PANEL: Welcome / Decorative ──────────────────────────
+          // ── RIGHT PANEL ────────────────────────────────────────────────────
           Expanded(
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                // Arka plan görseli
-                Image.asset('assets/images/login_bg.png', fit: BoxFit.cover, filterQuality: FilterQuality.high),
-                // Gradient overlay
-                Container(
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [Color(0xDD1E2661), Color(0xDD3B47B5), Color(0xAA2E3E8C)],
+            child: SizedBox(
+              height: size.height, // Always full viewport height
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Image.asset('assets/images/login_bg.png', fit: BoxFit.cover),
+                  Container(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [Color(0xDD1E2661), Color(0xDD3B47B5), Color(0xAA2E3E8C)],
+                      ),
                     ),
                   ),
-                ),
-                // İçerik
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 60, vertical: 60),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Badge
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: Colors.white.withOpacity(0.25)),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 60, vertical: 48),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        // Top: Badge
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: Colors.white.withOpacity(0.25)),
+                          ),
+                          child: Text('Eğitim Yönetim Sistemi', style: GoogleFonts.inter(color: Colors.white.withOpacity(0.9), fontSize: 12, fontWeight: FontWeight.w600)),
                         ),
-                        child: Text('Eğitim Yönetim Sistemi', style: GoogleFonts.inter(color: Colors.white.withOpacity(0.9), fontSize: 12, fontWeight: FontWeight.w600)),
-                      ),
 
-                      const Spacer(),
+                        // Center: Title + Stats
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text('Eğitimi\nDijitalleştirin.', style: GoogleFonts.inter(color: Colors.white, fontSize: 48, fontWeight: FontWeight.w900, height: 1.1, letterSpacing: -1.5)),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Öğrenci kayıttan bordro yönetimine,\nokul türü yönetiminden rehberlik\nraporlarına kadar tüm süreçler tek platformda.',
+                              style: GoogleFonts.inter(color: Colors.white.withOpacity(0.75), fontSize: 14, height: 1.6),
+                            ),
+                            const SizedBox(height: 20),
+                            Row(children: [
+                              _buildStatBadge('Modüller', '9+'),
+                              const SizedBox(width: 24),
+                              _buildStatBadge('Kullanıcılar', '∞'),
+                              const SizedBox(width: 24),
+                              _buildStatBadge('Destek', '7/24'),
+                            ]),
+                          ],
+                        ),
 
-                      // Ana başlık
-                      Text('Eğitimi\nDijitalleştirin.', style: GoogleFonts.inter(color: Colors.white, fontSize: 52, fontWeight: FontWeight.w900, height: 1.1, letterSpacing: -1.5)),
-                      const SizedBox(height: 20),
-                      Text(
-                        'Öğrenci kayıttan bordro yönetimine,\nokul türü yönetiminden rehberlik\nraporlarına kadar tüm süreçler tek platformda.',
-                        style: GoogleFonts.inter(color: Colors.white.withOpacity(0.75), fontSize: 15, height: 1.8, fontWeight: FontWeight.w400),
-                      ),
-                      const SizedBox(height: 52),
-
-                      // İstatistik rozetleri
-                      Row(children: [
-                        _buildStatBadge('Modüller', '9+'),
-                        const SizedBox(width: 32),
-                        _buildStatBadge('Kullanıcılar', '∞'),
-                        const SizedBox(width: 32),
-                        _buildStatBadge('Destek', '7/24'),
-                      ]),
-
-                      const Spacer(),
-
-                      // Alt bilgi
-                      Row(children: [
-                        Icon(Icons.verified_rounded, color: Colors.white.withOpacity(0.6), size: 16),
-                        const SizedBox(width: 8),
-                        Text('Güvenli & KVKK Uyumlu Platform', style: GoogleFonts.inter(color: Colors.white.withOpacity(0.6), fontSize: 12, fontWeight: FontWeight.w500)),
-                      ]),
-                    ],
+                        // Bottom: KVKK
+                        Row(children: [
+                          Icon(Icons.verified_rounded, color: Colors.white.withOpacity(0.6), size: 15),
+                          const SizedBox(width: 8),
+                          Text('Güvenli & KVKK Uyumlu Platform', style: GoogleFonts.inter(color: Colors.white.withOpacity(0.6), fontSize: 11, fontWeight: FontWeight.w500)),
+                        ]),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ],
@@ -412,93 +421,87 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 return SingleChildScrollView(
-                  physics: isShortScreen ? const ClampingScrollPhysics() : const NeverScrollableScrollPhysics(),
+                  physics: const BouncingScrollPhysics(),
                   child: ConstrainedBox(
-                    constraints: BoxConstraints(minHeight: constraints.maxHeight, maxHeight: isShortScreen ? double.infinity : constraints.maxHeight),
-                    child: Center(
-                      child: IntrinsicHeight(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Spacer(flex: 1),
-                              const EduKnLogo(type: EduKnLogoType.iconOnly, iconSize: 70),
-                              const SizedBox(height: 12),
-                              GestureDetector(
-                                onLongPress: () => Navigator.pushNamed(context, '/admin-login'),
-                                child: Text('eduKN Giriş', style: GoogleFonts.inter(fontSize: 26, fontWeight: FontWeight.w800, color: const Color(0xFF1E2661), letterSpacing: -0.5)),
-                              ),
-                              const SizedBox(height: 4),
-                              Text('Eğitim Yönetim Sistemine Hoş Geldiniz', textAlign: TextAlign.center, style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w500)),
-                              const SizedBox(height: 24),
-                              Container(
-                                constraints: const BoxConstraints(maxWidth: 420),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(24),
-                                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 40, offset: const Offset(0, 20))],
-                                ),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(24),
-                                  child: Form(
-                                    key: _formKey,
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Center(child: Text('Kurumunuza Giriş Yapın', style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w700, color: const Color(0xFF1E2661)))),
-                                        const SizedBox(height: 20),
-                                        _buildLabel('Kurum ID'),
-                                        _buildInputField(controller: _institutionController, hint: 'Kurum numarası', icon: Icons.business_rounded, isMobile: true),
-                                        const SizedBox(height: 12),
-                                        _buildLabel('Kullanıcı Adı'),
-                                        _buildInputField(controller: _usernameController, hint: 'Kullanıcı adı', icon: Icons.person_outline_rounded, isMobile: true),
-                                        const SizedBox(height: 12),
-                                        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                                          _buildLabel('Şifre'),
-                                          GestureDetector(onTap: _forgotPassword, child: Text('Şifremi Unuttum', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: const Color(0xFF4C59BC)))),
-                                        ]),
-                                        _buildInputField(controller: _passwordController, hint: '••••••••', icon: Icons.lock_outline_rounded, isPassword: true, isMobile: true),
-                                        const SizedBox(height: 16),
-                                        _buildKvkkRow(),
-                                        const SizedBox(height: 24),
-                                        SizedBox(
-                                          width: double.infinity,
-                                          height: 50,
-                                          child: ElevatedButton(
-                                            onPressed: _isLoading ? null : _login,
-                                            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4C59BC), foregroundColor: Colors.white, elevation: 0, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
-                                            child: _isLoading
-                                                ? const SizedBox(width: 24, height: 24, child: EduKnLoader(size: 24))
-                                                : Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                                                    Text('Giriş Yap', style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w700)),
-                                                    const SizedBox(width: 8),
-                                                    const Icon(Icons.login_rounded, size: 18),
-                                                  ]),
-                                          ),
-                                        ),
-                                        const SizedBox(height: 20),
-                                        Row(children: [
-                                          Expanded(child: Divider(color: Colors.grey.shade300)),
-                                          Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: Text('Veya', style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500))),
-                                          Expanded(child: Divider(color: Colors.grey.shade300)),
-                                        ]),
-                                        const SizedBox(height: 16),
-                                        Row(children: [
-                                          _buildSocialButton(icon: 'https://cdn-icons-png.flaticon.com/512/2991/2991148.png', label: 'Google', onTap: _loginWithGmail),
-                                          const SizedBox(width: 12),
-                                          _buildSocialButton(icon: 'qr_code', label: 'QR Kod', onTap: _showQrLoginDialog),
-                                        ]),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const Spacer(flex: 3),
-                            ],
+                    constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const EduKnLogo(type: EduKnLogoType.iconOnly, iconSize: 70),
+                          const SizedBox(height: 12),
+                          GestureDetector(
+                            onLongPress: () => Navigator.pushNamed(context, '/admin-login'),
+                            child: Text('eduKN Giriş', style: GoogleFonts.inter(fontSize: 26, fontWeight: FontWeight.w800, color: const Color(0xFF1E2661), letterSpacing: -0.5)),
                           ),
-                        ),
+                          const SizedBox(height: 4),
+                          Text('Eğitim Yönetim Sistemine Hoş Geldiniz', textAlign: TextAlign.center, style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w500)),
+                          const SizedBox(height: 24),
+                          Container(
+                            constraints: const BoxConstraints(maxWidth: 420),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(24),
+                              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 40, offset: const Offset(0, 20))],
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Form(
+                                key: _formKey,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Center(child: Text('Kurumunuza Giriş Yapın', style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w700, color: const Color(0xFF1E2661)))),
+                                    const SizedBox(height: 20),
+                                    _buildLabel('Kurum ID'),
+                                    _buildInputField(controller: _institutionController, hint: 'Kurum numarası', icon: Icons.business_rounded, isMobile: true),
+                                    const SizedBox(height: 12),
+                                    _buildLabel('Kullanıcı Adı'),
+                                    _buildInputField(controller: _usernameController, hint: 'Kullanıcı adı', icon: Icons.person_outline_rounded, isMobile: true),
+                                    const SizedBox(height: 12),
+                                    Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                                      _buildLabel('Şifre'),
+                                      GestureDetector(onTap: _forgotPassword, child: Text('Şifremi Unuttum', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: const Color(0xFF4C59BC)))),
+                                    ]),
+                                    _buildInputField(controller: _passwordController, hint: '••••••••', icon: Icons.lock_outline_rounded, isPassword: true, isMobile: true),
+                                    const SizedBox(height: 16),
+                                    _buildKvkkRow(),
+                                    const SizedBox(height: 24),
+                                    SizedBox(
+                                      width: double.infinity,
+                                      height: 50,
+                                      child: ElevatedButton(
+                                        onPressed: _isLoading ? null : _login,
+                                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4C59BC), foregroundColor: Colors.white, elevation: 0, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
+                                        child: _isLoading
+                                            ? const SizedBox(width: 24, height: 24, child: EduKnLoader(size: 24))
+                                            : Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                                                Text('Giriş Yap', style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w700)),
+                                                const SizedBox(width: 8),
+                                                const Icon(Icons.login_rounded, size: 18),
+                                              ]),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 20),
+                                    Row(children: [
+                                      Expanded(child: Divider(color: Colors.grey.shade300)),
+                                      Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: Text('Veya', style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade500))),
+                                      Expanded(child: Divider(color: Colors.grey.shade300)),
+                                    ]),
+                                    const SizedBox(height: 16),
+                                    Row(children: [
+                                      _buildSocialButton(icon: 'https://cdn-icons-png.flaticon.com/512/2991/2991148.png', label: 'Google', onTap: _loginWithGmail),
+                                      const SizedBox(width: 12),
+                                      _buildSocialButton(icon: 'qr_code', label: 'QR Kod', onTap: _showQrLoginDialog),
+                                    ]),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
