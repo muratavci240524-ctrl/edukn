@@ -5,6 +5,8 @@ import '../../../../services/assessment_service.dart';
 import '../../../../models/assessment/trial_exam_model.dart';
 import 'error_booklet_editor_screen.dart';
 import 'error_booklet_student_list_screen.dart';
+import '../../../../services/user_permission_service.dart';
+
 
 class ErrorBookletDashboardScreen extends StatefulWidget {
   final String institutionId;
@@ -24,6 +26,55 @@ class _ErrorBookletDashboardScreenState extends State<ErrorBookletDashboardScree
   final AssessmentService _assessmentService = AssessmentService();
   final Set<String> _selectedExamIds = {};
   List<TrialExam> _allExams = [];
+  List<String>? _filterClassLevels;
+  bool _isLoadingFilter = true;
+  String? _realInstitutionId;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFilterData();
+  }
+
+  Future<void> _loadFilterData() async {
+    if (!mounted) return;
+    setState(() => _isLoadingFilter = true);
+    try {
+      final userData = await UserPermissionService.loadUserData();
+      _realInstitutionId = userData?['institutionId'] ?? widget.institutionId;
+
+      final stDoc = await FirebaseFirestore.instance.collection('schoolTypes').doc(widget.schoolTypeId).get();
+      
+      if (stDoc.exists) {
+        final data = stDoc.data();
+        if (data != null && data['activeGrades'] != null) {
+          List<String> grades = List<String>.from(data['activeGrades'].map((e) => e.toString()));
+          
+          if (userData != null && (userData['role'] == 'ogretmen' || userData['role'] == 'teacher')) {
+            final classesQuery = await FirebaseFirestore.instance.collection('classes')
+                .where('institutionId', isEqualTo: _realInstitutionId)
+                .where('classTeacherId', isEqualTo: userData['authUserId'] ?? userData['id'])
+                .get();
+            
+            if (classesQuery.docs.isNotEmpty) {
+              final teacherGrades = classesQuery.docs.map((d) => d['classLevel'].toString()).toSet();
+              grades = grades.where((g) => teacherGrades.contains(g)).toList();
+              
+              if (grades.isEmpty && teacherGrades.isNotEmpty) {
+                grades = teacherGrades.toList();
+              }
+            }
+          }
+          _filterClassLevels = grades;
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading filter data: $e');
+    } finally {
+      if (mounted) setState(() => _isLoadingFilter = false);
+    }
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -50,12 +101,18 @@ class _ErrorBookletDashboardScreenState extends State<ErrorBookletDashboardScree
             ),
         ],
       ),
-      body: StreamBuilder<List<TrialExam>>(
-        stream: _assessmentService.getTrialExams(widget.institutionId),
+      body: _isLoadingFilter 
+        ? const Center(child: CircularProgressIndicator())
+        : StreamBuilder<List<TrialExam>>(
+        stream: _assessmentService.getTrialExams(
+          _realInstitutionId ?? widget.institutionId, 
+          classLevels: _filterClassLevels
+        ),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
+
           
           _allExams = snapshot.data ?? [];
           

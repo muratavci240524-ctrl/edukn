@@ -3,97 +3,134 @@ import 'package:flutter/material.dart';
 /// Uygulama genelinde kullanılacak modüller
 /// Yeni modül eklerken buraya ekleyin, tüm sistem otomatik güncellenecektir
 class AppModules {
-  // Modül tanımları: key -> (displayName, icon, color)
-  // NOT: LinkedHashMap kullanıldığı için sıralama korunur
+  // Modül tanımları: key -> (displayName, icon, color, subModules)
   static final Map<String, ModuleInfo> modules = {
-    // 1. GENEL DUYURULAR
-    'genel_duyurular': ModuleInfo(
-      key: 'genel_duyurular',
-      name: 'Genel Duyurular',
-      icon: Icons.campaign,
-      color: Colors.purple,
-      category: 'İletişim',
-      description: 'Duyuru oluştur ve paylaş',
-    ),
-
-    // 2. ÖĞRENCİ KAYIT
-    'ogrenci_kayit': ModuleInfo(
-      key: 'ogrenci_kayit',
-      name: 'Öğrenci Kayıt',
-      icon: Icons.person_add,
-      color: Colors.blue,
-      category: 'Eğitim',
-      description: 'Öğrenci kayıt ve yönetimi',
-    ),
-
-    // 3. OKUL TÜRLERİ
-    'okul_turleri': ModuleInfo(
-      key: 'okul_turleri',
-      name: 'Okul Türleri',
+    // 1. EĞİTİM
+    'egitim': ModuleInfo(
+      key: 'egitim',
+      name: 'Eğitim',
       icon: Icons.school_outlined,
-      color: Colors.teal,
-      category: 'Yönetim',
-      description: 'Anaokulu, İlkokul, Lise vb. yönetimi',
+      color: Colors.indigo,
+      category: 'Akademik',
+      description: 'Ön kayıt, öğrenci kaydı ve okul türleri yönetimi',
+      subModules: {
+        'on_kayit': 'Ön Kayıt',
+        'ogrenci_kaydi': 'Öğrenci Kaydı',
+        'okul_turleri': 'Okul Türleri',
+      },
     ),
 
-    // 4. KULLANICI YÖNETİMİ
-    'kullanici_yonetimi': ModuleInfo(
-      key: 'kullanici_yonetimi',
-      name: 'Kullanıcı Yönetimi',
-      icon: Icons.person_add_alt_1,
-      color: Colors.deepPurple,
-      category: 'Yönetim',
-      description: 'Kullanıcı ekleme, düzenleme ve yetkilendirme',
+    // 2. REHBERLİK
+    'rehberlik': ModuleInfo(
+      key: 'rehberlik',
+      name: 'Rehberlik İşlemleri',
+      icon: Icons.psychology_outlined,
+      color: Colors.deepOrange,
+      category: 'Rehberlik',
+      description: 'Portfolyo, talepler ve rehberlik testleri',
+      subModules: {
+        'ogrenci_portfolyosu': 'Öğrenci Portfolyosu',
+        'talepler': 'Talepler (Yönlendirmeler)',
+        'gorusme_kayitlari': 'Görüşme Kayıtları',
+        'rehberlik_testleri': 'Rehberlik Testleri',
+      },
     ),
 
-    // 5. İNSAN KAYNAKLARI
+    // 3. İNSAN KAYNAKLARI
     'insan_kaynaklari': ModuleInfo(
       key: 'insan_kaynaklari',
       name: 'İnsan Kaynakları',
-      icon: Icons.group,
-      color: Colors.indigo,
-      category: 'Yönetim',
-      description: 'Personel yönetimi ve işlemler',
+      icon: Icons.group_outlined,
+      color: Colors.purple,
+      category: 'Kurumsal',
+      description: 'Personel, maaş, bordro ve performans yönetimi',
+      subModules: {
+        'personel_bilgi': 'Personel Bilgi Yönetimi',
+        'devam_mesai_izin': 'Devam – Mesai – İzin',
+        'maas_bordro': 'Maaş ve Bordro',
+        'performans_yonetimi': 'Performans Yönetimi',
+        'egitim_gelisim': 'Eğitim ve Gelişim',
+        'sozlesme_evrak': 'Sözleşme ve Evrak',
+        'ik_raporlama': 'İK Raporlama',
+      },
     ),
 
-    // 6. MUHASEBE
-    'muhasebe': ModuleInfo(
-      key: 'muhasebe',
-      name: 'Muhasebe',
-      icon: Icons.account_balance,
-      color: Colors.green,
-      category: 'Mali İşler',
-      description: 'Mali işlemler ve raporlama',
+    // 4. ÖLÇME DEĞERLENDİRME
+    'olcme_degerlendirme': ModuleInfo(
+      key: 'olcme_degerlendirme',
+      name: 'Ölçme Değerlendirme',
+      icon: Icons.assignment_turned_in_outlined,
+      color: Colors.teal,
+      category: 'Ölçme',
+      description: 'Sınav, rapor, deneme ve soru havuzu',
+      subModules: {
+        'tanimlar': 'Tanımlar',
+        'raporlar': 'Raporlar',
+        'denemeler': 'Denemeler',
+        'sinavlar': 'Sınavlar',
+        'hata_kitapcigi': 'Hata Kitapçığı',
+        'soru_havuzu': 'Soru Havuzu',
+      },
     ),
 
-    // 7. SATIN ALMA
-    'satin_alma': ModuleInfo(
-      key: 'satin_alma',
-      name: 'Satın Alma',
-      icon: Icons.shopping_cart,
+    // 5. MALİ İŞLER
+    'mali_isler': ModuleInfo(
+      key: 'mali_isler',
+      name: 'Mali İşler',
+      icon: Icons.account_balance_wallet_outlined,
+      color: Colors.blue,
+      category: 'Finans',
+      description: 'Gelir, gider, tahsilat ve makbuz işlemleri',
+      subModules: {
+        'gelir_kaydi': 'Gelir Kaydı',
+        'gider_kaydi': 'Gider Kaydı',
+        'veli_tahsilat': 'Veli Tahsilat',
+        'makbuz_al': 'Makbuz Al',
+      },
+    ),
+
+    // 6. HİZMETLER
+    'hizmetler': ModuleInfo(
+      key: 'hizmetler',
+      name: 'Hizmetler',
+      icon: Icons.support_agent_outlined,
       color: Colors.orange,
-      category: 'Mali İşler',
-      description: 'Tedarik ve alım işlemleri',
+      category: 'Operasyon',
+      description: 'Yemekhane, servis, depo ve satın alma',
+      subModules: {
+        'yemekhane_islemleri': 'Yemekhane İşlemleri',
+        'servis_islemleri': 'Servis İşlemleri',
+        'depo_satin_alma': 'Depo ve Satın Alma',
+      },
     ),
 
-    // 8. DEPO
-    'depo': ModuleInfo(
-      key: 'depo',
-      name: 'Depo Yönetimi',
-      icon: Icons.inventory,
-      color: Colors.brown,
-      category: 'Mali İşler',
-      description: 'Stok takibi ve envanter yönetimi',
+    // 7. SİSTEM AYARLARI
+    'sistem_ayarlari': ModuleInfo(
+      key: 'sistem_ayarlari',
+      name: 'Sistem Ayarları',
+      icon: Icons.settings_outlined,
+      color: Colors.blueGrey,
+      category: 'Sistem',
+      description: 'Kullanıcı yönetimi, yetkilendirme ve ayarlar',
+      subModules: {
+        'kullanici_yonetimi': 'Kullanıcı Yönetimi',
+        'yetki_tanimlama': 'Yetki Tanımlama',
+        'uygulama_ayarlari': 'Uygulama Ayarları',
+        'veri_yedekleme': 'Veri Yedekleme',
+      },
     ),
 
-    // 9. DESTEK HİZMETLERİ
-    'destek_hizmetleri': ModuleInfo(
-      key: 'destek_hizmetleri',
-      name: 'Destek Hizmetleri',
-      icon: Icons.support_agent,
-      color: Colors.cyan,
-      category: 'Hizmetler',
-      description: 'Teknik destek ve yardım',
+    // 8. KİŞİSEL İŞLEMLER
+    'kisisel_islemler': ModuleInfo(
+      key: 'kisisel_islemler',
+      name: 'Kişisel İşlemler',
+      icon: Icons.person_outline,
+      color: Colors.pink,
+      category: 'Kişisel',
+      description: 'Kişisel notlar ve ayarlar',
+      subModules: {
+        'notlarim': 'Notlarım',
+      },
     ),
   };
 
@@ -131,6 +168,7 @@ class ModuleInfo {
   final Color color;
   final String category;
   final String description;
+  final Map<String, String> subModules;
 
   const ModuleInfo({
     required this.key,
@@ -139,5 +177,6 @@ class ModuleInfo {
     required this.color,
     required this.category,
     required this.description,
+    this.subModules = const {},
   });
 }

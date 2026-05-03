@@ -5,6 +5,8 @@ import '../../../../models/assessment/trial_exam_model.dart';
 import '../../../../services/assessment_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'trial_exam_form.dart';
+import '../../../../services/user_permission_service.dart';
+
 
 class ActiveExamListScreen extends StatefulWidget {
   final String institutionId;
@@ -27,14 +29,17 @@ class _ActiveExamListScreenState extends State<ActiveExamListScreen> {
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
 
-  List<String> _activeGrades = [];
-  bool _isLoadingGrades = true;
+  List<String>? _filterClassLevels;
+  bool _isLoadingFilter = true;
+  String? _realInstitutionId;
+
 
   @override
   void initState() {
     super.initState();
     initializeDateFormatting('tr_TR', null);
-    _loadActiveGrades();
+    _loadFilterData();
+
     _searchController.addListener(() {
       setState(() {
         _searchQuery = _searchController.text.toLowerCase();
@@ -42,31 +47,45 @@ class _ActiveExamListScreenState extends State<ActiveExamListScreen> {
     });
   }
 
-  Future<void> _loadActiveGrades() async {
+  Future<void> _loadFilterData() async {
+    if (!mounted) return;
+    setState(() => _isLoadingFilter = true);
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection('schoolTypes')
-          .doc(widget.schoolTypeId)
-          .get();
+      final userData = await UserPermissionService.loadUserData();
+      _realInstitutionId = userData?['institutionId'] ?? widget.institutionId;
 
-      if (doc.exists && doc.data() != null) {
-        final data = doc.data()!;
-        if (data['activeGrades'] != null) {
-          if (mounted) {
-            setState(() {
-              _activeGrades = (data['activeGrades'] as List)
-                  .map((e) => e.toString())
-                  .toList();
-              _isLoadingGrades = false;
-            });
+      final stDoc = await FirebaseFirestore.instance.collection('schoolTypes').doc(widget.schoolTypeId).get();
+      
+      if (stDoc.exists) {
+        final data = stDoc.data();
+        if (data != null && data['activeGrades'] != null) {
+          List<String> grades = List<String>.from(data['activeGrades'].map((e) => e.toString()));
+          
+          if (userData != null && (userData['role'] == 'ogretmen' || userData['role'] == 'teacher')) {
+            final classesQuery = await FirebaseFirestore.instance.collection('classes')
+                .where('institutionId', isEqualTo: _realInstitutionId)
+                .where('classTeacherId', isEqualTo: userData['authUserId'] ?? userData['id'])
+                .get();
+            
+            if (classesQuery.docs.isNotEmpty) {
+              final teacherGrades = classesQuery.docs.map((d) => d['classLevel'].toString()).toSet();
+              grades = grades.where((g) => teacherGrades.contains(g)).toList();
+              
+              if (grades.isEmpty && teacherGrades.isNotEmpty) {
+                grades = teacherGrades.toList();
+              }
+            }
           }
+          _filterClassLevels = grades;
         }
       }
     } catch (e) {
-      print('Error loading active grades: $e');
-      if (mounted) setState(() => _isLoadingGrades = false);
+      debugPrint('Error loading filter data: $e');
+    } finally {
+      if (mounted) setState(() => _isLoadingFilter = false);
     }
   }
+
 
   void _onSelect(TrialExam exam) {
     setState(() {
@@ -86,20 +105,14 @@ class _ActiveExamListScreenState extends State<ActiveExamListScreen> {
 
   Stream<List<TrialExam>> _getStream() {
     // Filter for Launched exams only and matching School Type grades
-    return _service.getTrialExams(widget.institutionId).map((exams) {
-      return exams.where((e) {
-        // Must be launched (activated)
-        if (!e.isLaunched) return false;
-
-        // Must match active grades of this school type (if grades loaded)
-        if (!_isLoadingGrades && _activeGrades.isNotEmpty) {
-          return _activeGrades.contains(e.classLevel);
-        }
-
-        return true;
-      }).toList();
+    return _service.getTrialExams(
+      _realInstitutionId ?? widget.institutionId, 
+      classLevels: _filterClassLevels
+    ).map((exams) {
+      return exams.where((e) => e.isLaunched).toList();
     });
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -115,8 +128,11 @@ class _ActiveExamListScreenState extends State<ActiveExamListScreen> {
               foregroundColor: Colors.white,
               elevation: 0,
             ),
-            body: Column(
+            body: _isLoadingFilter 
+                ? const Center(child: CircularProgressIndicator())
+                : Column(
               children: [
+
                 _buildLeftPanelHeader(),
                 const SizedBox(height: 16),
                 Expanded(child: _buildList(isMobile: true)),
@@ -151,8 +167,11 @@ class _ActiveExamListScreenState extends State<ActiveExamListScreen> {
                       right: BorderSide(color: Colors.grey.shade300),
                     ),
                   ),
-                  child: Column(
+                  child: _isLoadingFilter 
+                    ? const Center(child: CircularProgressIndicator())
+                    : Column(
                     children: [
+
                       _buildLeftPanelHeader(),
                       SizedBox(height: 8),
                       Expanded(child: _buildList(isMobile: false)),

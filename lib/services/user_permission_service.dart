@@ -55,37 +55,35 @@ class UserPermissionService {
           print('❌ Impersonated kullanıcı bulunamadı!');
         }
       } else {
-        // Normal mod - Email'den kullanıcıyı bul
+        // Normal mod - Email'den kullanıcıyı bul (En güvenli yöntem)
         print('👤 Normal mod - Email: ${user.email}');
 
-        // Önce doküman ID'si olarak UID'yi dene (En güvenli ve hızlı yöntem)
-        print('🔍 Doküman ID olarak UID deneniyor...');
-        final userDoc = await FirebaseFirestore.instance
+        final userQuery = await FirebaseFirestore.instance
             .collection('users')
-            .doc(user.uid)
+            .where('email', isEqualTo: user.email)
+            .limit(1)
             .get();
 
-        if (userDoc.exists) {
-          userData = userDoc.data();
-          if (userData != null) {
-            userData['id'] = user.uid;
-            print(
-              '✅ UID (doc id) ile kullanıcı bulundu: ${userData['fullName']}',
-            );
-          }
+        if (userQuery.docs.isNotEmpty) {
+          userData = userQuery.docs.first.data();
+          userData['id'] = userQuery.docs.first.id;
+          print('✅ Email ile kullanıcı bulundu: ${userData['fullName']}');
         } else {
-          // UID ile bulunamazsa email ile dene
-          print('🔍 UID ile bulunamadı, email ile deneniyor...');
-          final userQuery = await FirebaseFirestore.instance
+          // Email ile bulunamazsa doküman ID'si olarak UID'yi dene
+          print('🔍 Email ile bulunamadı, UID (doc id) deneniyor...');
+          final userDoc = await FirebaseFirestore.instance
               .collection('users')
-              .where('email', isEqualTo: user.email)
-              .limit(1)
+              .doc(user.uid)
               .get();
 
-          if (userQuery.docs.isNotEmpty) {
-            userData = userQuery.docs.first.data();
-            userData['id'] = userQuery.docs.first.id;
-            print('✅ Email ile kullanıcı bulundu: ${userData['fullName']}');
+          if (userDoc.exists) {
+            userData = userDoc.data();
+            if (userData != null) {
+              userData['id'] = user.uid;
+              print(
+                '✅ UID (doc id) ile kullanıcı bulundu: ${userData['fullName']}',
+              );
+            }
           } else {
             // Hala bulunamazsa authUserId alanı ile dene
             print('🔍 Email ile bulunamadı, authUserId alanı ile deneniyor...');
@@ -136,8 +134,11 @@ class UserPermissionService {
     String moduleKey,
     Map<String, dynamic>? userData,
   ) {
-    // Admin kullanıcısı (userData yok) - Tüm modüllere erişebilir
     if (userData == null) return true;
+
+    // Admin veya Müdür - Tüm modüllere tam erişim
+    final role = (userData['role'] as String?)?.toLowerCase();
+    if (role == 'genel_mudur' || role == 'mudur') return true;
 
     final modulePerms = userData['modulePermissions'] as Map<String, dynamic>?;
     if (modulePerms == null) return false;
@@ -145,26 +146,97 @@ class UserPermissionService {
     final modulePerm = modulePerms[moduleKey] as Map<String, dynamic>?;
     if (modulePerm == null) return false;
 
-    return modulePerm['enabled'] == true;
+    // Ana modül aktifse veya herhangi bir alt modülü aktifse erişim vardır
+    if (modulePerm['enabled'] == true) return true;
+    
+    final subModules = modulePerm['subModules'] as Map<String, dynamic>?;
+    if (subModules != null) {
+      for (var sub in subModules.values) {
+        if (sub is Map && sub['enabled'] == true) return true;
+      }
+    }
+
+    return false;
   }
 
   /// Belirli bir modülde düzenleme yetkisi var mı?
   static bool canEdit(String moduleKey, Map<String, dynamic>? userData) {
-    // Admin kullanıcısı (userData yok) - Her zaman düzenleyebilir
     if (userData == null) return true;
 
-    // Önce modüle erişimi var mı kontrol et
+    // Admin veya Müdür - Her şeyi düzenleyebilir
+    final role = (userData['role'] as String?)?.toLowerCase();
+    if (role == 'genel_mudur' || role == 'mudur') return true;
+
     if (!hasModuleAccess(moduleKey, userData)) return false;
 
     final modulePerms = userData['modulePermissions'] as Map<String, dynamic>?;
-    if (modulePerms == null) return false;
-
-    final modulePerm = modulePerms[moduleKey] as Map<String, dynamic>?;
-    if (modulePerm == null) return false;
-
-    // level: 'editor' ise true, 'viewer' ise false
-    return modulePerm['level'] == 'editor';
+    final modulePerm = modulePerms?[moduleKey] as Map<String, dynamic>?;
+    
+    return modulePerm?['level'] == 'editor';
   }
+
+  /// Belirli bir alt modüle erişim yetkisi var mı?
+  static bool hasSubModuleAccess(
+    String moduleKey,
+    String subModuleKey,
+    Map<String, dynamic>? userData,
+  ) {
+    if (userData == null) return true;
+
+    // Admin veya Müdür - Tüm alt modüllere tam erişim
+    final role = (userData['role'] as String?)?.toLowerCase();
+    if (role == 'genel_mudur' || role == 'mudur') return true;
+
+    if (!hasModuleAccess(moduleKey, userData)) return false;
+
+    final modulePerms = userData['modulePermissions'] as Map<String, dynamic>?;
+    final modulePerm = modulePerms?[moduleKey] as Map<String, dynamic>?;
+    final subModules = modulePerm?['subModules'] as Map<String, dynamic>?;
+    
+    if (subModules == null) return true; 
+    
+    final subPerm = subModules[subModuleKey] as Map<String, dynamic>?;
+    return subPerm?['enabled'] == true;
+  }
+
+  /// Belirli bir alt modülde düzenleme yetkisi var mı?
+  static bool canEditSubModule(
+    String moduleKey,
+    String subModuleKey,
+    Map<String, dynamic>? userData,
+  ) {
+    if (userData == null) return true;
+
+    // Admin veya Müdür - Tüm alt modülleri düzenleyebilir
+    final role = (userData['role'] as String?)?.toLowerCase();
+    if (role == 'genel_mudur' || role == 'mudur') return true;
+
+    if (!hasSubModuleAccess(moduleKey, subModuleKey, userData)) return false;
+
+    final modulePerms = userData['modulePermissions'] as Map<String, dynamic>?;
+    final modulePerm = modulePerms?[moduleKey] as Map<String, dynamic>?;
+    final subModules = modulePerm?['subModules'] as Map<String, dynamic>?;
+    
+    if (subModules == null) return canEdit(moduleKey, userData);
+    
+    final subPerm = subModules[subModuleKey] as Map<String, dynamic>?;
+    return subPerm?['level'] == 'editor';
+  }
+
+  /// Kullanıcının HERHANGİ bir ana modüle (dashboard modülü) erişimi var mı?
+  static bool hasAnyMainModuleAccess(Map<String, dynamic>? userData) {
+    if (userData == null) return true;
+    
+    final modulePerms = userData['modulePermissions'] as Map<String, dynamic>?;
+    if (modulePerms == null) return false;
+    
+    for (var entry in modulePerms.entries) {
+      if (hasModuleAccess(entry.key, userData)) return true;
+    }
+    
+    return false;
+  }
+
 
   /// Impersonation modunda mı?
   static bool isImpersonating() {

@@ -3,7 +3,10 @@ import 'package:intl/intl.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import '../../../../models/assessment/trial_exam_model.dart';
 import '../../../../services/assessment_service.dart';
+import '../../../../services/user_permission_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'trial_exam_form.dart';
+
 
 class TrialExamListScreen extends StatefulWidget {
   final String institutionId;
@@ -27,16 +30,62 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
 
+  List<String>? _filterClassLevels;
+  bool _isLoadingFilter = true;
+  String? _realInstitutionId;
+
+
   @override
   void initState() {
     super.initState();
     initializeDateFormatting('tr_TR', null);
+    _loadFilterData();
     _searchController.addListener(() {
       setState(() {
         _searchQuery = _searchController.text.toLowerCase();
       });
     });
   }
+
+  Future<void> _loadFilterData() async {
+    if (!mounted) return;
+    setState(() => _isLoadingFilter = true);
+    try {
+      final userData = await UserPermissionService.loadUserData();
+      _realInstitutionId = userData?['institutionId'] ?? widget.institutionId;
+
+      final stDoc = await FirebaseFirestore.instance.collection('schoolTypes').doc(widget.schoolTypeId).get();
+      
+      if (stDoc.exists) {
+        final data = stDoc.data();
+        if (data != null && data['activeGrades'] != null) {
+          List<String> grades = List<String>.from(data['activeGrades'].map((e) => e.toString()));
+          
+          if (userData != null && (userData['role'] == 'ogretmen' || userData['role'] == 'teacher')) {
+            final classesQuery = await FirebaseFirestore.instance.collection('classes')
+                .where('institutionId', isEqualTo: _realInstitutionId)
+                .where('classTeacherId', isEqualTo: userData['authUserId'] ?? userData['id'])
+                .get();
+            
+            if (classesQuery.docs.isNotEmpty) {
+              final teacherGrades = classesQuery.docs.map((d) => d['classLevel'].toString()).toSet();
+              grades = grades.where((g) => teacherGrades.contains(g)).toList();
+              
+              if (grades.isEmpty && teacherGrades.isNotEmpty) {
+                grades = teacherGrades.toList();
+              }
+            }
+          }
+          _filterClassLevels = grades;
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading filter data: $e');
+    } finally {
+      if (mounted) setState(() => _isLoadingFilter = false);
+    }
+  }
+
 
   void _onCreateNew() {
     setState(() {
@@ -64,8 +113,12 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
   }
 
   Stream<List<TrialExam>> _getStream() {
-    return _service.getTrialExams(widget.institutionId);
+    return _service.getTrialExams(
+      _realInstitutionId ?? widget.institutionId, 
+      classLevels: _filterClassLevels
+    );
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -81,8 +134,11 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
               foregroundColor: Colors.white,
               elevation: 0,
             ),
-            body: Column(
+            body: _isLoadingFilter 
+                ? const Center(child: CircularProgressIndicator())
+                : Column(
               children: [
+
                 _buildLeftPanelHeader(isMobile: true),
                 const SizedBox(height: 16),
                 Expanded(child: _buildList(isMobile: true)),
@@ -140,8 +196,11 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
                       right: BorderSide(color: Colors.grey.shade300),
                     ),
                   ),
-                  child: Column(
+                  child: _isLoadingFilter 
+                    ? const Center(child: CircularProgressIndicator())
+                    : Column(
                     children: [
+
                       _buildLeftPanelHeader(isMobile: false),
                       SizedBox(height: 16),
                       Padding(

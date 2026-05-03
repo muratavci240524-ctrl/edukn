@@ -28,6 +28,9 @@ import 'school_types/school_type_social_media_screen.dart';
 import 'school_types/chat/chat_screen.dart';
 import 'school_types/school_type_detail_screen.dart';
 import '../../widgets/stylish_bottom_nav.dart';
+import '../../services/user_permission_service.dart';
+import '../../constants/app_modules.dart';
+import '../../constants/school_type_modules.dart';
 
 class SchoolDashboardV2Screen extends StatefulWidget {
   const SchoolDashboardV2Screen({Key? key}) : super(key: key);
@@ -296,13 +299,135 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
         final prefs = await SharedPreferences.getInstance(); final isImpersonating = prefs.getBool('is_impersonating') ?? false; final impersonatedEmail = prefs.getString('impersonated_user_email');
         Map<String, dynamic>? currentUserData;
         if (isImpersonating && impersonatedEmail != null) { final impUserQuery = await FirebaseFirestore.instance.collection('users').where('email', isEqualTo: impersonatedEmail).limit(1).get(); if (impUserQuery.docs.isNotEmpty) currentUserData = impUserQuery.docs.first.data(); } else { final username = email.split('@')[0]; final userQuery = await FirebaseFirestore.instance.collection('users').where('institutionId', isEqualTo: data['institutionId']).where('username', isEqualTo: username).limit(1).get(); if (userQuery.docs.isNotEmpty) currentUserData = userQuery.docs.first.data(); }
-        if (mounted) setState(() { schoolData = data; userData = currentUserData; allTerms = termsList; activeTerm = activeTermData; selectedTerm = currentViewingTerm; isLoading = false; });
+        if (mounted) {
+          setState(() {
+            schoolData = data;
+            userData = currentUserData;
+            allTerms = termsList;
+            activeTerm = activeTermData;
+            selectedTerm = currentViewingTerm;
+            isLoading = false;
+          });
+
+          // Otomatik Senkronizasyon (Adminler için)
+          if (currentUserData != null && (currentUserData['role'] == 'genel_mudur' || currentUserData['role'] == 'mudur')) {
+            _syncAdminPermissions(data, currentUserData);
+          }
+
+          // Terminal Logları
+          print('--------------------------------------------------');
+          print('🚀 GİRİŞ YAPAN KULLANICI BİLGİLERİ:');
+          print('👤 İsim: ${_getUserDisplayName()}');
+          print('🔑 Rol: ${_getUserRole()}');
+          if (currentUserData != null) {
+            print('📋 Modül Yetkileri:');
+            final perms = currentUserData['modulePermissions'] as Map<String, dynamic>? ?? {};
+            perms.forEach((key, val) {
+              if (val is Map && val['enabled'] == true) {
+                print('   ✅ $key (${val['level'] == 'editor' ? 'DÜZENLEYEN' : 'GÖRÜNTÜLEYEN'})');
+              }
+            });
+          }
+          print('--------------------------------------------------');
+
+          // Otomatik Yönlendirme: Eğer ana modüllerde hiç yetki yoksa doğrudan Okul Türleri sayfasına git
+          if (currentUserData != null && !UserPermissionService.hasAnyMainModuleAccess(currentUserData)) {
+            debugPrint('eduKN: Ana modül yetkisi yok, Okul Türleri sayfasına yönlendiriliyor...');
+            Navigator.pushReplacementNamed(context, '/school-types');
+          }
+        }
+      } else {
+        if (mounted) setState(() => isLoading = false);
       }
-    } catch (e) { if (mounted) setState(() => isLoading = false); }
+    } catch (e) {
+      debugPrint('Error loading school data: $e');
+      if (mounted) setState(() => isLoading = false);
+    }
+  }
+
+  Future<void> _syncAdminPermissions(Map<String, dynamic> school, Map<String, dynamic> user) async {
+    try {
+      // 1. Okul modüllerini senkronize et (Yeni anahtarları ekle)
+      final activeModules = List<String>.from(school['activeModules'] ?? []);
+      final standardModules = AppModules.allModuleKeys;
+      bool schoolUpdated = false;
+      for (var key in standardModules) {
+        if (!activeModules.contains(key)) {
+          activeModules.add(key);
+          schoolUpdated = true;
+        }
+      }
+      if (schoolUpdated) {
+        await FirebaseFirestore.instance.collection('schools').doc(school['id']).update({'activeModules': activeModules});
+        if (mounted) setState(() { schoolData!['activeModules'] = activeModules; });
+      }
+
+      // 2. Kullanıcı yetkilerini senkronize et
+      final modulePerms = Map<String, dynamic>.from(user['modulePermissions'] ?? {});
+      bool userUpdated = false;
+      
+      // Eski anahtarları yeni anahtarlara eşle
+      final legacyMap = {
+        'ogrenci_kayit': 'egitim',
+        'muhasebe': 'mali_isler',
+        'destek_hizmetleri': 'hizmetler',
+        'okul_turleri': 'egitim',
+        'kullanici_yonetimi': 'sistem_ayarlari',
+      };
+      
+      legacyMap.forEach((oldKey, newKey) {
+        if (modulePerms.containsKey(oldKey)) {
+          if (!modulePerms.containsKey(newKey) || modulePerms[newKey]['enabled'] == false) {
+            modulePerms[newKey] = Map<String, dynamic>.from(modulePerms[oldKey]);
+            userUpdated = true;
+          }
+        }
+      });
+
+      // Eksik olan standart modüllere tam yetki ver
+      for (var key in standardModules) {
+        if (!modulePerms.containsKey(key)) {
+          modulePerms[key] = {'enabled': true, 'level': 'editor'};
+          userUpdated = true;
+        }
+      }
+
+      if (userUpdated) {
+        await FirebaseFirestore.instance.collection('users').where('institutionId', isEqualTo: school['institutionId']).where('username', isEqualTo: user['username']).get().then((q) {
+          for (var doc in q.docs) doc.reference.update({'modulePermissions': modulePerms});
+        });
+        if (mounted) setState(() { userData!['modulePermissions'] = modulePerms; });
+      }
+    } catch (e) {
+      debugPrint('Error syncing admin permissions: $e');
+    }
   }
 
   Future<void> _switchToTerm(Map<String, dynamic> term) async { final isActive = term['isActive'] == true; if (isActive) await _termService.clearSelectedTerm(); else await _termService.setSelectedTerm(term['id'], term['termName'] ?? '${term['startYear']}-${term['endYear']}'); setState(() => isLoading = true); await _loadInitialData(); }
-  bool _hasModuleAccess(String moduleKey) { if (schoolData == null) return false; final activeModules = schoolData!['activeModules'] as List<dynamic>? ?? []; if (!activeModules.contains(moduleKey)) return false; if (userData == null) return true; final modulePerms = userData!['modulePermissions'] as Map<String, dynamic>?; if (modulePerms == null) return false; final modulePerm = modulePerms[moduleKey] as Map<String, dynamic>?; if (modulePerm == null) return false; return modulePerm['enabled'] == true; }
+  bool _hasModuleAccess(String moduleKey) {
+    if (schoolData == null) return false;
+    
+    // Sistem Ayarları her zaman görünür olmalı (yönetim için)
+    if (moduleKey != 'sistem_ayarlari') {
+      // Okulun bu modülü aktif mi? (Lisans kontrolü gibi)
+      final activeModules = schoolData!['activeModules'] as List<dynamic>? ?? [];
+      if (!activeModules.contains(moduleKey)) return false;
+    }
+    
+    // Kullanıcının yetkisi var mı?
+    return UserPermissionService.hasModuleAccess(moduleKey, userData);
+  }
+
+  bool _hasSubModuleAccess(String moduleKey, String subKey) {
+    if (schoolData == null) return false;
+    
+    if (moduleKey != 'sistem_ayarlari') {
+      final activeModules = schoolData!['activeModules'] as List<dynamic>? ?? [];
+      if (!activeModules.contains(moduleKey)) return false;
+    }
+    
+    return UserPermissionService.hasSubModuleAccess(moduleKey, subKey, userData);
+  }
   String _getUserDisplayName() { if (userData != null) return userData!['fullName'] ?? 'Kullanıcı'; return schoolData?['adminFullName'] ?? 'Yönetici'; }
   String _getUserRole() { if (userData != null) { final role = userData!['role'] ?? ''; const roleMap = { 'mudur': 'Müdür', 'mudir_yardimcisi': 'Müdür Yardımcısı', 'ogretmen': 'Öğretmen', 'personel': 'Personel', 'genel_mudur': 'Genel Müdür', }; return roleMap[role] ?? role; } return 'Yönetici'; }
 
@@ -762,7 +887,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
   Future<void> _deleteAllData() async { final confirm = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(title: const Text('DİKKAT: Veriler Silinecek', style: TextStyle(color: Colors.red)), content: const Text('Kurumun tüm verileri (öğrenciler, dersler, vb.) KALICI olarak silinecek. Bu işlem geri alınamaz!'), actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('İptal')), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.red), onPressed: () => Navigator.pop(ctx, true), child: const Text('Tümünü Sil'))])); if (confirm == true) { setState(() => isLoading = true); await _deleteAllData(); await _loadInitialData(); } }
 
   Widget _buildCategorySelector(bool isMobile) {
-    final categories = [
+    final allCategories = [
       {'label': 'Tümü', 'icon': Icons.apps_rounded, 'color': Colors.indigo},
       {'label': 'Akademik', 'icon': Icons.school_rounded, 'color': Colors.indigo},
       {'label': 'Rehberlik', 'icon': Icons.psychology_rounded, 'color': Colors.indigo},
@@ -773,6 +898,15 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
       {'label': 'Sistem', 'icon': Icons.settings_suggest_rounded, 'color': Colors.indigo},
       {'label': 'Kişisel', 'icon': Icons.person, 'color': Colors.indigo},
     ];
+
+    // Yetkisi olan kategorileri filtrele
+    final categories = allCategories.where((cat) {
+      final label = cat['label'] as String;
+      if (label == 'Tümü') return true;
+      
+      // Bu kategoriye ait en az bir modüle erişim var mı?
+      return AppModules.modules.values.any((m) => m.category == label && _hasModuleAccess(m.key));
+    }).toList();
 
     final screenWidth = MediaQuery.of(context).size.width;
     final contentWidth = screenWidth > 1400 ? 1400.0 : screenWidth;
@@ -867,136 +1001,147 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
     }
 
     final List<_ModuleCardWidget> allModules = [
-          _ModuleCardWidget(
-            title: 'EĞİTİM',
-            badge: 'Akademik',
-            icon: Icons.school_outlined,
-            color: Colors.indigo,
-            cardWidth: cardWidth,
-            isMobile: isMobile,
-            category: 'Akademik',
-            showAllItems: isFiltered,
-            items: [
-              if (_hasModuleAccess('ogrenci_kayit')) {'title': 'Ön Kayıt', 'onTap': () => Navigator.pushNamed(context, '/pre-registration')},
-              if (_hasModuleAccess('ogrenci_kayit')) {'title': 'Öğrenci Kaydı', 'onTap': () => Navigator.pushNamed(context, '/student-registration')},
-              if (_hasModuleAccess('okul_turleri')) {'title': 'Okul Türleri', 'onTap': () => Navigator.pushNamed(context, '/school-types')},
-            ],
-            onTap: () => _showEducationHub(),
-          ),
-          _ModuleCardWidget(
-            title: 'REHBERLİK İŞLEMLERİ',
-            badge: 'Rehberlik',
-            icon: Icons.psychology_outlined,
-            color: Colors.deepOrange,
-            cardWidth: cardWidth,
-            isMobile: isMobile,
-            category: 'Rehberlik',
-            showAllItems: isFiltered,
-            items: [
+      if (_hasModuleAccess('egitim'))
+        _ModuleCardWidget(
+          title: 'EĞİTİM',
+          badge: 'Akademik',
+          icon: Icons.school_outlined,
+          color: Colors.indigo,
+          cardWidth: cardWidth,
+          isMobile: isMobile,
+          category: 'Akademik',
+          showAllItems: isFiltered,
+          items: [
+            if (_hasSubModuleAccess('egitim', 'on_kayit')) {'title': 'Ön Kayıt', 'onTap': () => Navigator.pushNamed(context, '/pre-registration')},
+            if (_hasSubModuleAccess('egitim', 'ogrenci_kaydi')) {'title': 'Öğrenci Kaydı', 'onTap': () => Navigator.pushNamed(context, '/student-registration')},
+            if (_hasSubModuleAccess('egitim', 'okul_turleri')) {'title': 'Okul Türleri', 'onTap': () => Navigator.pushNamed(context, '/school-types')},
+          ],
+          onTap: () => _showEducationHub(),
+        ),
+      if (_hasModuleAccess('rehberlik'))
+        _ModuleCardWidget(
+          title: 'REHBERLİK İŞLEMLERİ',
+          badge: 'Rehberlik',
+          icon: Icons.psychology_outlined,
+          color: Colors.deepOrange,
+          cardWidth: cardWidth,
+          isMobile: isMobile,
+          category: 'Rehberlik',
+          showAllItems: isFiltered,
+          items: [
+            if (_hasSubModuleAccess('rehberlik', 'ogrenci_portfolyosu'))
               {'title': 'Öğrenci Portfolyosu', 'onTap': () => MyApp.navigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => PortfolioScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'], schoolTypeName: schoolData!['schoolName'] ?? '', showAllSchoolTypes: true)))},
+            if (_hasSubModuleAccess('rehberlik', 'talepler'))
               {'title': 'Talepler (Yönlendirmeler)', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => DemandDashboardScreen(institutionId: schoolData!['institutionId'], schoolTypeId: '', showAllSchoolTypes: true, userData: userData)))},
-              {'title': 'Görüşme Kayıtları', 'onTap': () {}},
-              {'title': 'Rehberlik Testleri', 'onTap': () {}},
-            ],
-            onTap: () => _showGuidanceHub(),
-          ),
-          _ModuleCardWidget(
-            title: 'İnsan Kaynakları',
-            badge: 'Kurumsal',
-            icon: Icons.group_outlined,
-            color: Colors.purple,
-            cardWidth: cardWidth,
-            isMobile: isMobile,
-            category: 'Kurumsal',
-            showAllItems: isFiltered,
-            items: _getHrItems(),
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HrHubScreen())),
-          ),
-          _ModuleCardWidget(
-            title: 'ÖLÇME DEĞERLENDİRME',
-            badge: 'Ölçme',
-            icon: Icons.assignment_turned_in_outlined,
-            color: Colors.teal,
-            cardWidth: cardWidth,
-            isMobile: isMobile,
-            category: 'Ölçme',
-            showAllItems: isFiltered,
-            items: [
-              {'title': 'Tanımlar', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => AssessmentDefinitionsScreen(institutionId: schoolData!['institutionId'])))},
-              {'title': 'Raporlar', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => AssessmentReportsScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'])))},
-              {'title': 'Denemeler', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => TrialExamListScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'])))},
-              {'title': 'Sınavlar', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => ActiveExamListScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'])))},
-              {'title': 'Hata Kitapçığı', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => ErrorBookletDashboardScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'])))},
-              {'title': 'Soru Havuzu', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => QuestionPoolScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'])))},
-            ],
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AssessmentDashboardScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id']))),
-          ),
-          _ModuleCardWidget(
-            title: 'MALİ İŞLER',
-            badge: 'Finans',
-            icon: Icons.account_balance_wallet_outlined,
-            color: Colors.blue,
-            cardWidth: cardWidth,
-            isMobile: isMobile,
-            category: 'Finans',
-            showAllItems: isFiltered,
-            items: [
-              if (_hasModuleAccess('muhasebe')) {'title': 'Gelir Kaydı', 'onTap': () => Navigator.pushNamed(context, '/accounting')},
-              {'title': 'Gider Kaydı', 'onTap': () => Navigator.pushNamed(context, '/accounting')},
-              {'title': 'Veli Tahsilat', 'onTap': () => Navigator.pushNamed(context, '/accounting')},
-              {'title': 'Makbuz Al', 'onTap': () => Navigator.pushNamed(context, '/accounting')},
-            ],
-            onTap: () => Navigator.pushNamed(context, '/accounting'),
-          ),
-          _ModuleCardWidget(
-            title: 'HİZMETLER',
-            badge: 'Operasyon',
-            icon: Icons.support_agent_outlined,
-            color: Colors.orange,
-            cardWidth: cardWidth,
-            isMobile: isMobile,
-            category: 'Operasyon',
-            showAllItems: isFiltered,
-            items: [
-              {'title': 'Yemekhane İşlemleri', 'onTap': () => Navigator.pushNamed(context, '/support-services')},
-              {'title': 'Servis İşlemleri', 'onTap': () => Navigator.pushNamed(context, '/support-services')},
-              {'title': 'Depo ve Satın Alma', 'onTap': () => Navigator.pushNamed(context, '/support-services')},
-            ],
-            onTap: () => Navigator.pushNamed(context, '/support-services'),
-          ),
-          _ModuleCardWidget(
-            title: 'SİSTEM AYARLARI',
-            badge: 'Sistem',
-            icon: Icons.settings_outlined,
-            color: Colors.blueGrey,
-            cardWidth: cardWidth,
-            isMobile: isMobile,
-            category: 'Sistem',
-            showAllItems: isFiltered,
-            items: [
-              if (userData == null || _hasModuleAccess('kullanici_yonetimi')) {'title': 'Kullanıcı Yönetimi', 'onTap': () => Navigator.pushNamed(context, '/user-management')},
-              {'title': 'Yetki Tanımlama', 'onTap': () => Navigator.pushNamed(context, '/permission-definition')},
-              {'title': 'Uygulama Ayarları', 'onTap': () => Navigator.pushNamed(context, '/app-settings')},
-              {'title': 'Veri Yedekleme', 'onTap': () {}},
-            ],
-            onTap: () => Navigator.pushNamed(context, '/app-settings'),
-            buttonLabel: 'DÜZENLE',
-          ),
-          _ModuleCardWidget(
-            title: 'KİŞİSEL İŞLEMLER',
-            badge: 'Kişisel',
-            icon: Icons.person,
-            color: Colors.pink,
-            cardWidth: cardWidth,
-            isMobile: isMobile,
-            category: 'Kişisel',
-            showAllItems: isFiltered,
-            items: [
-              {'title': 'Notlarım', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PersonalNotesScreen()))},
-            ],
-            onTap: () => setState(() => _selectedCategory = 'Kişisel'),
-          ),
-        ];
+            if (_hasSubModuleAccess('rehberlik', 'gorusme_kayitlari')) {'title': 'Görüşme Kayıtları', 'onTap': () {}},
+            if (_hasSubModuleAccess('rehberlik', 'rehberlik_testleri')) {'title': 'Rehberlik Testleri', 'onTap': () {}},
+          ],
+          onTap: () => _showGuidanceHub(),
+        ),
+      if (_hasModuleAccess('insan_kaynaklari'))
+        _ModuleCardWidget(
+          title: 'İnsan Kaynakları',
+          badge: 'Kurumsal',
+          icon: Icons.group_outlined,
+          color: Colors.purple,
+          cardWidth: cardWidth,
+          isMobile: isMobile,
+          category: 'Kurumsal',
+          showAllItems: isFiltered,
+          items: _getHrItems(),
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HrHubScreen())),
+        ),
+      if (_hasModuleAccess('olcme_degerlendirme'))
+        _ModuleCardWidget(
+          title: 'ÖLÇME DEĞERLENDİRME',
+          badge: 'Ölçme',
+          icon: Icons.assignment_turned_in_outlined,
+          color: Colors.teal,
+          cardWidth: cardWidth,
+          isMobile: isMobile,
+          category: 'Ölçme',
+          showAllItems: isFiltered,
+          items: [
+            if (_hasSubModuleAccess('olcme_degerlendirme', 'tanimlar')) {'title': 'Tanımlar', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => AssessmentDefinitionsScreen(institutionId: schoolData!['institutionId'])))},
+            if (_hasSubModuleAccess('olcme_degerlendirme', 'raporlar')) {'title': 'Raporlar', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => AssessmentReportsScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'])))},
+            if (_hasSubModuleAccess('olcme_degerlendirme', 'denemeler')) {'title': 'Denemeler', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => TrialExamListScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'])))},
+            if (_hasSubModuleAccess('olcme_degerlendirme', 'sinavlar')) {'title': 'Sınavlar', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => ActiveExamListScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'])))},
+            if (_hasSubModuleAccess('olcme_degerlendirme', 'hata_kitapcigi')) {'title': 'Hata Kitapçığı', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => ErrorBookletDashboardScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'])))},
+            if (_hasSubModuleAccess('olcme_degerlendirme', 'soru_havuzu')) {'title': 'Soru Havuzu', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => QuestionPoolScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'])))},
+          ],
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AssessmentDashboardScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id']))),
+        ),
+      if (_hasModuleAccess('mali_isler'))
+        _ModuleCardWidget(
+          title: 'MALİ İŞLER',
+          badge: 'Finans',
+          icon: Icons.account_balance_wallet_outlined,
+          color: Colors.blue,
+          cardWidth: cardWidth,
+          isMobile: isMobile,
+          category: 'Finans',
+          showAllItems: isFiltered,
+          items: [
+            if (_hasSubModuleAccess('mali_isler', 'gelir_kaydi')) {'title': 'Gelir Kaydı', 'onTap': () => Navigator.pushNamed(context, '/accounting')},
+            if (_hasSubModuleAccess('mali_isler', 'gider_kaydi')) {'title': 'Gider Kaydı', 'onTap': () => Navigator.pushNamed(context, '/accounting')},
+            if (_hasSubModuleAccess('mali_isler', 'veli_tahsilat')) {'title': 'Veli Tahsilat', 'onTap': () => Navigator.pushNamed(context, '/accounting')},
+            if (_hasSubModuleAccess('mali_isler', 'makbuz_al')) {'title': 'Makbuz Al', 'onTap': () => Navigator.pushNamed(context, '/accounting')},
+          ],
+          onTap: () => Navigator.pushNamed(context, '/accounting'),
+        ),
+      if (_hasModuleAccess('hizmetler'))
+        _ModuleCardWidget(
+          title: 'HİZMETLER',
+          badge: 'Operasyon',
+          icon: Icons.support_agent_outlined,
+          color: Colors.orange,
+          cardWidth: cardWidth,
+          isMobile: isMobile,
+          category: 'Operasyon',
+          showAllItems: isFiltered,
+          items: [
+            if (_hasSubModuleAccess('hizmetler', 'yemekhane_islemleri')) {'title': 'Yemekhane İşlemleri', 'onTap': () => Navigator.pushNamed(context, '/support-services')},
+            if (_hasSubModuleAccess('hizmetler', 'servis_islemleri')) {'title': 'Servis İşlemleri', 'onTap': () => Navigator.pushNamed(context, '/support-services')},
+            if (_hasSubModuleAccess('hizmetler', 'depo_satin_alma')) {'title': 'Depo ve Satın Alma', 'onTap': () => Navigator.pushNamed(context, '/support-services')},
+          ],
+          onTap: () => Navigator.pushNamed(context, '/support-services'),
+        ),
+      if (_hasModuleAccess('sistem_ayarlari'))
+        _ModuleCardWidget(
+          title: 'SİSTEM AYARLARI',
+          badge: 'Sistem',
+          icon: Icons.settings_outlined,
+          color: Colors.blueGrey,
+          cardWidth: cardWidth,
+          isMobile: isMobile,
+          category: 'Sistem',
+          showAllItems: isFiltered,
+          items: [
+            if (_hasSubModuleAccess('sistem_ayarlari', 'kullanici_yonetimi')) {'title': 'Kullanıcı Yönetimi', 'onTap': () => Navigator.pushNamed(context, '/user-management')},
+            if (_hasSubModuleAccess('sistem_ayarlari', 'yetki_tanimlama')) {'title': 'Yetki Tanımlama', 'onTap': () => Navigator.pushNamed(context, '/permission-definition')},
+            if (_hasSubModuleAccess('sistem_ayarlari', 'uygulama_ayarlari')) {'title': 'Uygulama Ayarları', 'onTap': () => Navigator.pushNamed(context, '/app-settings')},
+            if (_hasSubModuleAccess('sistem_ayarlari', 'veri_yedekleme')) {'title': 'Veri Yedekleme', 'onTap': () {}},
+          ],
+          onTap: () => Navigator.pushNamed(context, '/app-settings'),
+          buttonLabel: 'DÜZENLE',
+        ),
+      if (_hasModuleAccess('kisisel_islemler'))
+        _ModuleCardWidget(
+          title: 'KİŞİSEL İŞLEMLER',
+          badge: 'Kişisel',
+          icon: Icons.person_outline,
+          color: Colors.pink,
+          cardWidth: cardWidth,
+          isMobile: isMobile,
+          category: 'Kişisel',
+          showAllItems: isFiltered,
+          items: [
+            if (_hasSubModuleAccess('kisisel_islemler', 'notlarim')) {'title': 'Notlarım', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PersonalNotesScreen()))},
+          ],
+          onTap: () => setState(() => _selectedCategory = 'Kişisel'),
+        ),
+    ];
+
 
     final filteredModules = _selectedCategory == 'Tümü' ? allModules : allModules.where((m) => m.category == _selectedCategory).toList();
 
@@ -1008,18 +1153,20 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
     );
   }
 
-  List<Map<String, dynamic>> _getHrItems() { 
-    List<Map<String, dynamic>> items = []; 
-    if (_hasModuleAccess('insan_kaynaklari')) items.addAll([
-      {'title': 'Personel Bilgi Yönetimi', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HrHubScreen()))}, 
-      {'title': 'Devam – Mesai – İzin', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HrHubScreen()))}, 
-      {'title': 'Maaş ve Bordro', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HrHubScreen()))}, 
-      {'title': 'Performans Yönetimi', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HrHubScreen()))}, 
-      {'title': 'Eğitim ve Gelişim', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HrHubScreen()))},
-      {'title': 'Sözleşme ve Evrak', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HrHubScreen()))},
-      {'title': 'İK Raporlama', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HrHubScreen()))},
-    ]); 
-    return items; 
+  List<Map<String, dynamic>> _getHrItems() {
+    List<Map<String, dynamic>> items = [];
+    if (_hasModuleAccess('insan_kaynaklari')) {
+      items.addAll([
+        if (_hasSubModuleAccess('insan_kaynaklari', 'personel_bilgi')) {'title': 'Personel Bilgi Yönetimi', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HrHubScreen()))},
+        if (_hasSubModuleAccess('insan_kaynaklari', 'devam_mesai_izin')) {'title': 'Devam – Mesai – İzin', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HrHubScreen()))},
+        if (_hasSubModuleAccess('insan_kaynaklari', 'maas_bordro')) {'title': 'Maaş ve Bordro', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HrHubScreen()))},
+        if (_hasSubModuleAccess('insan_kaynaklari', 'performans_yonetimi')) {'title': 'Performans Yönetimi', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HrHubScreen()))},
+        if (_hasSubModuleAccess('insan_kaynaklari', 'egitim_gelisim')) {'title': 'Eğitim ve Gelişim', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HrHubScreen()))},
+        if (_hasSubModuleAccess('insan_kaynaklari', 'sozlesme_evrak')) {'title': 'Sözleşme ve Evrak', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HrHubScreen()))},
+        if (_hasSubModuleAccess('insan_kaynaklari', 'ik_raporlama')) {'title': 'İK Raporlama', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HrHubScreen()))},
+      ]);
+    }
+    return items;
   }
 
   Widget _buildFooterLink(String label, bool isMobile) {

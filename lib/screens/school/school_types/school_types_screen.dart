@@ -16,6 +16,15 @@ class SchoolTypesScreen extends StatefulWidget {
 class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
   String? institutionId;
 
+  // Okul türü icon'ları
+  final Map<String, IconData> schoolTypes_icons = {
+    'Anaokulu': Icons.child_care,
+    'İlkokul': Icons.school,
+    'Ortaokul': Icons.menu_book,
+    'Lise': Icons.collections_bookmark,
+    'Kurs': Icons.class_,
+    'Diğer': Icons.category,
+  };
   // Yetkilendirme için
   Map<String, dynamic>? userData;
   bool _isLoadingPermissions = true;
@@ -220,13 +229,52 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
     );
   }
 
+  // İstatistik kartı widget'ı
+  Widget _buildCompactStat(IconData icon, String value, String label, Color color) {
+    return Column(
+      children: [
+        Icon(icon, color: color, size: 20),
+        SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: Colors.grey.shade900,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            color: Colors.grey.shade500,
+          ),
+        ),
+      ],
+    );
+  }
+
   Future<void> _getInstitutionId() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       final email = user.email!;
-      setState(() {
-        institutionId = email.split('@')[1].split('.')[0].toUpperCase();
-      });
+      final derivedId = email.split('@')[1].split('.')[0].toUpperCase();
+      
+      if (mounted) {
+        setState(() {
+          institutionId = derivedId;
+        });
+      }
+
+      // Gerçek kurum ID'sini kullanıcı verisinden al (daha güvenli)
+      final data = await UserPermissionService.loadUserData();
+      if (data != null && data['institutionId'] != null) {
+        if (mounted) {
+          setState(() {
+            institutionId = data['institutionId'];
+          });
+        }
+      }
     }
   }
 
@@ -547,223 +595,191 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
                   final List<dynamic> activeModules =
                       data['activeModules'] ?? [];
 
-                  return Card(
-                    margin: EdgeInsets.only(bottom: 12),
-                    elevation: 2,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Padding(
-                      padding: EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                padding: EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: Colors.indigo.shade50,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Icon(
-                                  Icons.school,
-                                  color: Colors.indigo,
-                                  size: 28,
-                                ),
-                              ),
-                              SizedBox(width: 16),
-                              Expanded(
-                                child: Column(
+                      return Card(
+                        margin: EdgeInsets.only(bottom: 16),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                          side: BorderSide(color: Colors.grey.shade200, width: 1),
+                        ),
+                        child: InkWell(
+                          onTap: () {
+                             // Okul türü detay sayfasına git (Viewer/Editor yetkisi varsa)
+                             if (_canSwitchToSchoolType(doc.id)) {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => SchoolTypeDetailScreen(
+                                      schoolTypeId: doc.id,
+                                      schoolTypeName: data['schoolTypeName'] ?? data['typeName'] ?? 'Okul Türü',
+                                      institutionId: institutionId!,
+                                    ),
+                                  ),
+                                );
+                             }
+                          },
+                          borderRadius: BorderRadius.circular(20),
+                          child: Padding(
+                            padding: EdgeInsets.all(20),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    // Okul Türü Badge
-                                    if (data['schoolType'] != null)
-                                      Container(
-                                        padding: EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 4,
-                                        ),
-                                        margin: EdgeInsets.only(bottom: 6),
-                                        decoration: BoxDecoration(
-                                          color: Colors.indigo.shade100,
-                                          borderRadius: BorderRadius.circular(
-                                            6,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          data['schoolType'],
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w600,
-                                            color: Colors.indigo.shade900,
-                                          ),
-                                        ),
+                                    Container(
+                                      padding: EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: Colors.indigo.shade50,
+                                        borderRadius: BorderRadius.circular(16),
                                       ),
-                                    // Okul Türü Adı
-                                    Text(
-                                      data['schoolTypeName'] ??
-                                          data['typeName'] ??
-                                          'İsimsiz',
-                                      style: TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.grey.shade900,
+                                      child: Icon(
+                                        schoolTypes_icons[data['schoolType']] ?? Icons.school,
+                                        color: Colors.indigo,
+                                        size: 28,
                                       ),
                                     ),
+                                    SizedBox(width: 16),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Container(
+                                                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.indigo.shade50,
+                                                  borderRadius: BorderRadius.circular(6),
+                                                ),
+                                                child: Text(
+                                                  data['schoolType']?.toUpperCase() ?? 'DİĞER',
+                                                  style: TextStyle(
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.w900,
+                                                    color: Colors.indigo.shade700,
+                                                    letterSpacing: 0.5,
+                                                  ),
+                                                ),
+                                              ),
+                                              if (data['isActive'] == false) ...[
+                                                SizedBox(width: 8),
+                                                Container(
+                                                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.red.shade50,
+                                                    borderRadius: BorderRadius.circular(6),
+                                                  ),
+                                                  child: Text(
+                                                    'PASİF',
+                                                    style: TextStyle(
+                                                      fontSize: 10,
+                                                      fontWeight: FontWeight.w900,
+                                                      color: Colors.red.shade700,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ],
+                                          ),
+                                          SizedBox(height: 4),
+                                          Text(
+                                            data['schoolTypeName'] ?? data['typeName'] ?? 'İsimsiz Okul Türü',
+                                            style: TextStyle(
+                                              fontSize: 18,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.grey.shade900,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    if (_canEditSpecificSchoolType(doc.id))
+                                      IconButton(
+                                        icon: Icon(Icons.more_horiz, color: Colors.grey),
+                                        onPressed: () {
+                                          // Popup menü açılabilir veya direkt düzenleme
+                                          _showModernEditSheet(context, doc.id, data);
+                                        },
+                                      ),
                                   ],
                                 ),
-                              ),
-                              // Okul türü bazlı yetkilendirme kontrolü - sadece düzenleme yetkisi olanlar PopupMenu görebilir
-                              if (_canEditSpecificSchoolType(doc.id))
-                                PopupMenuButton<String>(
-                                  icon: Icon(Icons.more_vert),
-                                  itemBuilder: (context) {
-                                    List<PopupMenuEntry<String>> items = [];
-
-                                    // Detay bilgileri (herkes görebilir)
-                                    items.add(
-                                      PopupMenuItem<String>(
-                                        value: 'details',
-                                        child: Row(
-                                          children: [
-                                            Icon(
-                                              Icons.info_outline,
-                                              size: 20,
-                                              color: Colors.blue,
-                                            ),
-                                            SizedBox(width: 12),
-                                            Text('Detay Bilgileri'),
-                                          ],
-                                        ),
-                                      ),
-                                    );
-
-                                    // Okul türüne geçiş (viewer veya editor yetkisi gerekli)
-                                    if (_canSwitchToSchoolType(doc.id)) {
-                                      items.add(
-                                        PopupMenuItem<String>(
-                                          value: 'view',
-                                          child: Row(
-                                            children: [
-                                              Icon(
-                                                Icons.login,
-                                                size: 20,
-                                                color: Colors.green,
-                                              ),
-                                              SizedBox(width: 12),
-                                              Text('Okul Türüne Geçiş Yap'),
-                                            ],
-                                          ),
-                                        ),
-                                      );
-                                    }
-
-                                    // Aktif modülleri gör (herkes görebilir)
-                                    items.add(
-                                      PopupMenuItem<String>(
-                                        value: 'modules',
-                                        child: Row(
-                                          children: [
-                                            Icon(
-                                              Icons.widgets,
-                                              size: 20,
-                                              color: Colors.purple,
-                                            ),
-                                            SizedBox(width: 12),
-                                            Text('Aktif Modülleri Gör'),
-                                          ],
-                                        ),
-                                      ),
-                                    );
-
-                                    // Düzenleme ve silme (sadece bu okul türü için editor yetkisi olanlar)
-                                    if (_canEditSpecificSchoolType(doc.id)) {
-                                      items.add(PopupMenuDivider());
-                                      items.add(
-                                        PopupMenuItem<String>(
-                                          value: 'edit',
-                                          child: Row(
-                                            children: [
-                                              Icon(
-                                                Icons.edit,
-                                                size: 20,
-                                                color: Colors.blue,
-                                              ),
-                                              SizedBox(width: 12),
-                                              Text('Düzenle'),
-                                            ],
-                                          ),
-                                        ),
-                                      );
-                                      items.add(
-                                        PopupMenuItem<String>(
-                                          value: 'delete',
-                                          child: Row(
-                                            children: [
-                                              Icon(
-                                                Icons.delete,
-                                                size: 20,
-                                                color: Colors.red,
-                                              ),
-                                              SizedBox(width: 12),
-                                              Text('Sil'),
-                                            ],
-                                          ),
-                                        ),
-                                      );
-                                    }
-
-                                    return items;
-                                  },
-                                  onSelected: (value) {
-                                    if (value == 'details') {
-                                      _showSchoolTypeDetails(context, data);
-                                    } else if (value == 'view') {
-                                      // Okul türü detay sayfasına git
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (context) =>
-                                              SchoolTypeDetailScreen(
-                                                schoolTypeId: doc.id,
-                                                schoolTypeName:
-                                                    data['schoolTypeName'] ??
-                                                    data['typeName'] ??
-                                                    'Okul Türü',
-                                                institutionId: institutionId!,
-                                              ),
-                                        ),
-                                      );
-                                    } else if (value == 'edit') {
-                                      _showModernEditSheet(
-                                        context,
-                                        doc.id,
-                                        data,
-                                      );
-                                    } else if (value == 'delete') {
-                                      _deleteSchoolType(
-                                        doc.id,
-                                        data['schoolTypeName'] ??
-                                            data['typeName'] ??
-                                            'Bu okul türü',
-                                      );
-                                    } else if (value == 'modules') {
-                                      _showActiveModulesDialog(
-                                        context,
-                                        data['schoolTypeName'] ?? 'Okul Türü',
-                                        activeModules,
-                                      );
-                                    }
-                                  },
+                                SizedBox(height: 20),
+                                Divider(height: 1, color: Colors.grey.shade100),
+                                SizedBox(height: 16),
+                                // Stats Summary
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                                  children: [
+                                    _buildCompactStat(Icons.people, '${data['studentCount'] ?? 0}', 'Öğrenci', Colors.blue),
+                                    _buildCompactStat(Icons.person, '${data['teacherCount'] ?? 0}', 'Öğretmen', Colors.orange),
+                                    _buildCompactStat(Icons.class_, '${data['classCount'] ?? 0}', 'Sınıf', Colors.green),
+                                  ],
                                 ),
-                            ],
+                                SizedBox(height: 16),
+                                // Active Modules Preview
+                                if (activeModules.isNotEmpty) ...[
+                                  Text(
+                                    'AKTİF MODÜLLER',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w900,
+                                      color: Colors.grey.shade500,
+                                      letterSpacing: 1,
+                                    ),
+                                  ),
+                                  SizedBox(height: 8),
+                                  Wrap(
+                                    spacing: 6,
+                                    runSpacing: 6,
+                                    children: activeModules.take(6).map((m) {
+                                      final mInfo = SchoolTypeModules.getModule(m.toString());
+                                      return Container(
+                                        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: (mInfo?.color ?? Colors.grey).withOpacity(0.1),
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(mInfo?.icon ?? Icons.circle, size: 12, color: mInfo?.color),
+                                            SizedBox(width: 4),
+                                            Text(
+                                              mInfo?.name ?? m.toString(),
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w600,
+                                                color: mInfo?.color is MaterialColor 
+                                                    ? (mInfo!.color as MaterialColor).shade900 
+                                                    : (mInfo?.color ?? Colors.grey.shade900),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    }).toList()..addAll(
+                                      activeModules.length > 6 ? [
+                                        Container(
+                                          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                          decoration: BoxDecoration(
+                                            color: Colors.grey.shade100,
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: Text(
+                                            '+${activeModules.length - 6}',
+                                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey.shade600),
+                                          ),
+                                        )
+                                      ] : []
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
                           ),
-                          SizedBox(height: 16),
-                        ],
-                      ),
-                    ),
-                  );
+                        ),
+                      );
                 },
               ),
             ),
@@ -1422,66 +1438,110 @@ class _ModernSchoolTypeFormState extends State<_ModernSchoolTypeForm> {
 
                       ..._selectedModules.keys.map((key) {
                         final moduleInfo = SchoolTypeModules.getModule(key);
+                        final isSelected = _selectedModules[key] ?? false;
+                        
                         return Container(
-                          margin: EdgeInsets.only(bottom: 8),
+                          margin: EdgeInsets.only(bottom: 12),
                           decoration: BoxDecoration(
-                            color: _selectedModules[key]!
-                                ? Colors.indigo.shade50
+                            color: isSelected
+                                ? (moduleInfo?.color.withOpacity(0.05) ?? Colors.indigo.shade50)
                                 : Colors.grey.shade50,
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(16),
                             border: Border.all(
-                              color: _selectedModules[key]!
-                                  ? Colors.indigo.shade200
+                              color: isSelected
+                                  ? (moduleInfo?.color.withOpacity(0.3) ?? Colors.indigo.shade200)
                                   : Colors.grey.shade200,
-                              width: 1.5,
+                              width: 1,
                             ),
                           ),
-                          child: CheckboxListTile(
-                            title: Row(
+                          child: Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: Row(
                               children: [
-                                if (moduleInfo != null) ...[
-                                  Icon(
-                                    moduleInfo.icon,
-                                    size: 20,
-                                    color: moduleInfo.color,
+                                // Checkbox yerine şık bir indicator
+                                InkWell(
+                                  onTap: () => setState(() => _selectedModules[key] = !isSelected),
+                                  child: Container(
+                                    width: 24,
+                                    height: 24,
+                                    decoration: BoxDecoration(
+                                      color: isSelected ? (moduleInfo?.color ?? Colors.indigo) : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                        color: isSelected ? (moduleInfo?.color ?? Colors.indigo) : Colors.grey.shade400,
+                                        width: 2,
+                                      ),
+                                    ),
+                                    child: isSelected
+                                        ? Icon(Icons.check, color: Colors.white, size: 16)
+                                        : null,
                                   ),
-                                  SizedBox(width: 8),
+                                ),
+                                SizedBox(width: 16),
+                                
+                                // Icon ve İsim
+                                if (moduleInfo != null) ...[
+                                  Icon(moduleInfo.icon, size: 24, color: moduleInfo.color),
+                                  SizedBox(width: 12),
                                 ],
+                                
                                 Expanded(
-                                  child: Text(
-                                    SchoolTypeModules.getModuleName(key),
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w500,
-                                      color: _selectedModules[key]!
-                                          ? Colors.indigo.shade900
-                                          : Colors.grey.shade700,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        SchoolTypeModules.getModuleName(key),
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 15,
+                                          color: isSelected ? Colors.black87 : Colors.grey.shade600,
+                                        ),
+                                      ),
+                                      if (moduleInfo != null)
+                                        Text(
+                                          moduleInfo.description,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey.shade600,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                                
+                                // "Görüntüle / Düzenle" tarzı şık Badge
+                                InkWell(
+                                  onTap: () => setState(() => _selectedModules[key] = !isSelected),
+                                  borderRadius: BorderRadius.circular(20),
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 200),
+                                    padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                    decoration: BoxDecoration(
+                                      color: isSelected 
+                                          ? (moduleInfo?.color ?? Colors.indigo) 
+                                          : Colors.grey.shade200,
+                                      borderRadius: BorderRadius.circular(20),
+                                      boxShadow: isSelected ? [
+                                        BoxShadow(
+                                          color: (moduleInfo?.color ?? Colors.indigo).withOpacity(0.3),
+                                          blurRadius: 8,
+                                          offset: Offset(0, 4),
+                                        )
+                                      ] : null,
+                                    ),
+                                    child: Text(
+                                      isSelected ? 'AKTİF' : 'PASİF',
+                                      style: TextStyle(
+                                        color: isSelected ? Colors.white : Colors.grey.shade600,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: 0.5,
+                                      ),
                                     ),
                                   ),
                                 ),
                               ],
                             ),
-                            subtitle: moduleInfo != null
-                                ? Text(
-                                    moduleInfo.description,
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: Colors.grey.shade600,
-                                    ),
-                                  )
-                                : null,
-                            value: _selectedModules[key],
-                            onChanged: (bool? value) {
-                              setState(() {
-                                _selectedModules[key] = value ?? false;
-                              });
-                            },
-                            activeColor: Colors.indigo,
-                            controlAffinity: ListTileControlAffinity.leading,
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 4,
-                            ),
-                            dense: true,
                           ),
                         );
                       }).toList(),

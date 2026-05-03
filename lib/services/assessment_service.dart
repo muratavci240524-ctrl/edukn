@@ -102,7 +102,7 @@ class AssessmentService {
     });
   }
 
-  Stream<List<TrialExam>> getTrialExams(String institutionId) {
+  Stream<List<TrialExam>> getTrialExams(String institutionId, {List<String>? classLevels}) {
     return _firestore
         .collection('trial_exams')
         .where('institutionId', isEqualTo: institutionId)
@@ -110,9 +110,17 @@ class AssessmentService {
         .orderBy('date', descending: true)
         .snapshots()
         .map(
-          (snapshot) => snapshot.docs
-              .map((doc) => TrialExam.fromMap(doc.data(), doc.id))
-              .toList(),
+          (snapshot) {
+            var exams = snapshot.docs
+                .map((doc) => TrialExam.fromMap(doc.data() as Map<String, dynamic>, doc.id))
+                .toList();
+            
+            if (classLevels != null && classLevels.isNotEmpty) {
+              return exams.where((exam) => classLevels.contains(exam.classLevel)).toList();
+            }
+            
+            return exams;
+          },
         );
   }
 
