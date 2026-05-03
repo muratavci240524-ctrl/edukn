@@ -246,3 +246,57 @@ exports.deleteSchoolAndAdmin = onCall(async (request) => {
     }
 });
 
+/**
+ * 'updateUserCredentials' adında çağrılabilir bir bulut fonksiyonu.
+ * Bir kullanıcının e-posta (kullanıcı adı) ve/veya şifresini günceller.
+ *
+ * Gerekli veriler (data):
+ * - uid (String): Kullanıcının Firebase Auth ID'si
+ * - newEmail (String, Opsiyonel): Yeni e-posta adresi
+ * - newPassword (String, Opsiyonel): Yeni şifre
+ */
+exports.updateUserCredentials = onCall(async (request) => {
+    const {data, auth} = request;
+    // 1. Güvenlik Kontrolü
+    if (!auth) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Bu işlemi yapmak için giriş yapmış olmalısınız."
+      );
+    }
+
+    // 2. Verileri Al
+    const { uid, newEmail, newPassword } = data;
+    if (!uid) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Eksik bilgi: 'uid' gereklidir."
+      );
+    }
+
+    try {
+      const updateData = {};
+      if (newEmail) updateData.email = newEmail;
+      if (newPassword) updateData.password = newPassword;
+
+      if (Object.keys(updateData).length === 0) {
+         return { status: "no-change", message: "Güncellenecek veri gönderilmedi." };
+      }
+
+      // 3. Firebase Auth üzerinden kullanıcıyı güncelle
+      await admin.auth().updateUser(uid, updateData);
+
+      // 4. Başarı Mesajı Gönder
+      return {
+        status: "success",
+        message: "Kullanıcı bilgileri başarıyla güncellendi.",
+      };
+    } catch (error) {
+      console.error("Kullanıcı güncellenirken hata oluştu:", error);
+      // Hatanın detaylarını (özellikle Auth hatalarını) istemciye daha net ilet
+      throw new HttpsError(
+        "internal",
+        `Auth Hatası: ${error.message} (${error.code || 'unknown'})`
+      );
+    }
+});

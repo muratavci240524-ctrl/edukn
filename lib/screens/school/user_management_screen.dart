@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -1677,13 +1678,42 @@ class _UserFormSheetState extends State<_UserFormSheet> {
 
       if (isEdit) {
         // Güncelleme
-        if (_passwordController.text.isNotEmpty) {
-          // TODO: Şifre güncelleme için Cloud Function gerekli
-          print('⚠️ Şifre güncellemesi için Cloud Function gerekli');
+        // Şifre veya E-posta (Kullanıcı Adı) güncellemesi kontrolü
+        final authUserId = widget.userData?['authUserId'] ?? widget.userId;
+        final originalEmail = widget.userData?['email'] as String?;
+        final newPassword = _passwordController.text.trim();
+
+        bool needsAuthUpdate = false;
+        Map<String, dynamic> authUpdateParams = {'uid': authUserId};
+
+        if (newPassword.isNotEmpty) {
+          authUpdateParams['newPassword'] = newPassword;
+          needsAuthUpdate = true;
         }
 
-        // Mevcut kullanıcının authUserId'sini al
-        final authUserId = widget.userData?['authUserId'];
+        // Eğer e-posta değiştiyse (kullanıcı adı değişince de bu değişir) Auth'u güncelle
+        if (originalEmail != null && originalEmail.toLowerCase() != authEmail.toLowerCase()) {
+          authUpdateParams['newEmail'] = authEmail;
+          needsAuthUpdate = true;
+        }
+
+        if (needsAuthUpdate && authUserId != null) {
+          try {
+            print('🚀 Auth bilgileri güncelleniyor: $authUpdateParams');
+
+            await FirebaseFunctions.instance
+                .httpsCallable('updateUserCredentials')
+                .call(authUpdateParams);
+            print('✅ Auth bilgileri başarıyla güncellendi.');
+          } catch (e) {
+            print('❌ Auth güncelleme hatası: $e');
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Kimlik bilgileri güncellenemedi: $e')),
+            );
+            // Auth güncellenemezse Firestore güncellemesini de yapma veya kullanıcıyı uyar
+          }
+        }
+
 
         // En doğru dokümanı hedefle: önce authUserId varsa ve doküman mevcutsa onu güncelle
         String? targetDocId;

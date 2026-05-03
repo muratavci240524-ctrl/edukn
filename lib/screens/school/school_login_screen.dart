@@ -52,6 +52,14 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         email = '$username@$institutionId.edukn';
       }
 
+      // 1. Orijinal Login Mantığına Geri Dönüş
+      String emailToUse;
+      if (username.contains('@') && username.contains('.')) {
+        emailToUse = username;
+      } else {
+        emailToUse = '$username@$institutionId.edukn';
+      }
+
       final schoolQuery = await FirebaseFirestore.instance
           .collection('schools')
           .where('institutionId', isEqualTo: institutionId)
@@ -64,8 +72,9 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       final schoolData = schoolQuery.docs.first.data();
       if (schoolData['isActive'] != true) throw 'Bu okul şu an pasif durumda!';
 
+      // 2. Giriş yap
       final userCredential = await FirebaseAuth.instance
-          .signInWithEmailAndPassword(email: email, password: password)
+          .signInWithEmailAndPassword(email: emailToUse, password: password)
           .timeout(const Duration(seconds: 20), onTimeout: () => throw 'Giriş işlemi zaman aşımına uğradı.');
 
       final uid = userCredential.user?.uid;
@@ -151,7 +160,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
 
       if (googleUser == null) {
-        setState(() => _isLoading = false);
+        if (mounted) setState(() => _isLoading = false);
         return;
       }
 
@@ -191,16 +200,31 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         }
       }
     } catch (e) {
+      print('❌ Google Giriş Hatası: $e');
+      String errorMessage = 'Google ile giriş yapılamadı: $e';
+      
+      if (e.toString().contains('MissingPluginException')) {
+        errorMessage = 'Google Giriş Yapılandırma Hatası!\n\nLütfen web/index.html dosyasındaki Client ID\'nin doğru olduğunu ve uygulamayı DURDURUP YENİDEN BAŞLATTIĞINIZI kontrol edin.';
+      }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Google Giriş Hatası: $e'),
+            content: Text(errorMessage),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 10),
+            action: SnackBarAction(
+              label: 'TAMAM',
+              textColor: Colors.white,
+              onPressed: () {},
+            ),
           ),
         );
       }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
