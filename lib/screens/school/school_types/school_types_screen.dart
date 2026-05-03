@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'school_type_stats_screen.dart';
 import 'school_type_detail_screen.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class SchoolTypesScreen extends StatefulWidget {
   const SchoolTypesScreen({Key? key}) : super(key: key);
@@ -25,6 +26,7 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
     'Kurs': Icons.class_,
     'Diğer': Icons.category,
   };
+  
   // Yetkilendirme için
   Map<String, dynamic>? userData;
   bool _isLoadingPermissions = true;
@@ -52,97 +54,64 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
     // Admin kullanıcısı (userData yok) - Her zaman erişebilir
     if (userData == null) return true;
 
-    final modulePerms = userData!['modulePermissions'] as Map<String, dynamic>?;
-    if (modulePerms == null) return false;
-
-    final schoolTypePerm = modulePerms['okul_turleri'] as Map<String, dynamic>?;
-    if (schoolTypePerm == null) return false;
-
-    return schoolTypePerm['enabled'] == true;
+    return UserPermissionService.hasSubModuleAccess('egitim', 'okul_turleri', userData);
   }
 
   // Yeni okul türü ekleyebilir mi? (Genel modül editor yetkisi gerekli)
   bool _canCreateSchoolType() {
     // Admin kullanıcısı (userData yok) - Her zaman ekleyebilir
-    if (userData == null) {
-      return true;
-    }
+    if (userData == null) return true;
 
-    final modulePerms = userData!['modulePermissions'] as Map<String, dynamic>?;
-    if (modulePerms == null) {
-      return false;
-    }
-
-    final schoolTypePerm = modulePerms['okul_turleri'] as Map<String, dynamic>?;
-    if (schoolTypePerm == null) {
-      return false;
-    }
-
-    final level = schoolTypePerm['level'];
-    final canCreate = level == 'editor';
-
-    // Genel modül düzenleme yetkisi gerekli
-    return canCreate;
+    return UserPermissionService.canEditSubModule('egitim', 'okul_turleri', userData);
   }
 
   // Belirli bir okul türünü düzenleyebilir mi?
   bool _canEditSpecificSchoolType(String schoolTypeId) {
     // Admin kullanıcısı (userData yok) - Her zaman düzenleyebilir
-    if (userData == null) {
+    if (userData == null) return true;
+
+    final role = (userData!['role'] as String?)?.toLowerCase();
+    if (role == 'genel_mudur') return true;
+
+    // Önce genel modül erişimi kontrol et
+    if (!_hasSchoolTypeAccess()) return false;
+
+    // Eğer genel seviyede editor ise tüm okulları düzenleyebilir
+    if (UserPermissionService.canEditSubModule('egitim', 'okul_turleri', userData)) {
       return true;
     }
 
-    // Önce genel modül erişimi kontrol et
-    if (!_hasSchoolTypeAccess()) {
-      return false;
-    }
-
     // Okul türü bazlı yetkileri kontrol et
-    final schoolTypePerms =
-        userData!['schoolTypePermissions'] as Map<String, dynamic>?;
-
-    // Eğer okul türü bazlı yetki kaydı yoksa, genel modül seviyesine bak
-    if (schoolTypePerms == null || !schoolTypePerms.containsKey(schoolTypeId)) {
-      final modulePerms =
-          userData!['modulePermissions'] as Map<String, dynamic>?;
-      final generalLevel =
-          (modulePerms?['okul_turleri'] as Map<String, dynamic>?)?['level'];
-      final canEdit = generalLevel == 'editor';
-      return canEdit;
-    }
-
-    // Bu okul türü için editor yetkisi var mı?
-    final permission = schoolTypePerms[schoolTypeId];
-    final canEdit = permission == 'editor';
-    return canEdit;
+    final schoolTypePerms = userData!['schoolTypePermissions'] as Map<String, dynamic>?;
+    final permission = schoolTypePerms?[schoolTypeId];
+    
+    return permission == 'editor';
   }
 
   // Belirli bir okul türüne geçiş yapabilir mi?
   bool _canSwitchToSchoolType(String schoolTypeId) {
-    // Admin kullanıcısı (userData yok) - Her zaman geçiş yapabilir
-    if (userData == null) {
-      return true;
-    }
+    // Sadece gerçek admin (userData == null) her şeyi görebilir
+    if (userData == null) return true;
+
+    final role = (userData!['role'] as String?)?.toLowerCase();
+    if (role == 'genel_mudur') return true;
 
     // Önce genel modül erişimi kontrol et
-    if (!_hasSchoolTypeAccess()) {
-      return false;
-    }
+    if (!_hasSchoolTypeAccess()) return false;
 
-    // Okul türü bazlı yetkileri kontrol et
-    final schoolTypePerms =
-        userData!['schoolTypePermissions'] as Map<String, dynamic>?;
+    // Modül düzeyindeki yetki seviyesine bak
+    final modulePerms = userData!['modulePermissions'] as Map<String, dynamic>?;
+    final egitimPerm = modulePerms?['egitim'] as Map<String, dynamic>?;
+    final subModules = egitimPerm?['subModules'] as Map<String, dynamic>?;
+    final schoolTypePerm = subModules?['okul_turleri'] as Map<String, dynamic>?;
+    final generalLevel = schoolTypePerm?['level'];
 
-    // Eğer okul türü bazlı yetki kaydı yoksa, genel modül erişimi varsa geçişe izin ver
-    if (schoolTypePerms == null || !schoolTypePerms.containsKey(schoolTypeId)) {
-      // Genel modül erişimi zaten doğrulandı (_hasSchoolTypeAccess), geçişe izin ver
-      return true;
-    }
+    // Eğer modül düzeyinde 'editor' ise tüm okul türlerine girebilir
+    if (generalLevel == 'editor') return true;
 
-    // Bu okul türü için herhangi bir yetki var mı? (viewer veya editor)
-    final permission = schoolTypePerms[schoolTypeId];
-    final canSwitch = permission == 'viewer' || permission == 'editor';
-    return canSwitch;
+    // Eğer 'viewer' ise veya seviye belirsizse sadece yetkisi olan okul türlerine girebilir
+    final schoolTypePerms = userData!['schoolTypePermissions'] as Map<String, dynamic>?;
+    return schoolTypePerms != null && schoolTypePerms.containsKey(schoolTypeId);
   }
 
   // Okul türü detay bilgilerini göster
@@ -183,7 +152,7 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
               SizedBox(height: 8),
               _buildDetailRow(
                 icon: Icons.class_,
-                label: 'Sınıf Sayısı',
+                label: 'Şube Sayısı',
                 value: '${data['classCount'] ?? 0}',
                 color: Colors.green,
               ),
@@ -456,7 +425,9 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
         ],
       ),
 
-      body: StreamBuilder<QuerySnapshot>(
+      body: (_isLoadingPermissions || institutionId == null)
+          ? const Center(child: CircularProgressIndicator())
+          : StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('schoolTypes')
             .where('institutionId', isEqualTo: institutionId)
@@ -470,8 +441,10 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
             return Center(child: CircularProgressIndicator());
           }
 
-          // Client-side sorting
-          final schoolTypes = snapshot.data!.docs.toList();
+          // Client-side filtering
+          final schoolTypes = snapshot.data!.docs.where((doc) {
+            return _canSwitchToSchoolType(doc.id);
+          }).toList();
 
           // 1. Özel sıralama düzeni tanımla
           const List<String> sortOrder = [
@@ -707,74 +680,116 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
                                 SizedBox(height: 20),
                                 Divider(height: 1, color: Colors.grey.shade100),
                                 SizedBox(height: 16),
-                                // Stats Summary
+                                // Stats Summary - Live Counts
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                                   children: [
-                                    _buildCompactStat(Icons.people, '${data['studentCount'] ?? 0}', 'Öğrenci', Colors.blue),
-                                    _buildCompactStat(Icons.person, '${data['teacherCount'] ?? 0}', 'Öğretmen', Colors.orange),
-                                    _buildCompactStat(Icons.class_, '${data['classCount'] ?? 0}', 'Sınıf', Colors.green),
+                                    // Öğrenci Sayısı - students koleksiyonundan
+                                    StreamBuilder<QuerySnapshot>(
+                                      stream: FirebaseFirestore.instance.collection('students')
+                                          .where('institutionId', isEqualTo: institutionId)
+                                          .where('schoolTypeId', isEqualTo: doc.id)
+                                          .snapshots(),
+                                      builder: (context, snapshot) {
+                                        final count = snapshot.hasData ? snapshot.data!.docs.length : 0;
+                                        return _buildCompactStat(Icons.people, '$count', 'Öğrenci', Colors.blue);
+                                      },
+                                    ),
+                                    // Öğretmen Sayısı - users koleksiyonundan (tüm öğretmen rolleri)
+                                    StreamBuilder<QuerySnapshot>(
+                                      stream: FirebaseFirestore.instance.collection('users')
+                                          .where('institutionId', isEqualTo: institutionId)
+                                          .where('role', whereIn: [
+                                            'ogretmen', 'teacher', 'rehber_ogretmen', 
+                                            'Öğretmen', 'Rehber Öğretmen', 'OGRETMEN'
+                                          ])
+                                          .where('schoolTypes', arrayContains: doc.id)
+                                          .snapshots(),
+                                      builder: (context, snapshot) {
+                                        final count = snapshot.hasData ? snapshot.data!.docs.length : 0;
+                                        return _buildCompactStat(Icons.person, '$count', 'Öğretmen', Colors.orange);
+                                      },
+                                    ),
+                                    // Şube Sayısı - classes koleksiyonundan
+                                    StreamBuilder<QuerySnapshot>(
+                                      stream: FirebaseFirestore.instance.collection('classes')
+                                          .where('institutionId', isEqualTo: institutionId)
+                                          .where('schoolTypeId', isEqualTo: doc.id)
+                                          .where('isActive', isEqualTo: true)
+                                          .snapshots(),
+                                      builder: (context, snapshot) {
+                                        final count = snapshot.hasData ? snapshot.data!.docs.length : 0;
+                                        return _buildCompactStat(Icons.class_, '$count', 'Şube', Colors.green);
+                                      },
+                                    ),
                                   ],
                                 ),
-                                SizedBox(height: 16),
-                                // Active Modules Preview
-                                if (activeModules.isNotEmpty) ...[
-                                  Text(
-                                    'AKTİF MODÜLLER',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w900,
-                                      color: Colors.grey.shade500,
-                                      letterSpacing: 1,
-                                    ),
-                                  ),
-                                  SizedBox(height: 8),
-                                  Wrap(
-                                    spacing: 6,
-                                    runSpacing: 6,
-                                    children: activeModules.take(6).map((m) {
-                                      final mInfo = SchoolTypeModules.getModule(m.toString());
-                                      return Container(
-                                        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                        decoration: BoxDecoration(
-                                          color: (mInfo?.color ?? Colors.grey).withOpacity(0.1),
-                                          borderRadius: BorderRadius.circular(6),
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(mInfo?.icon ?? Icons.circle, size: 12, color: mInfo?.color),
-                                            SizedBox(width: 4),
-                                            Text(
-                                              mInfo?.name ?? m.toString(),
-                                              style: TextStyle(
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.w600,
-                                                color: mInfo?.color is MaterialColor 
-                                                    ? (mInfo!.color as MaterialColor).shade900 
-                                                    : (mInfo?.color ?? Colors.grey.shade900),
-                                              ),
-                                            ),
-                                          ],
+                                SizedBox(height: 20),
+                                // Modern Geçiş Butonu
+                                InkWell(
+                                  onTap: () {
+                                    if (_canSwitchToSchoolType(doc.id)) {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) => SchoolTypeDetailScreen(
+                                            schoolTypeId: doc.id,
+                                            schoolTypeName: data['schoolTypeName'] ?? data['typeName'] ?? 'Okul Türü',
+                                            institutionId: institutionId!,
+                                          ),
                                         ),
                                       );
-                                    }).toList()..addAll(
-                                      activeModules.length > 6 ? [
-                                        Container(
-                                          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                          decoration: BoxDecoration(
-                                            color: Colors.grey.shade100,
-                                            borderRadius: BorderRadius.circular(6),
+                                    } else {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('Bu okul türüne giriş yetkiniz bulunmamaktadır.'),
+                                          backgroundColor: Colors.red,
+                                        ),
+                                      );
+                                    }
+                                  },
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 16),
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: _canSwitchToSchoolType(doc.id)
+                                            ? [Colors.indigo.shade600, Colors.indigo.shade800]
+                                            : [Colors.grey.shade400, Colors.grey.shade500],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      ),
+                                      borderRadius: BorderRadius.circular(16),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.indigo.withOpacity(0.2),
+                                          blurRadius: 12,
+                                          offset: const Offset(0, 4),
+                                        ),
+                                      ],
+                                    ),
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          _canSwitchToSchoolType(doc.id) ? Icons.login_rounded : Icons.lock_outline,
+                                          color: Colors.white,
+                                          size: 20,
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Text(
+                                          'Okul Türüne Geçiş Yap',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 15,
+                                            letterSpacing: 0.5,
                                           ),
-                                          child: Text(
-                                            '+${activeModules.length - 6}',
-                                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey.shade600),
-                                          ),
-                                        )
-                                      ] : []
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                ],
+                                ),
                               ],
                             ),
                           ),

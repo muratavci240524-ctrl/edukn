@@ -265,12 +265,12 @@ class _SchoolTypeStatsScreenState extends State<SchoolTypeStatsScreen>
         ),
         SizedBox(height: 16),
 
-        // Sınıf ve Personel Sayıları
+        // Şube ve Personel Sayıları
         Row(
           children: [
             Expanded(
               child: _buildStatCard(
-                title: 'Sınıf Sayısı',
+                title: 'Şube Sayısı',
                 value: totalClasses.toString(),
                 icon: Icons.class_,
                 color: Colors.green,
@@ -438,7 +438,7 @@ class _SchoolTypeStatsScreenState extends State<SchoolTypeStatsScreen>
       children: [
         // Header
         Text(
-          'Sınıf Düzeyi Doluluk Oranları',
+          'Şube Düzeyi Doluluk Oranları',
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
         ),
         SizedBox(height: 16),
@@ -485,12 +485,12 @@ class _SchoolTypeStatsScreenState extends State<SchoolTypeStatsScreen>
         ),
         SizedBox(height: 16),
 
-        // Sınıf ve Personel Sayıları
+        // Şube ve Personel Sayıları
         Row(
           children: [
             Expanded(
               child: _buildStatCard(
-                title: 'Sınıf Sayısı',
+                title: 'Şube Sayısı',
                 value: totalClasses.toString(),
                 icon: Icons.class_,
                 color: Colors.green,
@@ -544,7 +544,7 @@ class _SchoolTypeStatsScreenState extends State<SchoolTypeStatsScreen>
           Expanded(
             flex: 3,
             child: Text(
-              'Sınıf Düzeyi',
+              'Şube Düzeyi',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(

@@ -272,7 +272,7 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
         'type': 'staff',
         'tcKimlik': _tcController.text.trim(),
         'phone': _mobilePhoneController.text.trim(),
-        'schoolTypes': [],
+        'schoolTypes': widget.fixedSchoolTypeName != null ? [widget.fixedSchoolTypeName] : [],
         'modulePermissions': {
           'genel_duyurular': {'enabled': true, 'level': 'editor'},
           'okul_turleri': {'enabled': true, 'level': 'viewer'},

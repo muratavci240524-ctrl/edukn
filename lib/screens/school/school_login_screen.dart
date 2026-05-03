@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import '../../widgets/edukn_logo.dart';
 import '../teacher/teacher_main_screen.dart';
 
@@ -37,12 +38,19 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
 
     setState(() => _isLoading = true);
 
-    final username = _usernameController.text.trim();
+    final username = _usernameController.text.trim().toLowerCase();
     final password = _passwordController.text.trim();
     final institutionId = _institutionController.text.trim().toUpperCase();
 
     try {
-      final email = '$username@$institutionId.edukn';
+      // Eğer girilen kullanıcı adı zaten bir email ise (gerçek mail ile kayıt olunmuşsa) onu kullan
+      // Değilse kurumsal formatta oluştur
+      String email;
+      if (username.contains('@') && username.contains('.')) {
+        email = username;
+      } else {
+        email = '$username@$institutionId.edukn';
+      }
 
       final schoolQuery = await FirebaseFirestore.instance
           .collection('schools')
@@ -135,10 +143,65 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
     if (accepted == true) setState(() => _kvkkAccepted = true);
   }
 
-  void _loginWithGmail() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Google ile giriş şu an aktif değil. Kurum Mail tanımlaması bekleniyor.')),
-    );
+  Future<void> _loginWithGmail() async {
+    setState(() => _isLoading = true);
+
+    try {
+      final GoogleSignIn googleSignIn = GoogleSignIn();
+      final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+
+      if (googleUser == null) {
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      final AuthCredential credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      final userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
+      final user = userCredential.user;
+
+      if (user != null) {
+        // Kullanıcının sistemde kaydı var mı kontrol et (Email ile)
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .where('email', isEqualTo: user.email)
+            .limit(1)
+            .get();
+
+        if (userDoc.docs.isEmpty) {
+          // Kayıt yoksa hata ver ve çıkış yap
+          await FirebaseAuth.instance.signOut();
+          await googleSignIn.signOut();
+          throw 'Bu Google hesabı ile kayıtlı bir personel bulunamadı. Lütfen yöneticinizle iletişime geçin.';
+        }
+
+        final userData = userDoc.docs.first.data();
+        if (userData['isActive'] != true) {
+          await FirebaseAuth.instance.signOut();
+          await googleSignIn.signOut();
+          throw 'Hesabınız pasif durumda!';
+        }
+
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/school-dashboard');
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Google Giriş Hatası: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   void _showQrLoginDialog() {

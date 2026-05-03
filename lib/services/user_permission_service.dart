@@ -134,27 +134,38 @@ class UserPermissionService {
     String moduleKey,
     Map<String, dynamic>? userData,
   ) {
-    if (userData == null) return true;
+    if (userData == null) return true; // Admin has full access
 
-    // Admin veya Müdür - Tüm modüllere tam erişim
     final role = (userData['role'] as String?)?.toLowerCase();
-    if (role == 'genel_mudur' || role == 'mudur') return true;
+    if (role == 'genel_mudur' || role == 'genel müdür' || role == 'genel mudur') return true;
 
     final modulePerms = userData['modulePermissions'] as Map<String, dynamic>?;
-    if (modulePerms == null) return false;
 
-    final modulePerm = modulePerms[moduleKey] as Map<String, dynamic>?;
-    if (modulePerm == null) return false;
-
-    // Ana modül aktifse veya herhangi bir alt modülü aktifse erişim vardır
-    if (modulePerm['enabled'] == true) return true;
-    
-    final subModules = modulePerm['subModules'] as Map<String, dynamic>?;
-    if (subModules != null) {
-      for (var sub in subModules.values) {
-        if (sub is Map && sub['enabled'] == true) return true;
+    // Modül bazlı kısıtlama kontrolü
+    if (modulePerms != null && modulePerms.isNotEmpty) {
+      final modulePerm = modulePerms[moduleKey] as Map<String, dynamic>?;
+      if (modulePerm != null) {
+        // Ana modül aktifse veya herhangi bir alt modülü aktifse erişim vardır
+        if (modulePerm['enabled'] == true) return true;
+        
+        final subModules = modulePerm['subModules'] as Map<String, dynamic>?;
+        if (subModules != null) {
+          for (var sub in subModules.values) {
+            if (sub is Map && sub['enabled'] == true) return true;
+          }
+        }
+        
+        // Eğer modül ve alt modülleri kapalıysa false dön (Müdür olsa bile kısıtlanmış demektir)
+        return false;
+      } else {
+        // Eğer modül listesi var ama bu modül içinde yoksa ve bu bir kısıtlanmış rol ise erişimi kapat
+        // Admin (genel_mudur) hariç, mudur ve diğerleri sadece listedekileri görebilir
+        if (role != 'genel_mudur') return false;
       }
     }
+
+    // Modül bazlı kısıtlama yoksa rol bazlı tam erişim (Genel Müdür veya kısıtlanmamış Müdür)
+    if (role == 'genel_mudur' || role == 'mudur') return true;
 
     return false;
   }
@@ -163,16 +174,26 @@ class UserPermissionService {
   static bool canEdit(String moduleKey, Map<String, dynamic>? userData) {
     if (userData == null) return true;
 
-    // Admin veya Müdür - Her şeyi düzenleyebilir
     final role = (userData['role'] as String?)?.toLowerCase();
-    if (role == 'genel_mudur' || role == 'mudur') return true;
-
-    if (!hasModuleAccess(moduleKey, userData)) return false;
+    if (role == 'genel_mudur' || role == 'genel müdür' || role == 'genel mudur') return true;
 
     final modulePerms = userData['modulePermissions'] as Map<String, dynamic>?;
-    final modulePerm = modulePerms?[moduleKey] as Map<String, dynamic>?;
-    
-    return modulePerm?['level'] == 'editor';
+
+    // Modül bazlı kısıtlama kontrolü
+    if (modulePerms != null && modulePerms.isNotEmpty) {
+      final modulePerm = modulePerms[moduleKey] as Map<String, dynamic>?;
+      if (modulePerm != null) {
+        if (modulePerm['level'] == 'editor') return true;
+        if (modulePerm['level'] == 'viewer') return false;
+      } else {
+        if (role != 'genel_mudur') return false;
+      }
+    }
+
+    // Modül bazlı seviye belirtilmemişse rol bazlı tam erişim (Genel Müdür veya kısıtlanmamış Müdür)
+    if (role == 'genel_mudur' || role == 'mudur') return true;
+
+    return false;
   }
 
   /// Belirli bir alt modüle erişim yetkisi var mı?
@@ -183,20 +204,31 @@ class UserPermissionService {
   ) {
     if (userData == null) return true;
 
-    // Admin veya Müdür - Tüm alt modüllere tam erişim
     final role = (userData['role'] as String?)?.toLowerCase();
-    if (role == 'genel_mudur' || role == 'mudur') return true;
-
-    if (!hasModuleAccess(moduleKey, userData)) return false;
+    if (role == 'genel_mudur' || role == 'genel müdür' || role == 'genel mudur') return true;
 
     final modulePerms = userData['modulePermissions'] as Map<String, dynamic>?;
-    final modulePerm = modulePerms?[moduleKey] as Map<String, dynamic>?;
-    final subModules = modulePerm?['subModules'] as Map<String, dynamic>?;
-    
-    if (subModules == null) return true; 
-    
-    final subPerm = subModules[subModuleKey] as Map<String, dynamic>?;
-    return subPerm?['enabled'] == true;
+
+    // Alt modül bazlı kısıtlama kontrolü
+    if (modulePerms != null && modulePerms.isNotEmpty) {
+      final modulePerm = modulePerms[moduleKey] as Map<String, dynamic>?;
+      if (modulePerm != null) {
+        final subModules = modulePerm['subModules'] as Map<String, dynamic>?;
+        if (subModules != null && subModules.containsKey(subModuleKey)) {
+          final subPerm = subModules[subModuleKey] as Map<String, dynamic>?;
+          return subPerm?['enabled'] == true;
+        }
+        // Ana modül listesinde var ama bu alt modül yoksa veya alt modül listesi yoksa
+        if (role != 'genel_mudur') return false; 
+      } else {
+        if (role != 'genel_mudur') return false;
+      }
+    }
+
+    // Alt modül belirtilmemişse rol bazlı tam erişim (Genel Müdür veya kısıtlanmamış Müdür)
+    if (role == 'genel_mudur' || role == 'mudur') return true;
+
+    return false;
   }
 
   /// Belirli bir alt modülde düzenleme yetkisi var mı?
@@ -207,26 +239,40 @@ class UserPermissionService {
   ) {
     if (userData == null) return true;
 
-    // Admin veya Müdür - Tüm alt modülleri düzenleyebilir
     final role = (userData['role'] as String?)?.toLowerCase();
-    if (role == 'genel_mudur' || role == 'mudur') return true;
-
-    if (!hasSubModuleAccess(moduleKey, subModuleKey, userData)) return false;
+    if (role == 'genel_mudur' || role == 'genel müdür' || role == 'genel mudur') return true;
 
     final modulePerms = userData['modulePermissions'] as Map<String, dynamic>?;
-    final modulePerm = modulePerms?[moduleKey] as Map<String, dynamic>?;
-    final subModules = modulePerm?['subModules'] as Map<String, dynamic>?;
-    
-    if (subModules == null) return canEdit(moduleKey, userData);
-    
-    final subPerm = subModules[subModuleKey] as Map<String, dynamic>?;
-    return subPerm?['level'] == 'editor';
+
+    // Alt modül bazlı seviye kontrolü
+    if (modulePerms != null && modulePerms.isNotEmpty) {
+      final modulePerm = modulePerms[moduleKey] as Map<String, dynamic>?;
+      if (modulePerm != null) {
+        final subModules = modulePerm['subModules'] as Map<String, dynamic>?;
+        if (subModules != null && subModules.containsKey(subModuleKey)) {
+          final subPerm = subModules[subModuleKey] as Map<String, dynamic>?;
+          if (subPerm?['level'] == 'editor') return true;
+          if (subPerm?['level'] == 'viewer') return false;
+        }
+        if (role != 'genel_mudur') return false;
+      } else {
+        if (role != 'genel_mudur') return false;
+      }
+    }
+
+    // Alt modül seviyesi belirtilmemişse rol bazlı tam erişim (Genel Müdür veya kısıtlanmamış Müdür)
+    if (role == 'genel_mudur' || role == 'mudur') return true;
+
+    return false;
   }
 
   /// Kullanıcının HERHANGİ bir ana modüle (dashboard modülü) erişimi var mı?
   static bool hasAnyMainModuleAccess(Map<String, dynamic>? userData) {
-    if (userData == null) return true;
+    if (userData == null) return false;
     
+    final role = (userData['role'] as String?)?.toLowerCase();
+    if (role == 'genel_mudur') return true; // Genel müdür her zaman erişir
+
     final modulePerms = userData['modulePermissions'] as Map<String, dynamic>?;
     if (modulePerms == null) return false;
     

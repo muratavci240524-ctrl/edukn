@@ -27,6 +27,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
   String? schoolId;
   Map<String, dynamic>? userData; // Giriş yapan kullanıcının verileri
   bool isLoadingPermissions = true;
+  Map<String, String> _schoolTypeNames = {}; // Okul türü ID -> İsim eşleşmesi
 
   // Kullanıcı rolleri (Görevler) — built-in + Firestore'daki özel roller
   Map<String, String> userRoles = {...RolePermissionService.builtInRoles};
@@ -40,6 +41,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
     _tabController = TabController(length: 4, vsync: this);
     _getSchoolInfo();
     _loadUserPermissions();
+    _loadSchoolTypeNames();
   }
 
   @override
@@ -109,6 +111,32 @@ class _UserManagementScreenState extends State<UserManagementScreen>
         setState(() {
           institutionId = instId;
           schoolId = schoolQuery.docs.first.id;
+        });
+      }
+    }
+  }
+
+  // Okul türü isimlerini yükle
+  Future<void> _loadSchoolTypeNames() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      final email = user.email!;
+      final instId = email.split('@')[1].split('.')[0].toUpperCase();
+
+      final snapshot = await FirebaseFirestore.instance
+          .collection('schoolTypes')
+          .where('institutionId', isEqualTo: instId)
+          .get();
+
+      final Map<String, String> names = {};
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        names[doc.id] = data['schoolTypeName'] ?? data['typeName'] ?? 'İsimsiz';
+      }
+
+      if (mounted) {
+        setState(() {
+          _schoolTypeNames = names;
         });
       }
     }
@@ -385,6 +413,44 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                             ? Colors.green
                             : Colors.red,
                       ),
+
+                      // Okul Türleri
+                      if (data['schoolTypes'] != null && (data['schoolTypes'] as List).isNotEmpty) ...[
+                        const SizedBox(height: 20),
+                        Row(
+                          children: [
+                            const Icon(Icons.school_outlined, size: 20, color: Colors.indigo),
+                            const SizedBox(width: 12),
+                            Text(
+                              'Görevli Olduğu Okul Türleri',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.indigo.shade700,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: (data['schoolTypes'] as List).map((st) {
+                            return Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.indigo.shade50,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.indigo.shade100),
+                              ),
+                              child: Text(
+                                _schoolTypeNames[st.toString()] ?? st.toString().toUpperCase(),
+                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.indigo),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -1305,17 +1371,17 @@ class _UserFormSheetState extends State<_UserFormSheet> {
                 InkWell(
                   onTap: () {
                     setState(() {
-                      targetMap[key]!['enabled'] = !isEnabled;
-                      if (!isEnabled) {
-                        targetMap[key]!['level'] = 'viewer';
-                      } else if (!isEnabled && hasSubModules) {
-                        // Ana modül açılırsa alt modülleri de opsiyonel olarak açabiliriz
-                        // Ama şimdilik sadece ana modülü açıyoruz
-                      }
-                      if (!targetMap[key]!['enabled'] && hasSubModules) {
-                        // Kapanırsa altları da kapat
+                      final newVal = !isEnabled;
+                      targetMap[key]!['enabled'] = newVal;
+                      
+                      // Ana başlık değişince tüm alt başlıklara yay (Cascading)
+                      if (hasSubModules) {
                         info.subModules.forEach((sk, _) {
-                          if (subPerms[sk] != null) subPerms[sk]['enabled'] = false;
+                          if (subPerms[sk] == null) {
+                            subPerms[sk] = {'enabled': newVal, 'level': level};
+                          } else {
+                            subPerms[sk]['enabled'] = newVal;
+                          }
                         });
                       }
                     });
@@ -1353,9 +1419,14 @@ class _UserFormSheetState extends State<_UserFormSheet> {
                       setState(() {
                         final newLevel = level == 'viewer' ? 'editor' : 'viewer';
                         targetMap[key]!['level'] = newLevel;
-                        if (newLevel == 'viewer' && hasSubModules) {
+                        // Ana başlık seviyesi değişince tüm alt başlıklara yay (Cascading)
+                        if (hasSubModules) {
                           info.subModules.forEach((sk, _) {
-                            if (subPerms[sk] != null) subPerms[sk]['level'] = 'viewer';
+                            if (subPerms[sk] != null) {
+                              subPerms[sk]['level'] = newLevel;
+                            } else {
+                              subPerms[sk] = {'enabled': true, 'level': newLevel};
+                            }
                           });
                         }
                       });
@@ -1470,7 +1541,7 @@ class _UserFormSheetState extends State<_UserFormSheet> {
     required String label,
     required bool isActive,
     required Color activeColor,
-    required VoidCallback onTap,
+    VoidCallback? onTap,
   }) {
     return InkWell(
       onTap: onTap,
@@ -1519,12 +1590,26 @@ class _UserFormSheetState extends State<_UserFormSheet> {
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
+    if (_selectedSchoolTypes.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Lütfen en az bir okul türü seçin.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
     setState(() => _isSaving = true);
 
     try {
       final isEdit = widget.userId != null;
       final username = _usernameController.text.trim().toLowerCase();
-      final authEmail = '$username@${widget.institutionId}.edukn';
+      final inputEmail = _emailController.text.trim();
+      final generatedEmail = '$username@${widget.institutionId}.edukn';
+      
+      // Eğer kullanıcı mail girdiyse onu esas al, yoksa otomatik oluştur
+      final authEmail = inputEmail.isNotEmpty ? inputEmail : generatedEmail;
 
       // Sadece aktif modülleri filtrele
       Map<String, dynamic> activeModules = {};
@@ -1925,7 +2010,13 @@ class _UserFormSheetState extends State<_UserFormSheet> {
                       )
                     else
                       Column(
-                        children: _schoolTypes.map((schoolType) {
+                        children: _schoolTypes.where((st) {
+                          // Eğer sadece görüntüleme yetkisi varsa, sadece seçili olanları göster
+                          if (level == 'viewer') {
+                            return _selectedSchoolTypes.contains(st['id']);
+                          }
+                          return true;
+                        }).map((schoolType) {
                           final stId = schoolType['id'];
                           final stName =
                               schoolType['schoolTypeName'] ?? 'İsimsiz';
@@ -1956,7 +2047,7 @@ class _UserFormSheetState extends State<_UserFormSheet> {
                               children: [
                                 // Checkbox
                                 InkWell(
-                                  onTap: () {
+                                  onTap: level == 'viewer' ? null : () {
                                     setState(() {
                                       if (isSelected) {
                                         _selectedSchoolTypes.remove(stId);
@@ -2019,7 +2110,7 @@ class _UserFormSheetState extends State<_UserFormSheet> {
                                         label: 'Görüntüle',
                                         isActive: stLevel == 'viewer',
                                         activeColor: Colors.blue,
-                                        onTap: () {
+                                        onTap: level == 'viewer' ? null : () {
                                           setState(() {
                                             _schoolTypePermissions[stId] = 'viewer';
                                           });
@@ -2031,7 +2122,7 @@ class _UserFormSheetState extends State<_UserFormSheet> {
                                         label: 'Düzenle',
                                         isActive: stLevel == 'editor',
                                         activeColor: Colors.orange,
-                                        onTap: () {
+                                        onTap: level == 'viewer' ? null : () {
                                           setState(() {
                                             _schoolTypePermissions[stId] = 'editor';
                                           });
@@ -2311,6 +2402,8 @@ class _UserFormSheetState extends State<_UserFormSheet> {
                                       borderRadius: BorderRadius.circular(12),
                                     ),
                                     hintText: 'ornek@mail.com',
+                                    helperText: 'Boş bırakılırsa otomatik oluşturulur.',
+                                    helperStyle: TextStyle(fontSize: 11, color: Colors.indigo.shade400),
                                   ),
                                   keyboardType: TextInputType.emailAddress,
                                   validator: (v) {
@@ -2394,30 +2487,140 @@ class _UserFormSheetState extends State<_UserFormSheet> {
                                   ],
                                 ),
                                 SizedBox(height: 20),
-                                DropdownButtonFormField<String>(
-                                  value: _selectedRole,
-                                  decoration: InputDecoration(
-                                    labelText: 'Görev Seçin *',
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
+                                  DropdownButtonFormField<String>(
+                                    value: _selectedRole,
+                                    decoration: InputDecoration(
+                                      labelText: 'Görev Seçin *',
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      prefixIcon: Icon(Icons.work),
                                     ),
-                                    prefixIcon: Icon(Icons.work),
+                                    items: widget.availableRoles.entries.map((e) {
+                                      return DropdownMenuItem(
+                                        value: e.key,
+                                        child: Text(e.value),
+                                      );
+                                    }).toList(),
+                                    onChanged: (value) {
+                                      if (value != null) {
+                                        setState(() => _selectedRole = value);
+                                        _applyRoleTemplate(value);
+                                      }
+                                    },
                                   ),
-                                  items: widget.availableRoles.entries.map((e) {
-                                         return DropdownMenuItem(
-                                           value: e.key,
-                                           child: Text(e.value),
-                                         );
-                                       }).toList(),
-                                  onChanged: (value) {
-                                    if (value != null) {
-                                      setState(() => _selectedRole = value);
-                                      _applyRoleTemplate(value);
-                                    }
-                                  },
+                                  const SizedBox(height: 24),
 
-                                ),
-                                SizedBox(height: 24),
+                                  // Okul Türleri Seçimi
+                                  Text(
+                                    'Çalıştığı Okul Türleri *',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.purple.shade700,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  if (_isLoadingSchoolTypes)
+                                    const Center(
+                                      child: Padding(
+                                        padding: EdgeInsets.all(20),
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor: AlwaysStoppedAnimation<Color>(Colors.purple),
+                                        ),
+                                      ),
+                                    )
+                                  else if (_schoolTypes.isEmpty)
+                                    Container(
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: Colors.orange.shade50,
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          const Icon(Icons.warning_amber, color: Colors.orange, size: 20),
+                                          const SizedBox(width: 12),
+                                          Text(
+                                            'Henüz okul türü tanımlanmamış',
+                                            style: TextStyle(color: Colors.orange.shade900),
+                                          ),
+                                        ],
+                                      ),
+                                    )
+                                  else
+                                    Column(
+                                      children: _schoolTypes.map((schoolType) {
+                                        final id = schoolType['id'];
+                                        final name = schoolType['schoolTypeName'] ?? 'İsimsiz';
+                                        final isSelected = _selectedSchoolTypes.contains(id);
+
+                                        return Container(
+                                          margin: const EdgeInsets.only(bottom: 8),
+                                          decoration: BoxDecoration(
+                                            color: isSelected ? Colors.purple.shade50.withOpacity(0.5) : Colors.grey.shade50,
+                                            borderRadius: BorderRadius.circular(12),
+                                            border: Border.all(
+                                              color: isSelected ? Colors.purple.withOpacity(0.3) : Colors.grey.shade200,
+                                              width: 1,
+                                            ),
+                                          ),
+                                          child: ListTile(
+                                            onTap: () {
+                                              setState(() {
+                                                if (isSelected) {
+                                                  _selectedSchoolTypes.remove(id);
+                                                } else {
+                                                  _selectedSchoolTypes.add(id);
+                                                }
+                                              });
+                                            },
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius: BorderRadius.circular(12),
+                                            ),
+                                            leading: AnimatedContainer(
+                                              duration: const Duration(milliseconds: 200),
+                                              width: 24,
+                                              height: 24,
+                                              decoration: BoxDecoration(
+                                                color: isSelected ? Colors.purple : Colors.transparent,
+                                                borderRadius: BorderRadius.circular(6),
+                                                border: Border.all(
+                                                  color: isSelected ? Colors.purple : Colors.grey.shade400,
+                                                  width: 2,
+                                                ),
+                                              ),
+                                              child: isSelected
+                                                  ? const Icon(
+                                                      Icons.check,
+                                                      size: 16,
+                                                      color: Colors.white,
+                                                    )
+                                                  : null,
+                                            ),
+                                            title: Text(
+                                              name,
+                                              style: TextStyle(
+                                                fontSize: 14,
+                                                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                                                color: isSelected ? Colors.purple.shade900 : Colors.black87,
+                                              ),
+                                            ),
+                                          ),
+                                        );
+                                      }).toList(),
+                                    ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    '* Birden fazla okul türü seçilebilir.',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey.shade500,
+                                      fontStyle: FontStyle.italic,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 24),
 
                                 // Bilgilendirme
                                 if (_currentStep == 0)

@@ -83,28 +83,17 @@ class _PermissionDefinitionScreenState
         backgroundColor: Colors.white,
         elevation: 0,
         iconTheme: IconThemeData(color: Colors.indigo.shade900),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 16),
-            child: ElevatedButton.icon(
-              onPressed: _showAddRoleDialog,
-              icon: const Icon(Icons.add, size: 18),
-              label: const Text('Yeni Tür Ekle'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.indigo,
-                foregroundColor: Colors.white,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ),
-        ],
+        actions: [],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _buildBody(),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _showAddRoleDialog,
+        icon: const Icon(Icons.add, color: Colors.white),
+        label: const Text('Yeni Tür Ekle', style: TextStyle(color: Colors.white)),
+        backgroundColor: Colors.indigo,
+      ),
     );
   }
 
@@ -318,15 +307,9 @@ class _PermissionDefinitionScreenState
 
               if (_institutionId == null) return;
 
-              // Default permissions (all disabled)
-              Map<String, dynamic> appPerms = {};
-              for (var mk in AppModules.allModuleKeys) {
-                appPerms[mk] = {'enabled': false, 'level': 'viewer'};
-              }
-              Map<String, dynamic> stPerms = {};
-              for (var mk in SchoolTypeModules.allModuleKeys) {
-                stPerms[mk] = {'enabled': false, 'level': 'viewer'};
-              }
+              // Default permissions (all disabled for custom roles)
+              Map<String, dynamic> appPerms = RolePermissionService.getDefaultPermissions(key);
+              Map<String, dynamic> stPerms = RolePermissionService.getDefaultSchoolTypePermissions(key);
 
               await _roleService.saveRoleTemplate(
                   _institutionId!, key, {
@@ -406,15 +389,34 @@ class _PermissionDefinitionScreenState
     final srcApp = template['appPermissions'] as Map<String, dynamic>? ??
         RolePermissionService.getDefaultPermissions(roleKey);
     srcApp.forEach((k, v) {
-      appPerms[k] = v is Map ? Map<String, dynamic>.from(v) : v;
+      if (v is Map) {
+        final modCopy = Map<String, dynamic>.from(v);
+        if (modCopy['subModules'] is Map) {
+          modCopy['subModules'] = Map<String, dynamic>.from(modCopy['subModules']);
+        } else {
+          modCopy['subModules'] = <String, dynamic>{};
+        }
+        appPerms[k] = modCopy;
+      } else {
+        appPerms[k] = v;
+      }
     });
 
     Map<String, dynamic> stPerms = {};
-    final srcSt = template['schoolTypePermissions']
-            as Map<String, dynamic>? ??
+    final srcSt = template['schoolTypePermissions'] as Map<String, dynamic>? ??
         RolePermissionService.getDefaultSchoolTypePermissions(roleKey);
     srcSt.forEach((k, v) {
-      stPerms[k] = v is Map ? Map<String, dynamic>.from(v) : v;
+      if (v is Map) {
+        final modCopy = Map<String, dynamic>.from(v);
+        if (modCopy['subModules'] is Map) {
+          modCopy['subModules'] = Map<String, dynamic>.from(modCopy['subModules']);
+        } else {
+          modCopy['subModules'] = <String, dynamic>{};
+        }
+        stPerms[k] = modCopy;
+      } else {
+        stPerms[k] = v;
+      }
     });
 
     final color = RolePermissionService.getRoleColor(roleKey);
@@ -452,16 +454,42 @@ class _PermissionDefinitionScreenState
             );
           }
 
-          Widget subModuleTile(String modKey, String subKey, String subName,
-              Map<String, dynamic> subPerms) {
+          Widget subModuleTile(String modKey, String subKey, String subName, Map<String, dynamic> subPerms, Color modColor) {
             final p = subPerms[subKey];
             final isEnabled = (p is Map && p['enabled'] == true);
-            final isEditor = (p is Map && p['level'] == 'editor');
+            final level = (p is Map ? p['level'] : 'viewer') ?? 'viewer';
+            final isMobile = MediaQuery.of(ctx).size.width < 600;
 
             return Container(
-              padding: const EdgeInsets.only(left: 48, right: 16, top: 4, bottom: 4),
+              padding: const EdgeInsets.only(left: 48, right: 16, top: 8, bottom: 8),
               child: Row(
                 children: [
+                  // Checkbox
+                  InkWell(
+                    onTap: () {
+                      setModalState(() {
+                        final currentVal = isEnabled;
+                        subPerms[subKey] = {
+                          'enabled': !currentVal,
+                          'level': level,
+                        };
+                      });
+                    },
+                    child: Container(
+                      width: 20,
+                      height: 20,
+                      decoration: BoxDecoration(
+                        color: isEnabled ? modColor : Colors.transparent,
+                        borderRadius: BorderRadius.circular(5),
+                        border: Border.all(
+                          color: isEnabled ? modColor : Colors.grey.shade400,
+                          width: 1.5,
+                        ),
+                      ),
+                      child: isEnabled ? const Icon(Icons.check, color: Colors.white, size: 14) : null,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Text(
                       subName,
@@ -471,40 +499,43 @@ class _PermissionDefinitionScreenState
                       ),
                     ),
                   ),
-                  // Görüntüle switch
-                  Transform.scale(
-                    scale: 0.65,
-                    child: Switch(
-                      value: isEnabled,
-                      onChanged: (val) {
+                  if (isEnabled)
+                    InkWell(
+                      onTap: () {
                         setModalState(() {
-                          subPerms[subKey] = {
-                            'enabled': val,
-                            'level': val ? (p is Map ? p['level'] : 'viewer') : 'viewer',
-                          };
+                          subPerms[subKey]['level'] = level == 'viewer' ? 'editor' : 'viewer';
                         });
                       },
-                      activeColor: Colors.blue,
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        padding: EdgeInsets.symmetric(horizontal: isMobile ? 8 : 12, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: level == 'editor' ? modColor : modColor.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              level == 'editor' ? Icons.edit : Icons.visibility,
+                              size: 14,
+                              color: level == 'editor' ? Colors.white : modColor,
+                            ),
+                            if (!isMobile) ...[
+                              const SizedBox(width: 4),
+                              Text(
+                                level == 'editor' ? 'Düzenleyen' : 'Görüntüleyen',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: level == 'editor' ? Colors.white : modColor,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
                     ),
-                  ),
-                  // Düzenle switch
-                  Transform.scale(
-                    scale: 0.65,
-                    child: Switch(
-                      value: isEnabled && isEditor,
-                      onChanged: isEnabled
-                          ? (val) {
-                              setModalState(() {
-                                subPerms[subKey] = {
-                                  'enabled': true,
-                                  'level': val ? 'editor' : 'viewer',
-                                };
-                              });
-                            }
-                          : null,
-                      activeColor: Colors.orange,
-                    ),
-                  ),
                 ],
               ),
             );
@@ -513,9 +544,11 @@ class _PermissionDefinitionScreenState
           Widget moduleTile(dynamic mod, Map<String, dynamic> perms, String key) {
             final p = perms[key];
             final isEnabled = (p is Map && p['enabled'] == true);
-            final isEditor = (p is Map && p['level'] == 'editor');
+            final level = (p is Map ? p['level'] : 'viewer') ?? 'viewer';
             final hasSubModules = mod.subModules.isNotEmpty;
-            final subPerms = (p is Map ? p['subModules'] : {}) as Map<String, dynamic>;
+            final subPerms = Map<String, dynamic>.from(
+                (p is Map ? p['subModules'] : null) ?? <String, dynamic>{});
+            final isMobile = MediaQuery.of(ctx).size.width < 600;
 
             return Column(
               children: [
@@ -529,9 +562,44 @@ class _PermissionDefinitionScreenState
                     ),
                   ),
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     child: Row(
                       children: [
+                        // Checkbox
+                        InkWell(
+                          onTap: () {
+                            setModalState(() {
+                              final currentVal = isEnabled;
+                              final newVal = !currentVal;
+                              perms[key]['enabled'] = newVal;
+                              
+                              // Ana başlık değişince tüm alt başlıklara yay (Cascading)
+                              if (hasSubModules) {
+                                mod.subModules.forEach((sk, _) {
+                                  if (subPerms[sk] == null) {
+                                    subPerms[sk] = {'enabled': newVal, 'level': level};
+                                  } else {
+                                    subPerms[sk]['enabled'] = newVal;
+                                  }
+                                });
+                              }
+                            });
+                          },
+                          child: Container(
+                            width: 24,
+                            height: 24,
+                            decoration: BoxDecoration(
+                              color: isEnabled ? mod.color : Colors.transparent,
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: isEnabled ? mod.color : Colors.grey.shade400,
+                                width: 2,
+                              ),
+                            ),
+                            child: isEnabled ? const Icon(Icons.check, color: Colors.white, size: 16) : null,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
                         Icon(mod.icon, color: isEnabled ? mod.color : Colors.grey.shade400, size: 22),
                         const SizedBox(width: 14),
                         Expanded(
@@ -554,66 +622,61 @@ class _PermissionDefinitionScreenState
                             ],
                           ),
                         ),
-                        // Görüntüle switch
-                        Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Transform.scale(
-                              scale: 0.75,
-                              child: Switch(
-                                value: isEnabled,
-                                onChanged: (val) {
-                                  setModalState(() {
-                                    perms[key]['enabled'] = val;
-                                    // Ana modül kapanırsa tüm alt modüller kapanır mı? 
-                                    // Genelde evet ama kullanıcı bazen tek tek açmak isteyebilir.
-                                    // Ama hiyerarşik olması daha iyi.
-                                    if (!val && hasSubModules) {
-                                      mod.subModules.forEach((sk, _) {
-                                        if (subPerms[sk] != null) subPerms[sk]['enabled'] = false;
-                                      });
+                        if (isEnabled)
+                          InkWell(
+                            onTap: () {
+                              setModalState(() {
+                                final newLevel = level == 'viewer' ? 'editor' : 'viewer';
+                                perms[key]['level'] = newLevel;
+                                
+                                // Ana başlık seviyesi değişince tüm alt başlıklara yay (Cascading)
+                                if (hasSubModules) {
+                                  mod.subModules.forEach((sk, _) {
+                                    if (subPerms[sk] != null) {
+                                      subPerms[sk]['level'] = newLevel;
+                                    } else {
+                                      subPerms[sk] = {'enabled': true, 'level': newLevel};
                                     }
                                   });
-                                },
-                                activeColor: Colors.blue,
+                                }
+                              });
+                            },
+                            borderRadius: BorderRadius.circular(16),
+                            child: Container(
+                              padding: EdgeInsets.symmetric(horizontal: isMobile ? 10 : 14, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: level == 'editor' ? mod.color : mod.color.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    level == 'editor' ? Icons.edit : Icons.visibility,
+                                    size: 16,
+                                    color: level == 'editor' ? Colors.white : mod.color,
+                                  ),
+                                  if (!isMobile) ...[
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      level == 'editor' ? 'Düzenleyen' : 'Görüntüleyen',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: level == 'editor' ? Colors.white : mod.color,
+                                      ),
+                                    ),
+                                  ],
+                                ],
                               ),
                             ),
-                            Text('Görüntüle', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: isEnabled ? Colors.blue : Colors.grey)),
-                          ],
-                        ),
-                        const SizedBox(width: 4),
-                        // Düzenle switch
-                        Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Transform.scale(
-                              scale: 0.75,
-                              child: Switch(
-                                value: isEnabled && isEditor,
-                                onChanged: isEnabled
-                                    ? (val) {
-                                        setModalState(() {
-                                          perms[key]['level'] = val ? 'editor' : 'viewer';
-                                          if (!val && hasSubModules) {
-                                            mod.subModules.forEach((sk, _) {
-                                              if (subPerms[sk] != null) subPerms[sk]['level'] = 'viewer';
-                                            });
-                                          }
-                                        });
-                                      }
-                                    : null,
-                                activeColor: Colors.orange,
-                              ),
-                            ),
-                            Text('Düzenle', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: isEnabled && isEditor ? Colors.orange : Colors.grey)),
-                          ],
-                        ),
+                          ),
                       ],
                     ),
                   ),
                 ),
                 if (hasSubModules && isEnabled)
-                  ...mod.subModules.entries.map((e) => subModuleTile(key, e.key, e.value, subPerms)).toList(),
+                  ...mod.subModules.entries.map((e) => subModuleTile(key, e.key, e.value, subPerms, mod.color)).toList(),
                 const SizedBox(height: 8),
               ],
             );
