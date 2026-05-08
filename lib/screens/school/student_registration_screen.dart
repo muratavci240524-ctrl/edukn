@@ -183,8 +183,9 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
       _filterSchoolType = widget.fixedSchoolTypeId;
     }
 
-    _loadUserPermissions();
-    _loadData();
+    _loadUserPermissions().then((_) {
+      _loadData();
+    });
     _searchController.addListener(_filterStudents);
   }
 
@@ -553,7 +554,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
       if (user == null) return;
 
       final email = user.email!;
-      final institutionId = email.split('@')[1].split('.')[0].toUpperCase();
+      final institutionId = await UserPermissionService.resolveInstitutionId(email, userData: userData);
 
       final schoolTypesQuery = await FirebaseFirestore.instance
           .collection('schoolTypes')
@@ -1146,9 +1147,10 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
                               (type) => DropdownMenuItem<String?>(
                                 value: type['id'],
                                 child: Text(
-                                  type['schoolTypeName'] ??
+                                  type['name'] ??
+                                      type['schoolTypeName'] ??
                                       type['typeName'] ??
-                                      '',
+                                      'İsimsiz Okul',
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(color: Colors.white),
                                 ),
@@ -1395,16 +1397,30 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
                               ),
                             ),
                             DropdownMenuItem<String?>(
-                              value: 'Yeni',
+                              value: 'asil',
                               child: Text(
-                                'Yeni Kayıt',
+                                'Asil Kayıt',
                                 style: TextStyle(color: Colors.white),
                               ),
                             ),
                             DropdownMenuItem<String?>(
-                              value: 'Yenileme',
+                              value: 'yedek',
                               child: Text(
-                                'Kayıt Yenileme',
+                                'Yedek Kayıt',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                            ),
+                            DropdownMenuItem<String?>(
+                              value: 'misafir',
+                              child: Text(
+                                'Misafir Kaydı',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                            ),
+                            DropdownMenuItem<String?>(
+                              value: 'demo',
+                              child: Text(
+                                'Demo Kayıt',
                                 style: TextStyle(color: Colors.white),
                               ),
                             ),
@@ -4986,6 +5002,8 @@ class __StudentRegistrationFormScreenState
   bool _isStudentSelfGuardian = false;
   String? _selectedSubTermId;
   bool _useSameAddress = false;
+  int _studentQuota = 0; // Okul öğrenci kotası
+  int _currentStudentCount = 0; // Mevcut aktif öğrenci sayısı
 
   @override
   void initState() {
@@ -5002,8 +5020,9 @@ class __StudentRegistrationFormScreenState
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
 
+      final userData = await UserPermissionService.loadUserData();
       final email = user.email!;
-      final institutionId = email.split('@')[1].split('.')[0].toUpperCase();
+      final institutionId = await UserPermissionService.resolveInstitutionId(email, userData: userData);
 
       final schoolTypesQuery = await FirebaseFirestore.instance
           .collection('schoolTypes')
@@ -5065,6 +5084,9 @@ class __StudentRegistrationFormScreenState
           _selectedSchoolTypeId = widget.fixedSchoolTypeId;
         }
 
+        // 🏫 Okul kotasını ve mevcut öğrenci sayısını yükle
+        _loadQuotaInfo(institutionId);
+
         // Düzenleme modu: Mevcut öğrenci verilerini yükle
         if (widget.existingStudent != null) {
           _loadExistingStudentData(widget.existingStudent!);
@@ -5072,6 +5094,104 @@ class __StudentRegistrationFormScreenState
       });
     } catch (e) {
       print('❌ Okul türleri yüklenemedi: $e');
+    }
+  }
+
+  // Okul kotasını ve mevcut öğrenci sayısını yükle
+  Future<void> _loadQuotaInfo(String institutionId) async {
+    try {
+      // 1. Okul belgesini al (Kota bilgisi için)
+      final schoolQuery = await FirebaseFirestore.instance
+          .collection('schools')
+          .where('institutionId', isEqualTo: institutionId)
+          .limit(1)
+          .get();
+
+      if (schoolQuery.docs.isNotEmpty) {
+        final schoolData = schoolQuery.docs.first.data();
+        setState(() {
+          _studentQuota = (schoolData['studentQuota'] ?? 0).toInt();
+        });
+      }
+
+      // 2. Mevcut aktif öğrenci sayısını say
+      final studentsQuery = await FirebaseFirestore.instance
+          .collection('students')
+          .where('institutionId', isEqualTo: institutionId)
+          .where('isActive', isEqualTo: true)
+          .get();
+
+      setState(() {
+        _currentStudentCount = studentsQuery.docs.length;
+      });
+
+      print(
+        '📊 Kota Bilgisi: $_currentStudentCount / $_studentQuota (Kurum: $institutionId)',
+      );
+    } catch (e) {
+      print('❌ Kota bilgisi yüklenemedi: $e');
+    }
+  }
+
+  // Kota kontrolü yap
+  Future<bool> _isQuotaAvailable() async {
+    // Düzenleme modunda kota kontrolüne gerek yok (yeni öğrenci eklenmiyor)
+    if (widget.existingStudent != null) return true;
+
+    // Güncel sayıyı tekrar kontrol et (yarış durumlarını önlemek için)
+    try {
+      final studentsQuery = await FirebaseFirestore.instance
+          .collection('students')
+          .where('institutionId', isEqualTo: _institutionId)
+          .where('isActive', isEqualTo: true)
+          .get();
+
+      _currentStudentCount = studentsQuery.docs.length;
+
+      if (_studentQuota > 0 && _currentStudentCount >= _studentQuota) {
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded, color: Colors.red),
+                  SizedBox(width: 8),
+                  Text('Kayıt Kotası Dolu'),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Kurumunuzun öğrenci kayıt kotası dolmuştur.',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  SizedBox(height: 12),
+                  Text('Mevcut Kota: $_studentQuota'),
+                  Text('Aktif Öğrenci: $_currentStudentCount'),
+                  SizedBox(height: 16),
+                  Text(
+                    'Yeni öğrenci kaydı yapabilmek için kotanızı yükseltmeniz veya bazı öğrencileri pasife almanız gerekmektedir.',
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text('Tamam'),
+                ),
+              ],
+            ),
+          );
+        }
+        return false;
+      }
+      return true;
+    } catch (e) {
+      print('❌ Kota kontrolü sırasında hata: $e');
+      return true; // Hata durumunda kayda izin ver (veya verme, tercihe bağlı)
     }
   }
 
@@ -5166,211 +5286,7 @@ class __StudentRegistrationFormScreenState
             fontWeight: FontWeight.bold,
           ),
         ),
-        actions: [
-          Padding(
-            padding: EdgeInsets.all(8),
-            child: ElevatedButton.icon(
-              icon: Icon(Icons.save, size: 18),
-              label: Text('Kaydet'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue,
-                foregroundColor: Colors.white,
-                elevation: 2,
-              ),
-              onPressed: () async {
-                // Validasyon: Zorunlu alanlar kontrol
-                if (_tcController.text.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('⚠ TC Kimlik Numarası zorunlu'),
-                      backgroundColor: Colors.orange,
-                    ),
-                  );
-                  return;
-                }
 
-                if (_usernameController.text.isEmpty ||
-                    _passwordController.text.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('⚠ Kullanıcı adı ve şifre zorunlu'),
-                      backgroundColor: Colors.orange,
-                    ),
-                  );
-                  return;
-                }
-
-                if (_selectedSchoolTypeId == null) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('⚠ Okul seçimi zorunlu'),
-                      backgroundColor: Colors.orange,
-                    ),
-                  );
-                  return;
-                }
-
-                if (_studentNoController.text.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('⚠ Öğrenci numarası zorunlu'),
-                      backgroundColor: Colors.orange,
-                    ),
-                  );
-                  return;
-                }
-
-                // TC tekrar kontrolü (düzenleme modunda kendi kaydını hariç tut)
-                final tcQuery = FirebaseFirestore.instance
-                    .collection('students')
-                    .where('institutionId', isEqualTo: _institutionId)
-                    .where('tcNo', isEqualTo: _tcController.text)
-                    .limit(2);
-
-                final tcExists = await tcQuery.get();
-                final existingId = widget.existingStudent?['id'];
-
-                // Eğer düzenleme modunda ve bulunan kayıt kendi kaydı değilse hata ver
-                if (tcExists.docs.isNotEmpty) {
-                  final otherStudent = tcExists.docs.firstWhere(
-                    (doc) => doc.id != existingId,
-                    orElse: () => tcExists.docs.first,
-                  );
-
-                  if (otherStudent.id != existingId) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          '⚠ Bu TC Kimlik Numarası ile kayıtlı başka öğrenci var',
-                        ),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                    return;
-                  }
-                }
-
-                // Kullanıcı adı tekrar kontrolü (düzenleme modunda kendi kaydını hariç tut)
-                final usernameQuery = FirebaseFirestore.instance
-                    .collection('students')
-                    .where('institutionId', isEqualTo: _institutionId)
-                    .where('username', isEqualTo: _usernameController.text)
-                    .limit(2);
-
-                final usernameExists = await usernameQuery.get();
-
-                if (usernameExists.docs.isNotEmpty) {
-                  final otherStudent = usernameExists.docs.firstWhere(
-                    (doc) => doc.id != existingId,
-                    orElse: () => usernameExists.docs.first,
-                  );
-
-                  if (otherStudent.id != existingId) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          '⚠ Bu kullanıcı adı zaten başka öğrenci tarafından kullanılıyor',
-                        ),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                    return;
-                  }
-                }
-
-                // Eğer "Veli Öğrencinin Kendisi" seçiliyse, öğrenci bilgilerini veli olarak ekle
-                List<Map<String, dynamic>> parentsToSave = List.from(_parents);
-                if (_isStudentSelfGuardian) {
-                  parentsToSave.add({
-                    'name': 'Öğrencinin Kendisi',
-                    'tcNo': _tcController.text,
-                    'phone': _phoneController.text,
-                    'relation': 'Kendisi',
-                    'isSelf': true,
-                  });
-                }
-
-                try {
-                  final studentData = {
-                    'institutionId': _institutionId,
-                    'schoolTypeId': _selectedSchoolTypeId,
-                    'studentNo': _studentNoController.text,
-                    'studentNumber': _studentNoController.text,
-                    'name': _nameController.text,
-                    'surname': _surnameController.text,
-                    'fullName':
-                        '${_nameController.text} ${_surnameController.text}',
-                    'classLevel': _selectedClassLevel,
-                    'classId': _selectedClassId,
-                    'className': _selectedClassName,
-                    'termId': _selectedTermId,
-                    'subTermId': _selectedSubTermId,
-                    'tcNo': _tcController.text,
-                    'phone': _phoneController.text,
-                    'username': _usernameController.text,
-                    'password':
-                        _passwordController.text, // TODO: Hash yapılmalı
-                    'birthDate': _birthDateController.text,
-                    'registrationDate': _registrationDateController.text,
-                    'previousSchool': _previousSchoolController.text,
-                    'isSelfGuardian': _isStudentSelfGuardian,
-                    'registrationType': _selectedRegistrationType,
-                    'entryType': _selectedEntryType,
-                    'gender': _selectedGender,
-                    'email': _emailController.text,
-                    'hearSource': _selectedHearSource,
-                    'educationType': _selectedEducationType,
-                    'foreignLanguage': _selectedForeignLanguage,
-                    'reference': _referenceController.text,
-                    'parents': parentsToSave,
-                    'updatedAt': FieldValue.serverTimestamp(),
-                  };
-
-                  // Düzenleme veya yeni kayıt
-                  if (existingId != null) {
-                    // Güncelleme
-                    await FirebaseFirestore.instance
-                        .collection('students')
-                        .doc(existingId)
-                        .update(studentData);
-
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('✓ Öğrenci güncellendi!'),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
-                  } else {
-                    // Yeni kayıt
-                    studentData['createdAt'] = FieldValue.serverTimestamp();
-                    studentData['isActive'] =
-                        true; // Yeni kayıtlar aktif olarak başlar
-                    await FirebaseFirestore.instance
-                        .collection('students')
-                        .add(studentData);
-
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('✓ Öğrenci kaydedildi!'),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
-                  }
-
-                  widget.onSave();
-                  Navigator.pop(context);
-                } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('❌ Hata: $e'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
-              },
-            ),
-          ),
-        ],
       ),
       body: AbsorbPointer(
         absorbing: false,
@@ -5449,6 +5365,9 @@ class __StudentRegistrationFormScreenState
                   return;
                 }
 
+                // 🚀 KOTA KONTROLÜ
+                if (!await _isQuotaAvailable()) return;
+
                 // TC tekrar kontrolü
                 final tcExists = await FirebaseFirestore.instance
                     .collection('students')
@@ -5499,20 +5418,24 @@ class __StudentRegistrationFormScreenState
                   });
                 }
 
+                // Veli TC listesi (Sorgulama için)
+                List<String> parentTcNos = parentsToSave
+                    .map((p) => (p['tcNo'] ?? '').toString())
+                    .where((tc) => tc.isNotEmpty)
+                    .toList();
+
                 try {
                   // Yeni kayıtlar için aktif dönemi otomatik al
                   final activeTermId = await TermService().getActiveTermId();
 
-                  // Firestore'a kaydet
-                  await FirebaseFirestore.instance.collection('students').add({
+                  final studentData = {
                     'institutionId': _institutionId,
                     'schoolTypeId': _selectedSchoolTypeId,
                     'studentNo': _studentNoController.text,
                     'studentNumber': _studentNoController.text,
                     'name': _nameController.text,
                     'surname': _surnameController.text,
-                    'fullName':
-                        '${_nameController.text} ${_surnameController.text}',
+                    'fullName': '${_nameController.text} ${_surnameController.text}',
                     'classLevel': _selectedClassLevel,
                     'classId': _selectedClassId,
                     'className': _selectedClassName,
@@ -5521,8 +5444,7 @@ class __StudentRegistrationFormScreenState
                     'tcNo': _tcController.text,
                     'phone': _phoneController.text,
                     'username': _usernameController.text,
-                    'password':
-                        _passwordController.text, // TODO: Hash yapılmalı
+                    'password': _passwordController.text, // TODO: Hash yapılmalı
                     'birthDate': _birthDateController.text,
                     'registrationDate': _registrationDateController.text,
                     'previousSchool': _previousSchoolController.text,
@@ -5536,14 +5458,45 @@ class __StudentRegistrationFormScreenState
                     'foreignLanguage': _selectedForeignLanguage,
                     'reference': _referenceController.text,
                     'parents': parentsToSave,
+                    'parentTcNos': parentTcNos, // Query için eklendi
                     'isActive': true,
-                    'createdAt': FieldValue.serverTimestamp(),
                     'updatedAt': FieldValue.serverTimestamp(),
-                  });
+                  };
+
+                  if (widget.existingStudent != null) {
+                    // Güncelle
+                    await FirebaseFirestore.instance
+                        .collection('students')
+                        .doc(widget.existingStudent!['id'])
+                        .update(studentData);
+                  } else {
+                    // Yeni Kayıt
+                    studentData['createdAt'] = FieldValue.serverTimestamp();
+                    await FirebaseFirestore.instance.collection('students').add(studentData);
+                  }
+
+                  // Velileri 'parents' koleksiyonuna da kaydet/güncelle (Login için)
+                  for (var parent in parentsToSave) {
+                    final tc = (parent['tcNo'] ?? '').toString();
+                    final username = (parent['username'] ?? '').toString();
+                    if (tc.isNotEmpty && username.isNotEmpty) {
+                      await FirebaseFirestore.instance.collection('parents').doc(tc).set({
+                        'tcNo': tc,
+                        'name': parent['name'],
+                        'surname': parent['surname'],
+                        'phone': parent['phone'],
+                        'email': parent['email'],
+                        'username': username,
+                        'password': parent['password'],
+                        'institutionId': _institutionId,
+                        'updatedAt': FieldValue.serverTimestamp(),
+                      }, SetOptions(merge: true));
+                    }
+                  }
 
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text('✓ Öğrenci kaydedildi!'),
+                      content: Text(widget.existingStudent != null ? '✓ Öğrenci güncellendi!' : '✓ Öğrenci kaydedildi!'),
                       backgroundColor: Colors.green,
                     ),
                   );
@@ -6347,15 +6300,10 @@ class __StudentRegistrationFormScreenState
                 child: DropdownButtonFormField<String>(
                   decoration: _inputDecoration('Giriş Türü'),
                   items: [
-                    DropdownMenuItem(value: 'yeni', child: Text('Yeni Kayıt')),
-                    DropdownMenuItem(
-                      value: 'yenileme',
-                      child: Text('Kayıt Yenileme'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'excel_import',
-                      child: Text('Excel Aktarımı'),
-                    ),
+                    DropdownMenuItem(value: 'asil', child: Text('Asil Kayıt')),
+                    DropdownMenuItem(value: 'yedek', child: Text('Yedek Kayıt')),
+                    DropdownMenuItem(value: 'misafir', child: Text('Misafir Kaydı')),
+                    DropdownMenuItem(value: 'demo', child: Text('Demo Kayıt')),
                   ],
                   value: _selectedEntryType,
                   onChanged: (value) {
@@ -6937,48 +6885,180 @@ class __StudentRegistrationFormScreenState
 
   // Dialog metodları - Ayrı sayfa için
   void _showParentSelectionDialog() {
-    showDialog(
+    final isMobile = MediaQuery.of(context).size.width < 768;
+    String searchKeyword = "";
+    List<Map<String, dynamic>> allParents = [];
+    bool isSearching = false;
+
+    showModalBottomSheet(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(Icons.person_search, color: Colors.blue),
-            SizedBox(width: 12),
-            Text('Veli Seç'),
-          ],
-        ),
-        content: Container(
-          width: 400,
-          height: 400,
-          child: Column(
-            children: [
-              TextField(
-                decoration: InputDecoration(
-                  hintText: 'Veli ara...',
-                  prefixIcon: Icon(Icons.search),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      useSafeArea: false, // Daha fazla alan için kapattık
+      builder: (context) => StatefulBuilder(
+        builder: (context, setStateDialog) => Align(
+          alignment: Alignment.bottomCenter,
+          child: Container(
+            constraints: isMobile ? null : const BoxConstraints(maxWidth: 800),
+            height: isMobile ? MediaQuery.of(context).size.height : MediaQuery.of(context).size.height * 0.85,
+            margin: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(
+              children: [
+                // HEADER
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.05),
+                    border: Border(bottom: BorderSide(color: Colors.blue.withOpacity(0.1))),
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(color: Colors.blue.withOpacity(0.1), shape: BoxShape.circle),
+                            child: const Icon(Icons.person_search_rounded, color: Colors.blue, size: 24),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Text(
+                              'Mevcut Velilerden Seç',
+                              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.blue.shade900),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close_rounded),
+                            onPressed: () => Navigator.pop(context),
+                            style: IconButton.styleFrom(backgroundColor: Colors.white, elevation: 1),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        onChanged: (val) async {
+                          searchKeyword = val.toLowerCase();
+                          if (searchKeyword.length < 3) {
+                            setStateDialog(() => allParents = []);
+                            return;
+                          }
+                          
+                          setStateDialog(() => isSearching = true);
+                          
+                          try {
+                            // Query all students for this institution (across all school types)
+                            final studentsQuery = await FirebaseFirestore.instance
+                                .collection('students')
+                                .where('institutionId', isEqualTo: _institutionId)
+                                .get();
+                            
+                            final Map<String, Map<String, dynamic>> uniqueParents = {};
+                            
+                            for (var doc in studentsQuery.docs) {
+                              final data = doc.data();
+                              final parents = (data['parents'] as List<dynamic>?) ?? [];
+                              for (var p in parents) {
+                                final parent = p as Map<String, dynamic>;
+                                final tc = (parent['tcNo'] ?? '').toString();
+                                final name = (parent['name'] ?? parent['fullName'] ?? '').toString().toLowerCase();
+                                final surname = (parent['surname'] ?? '').toString().toLowerCase();
+                                
+                                if (tc.contains(searchKeyword) || name.contains(searchKeyword) || surname.contains(searchKeyword)) {
+                                  if (tc.isNotEmpty) {
+                                    uniqueParents[tc] = parent;
+                                  } else if (name.isNotEmpty) {
+                                    uniqueParents[name + surname] = parent;
+                                  }
+                                }
+                              }
+                            }
+                            
+                            setStateDialog(() {
+                              allParents = uniqueParents.values.toList();
+                              isSearching = false;
+                            });
+                          } catch (e) {
+                            setStateDialog(() => isSearching = false);
+                            print("Search error: $e");
+                          }
+                        },
+                        decoration: _inputDecoration('Veli Adı veya TC No ile Ara...').copyWith(
+                          prefixIcon: const Icon(Icons.search),
+                          hintText: 'En az 3 karakter giriniz',
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ),
-              SizedBox(height: 16),
-              Expanded(
-                child: Center(
-                  child: Text(
-                    'Kayıtlı veli bulunamadı',
-                    style: TextStyle(color: Colors.grey),
-                  ),
+                // RESULTS
+                Expanded(
+                  child: isSearching
+                      ? const Center(child: CircularProgressIndicator())
+                      : allParents.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.search_off_rounded, size: 64, color: Colors.grey.shade300),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    searchKeyword.length < 3 
+                                        ? 'Aramaya başlamak için en az 3 karakter giriniz' 
+                                        : 'Kriterlere uygun veli bulunamadı',
+                                    style: TextStyle(color: Colors.grey.shade500),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : ListView.separated(
+                              padding: const EdgeInsets.all(24),
+                              itemCount: allParents.length,
+                              separatorBuilder: (context, index) => const SizedBox(height: 12),
+                              itemBuilder: (context, index) {
+                                final parent = allParents[index];
+                                return Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(color: Colors.grey.shade200),
+                                  ),
+                                  child: ListTile(
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                    leading: CircleAvatar(
+                                      backgroundColor: Colors.blue.shade50,
+                                      child: Icon(Icons.person, color: Colors.blue.shade600),
+                                    ),
+                                    title: Text(
+                                      '${parent['name'] ?? ''} ${parent['surname'] ?? ''}',
+                                      style: const TextStyle(fontWeight: FontWeight.bold),
+                                    ),
+                                    subtitle: Text('TC: ${parent['tcNo'] ?? '-'} | Tel: ${parent['phone'] ?? '-'}'),
+                                    trailing: const Icon(Icons.add_circle_outline, color: Colors.green),
+                                    onTap: () {
+                                      setState(() {
+                                        _parents.add({
+                                          ...parent,
+                                          'relation': parent['relation'] ?? 'diger',
+                                        });
+                                      });
+                                      Navigator.pop(context);
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('✓ Veli eklendi'), backgroundColor: Colors.green),
+                                      );
+                                    },
+                                  ),
+                                );
+                              },
+                            ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('İptal'),
-          ),
-        ],
       ),
     );
   }
@@ -7020,267 +7100,190 @@ class __StudentRegistrationFormScreenState
   }
 
   void _editParentInForm(int index, Map<String, dynamic> parent) {
-    // Parent bilgilerini düzenleme dialogu göster
-    final tcController = TextEditingController(
-      text: (parent['tcNo'] ?? '').toString(),
-    );
-    final nameController = TextEditingController(
-      text: (parent['name'] ?? '').toString(),
-    );
-    final surnameController = TextEditingController(
-      text: (parent['surname'] ?? '').toString(),
-    );
-    final phoneController = TextEditingController(
-      text: (parent['phone'] ?? '').toString(),
-    );
-    final emailController = TextEditingController(
-      text: (parent['email'] ?? '').toString(),
-    );
-    final addressController = TextEditingController(
-      text: (parent['address'] ?? '').toString(),
-    );
-    final usernameController = TextEditingController(
-      text: (parent['username'] ?? '').toString(),
-    );
-    final passwordController = TextEditingController(
-      text: (parent['password'] ?? '').toString(),
-    );
+    final tcController = TextEditingController(text: (parent['tcNo'] ?? '').toString());
+    final nameController = TextEditingController(text: (parent['name'] ?? '').toString());
+    final surnameController = TextEditingController(text: (parent['surname'] ?? '').toString());
+    final phoneController = TextEditingController(text: (parent['phone'] ?? '').toString());
+    final emailController = TextEditingController(text: (parent['email'] ?? '').toString());
+    final addressController = TextEditingController(text: (parent['address'] ?? '').toString());
+    final usernameController = TextEditingController(text: (parent['username'] ?? '').toString());
+    final passwordController = TextEditingController(text: (parent['password'] ?? '').toString());
 
-    // Normalizasyon: Gelen değer "Anne" ise "anne" yap, listede yoksa "diger" yap
-    String currentRelation = (parent['relation'] ?? '')
-        .toString()
-        .toLowerCase();
-
-    // Geçerli listeyi kontrol et (Dropdown items ile aynı olmalı)
+    String currentRelation = (parent['relation'] ?? '').toString().toLowerCase();
     final validRelations = {
-      'anne',
-      'baba',
-      'uvey_anne',
-      'uvey_baba',
-      'koruyucu',
-      'kiz_kardes',
-      'erkek_kardes',
-      'amca_dayi',
-      'hala_teyze',
-      'buyukbaba',
-      'buyukanne',
-      'kuzen',
-      'bakici',
-      'kocasi',
-      'karisi',
-      'oglu',
-      'kizi',
-      'erkek_yegen',
-      'kiz_yegen',
-      'arkadas',
-      'diger',
+      'anne', 'baba', 'uvey_anne', 'uvey_baba', 'koruyucu', 'kiz_kardes', 'erkek_kardes',
+      'amca_dayi', 'hala_teyze', 'buyukbaba', 'buyukanne', 'kuzen', 'bakici', 'kocasi',
+      'karisi', 'oglu', 'kizi', 'erkek_yegen', 'kiz_yegen', 'arkadas', 'diger',
     };
+    String selectedRelation = validRelations.contains(currentRelation) ? currentRelation : 'diger';
 
-    String selectedRelation = validRelations.contains(currentRelation)
-        ? currentRelation
-        : 'diger';
+    final isMobile = MediaQuery.of(context).size.width < 768;
 
-    showDialog(
+    showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      useSafeArea: false,
       builder: (context) => StatefulBuilder(
-        builder: (context, setStateDialog) {
-          return AlertDialog(
-            title: Row(
+        builder: (context, setStateDialog) => Align(
+          alignment: Alignment.bottomCenter,
+          child: Container(
+            constraints: isMobile ? null : const BoxConstraints(maxWidth: 700),
+            height: isMobile ? MediaQuery.of(context).size.height : MediaQuery.of(context).size.height * 0.85,
+            margin: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.edit, color: Colors.orange),
-                SizedBox(width: 12),
-                Text('Veli Düzenle'),
+                // HEADER
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.05),
+                    border: Border(bottom: BorderSide(color: Colors.orange.withOpacity(0.1))),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(color: Colors.orange.withOpacity(0.1), shape: BoxShape.circle),
+                        child: const Icon(Icons.edit_rounded, color: Colors.orange, size: 24),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Text(
+                          'Veli Düzenle',
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.orange.shade900),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close_rounded),
+                        onPressed: () => Navigator.pop(context),
+                        style: IconButton.styleFrom(backgroundColor: Colors.white, elevation: 1),
+                      ),
+                    ],
+                  ),
+                ),
+                // CONTENT
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        DropdownButtonFormField<String>(
+                          decoration: InputDecoration(labelText: 'Yakınlık Türü *', border: OutlineInputBorder()),
+                          value: selectedRelation,
+                          items: validRelations.map((r) => DropdownMenuItem(value: r, child: Text(_formatRelation(r)))).toList(),
+                          onChanged: (val) => setStateDialog(() => selectedRelation = val!),
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: tcController,
+                          decoration: InputDecoration(labelText: 'T.C. Kimlik Numarası', border: OutlineInputBorder()),
+                          keyboardType: TextInputType.number,
+                          maxLength: 11,
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(child: TextFormField(controller: nameController, decoration: InputDecoration(labelText: 'Ad *', border: OutlineInputBorder()))),
+                            const SizedBox(width: 12),
+                            Expanded(child: TextFormField(controller: surnameController, decoration: InputDecoration(labelText: 'Soyad *', border: OutlineInputBorder()))),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: phoneController,
+                          decoration: InputDecoration(labelText: 'Telefon', border: OutlineInputBorder()),
+                          keyboardType: TextInputType.phone,
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: emailController,
+                          decoration: InputDecoration(labelText: 'E-Posta', border: OutlineInputBorder()),
+                          keyboardType: TextInputType.emailAddress,
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: addressController,
+                          decoration: InputDecoration(labelText: 'Adres', border: OutlineInputBorder()),
+                          maxLines: 2,
+                        ),
+                        const SizedBox(height: 24),
+                        Text('Hesap Bilgileri', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey.shade700)),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(child: TextFormField(controller: usernameController, decoration: InputDecoration(labelText: 'Kullanıcı Adı *', border: OutlineInputBorder()))),
+                            const SizedBox(width: 12),
+                            Expanded(child: TextFormField(controller: passwordController, decoration: InputDecoration(labelText: 'Şifre *', border: OutlineInputBorder()), obscureText: true)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                // ACTIONS
+                SafeArea(
+                  child: Container(
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -5))],
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(context),
+                            style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                            child: Text('İptal'),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () {
+                              if (nameController.text.isEmpty || surnameController.text.isEmpty) {
+                                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('⚠ Ad ve Soyad zorunlu'), backgroundColor: Colors.orange));
+                                return;
+                              }
+                              if (usernameController.text.isEmpty || passwordController.text.isEmpty) {
+                                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('⚠ Kullanıcı adı ve şifre zorunlu'), backgroundColor: Colors.orange));
+                                return;
+                              }
+                              setState(() {
+                                _parents[index] = {
+                                  'tcNo': tcController.text,
+                                  'name': nameController.text,
+                                  'surname': surnameController.text,
+                                  'phone': phoneController.text,
+                                  'email': emailController.text,
+                                  'address': addressController.text,
+                                  'username': usernameController.text,
+                                  'password': passwordController.text,
+                                  'relation': selectedRelation,
+                                };
+                              });
+                              Navigator.pop(context);
+                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✓ Veli bilgileri güncellendi'), backgroundColor: Colors.green));
+                            },
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                            child: const Text('Güncelle'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ],
             ),
-            content: Container(
-              width: 500,
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    DropdownButtonFormField<String>(
-                      decoration: InputDecoration(
-                        labelText: 'Yakınlık Derecesi',
-                        border: OutlineInputBorder(),
-                      ),
-                      value: selectedRelation,
-                      items: [
-                        DropdownMenuItem(value: 'anne', child: Text('Anne')),
-                        DropdownMenuItem(value: 'baba', child: Text('Baba')),
-                        DropdownMenuItem(
-                          value: 'uvey_anne',
-                          child: Text('Üvey Anne'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'uvey_baba',
-                          child: Text('Üvey Baba'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'koruyucu',
-                          child: Text('Koruyucu Ebeveyn'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'kiz_kardes',
-                          child: Text('Kız Kardeş'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'erkek_kardes',
-                          child: Text('Erkek Kardeş'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'amca_dayi',
-                          child: Text('Amca/Dayı'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'hala_teyze',
-                          child: Text('Hala/Teyze'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'buyukbaba',
-                          child: Text('Büyükbaba'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'buyukanne',
-                          child: Text('Büyükanne'),
-                        ),
-                        DropdownMenuItem(value: 'kuzen', child: Text('Kuzen')),
-                        DropdownMenuItem(
-                          value: 'bakici',
-                          child: Text('Bakıcı'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'kocasi',
-                          child: Text('Kocası'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'karisi',
-                          child: Text('Karısı'),
-                        ),
-                        DropdownMenuItem(value: 'oglu', child: Text('Oğlu')),
-                        DropdownMenuItem(value: 'kizi', child: Text('Kızı')),
-                        DropdownMenuItem(
-                          value: 'erkek_yegen',
-                          child: Text('Erkek Yeğen'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'kiz_yegen',
-                          child: Text('Kız Yeğen'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'arkadas',
-                          child: Text('Arkadaş'),
-                        ),
-                        DropdownMenuItem(value: 'diger', child: Text('Diğer')),
-                      ],
-                      onChanged: (val) {
-                        setStateDialog(() => selectedRelation = val!);
-                      },
-                    ),
-                    SizedBox(height: 12),
-                    TextField(
-                      controller: tcController,
-                      decoration: InputDecoration(
-                        labelText: 'TC Kimlik No',
-                        border: OutlineInputBorder(),
-                      ),
-                      keyboardType: TextInputType.number,
-                      maxLength: 11,
-                    ),
-                    SizedBox(height: 12),
-                    TextField(
-                      controller: nameController,
-                      decoration: InputDecoration(
-                        labelText: 'Ad',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    SizedBox(height: 12),
-                    TextField(
-                      controller: surnameController,
-                      decoration: InputDecoration(
-                        labelText: 'Soyad',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    SizedBox(height: 12),
-                    TextField(
-                      controller: phoneController,
-                      decoration: InputDecoration(
-                        labelText: 'Telefon',
-                        border: OutlineInputBorder(),
-                      ),
-                      keyboardType: TextInputType.phone,
-                    ),
-                    SizedBox(height: 12),
-                    TextField(
-                      controller: emailController,
-                      decoration: InputDecoration(
-                        labelText: 'E-posta',
-                        border: OutlineInputBorder(),
-                      ),
-                      keyboardType: TextInputType.emailAddress,
-                    ),
-                    SizedBox(height: 12),
-                    TextField(
-                      controller: addressController,
-                      decoration: InputDecoration(
-                        labelText: 'Adres',
-                        border: OutlineInputBorder(),
-                      ),
-                      maxLines: 2,
-                    ),
-                    SizedBox(height: 12),
-                    TextField(
-                      controller: usernameController,
-                      decoration: InputDecoration(
-                        labelText: 'Kullanıcı Adı',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    SizedBox(height: 12),
-                    TextField(
-                      controller: passwordController,
-                      decoration: InputDecoration(
-                        labelText: 'Şifre',
-                        border: OutlineInputBorder(),
-                      ),
-                      obscureText: true,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: Text('İptal'),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  setState(() {
-                    _parents[index] = {
-                      'tcNo': tcController.text,
-                      'name': nameController.text,
-                      'surname': surnameController.text,
-                      'phone': phoneController.text,
-                      'email': emailController.text,
-                      'address': addressController.text,
-                      'username': usernameController.text,
-                      'password': passwordController.text,
-                      'relation': selectedRelation,
-                    };
-                  });
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('✓ Veli bilgileri güncellendi')),
-                  );
-                },
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                child: Text('Kaydet'),
-              ),
-            ],
-          );
-        },
+          ),
+        ),
       ),
     );
   }
@@ -7350,125 +7353,158 @@ class __StudentRegistrationFormScreenState
   }
 
   void _showAddParentForm() {
-    showDialog(
+    final isMobile = MediaQuery.of(context).size.width < 768;
+
+    showModalBottomSheet(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(Icons.person_add, color: Colors.green),
-            SizedBox(width: 12),
-            Expanded(child: Text('Yeni Veli Ekle')),
-            IconButton(
-              icon: Icon(Icons.close, color: Colors.red),
-              onPressed: () => Navigator.pop(context),
-            ),
-          ],
-        ),
-        content: Container(
-          width: 600,
-          child: SingleChildScrollView(child: _buildParentForm()),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Geri'),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      useSafeArea: false,
+      builder: (context) => Align(
+        alignment: Alignment.bottomCenter,
+        child: Container(
+          constraints: isMobile ? null : const BoxConstraints(maxWidth: 700),
+          height: isMobile ? MediaQuery.of(context).size.height : MediaQuery.of(context).size.height * 0.85,
+          margin: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
           ),
-          ElevatedButton(
-            onPressed: () {
-              // Validasyonlar
-              if (_selectedParentRelation == null ||
-                  _selectedParentRelation!.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('⚠ Yakınlık türü seçiniz'),
-                    backgroundColor: Colors.orange,
-                  ),
-                );
-                return;
-              }
-
-              if (_parentNameController.text.isEmpty ||
-                  _parentSurnameController.text.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('⚠ Ad ve Soyad zorunlu'),
-                    backgroundColor: Colors.orange,
-                  ),
-                );
-                return;
-              }
-
-              if (_parentUsernameController.text.isEmpty ||
-                  _parentPasswordController.text.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('⚠ Kullanıcı adı ve şifre zorunlu'),
-                    backgroundColor: Colors.orange,
-                  ),
-                );
-                return;
-              }
-
-              if (_parentPasswordController.text.length < 6) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('⚠ Şifre en az 6 karakter olmalı'),
-                    backgroundColor: Colors.orange,
-                  ),
-                );
-                return;
-              }
-
-              setState(() {
-                _parents.add({
-                  'relation': _selectedParentRelation,
-                  'tcNo': _parentTcController.text,
-                  'name': _parentNameController.text,
-                  'surname': _parentSurnameController.text,
-                  'fullName':
-                      '${_parentNameController.text} ${_parentSurnameController.text}',
-                  'phone': _parentPhoneController.text,
-                  'email': _parentEmailController.text,
-                  'username': _parentUsernameController.text,
-                  'password':
-                      _parentPasswordController.text, // TODO: Hash yapılmalı
-                  'address': _useSameAddress
-                      ? 'Öğrenci ile aynı'
-                      : _parentAddressController.text,
-                });
-
-                _parentTcController.clear();
-                _parentNameController.clear();
-                _parentSurnameController.clear();
-                _parentPhoneController.clear();
-                _parentEmailController.clear();
-                _parentUsernameController.clear();
-                _parentPasswordController.clear();
-                _parentAddressController.clear();
-                _selectedParentRelation = null;
-                _useSameAddress = false;
-              });
-
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('✓ Veli eklendi'),
-                  backgroundColor: Colors.green,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // HEADER
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.05),
+                  border: Border(bottom: BorderSide(color: Colors.green.withOpacity(0.1))),
                 ),
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
-              foregroundColor: Colors.white,
-            ),
-            child: Text('Kaydet'),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(color: Colors.green.withOpacity(0.1), shape: BoxShape.circle),
+                      child: const Icon(Icons.person_add_alt_1_rounded, color: Colors.green, size: 24),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Text(
+                        'Yeni Veli Ekle',
+                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.green.shade900),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () => Navigator.pop(context),
+                      style: IconButton.styleFrom(backgroundColor: Colors.white, elevation: 1),
+                    ),
+                  ],
+                ),
+              ),
+              // FORM CONTENT
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(24),
+                  child: StatefulBuilder(
+                    builder: (context, setModalState) => _buildParentForm(setModalState),
+                  ),
+                ),
+              ),
+              // ACTIONS
+              SafeArea(
+                child: Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -5))],
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(context),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            side: BorderSide(color: Colors.grey.shade300),
+                          ),
+                          child: Text('Vazgeç', style: TextStyle(color: Colors.grey.shade700, fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () {
+                            // Validasyonlar
+                            if (_selectedParentRelation == null || _selectedParentRelation!.isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('⚠ Yakınlık türü seçiniz'), backgroundColor: Colors.orange));
+                              return;
+                            }
+                            if (_parentNameController.text.isEmpty || _parentSurnameController.text.isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('⚠ Ad ve Soyad zorunlu'), backgroundColor: Colors.orange));
+                              return;
+                            }
+                            if (_parentUsernameController.text.isEmpty || _parentPasswordController.text.isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('⚠ Kullanıcı adı ve şifre zorunlu'), backgroundColor: Colors.orange));
+                              return;
+                            }
+                            if (_parentPasswordController.text.length < 6) {
+                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('⚠ Şifre en az 6 karakter olmalı'), backgroundColor: Colors.orange));
+                              return;
+                            }
+
+                            setState(() {
+                              _parents.add({
+                                'relation': _selectedParentRelation,
+                                'tcNo': _parentTcController.text,
+                                'name': _parentNameController.text,
+                                'surname': _parentSurnameController.text,
+                                'fullName': '${_parentNameController.text} ${_parentSurnameController.text}',
+                                'phone': _parentPhoneController.text,
+                                'email': _parentEmailController.text,
+                                'username': _parentUsernameController.text,
+                                'password': _parentPasswordController.text, // TODO: Hash yapılmalı
+                                'address': _useSameAddress ? 'Öğrenci ile aynı' : _parentAddressController.text,
+                              });
+
+                              _parentTcController.clear();
+                              _parentNameController.clear();
+                              _parentSurnameController.clear();
+                              _parentPhoneController.clear();
+                              _parentEmailController.clear();
+                              _parentUsernameController.clear();
+                              _parentPasswordController.clear();
+                              _parentAddressController.clear();
+                              _selectedParentRelation = null;
+                              _useSameAddress = false;
+                            });
+
+                            Navigator.pop(context);
+                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✓ Veli eklendi'), backgroundColor: Colors.green));
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            elevation: 0,
+                          ),
+                          child: const Text('Kaydet', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildParentForm() {
+  Widget _buildParentForm(StateSetter setModalState) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -7505,7 +7541,7 @@ class __StudentRegistrationFormScreenState
             DropdownMenuItem(value: 'diger', child: Text('Diğer')),
           ],
           onChanged: (value) {
-            setState(() {
+            setModalState(() {
               _selectedParentRelation = value;
             });
           },
@@ -7641,6 +7677,27 @@ class __StudentRegistrationFormScreenState
         TextFormField(decoration: _inputDecoration('Görev / Ünvan')),
         SizedBox(height: 16),
         TextFormField(decoration: _inputDecoration('Çalıştığı Kurum')),
+        SizedBox(height: 24),
+        _buildSectionTitle('Hesap Bilgileri', Icons.lock_outline),
+        SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: TextFormField(
+                controller: _parentUsernameController,
+                decoration: _inputDecoration('Kullanıcı Adı *'),
+              ),
+            ),
+            SizedBox(width: 12),
+            Expanded(
+              child: TextFormField(
+                controller: _parentPasswordController,
+                decoration: _inputDecoration('Şifre *'),
+                obscureText: true,
+              ),
+            ),
+          ],
+        ),
       ],
     );
   }
@@ -7718,49 +7775,109 @@ class __StudentRegistrationFormScreenState
       'district': null,
       'country': 'TÜRKİYE',
     };
+    final isMobile = MediaQuery.of(context).size.width < 768;
 
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(Icons.add_location, color: Colors.blue),
-            SizedBox(width: 12),
-            Expanded(child: Text('Yeni Adres Ekle')),
-            IconButton(
-              icon: Icon(Icons.close, color: Colors.red),
-              onPressed: () => Navigator.pop(context),
-            ),
-          ],
-        ),
-        content: Container(
-          width: 600,
-          child: SingleChildScrollView(
-            child: StatefulBuilder(
-              builder: (context, setModalState) => _buildAddressForm(
-                addressTempData,
-                setModalState,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      useSafeArea: false,
+      builder: (context) => Align(
+        alignment: Alignment.bottomCenter,
+        child: Container(
+          constraints: isMobile ? null : const BoxConstraints(maxWidth: 700),
+          height: isMobile ? MediaQuery.of(context).size.height : MediaQuery.of(context).size.height * 0.85,
+          margin: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // HEADER
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.05),
+                  border: Border(bottom: BorderSide(color: Colors.blue.withOpacity(0.1))),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(color: Colors.blue.withOpacity(0.1), shape: BoxShape.circle),
+                      child: const Icon(Icons.add_location_alt_rounded, color: Colors.blue, size: 24),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Text(
+                        'Yeni Adres Ekle',
+                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.blue.shade900),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () => Navigator.pop(context),
+                      style: IconButton.styleFrom(backgroundColor: Colors.white, elevation: 1),
+                    ),
+                  ],
+                ),
               ),
-            ),
+              // FORM CONTENT
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(24),
+                  child: StatefulBuilder(
+                    builder: (context, setModalState) => _buildAddressForm(addressTempData, setModalState),
+                  ),
+                ),
+              ),
+              // ACTIONS
+              SafeArea(
+                child: Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -5))],
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(context),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            side: BorderSide(color: Colors.grey.shade300),
+                          ),
+                          child: Text('Vazgeç', style: TextStyle(color: Colors.grey.shade700, fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () {
+                            // TODO: Kaydetme mantığını uygulayacağız
+                            Navigator.pop(context);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            elevation: 0,
+                          ),
+                          child: const Text('Kaydet', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('İptal'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              // TODO: Kaydetme mantığını uygulayacağız
-              Navigator.pop(context);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
-              foregroundColor: Colors.white,
-            ),
-            child: Text('Kaydet'),
-          ),
-        ],
       ),
     );
   }

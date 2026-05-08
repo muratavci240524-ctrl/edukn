@@ -13,6 +13,9 @@ import 'package:edukn/screens/hr/training_screen.dart';
 import 'package:edukn/screens/hr/contracts_screen.dart';
 import 'package:edukn/screens/hr/reports_screen.dart';
 
+import 'package:edukn/services/user_permission_service.dart';
+import 'package:intl/intl.dart';
+
 class HrHubScreen extends StatefulWidget {
   const HrHubScreen({Key? key}) : super(key: key);
 
@@ -21,14 +24,32 @@ class HrHubScreen extends StatefulWidget {
 }
 
 class _HrHubScreenState extends State<HrHubScreen> {
+  Map<String, dynamic>? userData;
   bool _isExporting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserPermissions();
+  }
+
+  Future<void> _loadUserPermissions() async {
+    final data = await UserPermissionService.loadUserData();
+    if (mounted) {
+      setState(() => userData = data);
+    }
+  }
 
   Future<void> _exportStaffToExcel() async {
     setState(() => _isExporting = true);
     try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null || user.email == null) return;
-      final institutionId = user.email!.split('@')[1].split('.')[0].toUpperCase();
+      if (userData == null) {
+        userData = await UserPermissionService.loadUserData();
+      }
+      final institutionId = userData?['institutionId'];
+      if (institutionId == null) {
+        throw 'Kurum bilgisi bulunamadı.';
+      }
 
       final snapshot = await FirebaseFirestore.instance
           .collection('users')

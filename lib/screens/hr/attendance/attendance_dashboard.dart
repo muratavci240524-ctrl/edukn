@@ -1,3 +1,4 @@
+import 'package:edukn/services/user_permission_service.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -61,10 +62,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with SingleTi
       if (user == null) return;
 
       final email = user.email ?? '';
-      if (!email.contains('@')) return;
-      final domain = email.split('@')[1];
-      if (!domain.contains('.')) return;
-      final institutionId = domain.split('.')[0].toUpperCase();
+      final institutionId = await UserPermissionService.resolveInstitutionId(email);
       _myInstitutionId = institutionId;
 
       // Load Staff

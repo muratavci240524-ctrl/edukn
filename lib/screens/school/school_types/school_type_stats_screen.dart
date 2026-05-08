@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../../../services/user_permission_service.dart';
 
 class SchoolTypeStatsScreen extends StatefulWidget {
   const SchoolTypeStatsScreen({Key? key}) : super(key: key);
@@ -63,7 +64,7 @@ class _SchoolTypeStatsScreenState extends State<SchoolTypeStatsScreen>
       if (user == null) return;
 
       final email = user.email!;
-      final instId = email.split('@')[1].split('.')[0].toUpperCase();
+      final instId = await UserPermissionService.resolveInstitutionId(email, userData: userData);
 
       final schoolTypesSnapshot = await FirebaseFirestore.instance
           .collection('schoolTypes')

@@ -1,11 +1,21 @@
 const {onCall, HttpsError} = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
+const nodemailer = require("nodemailer");
 
 // Firebase admin panelini başlat
 admin.initializeApp();
 
 // Firestore veritabanına erişim
 const db = admin.firestore();
+
+// Gmail SMTP Yapılandırması
+const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+        user: "muratavci2405@gmail.com",
+        pass: "tntmukfryhpxlkis"
+    }
+});
 
 /**
  * 'createSchool' adında çağrılabilir (callable) bir bulut fonksiyonu.
@@ -298,5 +308,145 @@ exports.updateUserCredentials = onCall(async (request) => {
         "internal",
         `Auth Hatası: ${error.message} (${error.code || 'unknown'})`
       );
+    }
+});
+/**
+ * 'sendPasswordResetCode' adında çağrılabilir bir bulut fonksiyonu.
+ * Kullanıcı için 6 haneli bir kod üretir ve e-posta gönderir.
+ */
+exports.sendPasswordResetCode = onCall(async (request) => {
+    const { data } = request;
+    const { institutionId, username } = data;
+
+    if (!institutionId || !username) {
+        throw new HttpsError("invalid-argument", "Kurum ID ve kullanıcı adı gereklidir.");
+    }
+
+    try {
+        // 1. Kullanıcıyı bul
+        const userQuery = await db.collection("users")
+            .where("institutionId", "==", institutionId.toUpperCase())
+            .where("username", "==", username.toLowerCase())
+            .limit(1)
+            .get();
+
+        if (userQuery.empty) {
+            throw new HttpsError("not-found", "Bu bilgilerle eşleşen bir kullanıcı bulunamadı.");
+        }
+
+        const userData = userQuery.docs[0].data();
+        const userEmail = userData.email;
+        const uid = userQuery.docs[0].id;
+
+        if (!userEmail) {
+            throw new HttpsError("failed-precondition", "Kullanıcının kayıtlı bir e-posta adresi yok.");
+        }
+
+        // 2. 6 haneli kod üret
+        const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+        const expiresAt = new Date();
+        expiresAt.setMinutes(expiresAt.getMinutes() + 10); // 10 dakika geçerli
+
+        // 3. Firestore'a kaydet
+        await db.collection("passwordResetCodes").doc(userEmail).set({
+            code: resetCode,
+            uid: uid,
+            expiresAt: admin.firestore.Timestamp.fromDate(expiresAt),
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // 4. E-posta Gönder (Gerçek Gönderim)
+        const mailOptions = {
+            from: '"eduKN Destek" <muratavci2405@gmail.com>',
+            to: userEmail,
+            subject: `Şifre Sıfırlama Kodu: ${resetCode}`,
+            html: `
+                <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 15px; background-color: #fcfcfc;">
+                    <div style="text-align: center; margin-bottom: 30px;">
+                        <h1 style="color: #4C59BC; margin: 0;">eduKN</h1>
+                        <p style="color: #666; font-size: 14px; margin-top: 5px;">Daha Planlı, Daha Hızlı</p>
+                    </div>
+                    <div style="background-color: #fff; padding: 25px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.03);">
+                        <h2 style="color: #1E2661; margin-top: 0; font-size: 18px; text-align: center;">Şifre Sıfırlama İsteği</h2>
+                        <p style="color: #555; font-size: 14px; line-height: 1.6; text-align: center;">
+                            Hesabınız için şifre sıfırlama talebinde bulundunuz. Aşağıdaki kodu uygulamadaki ilgili alana girerek şifrenizi güncelleyebilirsiniz:
+                        </p>
+                        <div style="background-color: #f3f5ff; border: 1px dashed #4C59BC; padding: 15px; text-align: center; margin: 25px 0; border-radius: 10px;">
+                            <span style="font-size: 32px; font-weight: bold; color: #4C59BC; letter-spacing: 5px;">${resetCode}</span>
+                        </div>
+                        <p style="color: #999; font-size: 12px; text-align: center; margin-bottom: 0;">
+                            Bu kod <b>10 dakika</b> süreyle geçerlidir. Eğer bu isteği siz yapmadıysanız lütfen bu e-postayı dikkate almayın.
+                        </p>
+                    </div>
+                    <div style="text-align: center; margin-top: 30px; color: #bbb; font-size: 12px;">
+                        © 2024 eduKN. Tüm hakları saklıdır.
+                    </div>
+                </div>
+            `
+        };
+
+        await transporter.sendMail(mailOptions);
+
+        return {
+            status: "success",
+            message: "Sıfırlama kodu e-posta adresinize gönderildi.",
+            email: userEmail
+        };
+
+    } catch (error) {
+        console.error("Sıfırlama kodu gönderilirken hata:", error);
+        throw new HttpsError("internal", error.message);
+    }
+});
+
+/**
+ * 'verifyCodeAndResetPassword' adında çağrılabilir bir bulut fonksiyonu.
+ * Kodu doğrular ve yeni şifreyi ayarlar.
+ */
+exports.verifyCodeAndResetPassword = onCall(async (request) => {
+    const { data } = request;
+    const { email, code, newPassword } = data;
+
+    if (!email || !code || !newPassword) {
+        throw new HttpsError("invalid-argument", "Eksik bilgi: email, kod ve yeni şifre gereklidir.");
+    }
+
+    try {
+        // 1. Kodu kontrol et
+        const codeDoc = await db.collection("passwordResetCodes").doc(email).get();
+
+        if (!codeDoc.exists) {
+            throw new HttpsError("not-found", "Geçersiz veya süresi dolmuş kod.");
+        }
+
+        const codeData = codeDoc.data();
+        
+        // Kod kontrolü
+        if (codeData.code !== code) {
+            throw new HttpsError("permission-denied", "Girdiğiniz kod hatalı.");
+        }
+
+        // Süre kontrolü
+        if (codeData.expiresAt.toDate() < new Date()) {
+            await db.collection("passwordResetCodes").doc(email).delete();
+            throw new HttpsError("deadline-exceeded", "Kodun süresi dolmuş. Lütfen yeni bir kod isteyin.");
+        }
+
+        // 2. Şifreyi Güncelle (Admin SDK)
+        await admin.auth().updateUser(codeData.uid, {
+            password: newPassword
+        });
+
+        // 3. Kodu sil
+        await db.collection("passwordResetCodes").doc(email).delete();
+
+        return {
+            status: "success",
+            message: "Şifreniz başarıyla güncellendi."
+        };
+
+    } catch (error) {
+        console.error("Şifre sıfırlanırken hata:", error);
+        throw new HttpsError("internal", error.message);
     }
 });

@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'term_service.dart';
+import 'user_permission_service.dart';
 
 class AnnouncementService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -19,37 +20,8 @@ class AnnouncementService {
     if (user == null) return null;
 
     try {
-      // 1. Try fetching from user document
-      final userDoc = await _firestore.collection('users').doc(user.uid).get();
-      if (userDoc.exists) {
-        final data = userDoc.data();
-        if (data != null && data.containsKey('institutionId')) {
-           _cachedInstitutionId = data['institutionId'].toString().toUpperCase();
-           return _cachedInstitutionId;
-        }
-      }
-
-      // 2. Fallback: Try finding by email query
-      final query = await _firestore
-          .collection('users')
-          .where('email', isEqualTo: user.email)
-          .limit(1)
-          .get();
-
-      if (query.docs.isNotEmpty &&
-          query.docs.first.data().containsKey('institutionId')) {
-        _cachedInstitutionId = query.docs.first.data()['institutionId'];
-        return _cachedInstitutionId;
-      }
-
-      // 3. Fallback: Parse from email (Legacy/Last resort)
-      if (user.email != null) {
-        final parts = user.email!.split('@');
-        if (parts.length > 1) {
-          _cachedInstitutionId = parts[1].split('.')[0].toUpperCase();
-          return _cachedInstitutionId;
-        }
-      }
+      _cachedInstitutionId = await UserPermissionService.resolveInstitutionId(user.email ?? '');
+      return _cachedInstitutionId;
     } catch (e) {
       print('Correction error for Institution ID: $e');
     }
@@ -338,8 +310,7 @@ class AnnouncementService {
       final user = _auth.currentUser;
       if (user == null) return [];
 
-      final email = user.email!;
-      final instId = email.split('@')[1].split('.')[0].toUpperCase();
+      final instId = await _getInstitutionId();
 
       final snapshot = await _firestore
           .collection('users')
@@ -371,8 +342,7 @@ class AnnouncementService {
       final user = _auth.currentUser;
       if (user == null) return [];
 
-      final email = user.email!;
-      final instId = email.split('@')[1].split('.')[0].toUpperCase();
+      final instId = await _getInstitutionId();
 
       final snapshot = await _firestore
           .collection('users')
@@ -1237,8 +1207,7 @@ class AnnouncementService {
       final user = _auth.currentUser;
       if (user == null) return [];
 
-      final email = user.email!;
-      final instId = email.split('@')[1].split('.')[0].toUpperCase();
+      final instId = await _getInstitutionId();
 
       print(
         '📋 getUsersBySchoolType: instId=$instId, schoolTypeId=$schoolTypeId',
@@ -1439,10 +1408,7 @@ class AnnouncementService {
       final user = _auth.currentUser;
       if (user == null) return [];
 
-      final email = user.email!;
-      // EduKN standard pattern: email domain stores institution ID (e.g. user@ABC.edukn.com) -> ABC
-      // Actually simpler: we can use the pattern from getAllUsers
-      final instId = email.split('@')[1].split('.')[0].toUpperCase();
+      final instId = await _getInstitutionId();
 
       final snapshot = await _firestore
           .collection('classes')

@@ -105,7 +105,9 @@ service cloud.firestore {
     
     // Users
     match /users/{userId} {
-      allow read, write: if isAuthenticated();
+      allow get: if isAuthenticated();
+      allow list: if isAuthenticated() || (request.query.limit <= 1);
+      allow write: if isAuthenticated();
     }
     
     // Work Periods

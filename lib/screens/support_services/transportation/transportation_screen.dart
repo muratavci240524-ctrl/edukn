@@ -1,3 +1,4 @@
+import 'package:edukn/services/user_permission_service.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -48,7 +49,7 @@ class _TransportationScreenState extends State<TransportationScreen>
       if (user == null) return;
       final email = user.email!;
       if (email.contains('@')) {
-        _institutionId = email.split('@')[1].split('.')[0].toUpperCase();
+        _institutionId = await UserPermissionService.resolveInstitutionId(email);
       }
 
       final snap = await FirebaseFirestore.instance

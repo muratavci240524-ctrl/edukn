@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../widgets/edukn_dropdown.dart';
+import '../../../services/user_permission_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class AddPreRegistrationScreen extends StatelessWidget {
   final String? institutionId;
@@ -109,8 +111,16 @@ class _PreRegistrationFormWidgetState extends State<PreRegistrationFormWidget> {
     } else {
       _addStudent();
     }
+    _loadUserMetadata();
     _loadAdminUsers();
     _loadKnownSchools();
+  }
+
+  Future<void> _loadUserMetadata() async {
+    final userData = await UserPermissionService.loadUserData();
+    if (mounted && userData != null && userData['institutionId'] != null) {
+      // If we need to refresh anything based on institutionId
+    }
   }
 
   Future<void> _loadKnownSchools() async {

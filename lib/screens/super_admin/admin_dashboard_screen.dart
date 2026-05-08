@@ -11,6 +11,9 @@ class AdminDashboardScreen extends StatefulWidget {
 }
 
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
+  String _searchQuery = '';
+  final TextEditingController _searchController = TextEditingController();
+
   // Okul verilerini 'schools' koleksiyonundan canlı olarak dinle
   // DİKKAT: 'createdAt' alanına göre sıralama için Firebase'de index gerekir.
   final Stream<QuerySnapshot> _schoolsStream = FirebaseFirestore.instance
@@ -729,215 +732,256 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         child: Container(
           constraints: BoxConstraints(maxWidth: 1200),
           padding: EdgeInsets.all(16.0),
-          // StreamBuilder ile veritabanını canlı dinle
-          child: StreamBuilder<QuerySnapshot>(
-            stream: _schoolsStream,
-            builder:
-                (BuildContext context, AsyncSnapshot<QuerySnapshot> snapshot) {
-                  // Hata varsa
-                  if (snapshot.hasError) {
-                    print("Hata: ${snapshot.error}");
-                    return Center(
-                      child: Text('Veriler yüklenirken bir hata oluştu.'),
-                    );
-                  }
-                  // Yükleniyorsa
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return Center(child: CircularProgressIndicator());
-                  }
-                  // Veri yoksa
-                  if (snapshot.data!.docs.isEmpty) {
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.school_outlined,
-                            size: 64,
-                            color: Colors.grey,
-                          ),
-                          SizedBox(height: 16),
-                          Text(
-                            'Henüz hiç okul eklenmemiş.',
-                            style: TextStyle(
-                              fontSize: 18,
-                              color: Colors.grey.shade600,
+          child: Column(
+            children: [
+              // 🔍 Arama Çubuğu
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16.0),
+                child: TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: 'Okul adı veya Kurum ID ile ara...',
+                    prefixIcon: Icon(Icons.search),
+                    suffixIcon: _searchQuery.isNotEmpty 
+                      ? IconButton(
+                          icon: Icon(Icons.clear),
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() { _searchQuery = ''; });
+                          },
+                        ) 
+                      : null,
+                    filled: true,
+                    fillColor: Colors.white,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: EdgeInsets.symmetric(vertical: 0),
+                  ),
+                  onChanged: (value) {
+                    setState(() {
+                      _searchQuery = value.toLowerCase();
+                    });
+                  },
+                ),
+              ),
+              Expanded(
+                child: StreamBuilder<QuerySnapshot>(
+                  stream: _schoolsStream,
+                  builder: (BuildContext context, AsyncSnapshot<QuerySnapshot> snapshot) {
+                    // Hata varsa
+                    if (snapshot.hasError) {
+                      print("Hata: ${snapshot.error}");
+                      return Center(
+                        child: Text('Veriler yüklenirken bir hata oluştu.'),
+                      );
+                    }
+                    // Yükleniyorsa
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return Center(child: CircularProgressIndicator());
+                    }
+                    // Veri yoksa
+                    if (snapshot.data!.docs.isEmpty) {
+                      return Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.school_outlined,
+                              size: 64,
+                              color: Colors.grey,
                             ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-
-                  // İstatistikleri hesapla
-                  int totalSchools = snapshot.data!.docs.length;
-                  int activeSchools = 0;
-                  int passiveSchools = 0;
-                  int totalStudents = 0;
-                  int activeStudents = 0;
-                  int passiveStudents = 0;
-
-                  for (var doc in snapshot.data!.docs) {
-                    Map<String, dynamic> school =
-                        doc.data() as Map<String, dynamic>;
-                    bool isActive = school['isActive'] ?? false;
-
-                    if (isActive) {
-                      activeSchools++;
-                    } else {
-                      passiveSchools++;
+                            SizedBox(height: 16),
+                            Text(
+                              'Henüz hiç okul eklenmemiş.',
+                              style: TextStyle(
+                                fontSize: 18,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
                     }
 
-                    // Öğrenci sayılarını al (eğer varsa)
-                    int schoolTotalStudents = school['totalStudents'] ?? 0;
-                    int schoolActiveStudents = school['activeStudents'] ?? 0;
-                    int schoolPassiveStudents = school['passiveStudents'] ?? 0;
+                    // İstatistikleri hesapla
+                    int totalSchools = snapshot.data!.docs.length;
+                    int activeSchools = 0;
+                    int passiveSchools = 0;
+                    int totalStudents = 0;
+                    int activeStudents = 0;
+                    int passiveStudents = 0;
 
-                    totalStudents += schoolTotalStudents;
-                    activeStudents += schoolActiveStudents;
-                    passiveStudents += schoolPassiveStudents;
-                  }
+                    for (var doc in snapshot.data!.docs) {
+                      Map<String, dynamic> school =
+                          doc.data() as Map<String, dynamic>;
+                      bool isActive = school['isActive'] ?? false;
 
-                  // Veri geldiyse, istatistikler ve listeyi oluştur
-                  return LayoutBuilder(
-                    builder: (context, constraints) {
-                      final bool isNarrow = constraints.maxWidth < 900;
-                      
-                      return ListView(
-                        children: [
-                          // Dar ekranlarda Tab Seçici
-                          if (isNarrow) ...[
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 16.0),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: _buildTabButton(
-                                      'İstatistikler',
-                                      0,
-                                      Icons.bar_chart,
-                                    ),
-                                  ),
-                                  SizedBox(width: 12),
-                                  Expanded(
-                                    child: _buildTabButton(
-                                      'Okullar',
-                                      1,
-                                      Icons.school,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                          
-                          // İstatistik Kartları (geniş ekranda her zaman, dar ekranda seçiliyse göster)
-                          if (!isNarrow || _selectedTabIndex == 0)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 24.0),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if (!isNarrow)
-                                    Text(
-                                      'İstatistikler',
-                                      style: TextStyle(
-                                        fontSize: 24,
-                                        fontWeight: FontWeight.bold,
+                      if (isActive) {
+                        activeSchools++;
+                      } else {
+                        passiveSchools++;
+                      }
+
+                      // Öğrenci sayılarını al (eğer varsa)
+                      int schoolTotalStudents = school['totalStudents'] ?? 0;
+                      int schoolActiveStudents = school['activeStudents'] ?? 0;
+                      int schoolPassiveStudents = school['passiveStudents'] ?? 0;
+
+                      totalStudents += schoolTotalStudents;
+                      activeStudents += schoolActiveStudents;
+                      passiveStudents += schoolPassiveStudents;
+                    }
+
+                    // Veri geldiyse, istatistikler ve listeyi oluştur
+                    return LayoutBuilder(
+                      builder: (context, constraints) {
+                        final bool isNarrow = constraints.maxWidth < 900;
+                        
+                        return ListView(
+                          children: [
+                            // Dar ekranlarda Tab Seçici
+                            if (isNarrow) ...[
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 16.0),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: _buildTabButton(
+                                        'İstatistikler',
+                                        0,
+                                        Icons.bar_chart,
                                       ),
                                     ),
-                                  if (!isNarrow) SizedBox(height: 16),
-                                  LayoutBuilder(
-                                    builder: (context, constraints) {
-                                // Ekran genişliğine göre sütun sayısı belirle
-                                int crossAxisCount = 3; // Varsayılan 3 sütun
-                                double childAspectRatio = 2.2; // Daha yüksek kartlar
-                                
-                                if (constraints.maxWidth < 900) {
-                                  crossAxisCount = 2; // Orta ekran: 2 sütun
-                                  childAspectRatio = 2.0;
-                                }
-                                if (constraints.maxWidth < 600) {
-                                  crossAxisCount = 1; // Küçük ekran: 1 sütun
-                                  childAspectRatio = 3.0;
-                                }
-                                
-                                return GridView.count(
-                                  crossAxisCount: crossAxisCount,
-                                  shrinkWrap: true,
-                                  physics: NeverScrollableScrollPhysics(),
-                                  mainAxisSpacing: 12,
-                                  crossAxisSpacing: 12,
-                                  childAspectRatio: childAspectRatio,
-                                  children: [
-                                    _buildStatCard(
-                                      'Toplam Okul',
-                                      totalSchools.toString(),
-                                      Icons.school,
-                                      Colors.blue,
-                                    ),
-                                    _buildStatCard(
-                                      'Aktif Okul',
-                                      activeSchools.toString(),
-                                      Icons.check_circle,
-                                      Colors.green,
-                                    ),
-                                    _buildStatCard(
-                                      'Pasif Okul',
-                                      passiveSchools.toString(),
-                                      Icons.cancel,
-                                      Colors.red,
-                                    ),
-                                    _buildStatCard(
-                                      'Toplam Öğrenci',
-                                      totalStudents.toString(),
-                                      Icons.people,
-                                      Colors.purple,
-                                    ),
-                                    _buildStatCard(
-                                      'Aktif Öğrenci',
-                                      activeStudents.toString(),
-                                      Icons.person_outline,
-                                      Colors.teal,
-                                    ),
-                                    _buildStatCard(
-                                      'Pasif Öğrenci',
-                                      passiveStudents.toString(),
-                                      Icons.person_off_outlined,
-                                      Colors.orange,
+                                    SizedBox(width: 12),
+                                    Expanded(
+                                      child: _buildTabButton(
+                                        'Okullar',
+                                        1,
+                                        Icons.school,
+                                      ),
                                     ),
                                   ],
-                                );
-                                    },
-                                  ),
-                                ],
-                              ),
-                            ),
-                          
-                          // Okullar Bölümü (geniş ekranda her zaman, dar ekranda seçiliyse göster)
-                          if (!isNarrow || _selectedTabIndex == 1) ...[
-                            // Okullar Başlığı
-                            if (!isNarrow)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 8.0, bottom: 16.0),
-                                child: Text(
-                                  'Okullar',
-                                  style: TextStyle(
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.bold,
-                                  ),
                                 ),
                               ),
-                            // Okul Listesi
-                            ...snapshot.data!.docs.map((DocumentSnapshot document) {
-                              return _buildSchoolCard(document);
-                            }).toList(),
+                            ],
+                            
+                            // İstatistik Kartları (geniş ekranda her zaman, dar ekranda seçiliyse göster)
+                            if (!isNarrow || _selectedTabIndex == 0)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 24.0),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    if (!isNarrow)
+                                      Text(
+                                        'İstatistikler',
+                                        style: TextStyle(
+                                          fontSize: 24,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    if (!isNarrow) SizedBox(height: 16),
+                                    LayoutBuilder(
+                                      builder: (context, constraints) {
+                                        // Ekran genişliğine göre sütun sayısı belirle
+                                        int crossAxisCount = 3; // Varsayılan 3 sütun
+                                        double childAspectRatio = 2.2; // Daha yüksek kartlar
+                                        
+                                        if (constraints.maxWidth < 900) {
+                                          crossAxisCount = 2; // Orta ekran: 2 sütun
+                                          childAspectRatio = 2.0;
+                                        }
+                                        if (constraints.maxWidth < 600) {
+                                          crossAxisCount = 1; // Küçük ekran: 1 sütun
+                                          childAspectRatio = 3.0;
+                                        }
+                                        
+                                        return GridView.count(
+                                          crossAxisCount: crossAxisCount,
+                                          shrinkWrap: true,
+                                          physics: NeverScrollableScrollPhysics(),
+                                          mainAxisSpacing: 12,
+                                          crossAxisSpacing: 12,
+                                          childAspectRatio: childAspectRatio,
+                                          children: [
+                                            _buildStatCard(
+                                              'Toplam Okul',
+                                              totalSchools.toString(),
+                                              Icons.school,
+                                              Colors.blue,
+                                            ),
+                                            _buildStatCard(
+                                              'Aktif Okul',
+                                              activeSchools.toString(),
+                                              Icons.check_circle,
+                                              Colors.green,
+                                            ),
+                                            _buildStatCard(
+                                              'Pasif Okul',
+                                              passiveSchools.toString(),
+                                              Icons.cancel,
+                                              Colors.red,
+                                            ),
+                                            _buildStatCard(
+                                              'Toplam Öğrenci',
+                                              totalStudents.toString(),
+                                              Icons.people,
+                                              Colors.purple,
+                                            ),
+                                            _buildStatCard(
+                                              'Aktif Öğrenci',
+                                              activeStudents.toString(),
+                                              Icons.person_outline,
+                                              Colors.teal,
+                                            ),
+                                            _buildStatCard(
+                                              'Pasif Öğrenci',
+                                              passiveStudents.toString(),
+                                              Icons.person_off_outlined,
+                                              Colors.orange,
+                                            ),
+                                          ],
+                                        );
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            
+                            // Okullar Bölümü (geniş ekranda her zaman, dar ekranda seçiliyse göster)
+                            if (!isNarrow || _selectedTabIndex == 1) ...[
+                              // Okullar Başlığı
+                              if (!isNarrow)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8.0, bottom: 16.0),
+                                  child: Text(
+                                    'Okullar',
+                                    style: TextStyle(
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              // Okul Listesi
+                              ...snapshot.data!.docs.where((doc) {
+                                final data = doc.data() as Map<String, dynamic>;
+                                final schoolName = (data['schoolName'] ?? '').toString().toLowerCase();
+                                final institutionId = (data['institutionId'] ?? '').toString().toLowerCase();
+                                return schoolName.contains(_searchQuery) || institutionId.contains(_searchQuery);
+                              }).map((DocumentSnapshot document) {
+                                return _buildSchoolCard(document);
+                              }).toList(),
+                            ],
                           ],
-                        ],
-                      );
-                    },
-                  );
-                },
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -1236,9 +1280,24 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                             color: isExpired ? Colors.red : Colors.grey.shade600,
                           ),
                         ),
+                        if (school['adminFullName'] != null) ...[
+                          SizedBox(height: 4),
+                          Row(
+                            children: [
+                              Icon(Icons.person, size: 14, color: Colors.indigo.shade300),
+                              SizedBox(width: 4),
+                              Text(
+                                school['adminFullName'],
+                                style: TextStyle(fontSize: 12, color: Colors.indigo.shade700),
+                              ),
+                            ],
+                          ),
+                        ],
                       ],
                     ),
                   ),
+                  SizedBox(width: 16),
+                  _buildStudentQuotaInfo(school['institutionId'], (school['studentQuota'] ?? 0).toInt()),
                   SizedBox(width: 16),
                   Chip(
                     label: Text(
@@ -1263,6 +1322,48 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  // --- YENİ YARDIMCI WIDGET: ÖĞRENCİ SAYISI VE KOTA GÖSTERİCİ ---
+  Widget _buildStudentQuotaInfo(String? institutionId, int quota) {
+    if (institutionId == null) return Text('Kota: $quota');
+
+    return FutureBuilder<QuerySnapshot>(
+      future: FirebaseFirestore.instance
+          .collection('students')
+          .where('institutionId', isEqualTo: institutionId)
+          .where('isActive', isEqualTo: true)
+          .get(),
+      builder: (context, snapshot) {
+        int currentCount = 0;
+        if (snapshot.hasData) {
+          currentCount = snapshot.data!.docs.length;
+        }
+
+        final bool isNearLimit = quota > 0 && currentCount >= (quota * 0.9);
+        final bool isOverLimit = quota > 0 && currentCount >= quota;
+
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.people_outline,
+              size: 14,
+              color: isOverLimit ? Colors.red : (isNearLimit ? Colors.orange : Colors.grey.shade600),
+            ),
+            SizedBox(width: 4),
+            Text(
+              '$currentCount / $quota',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: isOverLimit ? FontWeight.bold : FontWeight.normal,
+                color: isOverLimit ? Colors.red : (isNearLimit ? Colors.orange : Colors.grey.shade600),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

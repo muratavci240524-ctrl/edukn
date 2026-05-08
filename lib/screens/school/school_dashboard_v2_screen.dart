@@ -22,6 +22,7 @@ import 'assessment/question_pool/question_pool_screen.dart';
 import '../teacher/teacher_qr_scan_screen.dart';
 import 'student_registration_screen.dart';
 import '../../main.dart';
+import 'profile_settings_screen.dart';
 
 import 'school_types/school_type_announcements_screen.dart';
 import 'school_types/school_type_social_media_screen.dart';
@@ -286,7 +287,17 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
   Future<void> _loadSchoolData() async {
     try {
       final user = FirebaseAuth.instance.currentUser; if (user == null) { Navigator.pushReplacementNamed(context, '/school-login'); return; }
-      final email = user.email!; final institutionId = email.split('@')[1].split('.')[0].toUpperCase(); var instIdForQueries = institutionId;
+      
+      // Önce kullanıcı verilerini yükle (institutionId buradan gelecek)
+      final profileData = await UserPermissionService.loadUserData();
+      final email = user.email ?? '';
+      final institutionId = await UserPermissionService.resolveInstitutionId(email, userData: profileData);
+      
+      if (institutionId == null) {
+        print('⚠️ Kritik: Institution ID çözümlenemedi!');
+      }
+      
+      var instIdForQueries = institutionId;
       var schoolQuery = await FirebaseFirestore.instance.collection('schools').where('institutionId', isEqualTo: institutionId).limit(1).get();
       Map<String, dynamic>? data; if (schoolQuery.docs.isNotEmpty) { final schoolDoc = schoolQuery.docs.first; data = schoolDoc.data(); data['id'] = schoolDoc.id; } else { final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get(); if (userDoc.exists) { final u = userDoc.data() as Map<String, dynamic>; final fallbackSchoolId = u['schoolId'] as String?; if (fallbackSchoolId != null && fallbackSchoolId.isNotEmpty) { final schoolById = await FirebaseFirestore.instance.collection('schools').doc(fallbackSchoolId).get(); if (schoolById.exists) { data = schoolById.data() as Map<String, dynamic>; data['id'] = schoolById.id; final schInstId = (data['institutionId'] ?? '').toString(); if (schInstId.isNotEmpty) instIdForQueries = schInstId; } } } }
       if (data != null) {
@@ -310,7 +321,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
           });
 
           // Otomatik Senkronizasyon (Adminler için)
-          if (currentUserData != null && (currentUserData['role'] == 'genel_mudur' || currentUserData['role'] == 'mudur')) {
+          if (currentUserData != null && (currentUserData['role'] == 'genel_mudur' || currentUserData['role'] == 'mudur' || currentUserData['role'] == 'admin')) {
             _syncAdminPermissions(data, currentUserData);
           }
 
@@ -409,9 +420,17 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
     
     // Sistem Ayarları her zaman görünür olmalı (yönetim için)
     if (moduleKey != 'sistem_ayarlari') {
+      // 1. Uygulama Ayarları (Global Gizleme) Kontrolü
+      final appSettings = schoolData!['appSettings'] as Map<String, dynamic>?;
+      final disabledModules = appSettings?['disabledModules'] as List<dynamic>? ?? [];
+      if (disabledModules.contains(moduleKey)) return false; // Yönetici dahi göremez
+
       // Okulun bu modülü aktif mi? (Lisans kontrolü gibi)
       final activeModules = schoolData!['activeModules'] as List<dynamic>? ?? [];
-      if (!activeModules.contains(moduleKey)) return false;
+      final role = userData?['role']?.toString().toLowerCase();
+      
+      // Admin ise ve modül lisansta varsa her zaman göster, yoksa listeye bak
+      if (role != 'admin' && !activeModules.contains(moduleKey)) return false;
     }
     
     // Kullanıcının yetkisi var mı?
@@ -422,6 +441,12 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
     if (schoolData == null) return false;
     
     if (moduleKey != 'sistem_ayarlari') {
+      // 1. Uygulama Ayarları (Global Gizleme) Kontrolü
+      final appSettings = schoolData!['appSettings'] as Map<String, dynamic>?;
+      final disabledModules = appSettings?['disabledModules'] as List<dynamic>? ?? [];
+      if (disabledModules.contains(moduleKey)) return false; // Ana modül kapalıysa alt modül de kapalı
+      if (disabledModules.contains('$moduleKey.$subKey')) return false; // Sadece alt modül kapalıysa
+
       final activeModules = schoolData!['activeModules'] as List<dynamic>? ?? [];
       if (!activeModules.contains(moduleKey)) return false;
     }
@@ -429,7 +454,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
     return UserPermissionService.hasSubModuleAccess(moduleKey, subKey, userData);
   }
   String _getUserDisplayName() { if (userData != null) return userData!['fullName'] ?? 'Kullanıcı'; return schoolData?['adminFullName'] ?? 'Yönetici'; }
-  String _getUserRole() { if (userData != null) { final role = userData!['role'] ?? ''; const roleMap = { 'mudur': 'Müdür', 'mudir_yardimcisi': 'Müdür Yardımcısı', 'ogretmen': 'Öğretmen', 'personel': 'Personel', 'genel_mudur': 'Genel Müdür', }; return roleMap[role] ?? role; } return 'Yönetici'; }
+  String _getUserRole() { if (userData != null) { final role = userData!['role'] ?? ''; const roleMap = { 'admin': 'Kurum Admini', 'genel_mudur': 'Genel Müdür', 'mudur': 'Müdür', 'mudir_yardimcisi': 'Müdür Yardımcısı', 'ogretmen': 'Öğretmen', 'personel': 'Personel', }; return roleMap[role] ?? role; } return 'Yönetici'; }
 
   Future<void> _logout() async {
     final confirm = await showDialog<bool>(
@@ -548,38 +573,44 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
             physics: const BouncingScrollPhysics(),
             children: [
-              _buildCommCard(
-                title: 'Duyurular',
-                description: 'Tüm okul türlerinin duyurularını görüntüleyin ve yönetin.',
-                icon: Icons.campaign_rounded,
-                color: Colors.orange,
-                onTap: () => Navigator.pushNamed(context, '/announcements'),
-              ),
-              const SizedBox(height: 20),
-              _buildCommCard(
-                title: 'Sosyal Medya',
-                description: 'Okulun global sosyal medya paylaşımlarını inceleyin.',
-                icon: Icons.share_rounded,
-                color: Colors.blue,
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SchoolTypeSocialMediaScreen(
-                  schoolTypeId: '',
-                  schoolTypeName: 'Tüm Okul Türleri',
-                  institutionId: schoolData!['institutionId'],
-                ))),
-              ),
-              const SizedBox(height: 20),
-              _buildCommCard(
-                title: 'Mesajlar',
-                description: 'Tüm kullanıcılara ve okul türlerine mesajlaşın.',
-                icon: Icons.forum_rounded,
-                color: Colors.green,
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(
-                  schoolTypeId: '',
-                  schoolTypeName: 'Tüm Okul Türleri',
-                  institutionId: schoolData!['institutionId'],
-                ))),
-              ),
-              const SizedBox(height: 100),
+              if (_hasModuleAccess('genel_duyurular')) ...[
+                _buildCommCard(
+                  title: 'Duyurular',
+                  description: 'Tüm okul türlerinin duyurularını görüntüleyin ve yönetin.',
+                  icon: Icons.campaign_rounded,
+                  color: Colors.orange,
+                  onTap: () => Navigator.pushNamed(context, '/announcements'),
+                ),
+                const SizedBox(height: 20),
+              ],
+              if (_hasModuleAccess('sosyal_medya')) ...[
+                _buildCommCard(
+                  title: 'Sosyal Medya',
+                  description: 'Okulun global sosyal medya paylaşımlarını inceleyin.',
+                  icon: Icons.share_rounded,
+                  color: Colors.blue,
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SchoolTypeSocialMediaScreen(
+                    schoolTypeId: '',
+                    schoolTypeName: 'Tüm Okul Türleri',
+                    institutionId: schoolData!['institutionId'],
+                  ))),
+                ),
+                const SizedBox(height: 20),
+              ],
+              if (_hasModuleAccess('mesajlar')) ...[
+                _buildCommCard(
+                  title: 'Mesajlar',
+                  description: 'Tüm kullanıcılara ve okul türlerine mesajlaşın.',
+                  icon: Icons.forum_rounded,
+                  color: Colors.green,
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(
+                    schoolTypeId: '',
+                    schoolTypeName: 'Tüm Okul Türleri',
+                    institutionId: schoolData!['institutionId'],
+                  ))),
+                ),
+                const SizedBox(height: 100),
+              ],
             ],
           ),
         ),
@@ -802,8 +833,20 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
       elevation: 8,
       shadowColor: Colors.black.withOpacity(0.12),
       onSelected: (value) {
-        if (value == 'profile' || value == 'edit_profile') {
-          Navigator.pushNamed(context, '/profile-settings');
+        if (value == 'profile') {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (ctx) => const ProfileSettingsScreen(isSchoolSettings: false),
+            ),
+          );
+        } else if (value == 'school_settings') {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (ctx) => const ProfileSettingsScreen(isSchoolSettings: true),
+            ),
+          );
         } else if (value == 'qr') {
           Navigator.push(context, MaterialPageRoute(builder: (_) => const TeacherQrScanScreen()));
         } else if (value == 'logout') {
@@ -850,6 +893,21 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
             ]),
           ]),
         ),
+        // Okul Bilgileri (Sadece Admin ve Genel Müdür görebilir)
+        if (userData == null || userData!['role'] == 'genel_mudur' || userData!['role'] == 'admin') ...[
+          const PopupMenuDivider(),
+          PopupMenuItem<String>(
+            value: 'school_settings',
+            child: Row(children: [
+              Container(padding: const EdgeInsets.all(7), decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8)), child: Icon(Icons.business_outlined, color: Colors.blue.shade700, size: 18)),
+              const SizedBox(width: 12),
+              const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Okul Bilgileri', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                Text('Kurum Ayarlarını Yönet', style: TextStyle(fontSize: 11, color: Colors.blueGrey)),
+              ]),
+            ]),
+          ),
+        ],
         const PopupMenuDivider(),
         PopupMenuItem<String>(
           value: 'qr',
@@ -899,13 +957,25 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
       {'label': 'Kişisel', 'icon': Icons.person, 'color': Colors.indigo},
     ];
 
-    // Yetkisi olan kategorileri filtrele
+    // Yetkisi olan kategorileri filtrele (Sadece içeriği dolu olanları göster)
     final categories = allCategories.where((cat) {
       final label = cat['label'] as String;
       if (label == 'Tümü') return true;
+      if (label == 'Kişisel') return true; // Kişisel her zaman görünür (notlar vb.)
       
-      // Bu kategoriye ait en az bir modüle erişim var mı?
-      return AppModules.modules.values.any((m) => m.category == label && _hasModuleAccess(m.key));
+      // Bu kategorideki modülleri bul ve en az birinin items listesi dolu mu bak
+      // Not: Bu kontrolü basitleştirmek için mevcut modül tanımlarını kullanıyoruz
+      return AppModules.modules.values.any((m) {
+        if (m.category != label) return false;
+        if (!_hasModuleAccess(m.key)) return false;
+        
+        // Bu modülün alt modülleri var mı? (En az birine yetki var mı?)
+        // Bu kontrolü kartlardaki logic ile paralel yapıyoruz
+        final subModules = AppModules.modules[m.key]?.subModules.keys.toList() ?? [];
+        if (subModules.isEmpty) return true; // Alt modül tanımı yoksa modülün kendisi yeterli
+        
+        return subModules.any((smKey) => _hasSubModuleAccess(m.key, smKey));
+      });
     }).toList();
 
     final screenWidth = MediaQuery.of(context).size.width;
@@ -1119,10 +1189,10 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
           items: [
             if (_hasSubModuleAccess('sistem_ayarlari', 'kullanici_yonetimi')) {'title': 'Kullanıcı Yönetimi', 'onTap': () => Navigator.pushNamed(context, '/user-management')},
             if (_hasSubModuleAccess('sistem_ayarlari', 'yetki_tanimlama')) {'title': 'Yetki Tanımlama', 'onTap': () => Navigator.pushNamed(context, '/permission-definition')},
-            if (_hasSubModuleAccess('sistem_ayarlari', 'uygulama_ayarlari')) {'title': 'Uygulama Ayarları', 'onTap': () => Navigator.pushNamed(context, '/app-settings')},
+            if (_hasSubModuleAccess('sistem_ayarlari', 'uygulama_ayarlari')) {'title': 'Uygulama Ayarları', 'onTap': () => Navigator.pushNamed(context, '/app-settings').then((_) => _loadInitialData())},
             if (_hasSubModuleAccess('sistem_ayarlari', 'veri_yedekleme')) {'title': 'Veri Yedekleme', 'onTap': () {}},
           ],
-          onTap: () => Navigator.pushNamed(context, '/app-settings'),
+          onTap: () => Navigator.pushNamed(context, '/app-settings').then((_) => _loadInitialData()),
           buttonLabel: 'DÜZENLE',
         ),
       if (_hasModuleAccess('kisisel_islemler'))
@@ -1143,7 +1213,12 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
     ];
 
 
-    final filteredModules = _selectedCategory == 'Tümü' ? allModules : allModules.where((m) => m.category == _selectedCategory).toList();
+    // Sadece içeriği olan (items boş olmayan) modülleri filtrele
+    final filteredModules = (_selectedCategory == 'Tümü' 
+        ? allModules 
+        : allModules.where((m) => m.category == _selectedCategory).toList())
+        .where((m) => m.items.isNotEmpty)
+        .toList();
 
     return Wrap(
       key: ValueKey('grid_${_selectedCategory}_$isMobile'),

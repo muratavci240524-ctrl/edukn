@@ -58,12 +58,8 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
       final data = await UserPermissionService.loadUserData();
       setState(() => userData = data);
       
-      if (data != null && data['institutionId'] != null) {
-        _institutionId = data['institutionId'];
-      } else {
-        final email = user.email!;
-        _institutionId = email.split('@')[1].split('.')[0].toUpperCase();
-      }
+      final email = user.email!;
+      _institutionId = await UserPermissionService.resolveInstitutionId(email, userData: userData);
 
       final termsQuery = await FirebaseFirestore.instance
           .collection('terms')

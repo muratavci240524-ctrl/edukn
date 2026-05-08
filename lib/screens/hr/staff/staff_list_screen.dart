@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:edukn/services/user_permission_service.dart';
 import 'package:excel/excel.dart' as xl;
 import 'package:file_picker/file_picker.dart';
 import 'dart:typed_data';
@@ -28,6 +29,7 @@ class _StaffListScreenState extends State<StaffListScreen>
     with SingleTickerProviderStateMixin {
   final TextEditingController _search = TextEditingController();
   String _statusFilter = 'active';
+  Map<String, dynamic>? userData;
   String? _departmentFilter;
   String? _titleFilter;
   List<Map<String, dynamic>> _staff = [];
@@ -99,14 +101,10 @@ class _StaffListScreenState extends State<StaffListScreen>
         });
         return;
       }
-      final domain = email.split('@')[1];
-      if (!domain.contains('.')) {
-        setState(() {
-          _isLoading = false;
-        });
-        return;
-      }
-      final institutionId = domain.split('.')[0].toUpperCase();
+      
+      userData = await UserPermissionService.loadUserData();
+      // instId'yi email'den parçalamak riskli, resolveInstitutionId kullan
+      final institutionId = await UserPermissionService.resolveInstitutionId(email, userData: userData);
       _institutionId = institutionId;
 
       final query = await FirebaseFirestore.instance

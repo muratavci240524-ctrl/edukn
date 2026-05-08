@@ -454,7 +454,7 @@ class __SystemStudentSearchDialogState
                             style: TextStyle(fontWeight: FontWeight.w600),
                           ),
                           subtitle: Text(
-                            "No: ${s['studentNo']} | Şube: ${s['classLevel']}-${s['className'] ?? s['branch'] ?? '-'}",
+                            "No: ${s['studentNo']} | Şube: ${s['classLevel']}-${s['className'] ?? s['branch'] ?? 'Misafir'}",
                             style: TextStyle(
                               color: Colors.grey.shade600,
                               fontSize: 13,

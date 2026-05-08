@@ -7,7 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../widgets/edukn_logo.dart';
 // Web için
 import 'dart:html' as html show window;
-import 'user_profile_screen.dart';
+import 'profile_settings_screen.dart';
 import '../../services/term_service.dart';
 import 'terms_screen.dart';
 import 'assessment/assessment_dashboard_screen.dart';
@@ -39,8 +39,16 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
   @override
   void initState() {
     super.initState();
+    _loadUserPermissions();
     _loadSchoolData();
     _startAnnouncementCheck();
+  }
+
+  Future<void> _loadUserPermissions() async {
+    final data = await UserPermissionService.loadUserData();
+    if (mounted) {
+      setState(() => userData = data);
+    }
   }
 
   void _startAnnouncementCheck() {
@@ -66,9 +74,10 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
         return;
       }
 
-      // Kullanıcının email'inden kurum ID'sini al
+      // Kullanıcı verilerini yükle (institutionId buradan gelecek)
+      final profileData = await UserPermissionService.loadUserData();
       final email = user.email!;
-      final institutionId = email.split('@')[1].split('.')[0].toUpperCase();
+      final institutionId = await UserPermissionService.resolveInstitutionId(email, userData: profileData);
       var instIdForQueries = institutionId; // fallback sonrası güncellenebilir
 
       // Firestore'dan okul verilerini al (kurum ID ile)
@@ -873,7 +882,14 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (ctx) => const UserProfileScreen(),
+                    builder: (ctx) => const ProfileSettingsScreen(isSchoolSettings: false),
+                  ),
+                );
+              } else if (value == 'school-settings') {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (ctx) => const ProfileSettingsScreen(isSchoolSettings: true),
                   ),
                 );
               } else if (value == 'add-user') {
@@ -933,6 +949,18 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
                   ],
                 ),
               ),
+              // Okul Bilgileri (Sadece Admin ve Genel Müdür görebilir)
+              if (userData == null || userData!['role'] == 'genel_mudur')
+                PopupMenuItem(
+                  value: 'school-settings',
+                  child: Row(
+                    children: [
+                      Icon(Icons.business, color: Colors.indigo, size: 20),
+                      SizedBox(width: 12),
+                      Text('Okul Bilgileri'),
+                    ],
+                  ),
+                ),
               // Kullanıcı Ekle (Admin her zaman görebilir)
               if ((userData == null) ||
                   (_hasModuleAccess('kullanici_yonetimi') &&

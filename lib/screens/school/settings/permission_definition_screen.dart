@@ -42,8 +42,8 @@ class _PermissionDefinitionScreenState
       if (_institutionId == null) {
         final user = FirebaseAuth.instance.currentUser;
         if (user != null && user.email != null) {
-          _institutionId =
-              user.email!.split('@')[1].split('.')[0].toUpperCase();
+          final email = user.email!;
+          _institutionId = await UserPermissionService.resolveInstitutionId(email, userData: userData);
         }
       }
 

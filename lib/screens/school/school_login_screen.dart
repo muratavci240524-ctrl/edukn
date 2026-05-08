@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../widgets/edukn_logo.dart';
 import '../teacher/teacher_main_screen.dart';
+import 'parent_student_selection_screen.dart';
 
 class SchoolLoginScreen extends StatefulWidget {
   const SchoolLoginScreen({Key? key}) : super(key: key);
@@ -38,9 +41,9 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
 
     setState(() => _isLoading = true);
 
-    final username = _usernameController.text.trim().toLowerCase();
+    final username = _usernameController.text.trim().toLowerCase().replaceAll(' ', '');
     final password = _passwordController.text.trim();
-    final institutionId = _institutionController.text.trim().toUpperCase();
+    final institutionId = _institutionController.text.trim().toUpperCase().replaceAll(' ', '');
 
     try {
       // Eğer girilen kullanıcı adı zaten bir email ise (gerçek mail ile kayıt olunmuşsa) onu kullan
@@ -52,14 +55,37 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         email = '$username@$institutionId.edukn';
       }
 
-      // 1. Orijinal Login Mantığına Geri Dönüş
+      // 1. Giriş Bilgilerini Hazırla
+      print('🔍 Giriş denemesi: User=$username, Inst=$institutionId');
       String emailToUse;
-      if (username.contains('@') && username.contains('.')) {
+      if (username.contains('@')) {
         emailToUse = username;
+        print('📧 Email formatı algılandı: $emailToUse');
       } else {
-        emailToUse = '$username@$institutionId.edukn';
+        // Önce Firestore'dan bu kullanıcı adının gerçek mailini bulmayı dene
+        print('🔍 Firestore\'da kullanıcı adı aranıyor: $username');
+        try {
+          final userLookup = await FirebaseFirestore.instance
+              .collection('users')
+              .where('institutionId', isEqualTo: institutionId)
+              .where('username', isEqualTo: username)
+              .limit(1)
+              .get();
+          
+          if (userLookup.docs.isNotEmpty) {
+            emailToUse = userLookup.docs.first.get('email') ?? '$username@$institutionId.edukn';
+            print('✅ Kullanıcı bulundu, kayıtlı email: $emailToUse');
+          } else {
+            emailToUse = '$username@$institutionId.edukn';
+            print('⚠️ Kullanıcı Firestore\'da bulunamadı, varsayılan email denenecek: $emailToUse');
+          }
+        } catch (e) {
+          print('❌ Firestore arama hatası: $e');
+          emailToUse = '$username@$institutionId.edukn';
+        }
       }
 
+      // Okul kontrolü
       final schoolQuery = await FirebaseFirestore.instance
           .collection('schools')
           .where('institutionId', isEqualTo: institutionId)
@@ -72,12 +98,95 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       final schoolData = schoolQuery.docs.first.data();
       if (schoolData['isActive'] != true) throw 'Bu okul şu an pasif durumda!';
 
-      // 2. Giriş yap
-      final userCredential = await FirebaseAuth.instance
-          .signInWithEmailAndPassword(email: emailToUse, password: password)
-          .timeout(const Duration(seconds: 20), onTimeout: () => throw 'Giriş işlemi zaman aşımına uğradı.');
+      // 2. Firebase Auth ile Giriş Yap
+      // Strateji: Firestore'daki email → başarısız olursa generate format → temp şifre ile de dene
+      print('🔐 Firebase Auth denemesi (1): $emailToUse');
+      final generatedEmail = '$username@$institutionId.edukn'.toLowerCase();
+      UserCredential? userCredential;
+      String? successEmail; // hangi email ile giriş başarılı oldu
 
-      final uid = userCredential.user?.uid;
+      // Tüm deneme kombinasyonları
+      // [email, password] şeklinde
+      String? tempPass;
+      try {
+        final tempQ = await FirebaseFirestore.instance
+            .collection('users')
+            .where('institutionId', isEqualTo: institutionId)
+            .where('username', isEqualTo: username)
+            .limit(1)
+            .get();
+        if (tempQ.docs.isNotEmpty) {
+          tempPass = tempQ.docs.first.data()['_tempPassword'] as String?;
+        }
+      } catch (_) {}
+
+      final emailsToTry = <String>{emailToUse, generatedEmail}.toList();
+      final passwordsToTry = <String>[password, if (tempPass != null && tempPass.isNotEmpty) tempPass];
+
+      bool loginSuccess = false;
+      for (final tryEmail in emailsToTry) {
+        for (final tryPass in passwordsToTry) {
+          if (loginSuccess) break;
+          try {
+            print('🔐 Deneniyor: $tryEmail / ${tryPass.replaceAll(RegExp(r'.'), '*')}');
+            userCredential = await FirebaseAuth.instance
+                .signInWithEmailAndPassword(email: tryEmail, password: tryPass)
+                .timeout(const Duration(seconds: 15));
+            print('✅ Giriş başarılı: $tryEmail');
+            successEmail = tryEmail;
+            loginSuccess = true;
+
+            // Temp şifre kullanıldıysa Firestore'dan temizle
+            if (tryPass == tempPass) {
+              try {
+                final tQ = await FirebaseFirestore.instance
+                    .collection('users')
+                    .where('institutionId', isEqualTo: institutionId)
+                    .where('username', isEqualTo: username)
+                    .limit(1)
+                    .get();
+                if (tQ.docs.isNotEmpty) {
+                  await tQ.docs.first.reference.update({'_tempPassword': FieldValue.delete()});
+                  print('🧹 _tempPassword temizlendi');
+                }
+              } catch (_) {}
+            }
+
+            // Eğer generate email ile başarılı olduysa, Firestore'daki email'i güncelle
+            if (successEmail == generatedEmail && emailToUse != generatedEmail) {
+              try {
+                final uQ = await FirebaseFirestore.instance
+                    .collection('users')
+                    .where('institutionId', isEqualTo: institutionId)
+                    .where('username', isEqualTo: username)
+                    .limit(1)
+                    .get();
+                if (uQ.docs.isNotEmpty) {
+                  await uQ.docs.first.reference.update({'email': generatedEmail});
+                  print('🔄 Firestore email güncellendi: $generatedEmail');
+                }
+              } catch (_) {}
+            }
+          } on FirebaseAuthException catch (authErr) {
+            print('⚠️ Başarısız: $tryEmail [${authErr.code}]');
+            if (authErr.code == 'too-many-requests') {
+              throw 'Çok fazla hatalı deneme yaptınız. Lütfen daha sonra tekrar deneyin.';
+            }
+            if (authErr.code == 'user-disabled') {
+              throw 'Bu hesap devre dışı bırakılmış.';
+            }
+          } catch (otherErr) {
+            print('⚠️ Diğer hata: $otherErr');
+          }
+        }
+        if (loginSuccess) break;
+      }
+
+      if (!loginSuccess) {
+        throw 'Kullanıcı adı veya şifre hatalı.';
+      }
+
+      final uid = userCredential?.user?.uid;
       if (uid == null) throw 'Kullanıcı kimliği alınamadı.';
 
       final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get()
@@ -123,6 +232,35 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         final role = userData?['role']?.toString().toLowerCase() ?? '';
         if (role.contains('ogretmen') || role.contains('teacher') || role.contains('öğretmen')) {
           Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => TeacherMainScreen(institutionId: institutionId)));
+        } else if (role == 'parent') {
+          // Veli girişi: Öğrencileri bul
+          final tcNo = userData?['tcNo'] ?? '';
+          final studentsQuery = await FirebaseFirestore.instance
+              .collection('students')
+              .where('institutionId', isEqualTo: institutionId)
+              .where('parentTcNos', arrayContains: tcNo)
+              .get();
+              
+          final students = studentsQuery.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+          
+          if (students.length > 1) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => ParentStudentSelectionScreen(
+                  institutionId: institutionId,
+                  parentTcNo: tcNo,
+                  students: students,
+                ),
+              ),
+            );
+          } else if (students.length == 1) {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString('selected_student_id', students[0]['id']);
+            Navigator.pushReplacementNamed(context, '/school-dashboard');
+          } else {
+            Navigator.pushReplacementNamed(context, '/school-dashboard');
+          }
         } else {
           Navigator.pushReplacementNamed(context, '/school-dashboard');
         }
@@ -137,12 +275,359 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
   }
 
   void _forgotPassword() {
-    showDialog(
+    final resetInstitutionController = TextEditingController(text: _institutionController.text.trim());
+    final resetUsernameController = TextEditingController(text: _usernameController.text.trim());
+    final resetCodeController = TextEditingController();
+    final newPasswordController = TextEditingController();
+    final confirmPasswordController = TextEditingController();
+
+    int currentStep = 1; // 1: Bilgi Girişi, 2: Kod Girişi, 3: Yeni Şifre, 4: Başarı
+    bool isLoading = false;
+    String? errorMessage;
+    String? foundEmail;
+
+    showModalBottomSheet(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Şifremi Unuttum'),
-        content: const Text('Lütfen okul yönetiminizle iletişime geçin veya kurum yöneticisinden şifre sıfırlama talep edin.'),
-        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Tamam'))],
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          return Container(
+            padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+            ),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(28, 12, 28, 32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Handle bar
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 24),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+
+                  // Başlık ve İkon
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF4C59BC).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Icon(
+                          currentStep == 4 ? Icons.check_circle_outline : Icons.lock_reset_rounded,
+                          color: const Color(0xFF4C59BC),
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Text(
+                        currentStep == 4 ? 'İşlem Başarılı' : 'Şifre Sıfırlama',
+                        style: GoogleFonts.inter(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                            color: const Color(0xFF1E2661)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Adım Göstergesi (Opsiyonel)
+                  if (currentStep < 4)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 20),
+                      child: Row(
+                        children: [1, 2, 3].map((i) {
+                          bool isActive = i <= currentStep;
+                          return Expanded(
+                            child: Container(
+                              height: 4,
+                              margin: const EdgeInsets.symmetric(horizontal: 2),
+                              decoration: BoxDecoration(
+                                color: isActive ? const Color(0xFF4C59BC) : Colors.grey.shade200,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+
+                  if (errorMessage != null)
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.red.shade100),
+                      ),
+                      child: Text(
+                        errorMessage!,
+                        style: GoogleFonts.inter(color: Colors.red.shade800, fontSize: 13, fontWeight: FontWeight.w500),
+                      ),
+                    ),
+
+                  // ─── ADIM 1: KURUM VE KULLANICI ADI ──────────────────
+                  if (currentStep == 1) ...[
+                    Text(
+                      'Hesabınızı bulmak için Kurum ID ve kullanıcı adınızı girin.',
+                      style: GoogleFonts.inter(fontSize: 14, color: Colors.grey.shade600, height: 1.5),
+                    ),
+                    const SizedBox(height: 24),
+                    _buildResetField('Kurum ID', resetInstitutionController, Icons.business_rounded, 'Kurum ID girin'),
+                    const SizedBox(height: 16),
+                    _buildResetField('Kullanıcı Adı', resetUsernameController, Icons.person_outline_rounded, 'Kullanıcı adınız'),
+                    const SizedBox(height: 32),
+                    _buildResetButton(
+                      isLoading: isLoading,
+                      text: 'Kod Gönder',
+                      onPressed: () async {
+                        if (resetInstitutionController.text.isEmpty || resetUsernameController.text.isEmpty) {
+                          setDialogState(() => errorMessage = 'Lütfen tüm alanları doldurun.');
+                          return;
+                        }
+                        setDialogState(() { isLoading = true; errorMessage = null; });
+                        try {
+                          final result = await FirebaseFunctions.instance
+                              .httpsCallable('sendPasswordResetCode')
+                              .call({
+                            'institutionId': resetInstitutionController.text.trim(),
+                            'username': resetUsernameController.text.trim(),
+                          });
+                          setDialogState(() {
+                            currentStep = 2;
+                            foundEmail = result.data['email'];
+                            isLoading = false;
+                          });
+                        } catch (e) {
+                          setDialogState(() {
+                            isLoading = false;
+                            errorMessage = e.toString().contains('not-found') ? 'Hesap bulunamadı.' : 'Bir hata oluştu.';
+                          });
+                        }
+                      },
+                    ),
+                  ],
+
+                  // ─── ADIM 2: KOD GİRİŞİ (KUTU KUTU) ─────────────────────────────
+                  if (currentStep == 2) ...[
+                    Text(
+                      '${foundEmail?.replaceRange(2, foundEmail!.indexOf('@'), '****')} adresine gönderilen 6 haneli kodu girin.',
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.inter(fontSize: 14, color: Colors.grey.shade600, height: 1.5),
+                    ),
+                    const SizedBox(height: 32),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: List.generate(6, (index) {
+                        return Container(
+                          width: 48,
+                          height: 58,
+                          decoration: BoxDecoration(
+                            color: Colors.transparent,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: resetCodeController.text.length == index 
+                                ? const Color(0xFF4C59BC) 
+                                : Colors.grey.shade200,
+                              width: 2,
+                            ),
+                          ),
+                          child: Center(
+                            child: TextField(
+                              autofocus: index == 0,
+                              textAlign: TextAlign.center,
+                              keyboardType: TextInputType.number,
+                              maxLength: 1,
+                              cursorColor: const Color(0xFF4C59BC),
+                              style: GoogleFonts.inter(
+                                fontSize: 22, 
+                                fontWeight: FontWeight.w800, 
+                                color: const Color(0xFF1E2661),
+                              ),
+                              decoration: const InputDecoration(
+                                counterText: "", 
+                                border: InputBorder.none,
+                                enabledBorder: InputBorder.none,
+                                focusedBorder: InputBorder.none,
+                                contentPadding: EdgeInsets.zero,
+                                filled: false,
+                                fillColor: Colors.transparent,
+                              ),
+                              onChanged: (value) {
+                                if (value.isNotEmpty) {
+                                  if (index < 5) {
+                                    FocusScope.of(ctx).nextFocus();
+                                  }
+                                  String currentCode = resetCodeController.text;
+                                  if (currentCode.length > index) {
+                                    currentCode = currentCode.replaceRange(index, index + 1, value);
+                                  } else {
+                                    currentCode += value;
+                                  }
+                                  resetCodeController.text = currentCode;
+                                  
+                                  if (currentCode.length == 6) {
+                                    setDialogState(() { currentStep = 3; errorMessage = null; });
+                                  }
+                                } else {
+                                  if (index > 0) {
+                                    FocusScope.of(ctx).previousFocus();
+                                  }
+                                  String currentCode = resetCodeController.text;
+                                  if (currentCode.length > index) {
+                                    resetCodeController.text = currentCode.substring(0, index);
+                                  }
+                                }
+                                setDialogState(() {});
+                              },
+                            ),
+                          ),
+                        );
+                      }),
+                    ),
+                    const SizedBox(height: 40),
+                    TextButton(
+                      onPressed: () => setDialogState(() => currentStep = 1),
+                      child: Text('Yanlış Bilgi? Geri Dön', style: GoogleFonts.inter(color: const Color(0xFF4C59BC), fontWeight: FontWeight.w600)),
+                    ),
+                  ],
+
+                  // ─── ADIM 3: YENİ ŞİFRE ──────────────────────────────
+                  if (currentStep == 3) ...[
+                    Text(
+                      'Lütfen hesabınız için yeni ve güvenli bir şifre belirleyin.',
+                      style: GoogleFonts.inter(fontSize: 14, color: Colors.grey.shade600, height: 1.5),
+                    ),
+                    const SizedBox(height: 24),
+                    _buildResetField('Yeni Şifre', newPasswordController, Icons.lock_outline, 'En az 6 karakter', isPassword: true),
+                    const SizedBox(height: 16),
+                    _buildResetField('Şifre Tekrar', confirmPasswordController, Icons.lock_outline, 'Tekrar yazın', isPassword: true),
+                    const SizedBox(height: 32),
+                    _buildResetButton(
+                      isLoading: isLoading,
+                      text: 'Şifreyi Güncelle',
+                      onPressed: () async {
+                        if (newPasswordController.text.length < 6) {
+                          setDialogState(() => errorMessage = 'Şifre en az 6 karakter olmalı.');
+                          return;
+                        }
+                        if (newPasswordController.text != confirmPasswordController.text) {
+                          setDialogState(() => errorMessage = 'Şifreler uyuşmuyor.');
+                          return;
+                        }
+                        setDialogState(() { isLoading = true; errorMessage = null; });
+                        try {
+                          await FirebaseFunctions.instance
+                              .httpsCallable('verifyCodeAndResetPassword')
+                              .call({
+                            'email': foundEmail,
+                            'code': resetCodeController.text.trim(),
+                            'newPassword': newPasswordController.text,
+                          });
+                          setDialogState(() { currentStep = 4; isLoading = false; });
+                        } catch (e) {
+                          setDialogState(() {
+                            isLoading = false;
+                            errorMessage = 'İşlem başarısız. Kodun süresi dolmuş olabilir.';
+                          });
+                        }
+                      },
+                    ),
+                  ],
+
+                  // ─── ADIM 4: BAŞARI ────────────────────────────────
+                  if (currentStep == 4) ...[
+                    const SizedBox(height: 20),
+                    Icon(Icons.check_circle_rounded, size: 80, color: Colors.green.shade500),
+                    const SizedBox(height: 20),
+                    Text(
+                      'Şifreniz Güncellendi!',
+                      style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Yeni şifrenizle giriş yapabilirsiniz.',
+                      style: GoogleFonts.inter(color: Colors.grey.shade600),
+                    ),
+                    const SizedBox(height: 40),
+                    _buildResetButton(
+                      text: 'Giriş Yap',
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildResetField(String label, TextEditingController controller, IconData icon, String hint, {bool isNumeric = false, bool isPassword = false}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w700, color: const Color(0xFF1E2661))),
+        const SizedBox(height: 8),
+        TextField(
+          controller: controller,
+          obscureText: isPassword,
+          keyboardType: isNumeric ? TextInputType.number : TextInputType.text,
+          style: GoogleFonts.inter(fontSize: 14),
+          decoration: InputDecoration(
+            hintText: hint,
+            prefixIcon: Icon(icon, size: 20),
+            filled: true,
+            fillColor: Colors.white,
+            contentPadding: const EdgeInsets.all(18),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16), 
+              borderSide: BorderSide(color: Colors.grey.shade200, width: 1.5)
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16), 
+              borderSide: BorderSide(color: Colors.grey.shade200, width: 1.5)
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16), 
+              borderSide: const BorderSide(color: Color(0xFF4C59BC), width: 2)
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildResetButton({required String text, required VoidCallback onPressed, bool isLoading = false}) {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton(
+        onPressed: isLoading ? null : onPressed,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF4C59BC),
+          foregroundColor: Colors.white,
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          padding: const EdgeInsets.symmetric(vertical: 18),
+        ),
+        child: isLoading
+            ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 3, color: Colors.white))
+            : Text(text, style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 16)),
       ),
     );
   }

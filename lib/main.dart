@@ -14,6 +14,7 @@ import 'screens/school/school_types/school_types_screen.dart';
 import 'screens/school/user_management_screen.dart';
 import 'screens/school/school_types/school_type_stats_screen.dart';
 import 'screens/school/student_registration_screen.dart';
+import 'screens/school/parent_student_selection_screen.dart';
 import 'screens/school/terms_screen.dart';
 import 'screens/hr/hr_home_screen.dart';
 import 'screens/announcements/announcements_screen.dart';
@@ -201,28 +202,27 @@ class MyApp extends StatelessWidget {
         '/hr': (context) => const HrHomeScreen(),
         '/announcements': (context) => const AnnouncementsScreen(),
         '/support-services': (context) => const SupportServicesHubScreen(),
-        '/permission-definition': (context) =>
-            const PermissionDefinitionScreen(),
+        '/permission-definition': (context) => const PermissionDefinitionScreen(),
         '/app-settings': (context) => const AppSettingsScreen(),
         '/kvkk-detail': (context) => const KvkkDetailScreen(),
+        '/parent-student-selection': (context) => ParentStudentSelectionScreen(
+              institutionId: '',
+              parentTcNo: '',
+              students: [],
+            ),
       },
     );
   }
 }
 
-// --- GLOBAL KEYBOARD UNFOCUS WRAPPER ---
 class _GlobalKeyboardUnfocusWrapper extends StatefulWidget {
   final Widget child;
   const _GlobalKeyboardUnfocusWrapper({required this.child});
-
   @override
-  State<_GlobalKeyboardUnfocusWrapper> createState() =>
-      __GlobalKeyboardUnfocusWrapperState();
+  State<_GlobalKeyboardUnfocusWrapper> createState() => __GlobalKeyboardUnfocusWrapperState();
 }
 
-class __GlobalKeyboardUnfocusWrapperState
-    extends State<_GlobalKeyboardUnfocusWrapper>
-    with WidgetsBindingObserver {
+class __GlobalKeyboardUnfocusWrapperState extends State<_GlobalKeyboardUnfocusWrapper> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
@@ -240,13 +240,9 @@ class __GlobalKeyboardUnfocusWrapperState
     super.didChangeMetrics();
     try {
       final dispatcher = WidgetsBinding.instance.platformDispatcher;
-      final view =
-          dispatcher.implicitView ??
-          (dispatcher.views.isNotEmpty ? dispatcher.views.first : null);
+      final view = dispatcher.implicitView ?? (dispatcher.views.isNotEmpty ? dispatcher.views.first : null);
       if (view != null && view.viewInsets.bottom == 0.0) {
-        // Klavye kapandığında eğer bir focus varsa sitä unfocus yap
-        if (FocusManager.instance.primaryFocus != null &&
-            FocusManager.instance.primaryFocus!.hasFocus) {
+        if (FocusManager.instance.primaryFocus != null && FocusManager.instance.primaryFocus!.hasFocus) {
           FocusManager.instance.primaryFocus?.unfocus();
         }
       }

@@ -1,6 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'user_permission_service.dart';
 
 /// Dönem yönetimi için merkezi servis
 /// 
@@ -36,7 +37,7 @@ class TermService {
       if (user == null) return null;
       
       final email = user.email!;
-      final institutionId = email.split('@')[1].split('.')[0].toUpperCase();
+      final institutionId = await UserPermissionService.resolveInstitutionId(email);
       
       final snapshot = await FirebaseFirestore.instance
           .collection('terms')
@@ -90,11 +91,11 @@ class TermService {
   }
   
   /// Institution ID'yi al
-  String? getInstitutionId() {
+  Future<String> getInstitutionId() async {
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return null;
+    if (user == null) return 'GMAIL';
     final email = user.email!;
-    return email.split('@')[1].split('.')[0].toUpperCase();
+    return await UserPermissionService.resolveInstitutionId(email);
   }
 
   /// Mevcut verileri (termId null olanları) aktif döneme ata
@@ -106,8 +107,8 @@ class TermService {
       return 0;
     }
 
-    final institutionId = getInstitutionId();
-    if (institutionId == null) return 0;
+    final institutionId = await getInstitutionId();
+    if (institutionId == 'GMAIL') return 0;
 
     int migratedCount = 0;
     final collections = ['students', 'classes', 'lessons', 'classrooms', 'yearlyPlans', 'workPeriods'];
@@ -170,8 +171,8 @@ class TermService {
   /// Tüm verileri sil (öğrenciler, sınıflar, dersler, derslikler, planlar, duyurular vb.)
   /// DİKKAT: Bu işlem geri alınamaz!
   Future<int> deleteAllData() async {
-    final institutionId = getInstitutionId();
-    if (institutionId == null) return 0;
+    final institutionId = await getInstitutionId();
+    if (institutionId == 'GMAIL') return 0;
 
     int deletedCount = 0;
     final collections = [

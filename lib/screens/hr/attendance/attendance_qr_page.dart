@@ -1,3 +1,4 @@
+import 'package:edukn/services/user_permission_service.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -39,8 +40,7 @@ class _AttendanceQrPageState extends State<AttendanceQrPage> {
     if (user == null) return;
     
     final email = user.email ?? '';
-    final domain = email.contains('@') ? email.split('@')[1] : '';
-    final instId = domain.contains('.') ? domain.split('.')[0].toUpperCase() : 'UNKNOWN';
+    final instId = await UserPermissionService.resolveInstitutionId(email);
 
     final ts = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     // Format: "edukn_attendance:INSTID:TIMESTAMP"

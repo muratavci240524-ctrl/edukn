@@ -34,8 +34,9 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
   @override
   void initState() {
     super.initState();
-    _getInstitutionId();
-    _loadUserPermissions();
+    _loadUserPermissions().then((_) {
+      _getInstitutionId();
+    });
   }
 
   // Kullanıcı yetkilendirme bilgilerini yükle
@@ -71,7 +72,7 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
     if (userData == null) return true;
 
     final role = (userData!['role'] as String?)?.toLowerCase();
-    if (role == 'genel_mudur') return true;
+    if (role == 'genel_mudur' || role == 'admin') return true;
 
     // Önce genel modül erişimi kontrol et
     if (!_hasSchoolTypeAccess()) return false;
@@ -94,7 +95,7 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
     if (userData == null) return true;
 
     final role = (userData!['role'] as String?)?.toLowerCase();
-    if (role == 'genel_mudur') return true;
+    if (role == 'genel_mudur' || role == 'admin') return true;
 
     // Önce genel modül erişimi kontrol et
     if (!_hasSchoolTypeAccess()) return false;
@@ -132,7 +133,7 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                data['schoolTypeName'] ?? data['typeName'] ?? 'İsimsiz',
+                data['name'] ?? data['schoolTypeName'] ?? data['typeName'] ?? 'İsimsiz',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               SizedBox(height: 16),
@@ -227,7 +228,7 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       final email = user.email!;
-      final derivedId = email.split('@')[1].split('.')[0].toUpperCase();
+      final derivedId = await UserPermissionService.resolveInstitutionId(email, userData: userData);
       
       if (mounted) {
         setState(() {
@@ -235,7 +236,9 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
         });
       }
 
-      // Gerçek kurum ID'sini kullanıcı verisinden al (daha güvenli)
+      // Kapatıldı: Servisten gelen kanonik/gerçek ID'yi (derivedId) kullanmamız gerekiyor.
+      // Sizin profilinizdeki veriyi direkt kullanmak büyük/küçük harf çakışmasına sebep oluyor.
+      /*
       final data = await UserPermissionService.loadUserData();
       if (data != null && data['institutionId'] != null) {
         if (mounted) {
@@ -244,6 +247,7 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
           });
         }
       }
+      */
     }
   }
 
@@ -584,7 +588,7 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
                                   MaterialPageRoute(
                                     builder: (context) => SchoolTypeDetailScreen(
                                       schoolTypeId: doc.id,
-                                      schoolTypeName: data['schoolTypeName'] ?? data['typeName'] ?? 'Okul Türü',
+                                      schoolTypeName: data['name'] ?? data['schoolTypeName'] ?? data['typeName'] ?? 'Okul Türü',
                                       institutionId: institutionId!,
                                     ),
                                   ),
@@ -657,7 +661,7 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
                                           ),
                                           SizedBox(height: 4),
                                           Text(
-                                            data['schoolTypeName'] ?? data['typeName'] ?? 'İsimsiz Okul Türü',
+                                            data['name'] ?? data['schoolTypeName'] ?? data['typeName'] ?? 'İsimsiz Okul Türü',
                                             style: TextStyle(
                                               fontSize: 18,
                                               fontWeight: FontWeight.bold,

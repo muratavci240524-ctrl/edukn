@@ -60,14 +60,38 @@ class UserPermissionService {
 
         final userQuery = await FirebaseFirestore.instance
             .collection('users')
-            .where('email', isEqualTo: user.email)
-            .limit(1)
+            .where('email', isEqualTo: user.email?.toLowerCase())
             .get();
 
         if (userQuery.docs.isNotEmpty) {
-          userData = userQuery.docs.first.data();
-          userData['id'] = userQuery.docs.first.id;
-          print('✅ Email ile kullanıcı bulundu: ${userData['fullName']}');
+          // Eğer birden fazla doküman varsa, gerçek bir institutionId'si olanı tercih et
+          QueryDocumentSnapshot? bestDoc;
+          for (var doc in userQuery.docs) {
+            final data = doc.data() as Map<String, dynamic>;
+            final instId = data['institutionId']?.toString();
+            if (instId != null && instId.isNotEmpty && instId.toUpperCase() != 'GMAIL') {
+              bestDoc = doc;
+              break;
+            }
+          }
+          
+          if (bestDoc == null) {
+             for (var doc in userQuery.docs) {
+               final data = doc.data() as Map<String, dynamic>;
+               if (data['institutionId'] != null) {
+                 bestDoc = doc;
+                 break;
+               }
+             }
+          }
+          
+          final selectedDoc = bestDoc ?? userQuery.docs.first;
+          userData = selectedDoc.data() as Map<String, dynamic>;
+          userData['id'] = selectedDoc.id;
+          print('✅ Email ile kullanıcı bulundu: ${userData['fullName']} (ID: ${selectedDoc.id})');
+          if (userData['institutionId'] == null) {
+            print('⚠️ UYARI: Kullanıcının institutionId bilgisi boş!');
+          }
         } else {
           // Email ile bulunamazsa doküman ID'si olarak UID'yi dene
           print('🔍 Email ile bulunamadı, UID (doc id) deneniyor...');
@@ -104,10 +128,27 @@ class UserPermissionService {
         }
       }
 
-      if (userData != null) {
-        print('📋 Modül yetkileri: ${userData['modulePermissions']}');
-      } else {
-        print('ℹ️ Admin kullanıcısı - Firestore\'da kullanıcı kaydı yok');
+      if (userData == null) {
+        // Parents koleksiyonunda ara
+        print('🔍 Users koleksiyonunda bulunamadı, parents koleksiyonu deneniyor...');
+        final parentQuery = await FirebaseFirestore.instance
+            .collection('parents')
+            .where('username', isEqualTo: user.email?.split('@')[0])
+            .limit(1)
+            .get();
+            
+        if (parentQuery.docs.isNotEmpty) {
+          userData = parentQuery.docs.first.data();
+          userData!['id'] = parentQuery.docs.first.id;
+          userData['role'] = 'parent';
+          print('✅ Parent olarak bulundu: ${userData['fullName'] ?? userData['name']}');
+        }
+      }
+
+      if (userData == null) {
+        // Eğer hala bulunamadıysa ama bu bir admin ise (Email'den veya ID'den anlayabiliyorsak)
+        // Şimdilik null dönüyoruz ama hasModuleAccess içinde null userData = admin yetkisi veriyoruz
+        print('ℹ️ Kullanıcı verisi bulunamadı, varsayılan yetkiler kullanılacak.');
       }
 
       _cachedUserData = userData;
@@ -137,7 +178,8 @@ class UserPermissionService {
     if (userData == null) return true; // Admin has full access
 
     final role = (userData['role'] as String?)?.toLowerCase();
-    if (role == 'genel_mudur' || role == 'genel müdür' || role == 'genel mudur') return true;
+    // Admin veya Genel Müdür her zaman tam yetkilidir
+    if (role == 'admin' || role == 'genel_mudur' || role == 'genel müdür' || role == 'genel mudur') return true;
 
     final modulePerms = userData['modulePermissions'] as Map<String, dynamic>?;
 
@@ -175,7 +217,7 @@ class UserPermissionService {
     if (userData == null) return true;
 
     final role = (userData['role'] as String?)?.toLowerCase();
-    if (role == 'genel_mudur' || role == 'genel müdür' || role == 'genel mudur') return true;
+    if (role == 'genel_mudur' || role == 'genel müdür' || role == 'genel mudur' || role == 'admin') return true;
 
     final modulePerms = userData['modulePermissions'] as Map<String, dynamic>?;
 
@@ -205,7 +247,7 @@ class UserPermissionService {
     if (userData == null) return true;
 
     final role = (userData['role'] as String?)?.toLowerCase();
-    if (role == 'genel_mudur' || role == 'genel müdür' || role == 'genel mudur') return true;
+    if (role == 'genel_mudur' || role == 'genel müdür' || role == 'genel mudur' || role == 'admin') return true;
 
     final modulePerms = userData['modulePermissions'] as Map<String, dynamic>?;
 
@@ -240,7 +282,7 @@ class UserPermissionService {
     if (userData == null) return true;
 
     final role = (userData['role'] as String?)?.toLowerCase();
-    if (role == 'genel_mudur' || role == 'genel müdür' || role == 'genel mudur') return true;
+    if (role == 'genel_mudur' || role == 'genel müdür' || role == 'genel mudur' || role == 'admin') return true;
 
     final modulePerms = userData['modulePermissions'] as Map<String, dynamic>?;
 
@@ -271,7 +313,7 @@ class UserPermissionService {
     if (userData == null) return false;
     
     final role = (userData['role'] as String?)?.toLowerCase();
-    if (role == 'genel_mudur') return true; // Genel müdür her zaman erişir
+    if (role == 'genel_mudur' || role == 'admin') return true; // Genel müdür ve admin her zaman erişir
 
     final modulePerms = userData['modulePermissions'] as Map<String, dynamic>?;
     if (modulePerms == null) return false;
@@ -295,5 +337,48 @@ class UserPermissionService {
       return userData['fullName'] ?? 'Kullanıcı';
     }
     return 'Yönetici';
+  }
+
+  /// Kurum ID'sini çözümler
+  /// Öncelik sırası: 1. userData['institutionId'], 2. Email domain (kurumsal ise)
+  static Future<String> resolveInstitutionId(String email, {Map<String, dynamic>? userData}) async {
+    if (userData != null) {
+      // ÖNEMLİ DÜZELTME: Büyük/küçük harf uyuşmazlıklarını (örn: ABC06 vs abc06) aşmak için,
+      // varsa önce schoolId üzerinden schools koleksiyonundaki orijinal (canonical) institutionId'yi al.
+      final schoolId = userData['schoolId'];
+      if (schoolId != null && schoolId.toString().isNotEmpty) {
+        try {
+          final schoolDoc = await FirebaseFirestore.instance.collection('schools').doc(schoolId).get();
+          if (schoolDoc.exists) {
+            final realInstId = schoolDoc.data()?['institutionId'];
+            if (realInstId != null && realInstId.toString().isNotEmpty) {
+              return realInstId.toString();
+            }
+          }
+        } catch (e) {
+          print('Kanonik kurum ID çözümlenirken hata: $e');
+        }
+      }
+
+      // Eğer schoolId yoksa veya bulunamadıysa, userData içindeki değere geri dön
+      if (userData.containsKey('institutionId') && userData['institutionId'] != null) {
+        return userData['institutionId'].toString();
+      }
+    }
+
+    final lowerEmail = email.toLowerCase();
+    if (lowerEmail.contains('@')) {
+      final domain = lowerEmail.split('@')[1];
+      final genericDomains = [
+        'gmail.com', 'hotmail.com', 'outlook.com', 'yahoo.com', 
+        'icloud.com', 'yandex.com', 'windowslive.com', 'live.com'
+      ];
+
+      if (!genericDomains.contains(domain) && domain.contains('.')) {
+        return domain.split('.')[0].toUpperCase();
+      }
+    }
+
+    return 'GMAIL';
   }
 }

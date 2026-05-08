@@ -1,3 +1,4 @@
+import 'package:edukn/services/user_permission_service.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -61,10 +62,9 @@ class _ShiftManagementScreenState extends State<ShiftManagementScreen>
           _myInstitutionId = userDoc.data()!['institutionId'];
           debugPrint('🆔 Found Institution ID in user doc: $_myInstitutionId');
         } else if (user.email != null) {
-          // Fallback to email domain
-          final domain = user.email!.split('@')[1];
-          _myInstitutionId = domain.split('.')[0].toUpperCase();
-          debugPrint('🆔 Derived Institution ID from email: $_myInstitutionId (${user.email})');
+          // Fallback to unified resolve logic
+          _myInstitutionId = await UserPermissionService.resolveInstitutionId(user.email!);
+          debugPrint('🆔 Derived Institution ID: $_myInstitutionId (${user.email})');
         }
       }
     }

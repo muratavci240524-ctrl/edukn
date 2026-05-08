@@ -24,18 +24,21 @@ class ClassManagementScreen extends StatefulWidget {
 class _ClassManagementScreenState extends State<ClassManagementScreen> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
-  String? _selectedClassType;
-  int? _selectedLevel;
+  Set<String> _selectedClassTypes = {};
+  Set<int> _selectedLevels = {};
   List<ClassTypeModel> _classTypes = [];
   String? _selectedClassId;
   Map<String, dynamic>? _selectedClass;
   String? _currentTermId; // Seçili dönem
   bool _isViewingPastTerm = false; // Geçmiş dönem görüntüleniyor mu?
+  Set<int> _schoolTypeLevels = {}; // Okul türüne tanımlı aktif seviyeler
+  final ValueNotifier<List<int>> _availableLevelsNotifier = ValueNotifier<List<int>>([]); // Hem tanımdan hem veriden gelen tüm seviyeler
 
   @override
   void initState() {
     super.initState();
     _loadTermAndInitialize();
+    _loadSchoolTypeLevels();
   }
 
   @override
@@ -88,6 +91,7 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _availableLevelsNotifier.dispose();
     super.dispose();
   }
 
@@ -139,6 +143,49 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
     }
   }
 
+  Future<void> _loadSchoolTypeLevels() async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('schoolTypes')
+          .doc(widget.schoolTypeId)
+          .get();
+
+      if (doc.exists && mounted) {
+        final data = doc.data();
+        final levels = data?['activeGrades'] as List<dynamic>?;
+        if (levels != null) {
+          final parsedLevels = levels
+              .map((e) {
+                final s = e.toString();
+                // Extract first number found in string (handles "5", "5. Sınıf", "5 Yaş" etc)
+                final match = RegExp(r'\d+').firstMatch(s);
+                return match != null ? int.tryParse(match.group(0)!) ?? 0 : 0;
+              })
+              .where((e) => e > 0)
+              .toSet();
+
+          setState(() {
+            _schoolTypeLevels = parsedLevels;
+            _updateAvailableLevels();
+          });
+        }
+      }
+    } catch (e) {
+      print('Okul türü seviyeleri yüklenirken hata: $e');
+    }
+  }
+
+  void _updateAvailableLevels([List<int>? dataLevels]) {
+    final combined = {..._schoolTypeLevels, ...(dataLevels ?? [])}.toList();
+    combined.sort();
+    
+    // Sadece farklıysa güncelle (sonsuz döngüyü önlemek için)
+    if (_availableLevelsNotifier.value.length != combined.length ||
+        !_availableLevelsNotifier.value.every((l) => combined.contains(l))) {
+      _availableLevelsNotifier.value = combined;
+    }
+  }
+
   Stream<QuerySnapshot> _getClassesStream() {
     // Tüm sınıfları çek, dönem filtresi client-side yapılacak
     return FirebaseFirestore.instance
@@ -156,10 +203,10 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
           c.shortName.toLowerCase().contains(_searchQuery.toLowerCase());
 
       final matchesType =
-          _selectedClassType == null || c.classTypeId == _selectedClassType;
+          _selectedClassTypes.isEmpty || _selectedClassTypes.contains(c.classTypeId);
 
       final matchesLevel =
-          _selectedLevel == null || c.classLevel == _selectedLevel;
+          _selectedLevels.isEmpty || _selectedLevels.contains(c.classLevel);
 
       // Dönem filtresi: sadece seçili döneme ait olanları göster
       final matchesTerm = _currentTermId == null || 
@@ -284,18 +331,182 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.2),
+          color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.15),
           borderRadius: BorderRadius.circular(16),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? Colors.indigo : Colors.white,
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
+          border: Border.all(
+            color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.1),
+            width: 1,
           ),
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              color: isSelected ? Colors.indigo.shade700 : Colors.white,
+              fontSize: 13,
+              fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showClassTypeFilterSheet() {
+    final isWide = MediaQuery.of(context).size.width > 900;
+    final items = _classTypes.map((t) => FilterItem<String>(
+      value: t.id!,
+      label: t.typeName,
+      icon: Icons.layers_outlined,
+    )).toList();
+
+    if (isWide) {
+      _showMultiSelectDropdownWeb<String>(
+        title: 'Sınıf Tipi',
+        icon: Icons.category_rounded,
+        items: items,
+        initialSelectedValues: _selectedClassTypes,
+        onApply: (values) {
+          setState(() => _selectedClassTypes = values);
+        },
+      );
+    } else {
+      showModalBottomSheet(
+        context: context,
+        backgroundColor: Colors.transparent,
+        isScrollControlled: true,
+        builder: (context) => _MultiSelectFilterSheet<String>(
+          title: 'Sınıf Tipi Seçin',
+          icon: Icons.category_rounded,
+          items: items,
+          initialSelectedValues: _selectedClassTypes,
+          onApply: (values) {
+            setState(() => _selectedClassTypes = values);
+          },
+        ),
+      );
+    }
+  }
+
+  void _showLevelFilterSheet(List<int> availableLevels) {
+    final isWide = MediaQuery.of(context).size.width > 900;
+    final items = availableLevels.map((l) => FilterItem<int>(
+      value: l,
+      label: '$l. Sınıf',
+      icon: Icons.grade_outlined,
+    )).toList();
+
+    if (isWide) {
+      _showMultiSelectDropdownWeb<int>(
+        title: 'Sınıf Seviyesi',
+        icon: Icons.filter_list_rounded,
+        items: items,
+        initialSelectedValues: _selectedLevels,
+        onApply: (values) {
+          setState(() => _selectedLevels = values);
+        },
+        isGrid: true,
+      );
+    } else {
+      showModalBottomSheet(
+        context: context,
+        backgroundColor: Colors.transparent,
+        isScrollControlled: true,
+        builder: (context) => _MultiSelectFilterSheet<int>(
+          title: 'Sınıf Seviyesi Seçin',
+          icon: Icons.filter_list_rounded,
+          isGrid: true,
+          items: items,
+          initialSelectedValues: _selectedLevels,
+          onApply: (values) {
+            setState(() => _selectedLevels = values);
+          },
+        ),
+      );
+    }
+  }
+
+  void _showMultiSelectDropdownWeb<T>({
+    required String title,
+    required IconData icon,
+    required List<FilterItem<T>> items,
+    required Set<T> initialSelectedValues,
+    required Function(Set<T>) onApply,
+    bool isGrid = false,
+  }) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withOpacity(0.05),
+      builder: (context) => Stack(
+        children: [
+          Positioned(
+            left: 20, // Filtre butonlarının olduğu yere yakın konumlandır
+            top: 180, // Üst menünün altına denk gelecek şekilde
+            child: Material(
+              color: Colors.transparent,
+              child: _MultiSelectFilterSheet<T>(
+                title: title,
+                icon: icon,
+                items: items,
+                initialSelectedValues: initialSelectedValues,
+                onApply: onApply,
+                isGrid: isGrid,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterButton({
+    required IconData icon,
+    required String label,
+    required bool isActive,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: isActive ? Colors.white : Colors.white.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isActive ? Colors.white : Colors.white.withValues(alpha: 0.1),
+            width: 1,
+          ),
+          boxShadow: isActive ? [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 8,
+              offset: Offset(0, 2),
+            )
+          ] : null,
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              size: 16,
+              color: isActive ? Colors.indigo.shade700 : Colors.white,
+            ),
+            SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: isActive ? Colors.indigo.shade700 : Colors.white,
+                  fontSize: 13,
+                  fontWeight: isActive ? FontWeight.bold : FontWeight.w500,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -303,9 +514,6 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Her build'de dönem kontrolü yap
-    _reloadTermFilter();
-    
     final isWideScreen = MediaQuery.of(context).size.width > 900;
 
     return Scaffold(
@@ -464,125 +672,45 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
                           Expanded(
                             child: _buildFilterChip(
                               'Tümü',
-                              _selectedClassType == null && _selectedLevel == null,
+                              _selectedClassTypes.isEmpty && _selectedLevels.isEmpty && _searchQuery.isEmpty,
                               () {
                                 setState(() {
-                                  _selectedClassType = null;
-                                  _selectedLevel = null;
+                                  _selectedClassTypes = {};
+                                  _selectedLevels = {};
+                                  _searchQuery = '';
+                                  _searchController.clear();
                                 });
                               },
                             ),
                           ),
                           SizedBox(width: 8),
                           Expanded(
-                            child: PopupMenuButton<String>(
-                              child: Container(
-                                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                decoration: BoxDecoration(
-                                  color: _selectedClassType != null
-                                      ? Colors.white
-                                      : Colors.white.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.category,
-                                      size: 16,
-                                      color: _selectedClassType != null
-                                          ? Colors.indigo
-                                          : Colors.white,
-                                    ),
-                                    SizedBox(width: 4),
-                                    Flexible(
-                                      child: Text(
-                                        _selectedClassType != null
-                                            ? _classTypes.firstWhere((t) => t.id == _selectedClassType).typeName
-                                            : 'Tip',
-                                        style: TextStyle(
-                                          color: _selectedClassType != null
-                                              ? Colors.indigo
-                                              : Colors.white,
-                                          fontSize: 13,
-                                        ),
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              itemBuilder: (context) => [
-                                PopupMenuItem(
-                                  value: null,
-                                  child: Text('Tümü'),
-                                ),
-                                ..._classTypes.map((type) {
-                                  return PopupMenuItem(
-                                    value: type.id,
-                                    child: Text(type.typeName),
-                                  );
-                                }).toList(),
-                              ],
-                              onSelected: (value) {
-                                setState(() {
-                                  _selectedClassType = value;
-                                });
-                              },
+                            child: _buildFilterButton(
+                              icon: Icons.category,
+                              label: _selectedClassTypes.isEmpty
+                                  ? 'Tip'
+                                  : _selectedClassTypes.length == 1
+                                      ? _classTypes.firstWhere((t) => t.id == _selectedClassTypes.first).typeName
+                                      : 'Tip (${_selectedClassTypes.length})',
+                              isActive: _selectedClassTypes.isNotEmpty,
+                              onTap: _showClassTypeFilterSheet,
                             ),
                           ),
                           SizedBox(width: 8),
                           Expanded(
-                            child: PopupMenuButton<int>(
-                              child: Container(
-                                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                decoration: BoxDecoration(
-                                  color: _selectedLevel != null
-                                      ? Colors.white
-                                      : Colors.white.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.filter_list,
-                                      size: 16,
-                                      color: _selectedLevel != null
-                                          ? Colors.indigo
-                                          : Colors.white,
-                                    ),
-                                    SizedBox(width: 4),
-                                    Text(
-                                      _selectedLevel != null
-                                          ? '$_selectedLevel'
-                                          : 'Seviye',
-                                      style: TextStyle(
-                                        color: _selectedLevel != null
-                                            ? Colors.indigo
-                                            : Colors.white,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              itemBuilder: (context) => [
-                                PopupMenuItem(
-                                  value: null,
-                                  child: Text('Tümü'),
-                                ),
-                                ...List.generate(12, (i) => i + 1).map((level) {
-                                  return PopupMenuItem(
-                                    value: level,
-                                    child: Text('$level. Sınıf'),
-                                  );
-                                }).toList(),
-                              ],
-                              onSelected: (value) {
-                                setState(() {
-                                  _selectedLevel = value;
-                                });
+                            child: ValueListenableBuilder<List<int>>(
+                              valueListenable: _availableLevelsNotifier,
+                              builder: (context, availableLevels, _) {
+                                return _buildFilterButton(
+                                  icon: Icons.filter_list,
+                                  label: _selectedLevels.isEmpty
+                                      ? 'Seviye'
+                                      : _selectedLevels.length == 1
+                                          ? '${_selectedLevels.first}. Sınıf'
+                                          : 'Seviye (${_selectedLevels.length})',
+                                  isActive: _selectedLevels.isNotEmpty,
+                                  onTap: () => _showLevelFilterSheet(availableLevels),
+                                );
                               },
                             ),
                           ),
@@ -663,6 +791,13 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
                           .map((doc) => ClassModel.fromMap(
                               doc.data() as Map<String, dynamic>, doc.id))
                           .toList();
+
+                      // Mevcut verilerden seviyeleri topla ve notifier'ı güncelle
+                      final dataLevels = allClasses.map((c) => c.classLevel).toSet().toList();
+                      dataLevels.sort();
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) _updateAvailableLevels(dataLevels);
+                      });
 
                       final filteredClasses = _filterClasses(allClasses);
 
@@ -1245,13 +1380,23 @@ class _ClassLessonListCardState extends State<_ClassLessonListCard> {
   }
 
   void _showLessonListDialog() {
-    final isMobile = MediaQuery.of(context).size.width < 600;
+    final isMobile = MediaQuery.of(context).size.width < 768;
     
-    if (isMobile) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => _LessonListDialog(
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      useSafeArea: false,
+      builder: (context) => Align(
+        alignment: Alignment.bottomCenter,
+        child: Container(
+          constraints: isMobile ? null : const BoxConstraints(maxWidth: 850),
+          height: isMobile ? MediaQuery.of(context).size.height : MediaQuery.of(context).size.height * 0.9,
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: _LessonListDialog(
             classId: widget.classId,
             className: widget.className,
             schoolTypeId: widget.schoolTypeId,
@@ -1260,20 +1405,8 @@ class _ClassLessonListCardState extends State<_ClassLessonListCard> {
             onCopyLessons: _copyLessonsToOtherClasses,
           ),
         ),
-      );
-    } else {
-      showDialog(
-        context: context,
-        builder: (context) => _LessonListDialog(
-          classId: widget.classId,
-          className: widget.className,
-          schoolTypeId: widget.schoolTypeId,
-          institutionId: widget.institutionId,
-          onLessonsChanged: _loadLessonData,
-          onCopyLessons: _copyLessonsToOtherClasses,
-        ),
-      );
-    }
+      ),
+    );
   }
 
   @override
@@ -1546,126 +1679,145 @@ class _LessonListDialogState extends State<_LessonListDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final isMobile = MediaQuery.of(context).size.width < 600;
-
-    if (isMobile) {
-      return Scaffold(
-        appBar: AppBar(
-          title: Text('Ders Listesi - ${widget.className}'),
-          backgroundColor: Colors.teal,
-          foregroundColor: Colors.white,
-          actions: [
-            IconButton(
-              icon: Icon(Icons.add),
-              tooltip: 'Ders Ekle',
-              onPressed: _showAddLessonDialog,
+    return Column(
+      children: [
+        // HEADER
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.teal.shade700, Colors.teal.shade500],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
-            IconButton(
-              icon: Icon(Icons.copy),
-              tooltip: 'Dersleri Kopyala',
-              onPressed: () {
-                Navigator.pop(context);
-                widget.onCopyLessons();
-              },
-            ),
-          ],
-        ),
-        body: _buildContent(),
-      );
-    }
-
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Container(
-        width: 500,
-        height: 500,
-        child: Column(
-          children: [
-            // Header
-            Container(
-              padding: EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.teal,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.book, color: Colors.white),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Ders Listesi',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text(
-                          widget.className,
-                          style: TextStyle(color: Colors.white70, fontSize: 12),
-                        ),
-                      ],
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: SafeArea(
+            bottom: false,
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.book_rounded, color: Colors.white, size: 24),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Ders Listesi',
+                        style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                      ),
+                      Text(
+                        widget.className,
+                        style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 14),
+                      ),
+                    ],
+                  ),
+                ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      onPressed: _showAddLessonDialog,
+                      icon: const Icon(Icons.add_task_rounded, color: Colors.white),
+                      tooltip: 'Ders Ekle',
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.white.withOpacity(0.15),
+                        padding: const EdgeInsets.all(10),
+                      ),
                     ),
-                  ),
-                  IconButton(
-                    icon: Icon(Icons.add, color: Colors.white),
-                    tooltip: 'Ders Ekle',
-                    onPressed: _showAddLessonDialog,
-                  ),
-                  IconButton(
-                    icon: Icon(Icons.copy, color: Colors.white),
-                    tooltip: 'Kopyala',
-                    onPressed: () {
-                      Navigator.pop(context);
-                      widget.onCopyLessons();
-                    },
-                  ),
-                  IconButton(
-                    icon: Icon(Icons.close, color: Colors.white),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ],
-              ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        widget.onCopyLessons();
+                      },
+                      icon: const Icon(Icons.copy_all_rounded, color: Colors.white),
+                      tooltip: 'Kopyala',
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.white.withOpacity(0.15),
+                        padding: const EdgeInsets.all(10),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close_rounded, color: Colors.white),
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.white.withOpacity(0.15),
+                        padding: const EdgeInsets.all(10),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-            // Content
-            Expanded(child: _buildContent()),
-            // Footer
-            Container(
-              padding: EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: BorderRadius.vertical(bottom: Radius.circular(16)),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          ),
+        ),
+        // CONTENT
+        Expanded(
+          child: ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            child: Container(
+              color: Colors.grey.shade50,
+              child: _buildContent(),
+            ),
+          ),
+        ),
+        // FOOTER
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            boxShadow: [
+              BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -5)),
+            ],
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
                     '${_lessons.length} Ders',
-                    style: TextStyle(fontWeight: FontWeight.bold),
+                    style: TextStyle(color: Colors.grey.shade800, fontWeight: FontWeight.bold, fontSize: 16),
                   ),
                   Text(
-                    'Toplam: $_totalHours Saat/Hafta',
-                    style: TextStyle(
-                      color: Colors.teal,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    'Şubeye atanan toplam ders sayısı',
+                    style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
                   ),
                 ],
               ),
-            ),
-          ],
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.teal.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '$_totalHours Saat/Hafta',
+                  style: TextStyle(color: Colors.teal.shade700, fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
+      ],
     );
   }
 
   Widget _buildContent() {
     if (_isLoading) {
-      return Center(child: CircularProgressIndicator());
+      return const Center(child: CircularProgressIndicator());
     }
 
     if (_lessons.isEmpty) {
@@ -1673,69 +1825,135 @@ class _LessonListDialogState extends State<_LessonListDialog> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.book_outlined, size: 64, color: Colors.grey.shade400),
-            SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.book_outlined, size: 64, color: Colors.grey.shade400),
+            ),
+            const SizedBox(height: 24),
             Text(
               'Bu şubeye henüz ders atanmamış',
-              style: TextStyle(color: Colors.grey.shade600),
+              style: TextStyle(fontSize: 16, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
             ),
-            SizedBox(height: 16),
+            const SizedBox(height: 16),
             ElevatedButton.icon(
               onPressed: _showAddLessonDialog,
-              icon: Icon(Icons.add),
-              label: Text('Ders Ekle'),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
+              icon: const Icon(Icons.add_task_rounded),
+              label: const Text('Yeni Ders Ata'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.teal,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
             ),
           ],
         ),
       );
     }
 
-    return ListView.separated(
-      padding: EdgeInsets.all(8),
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       itemCount: _lessons.length,
-      separatorBuilder: (_, __) => Divider(height: 1),
       itemBuilder: (context, index) {
         final lesson = _lessons[index];
         final teacherNames = (lesson['teacherNames'] as List<dynamic>?)?.join(', ') ?? '';
 
-        return ListTile(
-          leading: CircleAvatar(
-            backgroundColor: Colors.teal.shade100,
-            child: Icon(Icons.book, color: Colors.teal, size: 20),
-          ),
-          title: Text(
-            lesson['lessonName'] ?? '',
-            style: TextStyle(fontWeight: FontWeight.w500),
-          ),
-          subtitle: teacherNames.isNotEmpty
-              ? Text(teacherNames, style: TextStyle(fontSize: 12))
-              : null,
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.teal.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  '${lesson['weeklyHours'] ?? 0} saat',
-                  style: TextStyle(
-                    color: Colors.teal.shade700,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-              SizedBox(width: 8),
-              IconButton(
-                icon: Icon(Icons.delete_outline, color: Colors.red, size: 20),
-                tooltip: 'Dersi Çıkar',
-                onPressed: () => _removeLesson(lesson['id'], lesson['lessonName'] ?? ''),
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.grey.shade100),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.02),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
               ),
             ],
+          ),
+          child: ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            leading: Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.teal.shade400, Colors.teal.shade600],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.teal.withOpacity(0.2),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: const Icon(Icons.book_rounded, color: Colors.white, size: 20),
+            ),
+            title: Text(
+              lesson['lessonName'] ?? '',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            subtitle: teacherNames.isNotEmpty
+                ? Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Row(
+                      children: [
+                        Icon(Icons.person_outline_rounded, size: 14, color: Colors.grey.shade500),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            teacherNames,
+                            style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : null,
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.teal.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '${lesson['weeklyHours'] ?? 0}s',
+                    style: TextStyle(
+                      color: Colors.teal.shade700,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.05),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.delete_outline_rounded, color: Colors.red, size: 20),
+                  ),
+                  tooltip: 'Dersi Çıkar',
+                  onPressed: () => _removeLesson(lesson['id'], lesson['lessonName'] ?? ''),
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -2823,6 +3041,269 @@ class _ClassFormSheetState extends State<_ClassFormSheet> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class FilterItem<T> {
+  final T value;
+  final String label;
+  final IconData icon;
+
+  FilterItem({required this.value, required this.label, required this.icon});
+}
+
+class _MultiSelectFilterSheet<T> extends StatefulWidget {
+  final String title;
+  final IconData icon;
+  final List<FilterItem<T>> items;
+  final Set<T> initialSelectedValues;
+  final Function(Set<T>) onApply;
+  final bool isGrid;
+
+  const _MultiSelectFilterSheet({
+    Key? key,
+    required this.title,
+    required this.icon,
+    required this.items,
+    required this.initialSelectedValues,
+    required this.onApply,
+    this.isGrid = false,
+  }) : super(key: key);
+
+  @override
+  _MultiSelectFilterSheetState<T> createState() => _MultiSelectFilterSheetState<T>();
+}
+
+class _MultiSelectFilterSheetState<T> extends State<_MultiSelectFilterSheet<T>> {
+  late Set<T> _selectedValues;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedValues = Set<T>.from(widget.initialSelectedValues);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isMobile = screenWidth < 600;
+
+    return Container(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Column(
+        mainAxisAlignment: isMobile ? MainAxisAlignment.end : MainAxisAlignment.start,
+        children: [
+          Container(
+            constraints: BoxConstraints(
+              maxWidth: isMobile ? double.infinity : 400,
+              maxHeight: isMobile ? MediaQuery.of(context).size.height * 0.8 : 500,
+            ),
+            margin: isMobile ? EdgeInsets.zero : EdgeInsets.zero,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: isMobile 
+                  ? BorderRadius.vertical(top: Radius.circular(32))
+                  : BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 20,
+                  offset: Offset(0, 10),
+                )
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Handle bar
+                Container(
+                  margin: EdgeInsets.only(top: 12),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                
+                // Header
+                Padding(
+                  padding: EdgeInsets.fromLTRB(24, 20, 16, 12),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.indigo.shade50,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(widget.icon, color: Colors.indigo.shade700, size: 24),
+                      ),
+                      SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              widget.title,
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF1E293B),
+                              ),
+                            ),
+                            Text(
+                              'Birden fazla seçim yapabilirsiniz',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.blueGrey.shade400,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(context),
+                        icon: Icon(Icons.close_rounded, color: Colors.blueGrey.shade400),
+                        style: IconButton.styleFrom(
+                          backgroundColor: Colors.grey.shade50,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                
+                Divider(height: 1, color: Colors.grey.shade100),
+                
+                Flexible(
+                  child: widget.isGrid 
+                    ? GridView.builder(
+                        shrinkWrap: true,
+                        padding: EdgeInsets.all(24),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: isMobile ? 2 : 3,
+                          crossAxisSpacing: 12,
+                          mainAxisSpacing: 12,
+                          childAspectRatio: 2.2,
+                        ),
+                        itemCount: widget.items.length,
+                        itemBuilder: (context, index) => _buildItem(widget.items[index]),
+                      )
+                    : ConstrainedBox(
+                        constraints: BoxConstraints(maxHeight: 400),
+                        child: ListView.builder(
+                          shrinkWrap: true,
+                          padding: EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                          itemCount: widget.items.length,
+                          itemBuilder: (context, index) => Padding(
+                            padding: EdgeInsets.only(bottom: 8),
+                            child: _buildItem(widget.items[index]),
+                          ),
+                        ),
+                      ),
+                ),
+                
+                // Action Buttons
+                Padding(
+                  padding: EdgeInsets.fromLTRB(24, 8, 24, isMobile ? 32 : 24),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextButton(
+                          onPressed: () {
+                            setState(() => _selectedValues.clear());
+                          },
+                          child: Text('Temizle'),
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.grey.shade600,
+                            padding: EdgeInsets.symmetric(vertical: 16),
+                          ),
+                        ),
+                      ),
+                      SizedBox(width: 16),
+                      Expanded(
+                        flex: 2,
+                        child: ElevatedButton(
+                          onPressed: () {
+                            widget.onApply(_selectedValues);
+                            Navigator.pop(context);
+                          },
+                          child: Text('Uygula', style: TextStyle(fontWeight: FontWeight.bold)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.indigo.shade600,
+                            foregroundColor: Colors.white,
+                            padding: EdgeInsets.symmetric(vertical: 16),
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildItem(FilterItem<T> item) {
+    final isSelected = _selectedValues.contains(item.value);
+    
+    return InkWell(
+      onTap: () {
+        setState(() {
+          if (isSelected) {
+            _selectedValues.remove(item.value);
+          } else {
+            _selectedValues.add(item.value);
+          }
+        });
+      },
+      borderRadius: BorderRadius.circular(16),
+      child: AnimatedContainer(
+        duration: Duration(milliseconds: 200),
+        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.indigo.shade50 : Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected ? Colors.indigo.shade600 : Colors.grey.shade200,
+            width: 1.5,
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: widget.isGrid ? MainAxisAlignment.center : MainAxisAlignment.start,
+          children: [
+            Icon(
+              item.icon,
+              size: 20,
+              color: isSelected ? Colors.indigo.shade600 : Colors.indigo.shade300,
+            ),
+            SizedBox(width: 12),
+            Flexible(
+              child: Text(
+                item.label,
+                style: TextStyle(
+                  color: isSelected ? Colors.indigo.shade700 : Color(0xFF334155),
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                  fontSize: 14,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (!widget.isGrid && isSelected) ...[
+              Spacer(),
+              Icon(Icons.check_circle_rounded, color: Colors.indigo.shade600, size: 20),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

@@ -93,14 +93,23 @@ class _StudentListCardState extends State<StudentListCard> {
       ),
       child: InkWell(
         onTap: () {
-          final isMobile = MediaQuery.of(context).size.width < 600;
+          final isMobile = MediaQuery.of(context).size.width < 768;
           
-          if (isMobile) {
-            // Mobil: Yeni sayfa olarak aç
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => StudentListDialog(
+          showModalBottomSheet(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            useSafeArea: false,
+            builder: (context) => Align(
+              alignment: Alignment.bottomCenter,
+              child: Container(
+                constraints: isMobile ? null : const BoxConstraints(maxWidth: 850),
+                height: isMobile ? MediaQuery.of(context).size.height : MediaQuery.of(context).size.height * 0.9,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                ),
+                child: StudentListDialog(
                   classId: widget.classId,
                   className: widget.className,
                   classTypeId: widget.classTypeId,
@@ -110,22 +119,8 @@ class _StudentListCardState extends State<StudentListCard> {
                   onStudentsChanged: _loadStudentCount,
                 ),
               ),
-            );
-          } else {
-            // Desktop: Dialog olarak aç
-            showDialog(
-              context: context,
-              builder: (context) => StudentListDialog(
-                classId: widget.classId,
-                className: widget.className,
-                classTypeId: widget.classTypeId,
-                classTypeName: widget.classTypeName,
-                schoolTypeId: widget.schoolTypeId,
-                institutionId: widget.institutionId,
-                onStudentsChanged: _loadStudentCount,
-              ),
-            );
-          }
+            ),
+          );
         },
         borderRadius: BorderRadius.circular(12),
         child: Padding(
@@ -416,7 +411,7 @@ class _StudentListDialogState extends State<StudentListDialog> {
 
   Widget _buildStudentList() {
     if (_isLoading) {
-      return Center(child: CircularProgressIndicator());
+      return const Center(child: CircularProgressIndicator());
     }
     
     if (_students.isEmpty) {
@@ -424,11 +419,23 @@ class _StudentListDialogState extends State<StudentListDialog> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.people_outline, size: 64, color: Colors.grey),
-            SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.people_outline_rounded, size: 64, color: Colors.grey.shade400),
+            ),
+            const SizedBox(height: 24),
             Text(
-              'Bu sınıfta henüz öğrenci yok',
-              style: TextStyle(color: Colors.grey),
+              'Bu şubede henüz öğrenci yok',
+              style: TextStyle(fontSize: 16, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Sağ üstteki butondan yeni öğrenci ekleyebilirsiniz',
+              style: TextStyle(fontSize: 14, color: Colors.grey.shade400),
             ),
           ],
         ),
@@ -436,28 +443,81 @@ class _StudentListDialogState extends State<StudentListDialog> {
     }
     
     return ListView.builder(
-      padding: EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       itemCount: _students.length,
       itemBuilder: (context, index) {
         final student = _students[index];
-        return Card(
-          margin: EdgeInsets.only(bottom: 8),
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.grey.shade100),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.02),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
           child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: Colors.indigo.shade100,
-              child: Text(
-                _getInitial(student['fullName']),
-                style: TextStyle(color: Colors.indigo),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            leading: Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.indigo.shade400, Colors.indigo.shade600],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.indigo.withOpacity(0.2),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Center(
+                child: Text(
+                  _getInitial(student['fullName']),
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                ),
               ),
             ),
-            title: Text(student['fullName']?.toString() ?? ''),
-            subtitle: Text('No: ${student['studentNo'] ?? '-'}'),
+            title: Text(
+              student['fullName']?.toString() ?? '',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            subtitle: Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Row(
+                children: [
+                  Icon(Icons.badge_outlined, size: 14, color: Colors.grey.shade500),
+                  const SizedBox(width: 4),
+                  Text(
+                    'No: ${student['studentNo'] ?? '-'}',
+                    style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
             trailing: IconButton(
               onPressed: () => _removeStudent(
                 student['id']?.toString() ?? '',
                 student['fullName']?.toString() ?? '',
               ),
-              icon: Icon(Icons.remove_circle, color: Colors.red),
+              icon: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.red.withOpacity(0.05),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.person_remove_rounded, color: Colors.red, size: 20),
+              ),
               tooltip: 'Sınıftan Çıkar',
             ),
           ),
@@ -468,112 +528,100 @@ class _StudentListDialogState extends State<StudentListDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final isMobile = MediaQuery.of(context).size.width < 600;
+    final isMobile = MediaQuery.of(context).size.width < 768;
     
-    // Mobil: Scaffold ile tam sayfa
-    if (isMobile) {
-      return Scaffold(
-        appBar: AppBar(
-          title: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(widget.className),
-              Text(
-                '${_students.length} Öğrenci',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.normal),
-              ),
-            ],
+    return Column(
+      children: [
+        // HEADER
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.indigo.shade700, Colors.indigo.shade500],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           ),
-          actions: [
-            IconButton(
-              onPressed: () {
-                _showAddStudentDialog();
-              },
-              icon: Icon(Icons.person_add),
-              tooltip: 'Yeni Öğrenci Ekle',
-            ),
-            if (_students.isNotEmpty)
-              IconButton(
-                onPressed: _copyStudentsToClass,
-                icon: Icon(Icons.copy_all),
-                tooltip: 'Öğrencileri Kopyala',
-              ),
-          ],
-        ),
-        body: _buildStudentList(),
-      );
-    }
-    
-    // Desktop: Dialog
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Container(
-        width: MediaQuery.of(context).size.width * 0.8,
-        height: MediaQuery.of(context).size.height * 0.8,
-        child: Column(
-          children: [
-            // Header
-            Container(
-              padding: EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.indigo,
-                borderRadius: BorderRadius.only(
-                  topLeft: Radius.circular(16),
-                  topRight: Radius.circular(16),
+          child: SafeArea(
+            bottom: false,
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.people_rounded, color: Colors.white, size: 24),
                 ),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.people, color: Colors.white),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.className,
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text(
-                          '${_students.length} Öğrenci',
-                          style: TextStyle(color: Colors.white70),
-                        ),
-                      ],
-                    ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        widget.className,
+                        style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                      ),
+                      Text(
+                        '${_students.length} Öğrenci',
+                        style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 14),
+                      ),
+                    ],
                   ),
-                  IconButton(
-                    onPressed: () {
-                      // Yeni öğrenci ekle dialog'unu aç
-                      _showAddStudentDialog();
-                    },
-                    icon: Icon(Icons.person_add, color: Colors.white),
-                    tooltip: 'Yeni Öğrenci Ekle',
-                  ),
-                  if (_students.isNotEmpty)
+                ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
                     IconButton(
-                      onPressed: _copyStudentsToClass,
-                      icon: Icon(Icons.copy_all, color: Colors.white),
-                      tooltip: 'Öğrencileri Kopyala',
+                      onPressed: _showAddStudentDialog,
+                      icon: const Icon(Icons.person_add_rounded, color: Colors.white),
+                      tooltip: 'Yeni Öğrenci Ekle',
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.white.withOpacity(0.15),
+                        padding: const EdgeInsets.all(10),
+                      ),
                     ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: Icon(Icons.close, color: Colors.white),
-                  ),
-                ],
-              ),
+                    if (_students.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      IconButton(
+                        onPressed: _copyStudentsToClass,
+                        icon: const Icon(Icons.copy_all_rounded, color: Colors.white),
+                        tooltip: 'Öğrencileri Kopyala',
+                        style: IconButton.styleFrom(
+                          backgroundColor: Colors.white.withOpacity(0.15),
+                          padding: const EdgeInsets.all(10),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(width: 8),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close_rounded, color: Colors.white),
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.white.withOpacity(0.15),
+                        padding: const EdgeInsets.all(10),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-
-            // Öğrenci Listesi
-            Expanded(
+          ),
+        ),
+        // CONTENT
+        Expanded(
+          child: ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            child: Container(
+              color: Colors.grey.shade50,
               child: _buildStudentList(),
             ),
-          ],
+          ),
         ),
-      ),
+      ],
     );
   }
 }

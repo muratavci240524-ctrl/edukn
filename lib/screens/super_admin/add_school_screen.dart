@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../../firebase_options.dart';
@@ -183,18 +185,15 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
     _modules = Map.fromEntries(
       AppModules.allModuleKeys.map((key) => MapEntry(key, true)),
     );
-    _isEditMode = widget.schoolId != null;
+      _isEditMode = widget.schoolId != null;
 
-    if (_isEditMode && widget.schoolData != null) {
-      // Düzenleme modunda mevcut verileri doldur
-      final data = widget.schoolData!;
+      if (_isEditMode && widget.schoolData != null) {
+        // Düzenleme modunda mevcut verileri doldur
+        final data = widget.schoolData!;
 
-      print('📝 Okul düzenleme modu - Veriler yükleniyor...');
+        print('📝 Okul düzenleme modu - Veriler yükleniyor...');
 
-      // Düzenleme modunda 4. adıma (Lisans Ayarları) direkt git
-      _currentStep = 3;
-
-      // WidgetsBinding ile frame sonrası yükle - UI'ın hazır olmasını bekle
+        // WidgetsBinding ile frame sonrası yükle - UI'ın hazır olmasını bekle
       WidgetsBinding.instance.addPostFrameCallback((_) {
         setState(() {
           _schoolNameController.text = data['schoolName'] ?? '';
@@ -299,7 +298,6 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
   // Firebase Auth kullanıcısı oluştur
   Future<String?> _createAuthUser(String email, String password) async {
     try {
-      // Firebase REST API kullanarak kullanıcı oluştur
       final apiKey = DefaultFirebaseOptions.currentPlatform.apiKey;
       final url =
           'https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=$apiKey';
@@ -328,6 +326,128 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
     } catch (e) {
       print('❌ Auth kullanıcı oluşturma hatası: $e');
       rethrow;
+    }
+  }
+
+  // Mevcut bir Firebase Auth kullanıcısının şifresini güncelle
+  // Önce eski email/şifre ile giriş yap, sonra idToken ile şifreyi değiştir
+  Future<bool> _updateAuthPassword(String email, String oldPasswordHint, String newPassword) async {
+    final apiKey = DefaultFirebaseOptions.currentPlatform.apiKey;
+    
+    // Firestore'dan kayıtlı şifreyi al (varsa)
+    try {
+      final userQuery = await FirebaseFirestore.instance
+          .collection('users')
+          .where('email', isEqualTo: email)
+          .limit(1)
+          .get();
+      
+      String? storedPassword;
+      if (userQuery.docs.isNotEmpty) {
+        storedPassword = userQuery.docs.first.data()['_tempPassword'] as String?;
+      }
+      
+      // Mevcut şifre ile giriş yap (kayıtlı temp şifre ya da hint)
+      final signInUrl = 'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=$apiKey';
+      final signInResp = await http.post(
+        Uri.parse(signInUrl),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'email': email,
+          'password': storedPassword ?? oldPasswordHint,
+          'returnSecureToken': true,
+        }),
+      );
+      
+      if (signInResp.statusCode != 200) {
+        print('⚠️ Mevcut şifre ile giriş yapılamadı, şifre güncellenemiyor');
+        // Yine de yeni şifreyi Firestore'da sakla - kullanıcı ilk girişte kendi güncelleyecek
+        if (userQuery.docs.isNotEmpty) {
+          await userQuery.docs.first.reference.update({'_tempPassword': newPassword});
+          print('💾 Yeni şifre geçici olarak Firestore\'a kaydedildi');
+        }
+        return false;
+      }
+      
+      final signInData = json.decode(signInResp.body);
+      final idToken = signInData['idToken'] as String;
+      
+      // idToken ile şifreyi güncelle
+      final updateUrl = 'https://identitytoolkit.googleapis.com/v1/accounts:update?key=$apiKey';
+      final updateResp = await http.post(
+        Uri.parse(updateUrl),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'idToken': idToken,
+          'password': newPassword,
+          'returnSecureToken': false,
+        }),
+      );
+      
+      if (updateResp.statusCode == 200) {
+        print('✅ Firebase Auth şifresi başarıyla güncellendi');
+        // Temp şifreyi temizle
+        if (userQuery.docs.isNotEmpty) {
+          await userQuery.docs.first.reference.update({'_tempPassword': FieldValue.delete()});
+        }
+        return true;
+      } else {
+        print('❌ Şifre güncelleme hatası: ${updateResp.body}');
+        return false;
+      }
+    } catch (e) {
+      print('❌ Şifre güncelleme exception: $e');
+      return false;
+    }
+  }
+
+  // Cloud Function üzerinden kullanıcı şifresini güncelle (Admin SDK)
+  Future<bool> _updatePasswordViaCloudFunction(String uid, String newPassword) async {
+    try {
+      print('🔑 Cloud Function ile şifre güncelleniyor: uid=$uid');
+      final callable = FirebaseFunctions.instance.httpsCallable('updateUserCredentials');
+      final result = await callable.call({'uid': uid, 'newPassword': newPassword});
+      final status = result.data['status'];
+      print('✅ Cloud Function sonuç: $status');
+      return status == 'success';
+    } catch (e) {
+      print('❌ Cloud Function şifre güncelleme hatası: $e');
+      return false;
+    }
+  }
+
+  // E-posta ile şifre sıfırlama (Firebase built-in)
+  Future<void> _sendPasswordResetEmail() async {
+    final email = _adminEmailController.text.trim();
+    if (email.isEmpty || !email.contains('@')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('⚠️ Geçerli bir e-posta adresi girin.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('📧 Şifre sıfırlama e-postası $email adresine gönderildi.'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ E-posta gönderilemedi: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -510,8 +630,11 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
 
       // Kullanıcı adı ve kurum ID'den benzersiz email oluştur
       final username = _adminUsernameController.text.trim().toLowerCase();
-      final institutionId = _institutionIdController.text.trim().toUpperCase();
-      final generatedEmail = '$username@$institutionId.edukn';
+      final institutionId = _institutionIdController.text.trim(); // DÜZELTİLDİ: toUpperCase() kaldırıldı
+      final generatedEmail = '$username@$institutionId.edukn'.toLowerCase();
+      final adminEmail = _adminEmailController.text.trim().isNotEmpty 
+          ? _adminEmailController.text.trim() 
+          : generatedEmail;
       final password = _adminPasswordController.text; // Şifre
 
       final Map<String, dynamic> data = {
@@ -524,7 +647,7 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
         'district': _selectedDistrict,
         'adminFullName': _adminFullNameController.text.trim(),
         'adminUsername': username,
-        'adminEmail': generatedEmail, // Otomatik oluşturulan email
+        'adminEmail': adminEmail, // İletişim veya otomatik e-posta
         'adminPhone': _adminPhoneController.text.trim(),
         'studentQuota': _studentQuota.toInt(),
         'activeModules': selectedModules,
@@ -596,10 +719,120 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
             .update(data);
         print('✅ Okul güncellendi: ${widget.schoolId}');
 
-        // Şifre değiştirilmişse Auth'da da güncelle
-        if (data.containsKey('adminPassword')) {
-          // TODO: Şifre güncelleme için Cloud Function gerekli
-          print('⚠️ Şifre değişikliği için Cloud Function gerekli');
+        // ✅ Admin bilgilerini users koleksiyonunda da güncelle
+        final adminUserId = widget.schoolData?['adminUserId'];
+        String? currentAuthId = adminUserId;
+        
+        // E-posta değişti mi veya AuthID eksik mi?
+        final bool isEmailChanged = widget.schoolData?['adminEmail'] != adminEmail;
+        
+        // Sadece AuthID yoksa yeni hesap oluştur. Email değişse bile önce mevcut hesabı
+        // bul; bulamazsan oluştur. Email değiştiğinde ESKİ DOKÜMAN SİLİNMELİ.
+        if (currentAuthId == null || isEmailChanged) {
+          String? newAuthId;
+          try {
+            print('🔍 Auth hesabı kontrol ediliyor/oluşturuluyor: $adminEmail');
+            newAuthId = await _createAuthUser(
+              adminEmail,
+              _adminPasswordController.text.isNotEmpty ? _adminPasswordController.text : '123456',
+            );
+            print('✅ Yeni Auth hesabı başarıyla oluşturuldu: $newAuthId');
+          } catch (e) {
+            print('⚠️ Auth hesabı oluşturma hatası: $e');
+            if (e.toString().contains('EMAIL_EXISTS')) {
+              print('ℹ️ Bu email zaten kayıtlı, mevcut UID aranıyor.');
+              final userSearch = await FirebaseFirestore.instance
+                  .collection('users')
+                  .where('email', isEqualTo: adminEmail)
+                  .limit(1)
+                  .get();
+              if (userSearch.docs.isNotEmpty) {
+                newAuthId = userSearch.docs.first.id;
+                print('✅ Mevcut authUserId bulundu: $newAuthId');
+              }
+            } else if (mounted) {
+               ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Giriş hesabı oluşturulamadı: $e'),
+                  backgroundColor: Colors.orange,
+                ),
+              );
+            }
+          }
+          
+          // Eğer email değişti ve yeni bir Auth ID elde edildiyse,
+          // ESKİ Firestore dokümanını sil (duplicate önleme)
+          if (isEmailChanged && newAuthId != null && adminUserId != null && adminUserId != newAuthId) {
+            try {
+              await FirebaseFirestore.instance.collection('users').doc(adminUserId).delete();
+              print('🗑️ Eski admin dokümanı silindi: $adminUserId');
+            } catch (e) {
+              print('⚠️ Eski doküman silinirken hata: $e');
+            }
+          }
+          
+          if (newAuthId != null) currentAuthId = newAuthId;
+        }
+
+        if (currentAuthId != null) {
+          final adminUpdateData = {
+            'authUserId': currentAuthId,
+            'fullName': _adminFullNameController.text.trim(),
+            'username': username,
+            'email': adminEmail,
+            'phone': _adminPhoneController.text.trim(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          };
+
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(currentAuthId)
+              .set({
+                ...adminUpdateData,
+                'role': 'genel_mudur',
+                'institutionId': _institutionIdController.text.trim(),
+                'schoolId': widget.schoolId,
+                'isActive': true,
+              }, SetOptions(merge: true));
+
+          // Okul dokümanındaki adminUserId'yi de güncelle
+          if (adminUserId != currentAuthId) {
+            await FirebaseFirestore.instance
+                .collection('schools')
+                .doc(widget.schoolId)
+                .update({'adminUserId': currentAuthId});
+          }
+
+          print('✅ Admin kullanıcı bilgileri güncellendi ve senkronize edildi');
+        }
+
+        // Şifre değiştirildiğinde Cloud Function ile Auth'u güncelle
+        if (data.containsKey('adminPassword') && data['adminPassword'].toString().isNotEmpty && currentAuthId != null) {
+          final newPass = data['adminPassword'].toString();
+          print('🔑 Şifre Cloud Function ile güncelleniyor...');
+          final updated = await _updatePasswordViaCloudFunction(currentAuthId!, newPass);
+          if (updated) {
+            print('✅ Auth şifresi başarıyla güncellendi');
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('✅ Şifre başarıyla güncellendi'),
+                  backgroundColor: Colors.green,
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            }
+          } else {
+            print('⚠️ Şifre güncellenemedi');
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('⚠️ Şifre güncellenemedi. Lütfen tekrar deneyin.'),
+                  backgroundColor: Colors.orange,
+                ),
+              );
+            }
+          }
         }
       } else {
         // Yeni kayıt - Önce Firebase Auth kullanıcısı oluştur
@@ -607,7 +840,7 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
         String? authUserId;
         try {
           authUserId = await _createAuthUser(
-            generatedEmail,
+            adminEmail,
             _adminPasswordController.text,
           );
           print('✅ Auth kullanıcı ID: $authUserId');
@@ -645,7 +878,7 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
           'username': username,
           'email': generatedEmail,
           'phone': _adminPhoneController.text.trim(),
-          'role': 'genel_mudur', // Okul yöneticisi
+          'role': 'genel_mudur', // DÜZELTİLDİ: 'admin' yerine 'genel_mudur'
           'isActive': true,
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
@@ -1103,19 +1336,38 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
                   : 'En az 6 karakter',
             ),
             validator: (v) {
-              // Edit modunda şifre opsiyonel
               if (_isEditMode) {
                 if (v != null && v.isNotEmpty && v.length < 6) {
                   return 'En az 6 karakter olmalı';
                 }
                 return null;
               }
-              // Yeni okul için zorunlu
               if (v == null || v.isEmpty) return 'Şifre gerekli';
               if (v.length < 6) return 'En az 6 karakter olmalı';
               return null;
             },
           ),
+          if (_isEditMode) ...[
+            SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _sendPasswordResetEmail,
+              icon: Icon(Icons.email_outlined, size: 18, color: Colors.indigo),
+              label: Text(
+                'Şifre Sıfırlama E-postası Gönder',
+                style: TextStyle(color: Colors.indigo, fontSize: 13),
+              ),
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(color: Colors.indigo.shade200),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              ),
+            ),
+            SizedBox(height: 4),
+            Text(
+              'Yetkililerin e-posta adresine şifre sıfırlama bağlantısı gönderilir.',
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+            ),
+          ],
         ],
       ),
     );

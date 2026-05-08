@@ -35,11 +35,11 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen> {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
 
-      final email = user.email!;
-      _institutionId = email.split('@')[1].split('.')[0].toUpperCase();
-
       final data = await UserPermissionService.loadUserData();
       setState(() => userData = data);
+      
+      final email = user.email!;
+      _institutionId = await UserPermissionService.resolveInstitutionId(email, userData: userData);
 
       await _refreshData();
     } catch (e) {

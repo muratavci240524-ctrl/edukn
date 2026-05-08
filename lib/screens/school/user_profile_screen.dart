@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import '../../services/user_permission_service.dart';
 
 class UserProfileScreen extends StatefulWidget {
   const UserProfileScreen({Key? key}) : super(key: key);
@@ -51,31 +52,23 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       if (user == null) return;
 
       final email = user.email!;
-      final institutionId = email.split('@')[1].split('.')[0].toUpperCase();
-      final username = email.split('@')[0];
+      final userData = await UserPermissionService.loadUserData();
+      final institutionId = await UserPermissionService.resolveInstitutionId(email, userData: userData);
+      final username = userData?['username'] ?? email.split('@')[0];
 
-      // Kullanıcı bilgilerini al
-      final userQuery = await FirebaseFirestore.instance
-          .collection('users')
-          .where('institutionId', isEqualTo: institutionId)
-          .where('username', isEqualTo: username)
-          .limit(1)
-          .get();
-
-      if (userQuery.docs.isNotEmpty) {
-        final userData = userQuery.docs.first.data();
+      if (userData != null) {
         setState(() {
-          _userId = userQuery.docs.first.id;
+          _userId = userData['id'] ?? user.uid;
           _fullName = userData['fullName'] ?? '';
           _username = userData['username'] ?? username;
           _role = userData['role'] ?? userData['title'] ?? 'Kullanıcı';
           _email = email;
           _photoUrl = userData['photoUrl'];
-          _isAdmin = false;
+          _isAdmin = userData['role'] == 'admin' || userData['role'] == 'superadmin';
           _isLoading = false;
         });
       } else {
-        // Admin kullanıcısı
+        // Fallback or Admin logic
         final schoolQuery = await FirebaseFirestore.instance
             .collection('schools')
             .where('institutionId', isEqualTo: institutionId)

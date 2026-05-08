@@ -4,7 +4,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:html' as html;
 
 class ProfileSettingsScreen extends StatefulWidget {
-  const ProfileSettingsScreen({Key? key}) : super(key: key);
+  final bool isSchoolSettings; // Okul bilgileri mi yoksa kişisel profil mi?
+  const ProfileSettingsScreen({Key? key, this.isSchoolSettings = false}) : super(key: key);
 
   @override
   _ProfileSettingsScreenState createState() => _ProfileSettingsScreenState();
@@ -31,8 +32,9 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   
   bool _isLoading = true;
   bool _isSaving = false;
-  bool _isAdmin = false; // Admin mi normal kullanıcı mı?
-  String? _logoUrl;
+  bool _isAdmin = false;
+  String? _logoUrl; // Okul Logosu
+  String? _profileImageUrl; // Kişisel Profil Fotoğrafı
   String? _schoolId;
   String? _userId;
   Map<String, dynamic>? _schoolData;
@@ -71,97 +73,119 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
 
-      final email = user.email!;
-      final institutionId = email.split('@')[1].split('.')[0].toUpperCase();
-      final username = email.split('@')[0]; // Kullanıcı adı
-
-      // Okul bilgilerini al
-      final schoolQuery = await FirebaseFirestore.instance
-          .collection('schools')
-          .where('institutionId', isEqualTo: institutionId)
-          .limit(1)
-          .get();
-
-      if (schoolQuery.docs.isEmpty) {
-        throw 'Okul bulunamadı!';
-      }
-
-      final schoolDoc = schoolQuery.docs.first;
-      _schoolData = schoolDoc.data();
-      _schoolId = schoolDoc.id;
-
-      // Kullanıcı tipini kontrol et - users koleksiyonunda var mı?
-      final userQuery = await FirebaseFirestore.instance
-          .collection('users')
-          .where('institutionId', isEqualTo: institutionId)
-          .where('username', isEqualTo: username)
-          .limit(1)
-          .get();
-
-      bool isAdmin = userQuery.docs.isEmpty; // users'da yoksa admin
+      final originalEmail = user.email!;
+      final searchEmail = originalEmail.toLowerCase();
+      
       Map<String, dynamic>? userData;
       String? userId;
+      String? currentInstitutionId;
 
-      if (!isAdmin) {
-        // Normal kullanıcı - kendi bilgilerini yükle
+      // --- ÇOK AŞAMALI AKILLI ARAMA ---
+      
+      // 1. Aşama: Standart Email Araması
+      var userQuery = await FirebaseFirestore.instance
+          .collection('users')
+          .where('email', isEqualTo: searchEmail)
+          .limit(1)
+          .get();
+
+      // 2. Aşama: authEmail Araması (Username girişi için)
+      if (userQuery.docs.isEmpty) {
+        userQuery = await FirebaseFirestore.instance
+            .collection('users')
+            .where('authEmail', isEqualTo: searchEmail)
+            .limit(1)
+            .get();
+      }
+
+      // 3. Aşama: Username Araması (Sistem mailinden username ayıklayarak)
+      if (userQuery.docs.isEmpty && searchEmail.contains('.edukn')) {
+        final extractedUsername = searchEmail.split('@')[0];
+        userQuery = await FirebaseFirestore.instance
+            .collection('users')
+            .where('username', isEqualTo: extractedUsername)
+            .limit(1)
+            .get();
+      }
+
+      // 4. Aşama: Orijinal Mail Araması (Case-sensitive eski kayıtlar için)
+      if (userQuery.docs.isEmpty && originalEmail != searchEmail) {
+        userQuery = await FirebaseFirestore.instance
+            .collection('users')
+            .where('email', isEqualTo: originalEmail)
+            .limit(1)
+            .get();
+      }
+
+      bool isAdmin = false;
+
+      if (userQuery.docs.isNotEmpty) {
         userData = userQuery.docs.first.data();
         userId = userQuery.docs.first.id;
+        currentInstitutionId = userData['institutionId']?.toString().toUpperCase();
         
         _fullNameController.text = userData['fullName'] ?? '';
         _userPhoneController.text = userData['phone'] ?? '';
         _userEmailController.text = userData['email'] ?? '';
+        _profileImageUrl = userData['profileImageUrl'];
         
-        print('ℹ️ Normal kullanıcı: ${userData['fullName']}');
+        // Rol kontrolü
+        final role = userData['role']?.toString().toLowerCase();
+        isAdmin = (role == 'genel_mudur' || role == 'admin');
+        
+        print('✅ Profil bulundu: ${_fullNameController.text}');
       } else {
-        // Admin - okul bilgilerini yükle
-        _schoolNameController.text = _schoolData!['schoolName'] ?? '';
-        _schoolAddressController.text = _schoolData!['schoolAddress'] ?? '';
-        _schoolPhoneController.text = _schoolData!['schoolPhone'] ?? '';
-        _schoolEmailController.text = _schoolData!['schoolEmail'] ?? '';
-        _logoUrl = _schoolData!['logoUrl'];
+        print('⚠️ Profil belgesi bulunamadı. Aranan: $searchEmail');
+      }
 
-        // Öğrenci sayısını al (sadece admin için)
-        final studentsQuery = await FirebaseFirestore.instance
-            .collection('students')
-            .where('institutionId', isEqualTo: institutionId)
+      // 2. Okul verilerini yükle (Eğer kurum ID varsa ve mod aktifse)
+      if (currentInstitutionId != null) {
+        final schoolDoc = await FirebaseFirestore.instance
+            .collection('schools')
+            .doc(currentInstitutionId)
             .get();
 
-        // Lisans bitiş tarihi hesapla
-        DateTime? licenseExpiresAt;
-        if (_schoolData!['licenseExpiresAt'] != null) {
-          licenseExpiresAt = (_schoolData!['licenseExpiresAt'] as Timestamp).toDate();
-        }
+        if (schoolDoc.exists) {
+          _schoolData = schoolDoc.data();
+          _schoolId = schoolDoc.id;
 
-        studentCount = studentsQuery.docs.length;
-        studentQuota = _schoolData!['studentQuota'] ?? 0;
-        isActive = _schoolData!['isActive'] ?? false;
-        if (licenseExpiresAt != null) {
-          remainingDays = licenseExpiresAt.difference(DateTime.now()).inDays;
+          _schoolNameController.text = _schoolData!['schoolName'] ?? '';
+          _schoolAddressController.text = _schoolData!['schoolAddress'] ?? '';
+          _schoolPhoneController.text = _schoolData!['schoolPhone'] ?? '';
+          _schoolEmailController.text = _schoolData!['schoolEmail'] ?? '';
+          _logoUrl = _schoolData!['logoUrl'];
+
+          // İstatistikler
+          final studentsQuery = await FirebaseFirestore.instance
+              .collection('students')
+              .where('institutionId', isEqualTo: currentInstitutionId)
+              .get();
+          studentCount = studentsQuery.docs.length;
+          
+          studentQuota = _schoolData!['studentQuota'] ?? 0;
+          isActive = _schoolData!['isActive'] ?? false;
+          
+          if (_schoolData!['licenseExpiresAt'] != null) {
+            final expires = (_schoolData!['licenseExpiresAt'] as Timestamp).toDate();
+            remainingDays = expires.difference(DateTime.now()).inDays;
+          }
         }
-        
-        print('ℹ️ Admin kullanıcısı: ${_schoolData!['schoolName']}');
       }
 
       setState(() {
         _isAdmin = isAdmin;
         _userData = userData;
         _userId = userId;
-        this.institutionId = institutionId;
+        this.institutionId = currentInstitutionId ?? '';
         _isLoading = false;
       });
     } catch (e) {
       print('Hata: $e');
       setState(() => _isLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Veriler yüklenemedi: $e'), backgroundColor: Colors.red),
-        );
-      }
     }
   }
 
-  Future<void> _pickLogo() async {
-    // Web için basit file picker
+  Future<void> _pickImage({bool isLogo = true}) async {
     final uploadInput = html.FileUploadInputElement()..accept = 'image/*';
     uploadInput.click();
 
@@ -169,13 +193,15 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
       final files = uploadInput.files;
       if (files!.isEmpty) return;
 
-      final file = files[0];
       final reader = html.FileReader();
-
-      reader.readAsDataUrl(file);
+      reader.readAsDataUrl(files[0]);
       reader.onLoadEnd.listen((e) {
         setState(() {
-          _logoUrl = reader.result as String?;
+          if (isLogo) {
+            _logoUrl = reader.result as String?;
+          } else {
+            _profileImageUrl = reader.result as String?;
+          }
         });
       });
     });
@@ -183,12 +209,11 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
 
   Future<void> _saveChanges() async {
     if (!_formKey.currentState!.validate()) return;
-
     setState(() => _isSaving = true);
 
     try {
-      if (_isAdmin) {
-        // ADMIN: Okul bilgilerini güncelle
+      if (widget.isSchoolSettings) {
+        // OKUL BİLGİLERİNİ GÜNCELLE
         await FirebaseFirestore.instance
             .collection('schools')
             .doc(_schoolId)
@@ -200,69 +225,45 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
           'logoUrl': _logoUrl,
           'updatedAt': FieldValue.serverTimestamp(),
         });
-        print('✅ Okul bilgileri güncellendi');
       } else {
-        // NORMAL KULLANICI: Kendi bilgilerini güncelle
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(_userId)
-            .update({
-          'fullName': _fullNameController.text.trim(),
-          'phone': _userPhoneController.text.trim(),
-          'email': _userEmailController.text.trim(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-        print('✅ Kullanıcı bilgileri güncellendi');
-      }
-
-      // Şifre değişikliği (hem admin hem kullanıcı için)
-      if (_newPasswordController.text.isNotEmpty) {
-        final user = FirebaseAuth.instance.currentUser!;
-        final credential = EmailAuthProvider.credential(
-          email: user.email!,
-          password: _currentPasswordController.text,
-        );
-
-        // Önce mevcut şifreyi doğrula
-        await user.reauthenticateWithCredential(credential);
+        // KİŞİSEL PROFİLİ GÜNCELLE
+        if (_userId != null) {
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(_userId)
+              .update({
+            'fullName': _fullNameController.text.trim(),
+            'phone': _userPhoneController.text.trim(),
+            'email': _userEmailController.text.trim(),
+            'profileImageUrl': _profileImageUrl,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        }
         
-        // Yeni şifreyi ayarla
-        await user.updatePassword(_newPasswordController.text);
-        
-        _currentPasswordController.clear();
-        _newPasswordController.clear();
-        _confirmPasswordController.clear();
-        print('✅ Şifre güncellendi');
+        // Şifre güncelleme
+        if (_newPasswordController.text.isNotEmpty) {
+          final user = FirebaseAuth.instance.currentUser!;
+          final credential = EmailAuthProvider.credential(
+            email: user.email!,
+            password: _currentPasswordController.text,
+          );
+          await user.reauthenticateWithCredential(credential);
+          await user.updatePassword(_newPasswordController.text);
+          _currentPasswordController.clear();
+          _newPasswordController.clear();
+          _confirmPasswordController.clear();
+        }
       }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('✅ Bilgileriniz başarıyla güncellendi!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } on FirebaseAuthException catch (e) {
-      String message = 'Bir hata oluştu!';
-      if (e.code == 'wrong-password') {
-        message = 'Mevcut şifreniz hatalı!';
-      } else if (e.code == 'weak-password') {
-        message = 'Yeni şifre çok zayıf!';
-      }
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message), backgroundColor: Colors.red),
+          SnackBar(content: Text('✅ Bilgiler başarıyla güncellendi!'), backgroundColor: Colors.green),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Hata: $e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -273,26 +274,10 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return Scaffold(
-        appBar: AppBar(
-          elevation: 0,
-          backgroundColor: Colors.white,
-          leading: IconButton(
-            icon: Icon(Icons.arrow_back, color: Colors.indigo),
-            onPressed: () => Navigator.pop(context),
-          ),
-          title: Text(
-            'Bilgilerimi Güncelle',
-            style: TextStyle(
-              color: Colors.grey.shade900,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return Scaffold(body: Center(child: CircularProgressIndicator()));
     }
+
+    final String title = widget.isSchoolSettings ? 'Okul Bilgileri' : 'Profilim';
 
     return Scaffold(
       appBar: AppBar(
@@ -302,14 +287,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
           icon: Icon(Icons.arrow_back, color: Colors.indigo),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Text(
-          'Bilgilerimi Güncelle',
-          style: TextStyle(
-            color: Colors.grey.shade900,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
+        title: Text(title, style: TextStyle(color: Colors.grey.shade900, fontSize: 18, fontWeight: FontWeight.bold)),
       ),
       body: Center(
         child: Container(
@@ -318,267 +296,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
             padding: EdgeInsets.all(24),
             child: Form(
               key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // İstatistik Kartları - Sadece Admin için
-                  if (_isAdmin) ...[
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildStatCard(
-                            icon: Icons.check_circle,
-                            iconColor: isActive ? Colors.green : Colors.red,
-                            title: 'Durum',
-                            value: isActive ? 'Aktif' : 'Pasif',
-                            bgColor: isActive ? Colors.green.shade50 : Colors.red.shade50,
-                          ),
-                        ),
-                        SizedBox(width: 8),
-                        Expanded(
-                          child: _buildStatCard(
-                            icon: Icons.calendar_today,
-                            iconColor: (remainingDays != null && remainingDays! > 30) ? Colors.blue : Colors.orange,
-                            title: 'Lisans',
-                            value: remainingDays != null ? '$remainingDays gün' : 'N/A',
-                            bgColor: (remainingDays != null && remainingDays! > 30) ? Colors.blue.shade50 : Colors.orange.shade50,
-                          ),
-                        ),
-                        SizedBox(width: 8),
-                        Expanded(
-                          child: _buildStatCard(
-                            icon: Icons.people,
-                            iconColor: Colors.purple,
-                            title: 'Öğrenci',
-                            value: '$studentCount/$studentQuota',
-                            bgColor: Colors.purple.shade50,
-                          ),
-                        ),
-                        SizedBox(width: 8),
-                        Expanded(
-                          child: _buildStatCard(
-                            icon: Icons.badge,
-                            iconColor: Colors.teal,
-                            title: 'Kurum ID',
-                            value: institutionId,
-                            bgColor: Colors.teal.shade50,
-                          ),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: 24),
-                  ],
-
-                  // Logo Bölümü - Sadece Admin için
-                  if (_isAdmin) ...[
-                    Text(
-                      'Okul Logosu',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey.shade800,
-                    ),
-                  ),
-                  SizedBox(height: 12),
-                  Center(
-                    child: Column(
-                      children: [
-                        Container(
-                          width: 150,
-                          height: 150,
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade200,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Colors.grey.shade400, width: 2),
-                          ),
-                          child: _logoUrl != null
-                              ? ClipRRect(
-                                  borderRadius: BorderRadius.circular(10),
-                                  child: Image.network(
-                                    _logoUrl!,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stackTrace) {
-                                      return Icon(Icons.school, size: 64, color: Colors.grey);
-                                    },
-                                  ),
-                                )
-                              : Icon(Icons.school, size: 64, color: Colors.grey),
-                        ),
-                        SizedBox(height: 12),
-                        ElevatedButton.icon(
-                          onPressed: _pickLogo,
-                          icon: Icon(Icons.upload_file),
-                          label: Text('Logo Yükle'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.indigo,
-                            foregroundColor: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                    SizedBox(height: 32),
-
-                    // Okul Bilgileri
-                    Text(
-                      'Okul Bilgileri',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey.shade800,
-                      ),
-                    ),
-                    SizedBox(height: 16),
-
-                    TextFormField(
-                      controller: _schoolNameController,
-                      decoration: _modernInputDecoration(label: 'Okul Adı', icon: Icons.school),
-                      validator: (v) => v == null || v.isEmpty ? 'Okul adı gerekli' : null,
-                    ),
-                    SizedBox(height: 16),
-
-                    TextFormField(
-                      controller: _schoolAddressController,
-                      decoration: _modernInputDecoration(label: 'Okul Adresi', icon: Icons.location_on),
-                      maxLines: 2,
-                    ),
-                    SizedBox(height: 16),
-
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextFormField(
-                            controller: _schoolPhoneController,
-                            decoration: _modernInputDecoration(label: 'Telefon', icon: Icons.phone),
-                          ),
-                        ),
-                        SizedBox(width: 16),
-                        Expanded(
-                          child: TextFormField(
-                            controller: _schoolEmailController,
-                            decoration: _modernInputDecoration(label: 'E-posta', icon: Icons.email),
-                            validator: (v) {
-                              if (v == null || v.isEmpty) return 'E-posta gerekli';
-                              if (!v.contains('@')) return 'Geçersiz e-posta';
-                              return null;
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: 32),
-                  ],
-
-                  // Kullanıcı Bilgileri - Normal Kullanıcı için
-                  if (!_isAdmin) ...[
-                    Text(
-                      'Kişisel Bilgilerim',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey.shade800,
-                      ),
-                    ),
-                    SizedBox(height: 16),
-
-                    TextFormField(
-                      controller: _fullNameController,
-                      decoration: _modernInputDecoration(label: 'Ad Soyad', icon: Icons.person),
-                      validator: (v) => v == null || v.isEmpty ? 'Ad soyad gerekli' : null,
-                    ),
-                    SizedBox(height: 16),
-
-                    TextFormField(
-                      controller: _userPhoneController,
-                      decoration: _modernInputDecoration(label: 'Telefon', icon: Icons.phone),
-                    ),
-                    SizedBox(height: 16),
-
-                    TextFormField(
-                      controller: _userEmailController,
-                      decoration: _modernInputDecoration(label: 'E-posta (İletişim)', icon: Icons.email),
-                    ),
-                    SizedBox(height: 32),
-                  ],
-
-                  // Şifre Değiştirme
-                  Text(
-                    'Şifre Değiştir',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey.shade800,
-                    ),
-                  ),
-                  SizedBox(height: 16),
-
-                  TextFormField(
-                    controller: _currentPasswordController,
-                    obscureText: true,
-                    decoration: _modernInputDecoration(label: 'Mevcut Şifre', icon: Icons.lock_outline),
-                  ),
-                  SizedBox(height: 16),
-
-                  TextFormField(
-                    controller: _newPasswordController,
-                    obscureText: true,
-                    decoration: _modernInputDecoration(label: 'Yeni Şifre', icon: Icons.lock),
-                    validator: (v) {
-                      if (v != null && v.isNotEmpty && v.length < 6) {
-                        return 'Şifre en az 6 karakter olmalı';
-                      }
-                      return null;
-                    },
-                  ),
-                  SizedBox(height: 16),
-
-                  TextFormField(
-                    controller: _confirmPasswordController,
-                    obscureText: true,
-                    decoration: _modernInputDecoration(label: 'Yeni Şifre (Tekrar)', icon: Icons.lock),
-                    validator: (v) {
-                      if (_newPasswordController.text.isNotEmpty &&
-                          v != _newPasswordController.text) {
-                        return 'Şifreler eşleşmiyor';
-                      }
-                      return null;
-                    },
-                  ),
-                  SizedBox(height: 32),
-
-                  // Kaydet Butonu
-                  SizedBox(
-                    width: double.infinity,
-                    height: 50,
-                    child: ElevatedButton(
-                      onPressed: _isSaving ? null : _saveChanges,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.indigo,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: _isSaving
-                          ? SizedBox(
-                              height: 24,
-                              width: 24,
-                              child: CircularProgressIndicator(
-                                color: Colors.white,
-                                strokeWidth: 2,
-                              ),
-                            )
-                          : Text(
-                              'Değişiklikleri Kaydet',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
-                            ),
-                    ),
-                  ),
-                ],
-              ),
+              child: widget.isSchoolSettings ? _buildSchoolSection() : _buildProfileSection(),
             ),
           ),
         ),
@@ -586,70 +304,134 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     );
   }
 
-  // Modern input decoration
-  InputDecoration _modernInputDecoration({
-    required String label,
-    required IconData icon,
-  }) {
-    return InputDecoration(
-      labelText: label,
-      prefixIcon: Icon(icon, color: Colors.indigo),
-      filled: true,
-      fillColor: Colors.grey.shade50,
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide.none,
+  Widget _buildSchoolSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // İstatistikler
+        Row(
+          children: [
+            Expanded(child: _buildStatCard(icon: Icons.check_circle, iconColor: isActive ? Colors.green : Colors.red, title: 'Durum', value: isActive ? 'Aktif' : 'Pasif', bgColor: isActive ? Colors.green.shade50 : Colors.red.shade50)),
+            SizedBox(width: 8),
+            Expanded(child: _buildStatCard(icon: Icons.calendar_today, iconColor: Colors.blue, title: 'Lisans', value: remainingDays != null ? '$remainingDays gün' : 'N/A', bgColor: Colors.blue.shade50)),
+            SizedBox(width: 8),
+            Expanded(child: _buildStatCard(icon: Icons.people, iconColor: Colors.purple, title: 'Öğrenci', value: '$studentCount/$studentQuota', bgColor: Colors.purple.shade50)),
+            SizedBox(width: 8),
+            Expanded(child: _buildStatCard(icon: Icons.badge, iconColor: Colors.teal, title: 'Kurum ID', value: institutionId, bgColor: Colors.teal.shade50)),
+          ],
+        ),
+        SizedBox(height: 32),
+        Text('Okul Logosu', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        SizedBox(height: 12),
+        Center(
+          child: Column(
+            children: [
+              _buildImageFrame(_logoUrl, Icons.school),
+              SizedBox(height: 12),
+              ElevatedButton.icon(onPressed: () => _pickImage(isLogo: true), icon: Icon(Icons.upload), label: Text('Logo Değiştir')),
+            ],
+          ),
+        ),
+        SizedBox(height: 24),
+        TextFormField(controller: _schoolNameController, decoration: _modernInputDecoration(label: 'Okul Adı', icon: Icons.business)),
+        SizedBox(height: 16),
+        TextFormField(controller: _schoolAddressController, decoration: _modernInputDecoration(label: 'Adres', icon: Icons.location_on), maxLines: 2),
+        SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(child: TextFormField(controller: _schoolPhoneController, decoration: _modernInputDecoration(label: 'Telefon', icon: Icons.phone))),
+            SizedBox(width: 16),
+            Expanded(child: TextFormField(controller: _schoolEmailController, decoration: _modernInputDecoration(label: 'E-posta', icon: Icons.email))),
+          ],
+        ),
+        SizedBox(height: 32),
+        _buildSaveButton(),
+      ],
+    );
+  }
+
+  Widget _buildProfileSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Profil Fotoğrafı', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        SizedBox(height: 12),
+        Center(
+          child: Column(
+            children: [
+              _buildImageFrame(_profileImageUrl, Icons.person, isCircle: true),
+              SizedBox(height: 12),
+              ElevatedButton.icon(onPressed: () => _pickImage(isLogo: false), icon: Icon(Icons.camera_alt), label: Text('Fotoğrafı Değiştir')),
+            ],
+          ),
+        ),
+        SizedBox(height: 24),
+        TextFormField(controller: _fullNameController, decoration: _modernInputDecoration(label: 'Ad Soyad', icon: Icons.person)),
+        SizedBox(height: 16),
+        TextFormField(controller: _userPhoneController, decoration: _modernInputDecoration(label: 'Telefon', icon: Icons.phone)),
+        SizedBox(height: 16),
+        TextFormField(controller: _userEmailController, decoration: _modernInputDecoration(label: 'E-posta (İletişim)', icon: Icons.email)),
+        SizedBox(height: 32),
+        Text('Şifre İşlemleri', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        SizedBox(height: 16),
+        TextFormField(controller: _currentPasswordController, obscureText: true, decoration: _modernInputDecoration(label: 'Mevcut Şifre', icon: Icons.lock_outline)),
+        SizedBox(height: 16),
+        TextFormField(controller: _newPasswordController, obscureText: true, decoration: _modernInputDecoration(label: 'Yeni Şifre', icon: Icons.lock)),
+        SizedBox(height: 32),
+        _buildSaveButton(),
+      ],
+    );
+  }
+
+  Widget _buildImageFrame(String? url, IconData fallbackIcon, {bool isCircle = false}) {
+    return Container(
+      width: 120, height: 120,
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        shape: isCircle ? BoxShape.circle : BoxShape.rectangle,
+        borderRadius: isCircle ? null : BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade300, width: 2),
       ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: Colors.grey.shade200),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: Colors.indigo, width: 2),
+      child: ClipRRect(
+        borderRadius: isCircle ? BorderRadius.circular(60) : BorderRadius.circular(14),
+        child: url != null && url.isNotEmpty
+            ? Image.network(url, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Icon(fallbackIcon, size: 48, color: Colors.grey))
+            : Icon(fallbackIcon, size: 48, color: Colors.grey),
       ),
     );
   }
 
-  // Kompakt istatistik kartı
-  Widget _buildStatCard({
-    required IconData icon,
-    required Color iconColor,
-    required String title,
-    required String value,
-    required Color bgColor,
-  }) {
+  Widget _buildSaveButton() {
+    return SizedBox(
+      width: double.infinity, height: 50,
+      child: ElevatedButton(
+        onPressed: _isSaving ? null : _saveChanges,
+        style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+        child: _isSaving ? CircularProgressIndicator(color: Colors.white) : Text('Değişiklikleri Kaydet', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      ),
+    );
+  }
+
+  InputDecoration _modernInputDecoration({required String label, required IconData icon}) {
+    return InputDecoration(
+      labelText: label, prefixIcon: Icon(icon, color: Colors.indigo),
+      filled: true, fillColor: Colors.grey.shade50,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.indigo, width: 2)),
+    );
+  }
+
+  Widget _buildStatCard({required IconData icon, required Color iconColor, required String title, required String value, required Color bgColor}) {
     return Container(
       padding: EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: iconColor.withOpacity(0.2), width: 1),
-      ),
+      decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(8), border: Border.all(color: iconColor.withOpacity(0.2))),
       child: Column(
         children: [
-          Icon(icon, color: iconColor, size: 24),
-          SizedBox(height: 6),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 10,
-              color: Colors.grey.shade700,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          SizedBox(height: 2),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-              color: Colors.grey.shade900,
-            ),
-            textAlign: TextAlign.center,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
+          Icon(icon, color: iconColor, size: 20),
+          SizedBox(height: 4),
+          Text(title, style: TextStyle(fontSize: 10, color: Colors.grey.shade700)),
+          Text(value, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold), textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis),
         ],
       ),
     );

@@ -424,7 +424,7 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
     } catch (e) {
       debugPrint('Error fetching user name: $e');
     }
-    return user.displayName ?? user.email?.split('@')[0] ?? 'Bilinmiyor';
+    return user.displayName ?? 'Bilinmiyor';
   }
 
   Future<void> _initiateSave() async {

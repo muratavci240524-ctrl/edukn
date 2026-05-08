@@ -1,3 +1,4 @@
+import 'package:edukn/services/user_permission_service.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -45,7 +46,7 @@ class _HealthScreenState extends State<HealthScreen>
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
       final email = user.email!;
-      _institutionId = email.split('@')[1].split('.')[0].toUpperCase();
+      _institutionId = await UserPermissionService.resolveInstitutionId(email);
 
       final snap = await FirebaseFirestore.instance
           .collection('schools')

@@ -1,3 +1,4 @@
+import 'package:edukn/services/user_permission_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -157,16 +158,12 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
     if (user == null) return;
 
     final email = user.email ?? '';
-    if (email.contains('@')) {
-      final domain = email.split('@')[1];
-      if (domain.contains('.')) {
-        setState(() {
-          _institutionId = domain.split('.')[0].toUpperCase();
-        });
-        // Institution ID yüklendikten sonra branşları yükle
-        _loadBranches();
-      }
-    }
+    final instId = await UserPermissionService.resolveInstitutionId(email);
+    setState(() {
+      _institutionId = instId;
+    });
+    // Institution ID yüklendikten sonra branşları yükle
+    _loadBranches();
   }
 
   @override

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:edukn/services/user_permission_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/term_service.dart';
@@ -17,10 +18,20 @@ class _TermsScreenState extends State<TermsScreen> {
   bool _isLoading = true;
   String? _selectedTermId; // Seçilen dönem (görüntüleme için)
 
+  Map<String, dynamic>? userData;
+
   @override
   void initState() {
     super.initState();
+    _loadUserPermissions();
     _loadTerms();
+  }
+
+  Future<void> _loadUserPermissions() async {
+    final data = await UserPermissionService.loadUserData();
+    if (mounted) {
+      setState(() => userData = data);
+    }
   }
 
   Future<void> _loadTerms() async {
@@ -28,8 +39,9 @@ class _TermsScreenState extends State<TermsScreen> {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
 
+      final profileData = await UserPermissionService.loadUserData();
       final email = user.email!;
-      _institutionId = email.split('@')[1].split('.')[0].toUpperCase();
+      _institutionId = await UserPermissionService.resolveInstitutionId(email, userData: profileData);
 
       final snapshot = await FirebaseFirestore.instance
           .collection('terms')

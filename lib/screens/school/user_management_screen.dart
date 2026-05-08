@@ -60,7 +60,8 @@ class _UserManagementScreenState extends State<UserManagementScreen>
     if (instId == null) {
       final user = FirebaseAuth.instance.currentUser;
       if (user?.email != null) {
-        instId = user!.email!.split('@')[1].split('.')[0].toUpperCase();
+        // Artık email parçalamak yerine userData'dan gelen instId'yi kullanıyoruz
+        instId = data?['institutionId'];
       }
     }
 
@@ -96,10 +97,22 @@ class _UserManagementScreenState extends State<UserManagementScreen>
   }
 
   Future<void> _getSchoolInfo() async {
+    final profileData = await UserPermissionService.loadUserData();
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
-      final email = user.email!;
-      final instId = email.split('@')[1].split('.')[0].toUpperCase();
+      final email = user.email ?? '';
+      final instId = await UserPermissionService.resolveInstitutionId(email, userData: profileData);
+
+      if (instId == null) {
+        debugPrint('⚠️ UserManagementScreen: Institution ID bulunamadı.');
+        if (mounted) {
+          setState(() {
+            institutionId = null;
+            schoolId = null;
+          });
+        }
+        return;
+      }
 
       // Okul bilgilerini al
       final schoolQuery = await FirebaseFirestore.instance
@@ -109,20 +122,30 @@ class _UserManagementScreenState extends State<UserManagementScreen>
           .get();
 
       if (schoolQuery.docs.isNotEmpty) {
-        setState(() {
-          institutionId = instId;
-          schoolId = schoolQuery.docs.first.id;
-        });
+        if (mounted) {
+          setState(() {
+            institutionId = instId;
+            schoolId = schoolQuery.docs.first.id;
+          });
+        }
+      } else {
+        debugPrint('⚠️ UserManagementScreen: $instId için okul dokümanı bulunamadı.');
+        if (mounted) {
+          setState(() {
+            institutionId = instId;
+            schoolId = null;
+          });
+        }
       }
     }
   }
 
-  // Okul türü isimlerini yükle
   Future<void> _loadSchoolTypeNames() async {
+    final profileData = await UserPermissionService.loadUserData();
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       final email = user.email!;
-      final instId = email.split('@')[1].split('.')[0].toUpperCase();
+      final instId = await UserPermissionService.resolveInstitutionId(email, userData: profileData);
 
       final snapshot = await FirebaseFirestore.instance
           .collection('schoolTypes')
@@ -173,6 +196,16 @@ class _UserManagementScreenState extends State<UserManagementScreen>
   }
 
   void _showAddUserSheet() {
+    if (institutionId == null || schoolId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('⚠️ Kurum bilgileri henüz yüklenmedi. Lütfen sayfayı yenileyin.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -183,7 +216,6 @@ class _UserManagementScreenState extends State<UserManagementScreen>
         onCreateAuth: _createAuthUser,
         availableRoles: userRoles,
       ),
-
     );
   }
 
@@ -299,7 +331,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
       case 'rehber_ogretmen':
         return 'REHBER ÖĞRETMEN';
       case 'admin':
-        return 'YÖNETİCİ';
+        return 'KURUM ADMİNİ';
       default:
         return role.toUpperCase();
     }
@@ -384,6 +416,13 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                           'Kullanıcı Adı',
                           data['username'],
                         ),
+
+                      _buildDetailRow(
+                        Icons.business,
+                        'Kurum ID',
+                        data['institutionId'] ?? 'YOK',
+                        valueColor: (data['institutionId'] == null || data['institutionId'] == 'GMAIL') ? Colors.red : Colors.green,
+                      ),
 
                       // TC Kimlik
                       if (data['tcKimlik'] != null &&
@@ -686,9 +725,138 @@ class _UserManagementScreenState extends State<UserManagementScreen>
     }
   }
 
+  Future<void> _runStaffMigration() async {
+    String? customId;
+    final TextEditingController idController = TextEditingController();
+
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.build_circle, color: Colors.orange),
+            SizedBox(width: 10),
+            Text('Sistem Onarma Aracı'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Bu araç, görünmeyen listeleri (Öğrenci, Personel vb.) düzeltmek için kullanılır.',
+              style: TextStyle(fontSize: 13),
+            ),
+            SizedBox(height: 16),
+            if (institutionId == 'GMAIL') ...[
+              Container(
+                padding: EdgeInsets.all(8),
+                color: Colors.red.shade50,
+                child: Text(
+                  '⚠️ Hesabınız GMAIL modunda! Lütfen aşağıya kurum kodunuzu (Örn: ABC) yazarak kendinizi kuruma bağlayın.',
+                  style: TextStyle(fontSize: 12, color: Colors.red.shade900, fontWeight: FontWeight.bold),
+                ),
+              ),
+              SizedBox(height: 8),
+              TextField(
+                controller: idController,
+                decoration: InputDecoration(
+                  labelText: 'Kurum Kodu (BÜYÜK HARF)',
+                  hintText: 'Örn: ABC',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ] else
+              Text(
+                'Mevcut Kurum: $institutionId\nİşlem: Tüm personellere "Staff" tipi atanacak ve görünürlükleri düzeltilecek.',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: Text('Vazgeç')),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context, {
+                'confirm': true,
+                'customId': idController.text.trim().toUpperCase(),
+              });
+            },
+            child: Text('Onarmayı Başlat'),
+          ),
+        ],
+      ),
+    );
+
+    if (result == null || result['confirm'] != true) return;
+    customId = result['customId'];
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final batch = FirebaseFirestore.instance.batch();
+      int updatedCount = 0;
+      String targetId = (customId != null && customId.isNotEmpty) ? customId : institutionId!;
+
+      // 1. Eğer customId girildiyse kendimi o kuruma bağla
+      if (customId != null && customId.isNotEmpty) {
+        final currentAuthUid = FirebaseAuth.instance.currentUser?.uid;
+        if (currentAuthUid != null) {
+          // Hem doc.id == uid olanı hem de authUserId == uid olanı güncellemeye çalışalım
+          batch.update(FirebaseFirestore.instance.collection('users').doc(currentAuthUid), {
+            'institutionId': customId,
+          });
+          updatedCount++;
+        }
+      }
+
+      // 2. Mevcut (veya yeni) kurumdaki kullanıcıları bul ve staff yap
+      final usersSnapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .where('institutionId', isEqualTo: targetId)
+          .get();
+
+      for (var doc in usersSnapshot.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        final role = (data['role'] ?? '').toString();
+        final currentType = data['type'];
+
+        if (role != 'Öğrenci' && role != 'Veli' && currentType != 'staff') {
+          batch.update(doc.reference, {'type': 'staff'});
+          updatedCount++;
+        }
+      }
+
+      await batch.commit();
+
+      Navigator.pop(context); // Close loading
+
+      // Yenileme yapalım
+      _getSchoolInfo();
+      _loadUserPermissions();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('✅ $updatedCount kayıt güncellendi! Lütfen sayfayı yenileyin.'),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 5),
+        ),
+      );
+    } catch (e) {
+      Navigator.pop(context); // Close loading
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('❌ Hata: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (institutionId == null || schoolId == null) {
+    if (institutionId == null) {
       return Scaffold(
         appBar: AppBar(
           elevation: 0,
@@ -706,7 +874,16 @@ class _UserManagementScreenState extends State<UserManagementScreen>
             ),
           ),
         ),
-        body: Center(child: CircularProgressIndicator()),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 24),
+              Text('Kurum bilgileri çözümleniyor...'),
+            ],
+          ),
+        ),
       );
     }
 
@@ -726,7 +903,21 @@ class _UserManagementScreenState extends State<UserManagementScreen>
             fontWeight: FontWeight.bold,
           ),
         ),
-        actions: [],
+        actions: [
+          IconButton(
+            icon: Icon(Icons.refresh, color: Colors.indigo),
+            onPressed: () {
+              _getSchoolInfo();
+              _loadUserPermissions();
+            },
+          ),
+          if (userData?['role'] == 'genel_mudur' || userData?['role'] == 'superadmin' || userData?['role'] == 'admin')
+            IconButton(
+              icon: Icon(Icons.build_circle, color: institutionId == 'GMAIL' ? Colors.red : Colors.orange),
+              tooltip: 'Listeleri Düzelt / Onar',
+              onPressed: _runStaffMigration,
+            ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           isScrollable: true,
@@ -741,7 +932,61 @@ class _UserManagementScreenState extends State<UserManagementScreen>
           ],
         ),
       ),
-      body: StreamBuilder<QuerySnapshot>(
+      body: Column(
+        children: [
+          // Her zaman mevcut ID'yi göster
+          Container(
+            width: double.infinity,
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            color: Colors.grey.shade100,
+            child: Row(
+              children: [
+                Icon(Icons.business, size: 16, color: Colors.indigo),
+                SizedBox(width: 8),
+                Text(
+                  'Bağlı Olduğunuz Kurum ID: ',
+                  style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+                ),
+                Text(
+                  institutionId ?? 'Bilinmiyor',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.indigo),
+                ),
+              ],
+            ),
+          ),
+          if (institutionId == 'GMAIL')
+            Container(
+              width: double.infinity,
+              padding: EdgeInsets.all(12),
+              color: Colors.red.shade50,
+              child: Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded, color: Colors.red),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Kimlik Uyumsuzluğu Tespit Edildi!',
+                          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red.shade900),
+                        ),
+                        Text(
+                          'Hesabınız kurumsal bir kimliğe (ABC vb.) bağlı değil, bu yüzden listeler boş görünüyor.',
+                          style: TextStyle(fontSize: 12, color: Colors.red.shade800),
+                        ),
+                      ],
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _runStaffMigration,
+                    child: Text('ŞİMDİ ONAR'),
+                  ),
+                ],
+              ),
+            ),
+          Expanded(
+            child: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('users')
             .where('institutionId', isEqualTo: institutionId)
@@ -780,23 +1025,36 @@ class _UserManagementScreenState extends State<UserManagementScreen>
             );
           }
 
-          // Kullanıcıları sırala: Admin önce, sonra diğerleri
+          // Kullanıcıları hiyerarşiye göre sırala
           final sortedUsers = users.toList();
+          
+          // Rol öncelik haritası (küçük sayı = üstte)
+          int _rolePriority(String role) {
+            switch (role.toLowerCase()) {
+              case 'admin':         return 1; // Kurum Admini (en üst)
+              case 'genel_mudur':   return 2; // Genel Müdür
+              case 'mudur':         return 3; // Müdür
+              case 'mudur_yardimcisi': return 4; // Müdür Yardımcısı
+              case 'hr':            return 5;
+              case 'muhasebe':      return 6;
+              case 'satin_alma':    return 7;
+              case 'depo':          return 8;
+              case 'destek_hizmetleri': return 9;
+              default:              return 10; // Diğer roller
+            }
+          }
+          
           sortedUsers.sort((a, b) {
             final aData = a.data() as Map<String, dynamic>;
             final bData = b.data() as Map<String, dynamic>;
-            final aRole = aData['role'] ?? '';
-            final bRole = bData['role'] ?? '';
-
-            // Admin rolleri önce
-            if ((aRole == 'genel_mudur' || aRole == 'mudur') &&
-                !(bRole == 'genel_mudur' || bRole == 'mudur')) {
-              return -1;
-            } else if (!(aRole == 'genel_mudur' || aRole == 'mudur') &&
-                (bRole == 'genel_mudur' || bRole == 'mudur')) {
-              return 1;
-            }
-
+            final aRole = (aData['role'] ?? '').toString();
+            final bRole = (bData['role'] ?? '').toString();
+            
+            final aPriority = _rolePriority(aRole);
+            final bPriority = _rolePriority(bRole);
+            
+            if (aPriority != bPriority) return aPriority.compareTo(bPriority);
+            
             // Aynı seviyedeyse alfabetik sırala
             return (aData['fullName'] ?? '').compareTo(bData['fullName'] ?? '');
           });
@@ -812,7 +1070,9 @@ class _UserManagementScreenState extends State<UserManagementScreen>
           );
         },
       ),
-
+    ),
+  ],
+),
       floatingActionButton: _canEditUsers()
           ? FloatingActionButton.extended(
               onPressed: _showAddUserSheet,
@@ -863,8 +1123,8 @@ class _UserManagementScreenState extends State<UserManagementScreen>
             Icon(Icons.person_off, size: 64, color: Colors.grey.shade300),
             SizedBox(height: 16),
             Text(
-              'Bu kategoride kullanıcı bulunamadı',
-              style: TextStyle(color: Colors.grey),
+              'Bu kategoride kullanıcı bulunamadı.',
+              style: TextStyle(color: Colors.grey.shade600),
             ),
           ],
         ),
@@ -878,17 +1138,18 @@ class _UserManagementScreenState extends State<UserManagementScreen>
         final doc = filteredUsers[index];
         final data = doc.data() as Map<String, dynamic>;
         final role = data['role'] ?? 'staff';
-        final isGenelMudur = role == 'genel_mudur';
+        final isAdminRole = role == 'admin' || role == 'genel_mudur';
+        final currentAuthUid = FirebaseAuth.instance.currentUser?.uid;
 
         return Card(
           margin: EdgeInsets.only(bottom: 12),
-          elevation: isGenelMudur ? 4 : 0,
-          color: isGenelMudur ? Colors.orange.shade50 : Colors.white,
+          elevation: isAdminRole ? 4 : 0,
+          color: isAdminRole ? Colors.orange.shade50 : Colors.white,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
             side: BorderSide(
-              color: isGenelMudur ? Colors.orange.shade300 : Colors.grey.shade200,
-              width: isGenelMudur ? 2 : 1,
+              color: isAdminRole ? Colors.orange.shade300 : Colors.grey.shade200,
+              width: isAdminRole ? 2 : 1,
             ),
           ),
           child: InkWell(
@@ -904,7 +1165,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                     height: 56,
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        colors: isGenelMudur
+                        colors: isAdminRole
                             ? [Colors.orange.shade400, Colors.orange.shade600]
                             : [Colors.indigo.shade400, Colors.indigo.shade600],
                         begin: Alignment.topLeft,
@@ -913,7 +1174,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: [
                         BoxShadow(
-                          color: (isGenelMudur ? Colors.orange : Colors.indigo)
+                          color: (isAdminRole ? Colors.orange : Colors.indigo)
                               .withOpacity(0.3),
                           blurRadius: 8,
                           offset: Offset(0, 4),
@@ -954,7 +1215,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                           ),
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
-                              colors: isGenelMudur
+                              colors: isAdminRole
                                   ? [
                                       Colors.orange.shade50,
                                       Colors.orange.shade100,
@@ -963,7 +1224,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                             ),
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(
-                              color: isGenelMudur
+                              color: isAdminRole
                                   ? Colors.orange.shade200
                                   : Colors.blue.shade200,
                               width: 1,
@@ -973,11 +1234,11 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Icon(
-                                isGenelMudur
+                                isAdminRole
                                     ? Icons.admin_panel_settings
                                     : Icons.work_outline,
                                 size: 14,
-                                color: isGenelMudur
+                                color: isAdminRole
                                     ? Colors.orange.shade700
                                     : Colors.blue.shade700,
                               ),
@@ -986,7 +1247,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                                 _formatRole(role),
                                 style: TextStyle(
                                   fontSize: 12,
-                                  color: isGenelMudur
+                                  color: isAdminRole
                                       ? Colors.orange.shade900
                                       : Colors.blue.shade900,
                                   fontWeight: FontWeight.w600,
@@ -998,8 +1259,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                       ],
                     ),
                   ),
-
-                  // 3 Nokta Menü
+                  // İşlem Menüsü
                   PopupMenuButton<String>(
                     icon: Container(
                       padding: EdgeInsets.all(8),
@@ -1020,10 +1280,96 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                       if (value == 'details') {
                         _showUserDetails(data, doc.id);
                       } else if (value == 'edit') {
+                        final myRole = userData?['role']?.toString().toLowerCase() ?? '';
+                        final targetRole = role.toLowerCase();
+                        
+                        // KENDİNİ DÜZENLEME ENGELİ
+                        if (currentAuthUid == doc.id) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('⚠️ Kendi bilgilerinizi Profil sayfasından düzenlemelisiniz.'),
+                              backgroundColor: Colors.orange,
+                            ),
+                          );
+                          return;
+                        }
+                        
+                        // Sadece süperadmin hesaplarını süperadmin düşenleyebilir
+                        // Kurum admini (genel_mudur) diğer kurum adminlerini düşenleyebilir
+                        final bool callerIsSuperAdmin = myRole == 'superadmin';
+                        // Hem yeni format (genel_mudur) hem eski format (admin) kurum admini sayılır
+                        final bool callerIsGenelMudur = myRole == 'genel_mudur' || myRole == 'admin';
+                        final bool targetIsSuperAdmin = targetRole == 'superadmin';
+                        
+                        if (targetIsSuperAdmin && !callerIsSuperAdmin) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('⚠️ Süperadmin hesapları sadece Süperadmin tarafından düzenlenebilir.'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                          return;
+                        }
+                        
+                        // Normal personel (mudur_yardimcisi vb.) kurum admini düzenleyemez
+                        if (!callerIsSuperAdmin && !callerIsGenelMudur &&
+                            (targetRole == 'genel_mudur' || targetRole == 'admin')) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('⚠️ Kurum Admini hesaplarını düzenleyemezsiniz.'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                          return;
+                        }
+                        
                         _showEditUserSheet(doc.id, data);
                       } else if (value == 'login_as') {
                         await _loginAsUser(data);
                       } else if (value == 'delete') {
+                        final myRole = userData?['role']?.toString().toLowerCase() ?? '';
+                        final targetRole = role.toLowerCase();
+                        
+                        // KENDİNİ SİLME ENGELİ
+                        if (currentAuthUid == doc.id) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('⚠️ Kendi yönetici hesabınızı silemezsiniz.'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                          return;
+                        }
+
+                        // Sadece süperadmin hesaplarını süperadmin silebilir
+                        // Kurum admini (genel_mudur) diğer kurum adminlerini silebilir
+                        final bool callerIsSuperAdmin2 = myRole == 'superadmin';
+                        // Hem yeni format (genel_mudur) hem eski format (admin) kurum admini sayılır
+                        final bool callerIsGenelMudur2 = myRole == 'genel_mudur' || myRole == 'admin';
+                        final bool targetIsSuperAdmin2 = targetRole == 'superadmin';
+                        
+                        if (targetIsSuperAdmin2 && !callerIsSuperAdmin2) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('⚠️ Süperadmin hesapları sadece Süperadmin tarafından silinebilir.'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                          return;
+                        }
+                        
+                        // Normal personel kurum admini silemez
+                        if (!callerIsSuperAdmin2 && !callerIsGenelMudur2 &&
+                            (targetRole == 'genel_mudur' || targetRole == 'admin')) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('⚠️ Kurum Admini hesaplarını silme yetkiniz yok.'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                          return;
+                        }
+                        
                         _deleteUser(
                           doc.id,
                           data['fullName'] ?? 'Bu kullanıcı',
@@ -1215,7 +1561,17 @@ class _UserFormSheetState extends State<_UserFormSheet> {
     _passwordController = TextEditingController();
 
     if (isEdit && widget.userData != null) {
-      _selectedRole = widget.userData!['role'] ?? 'ogretmen';
+      String initialRole = widget.userData!['role'] ?? 'ogretmen';
+      
+      // HATA KORUMASI: Eğer veritabanındaki rol ('admin' vb.) dropdown seçenekleri arasında yoksa
+      if (!widget.availableRoles.containsKey(initialRole)) {
+        if (initialRole == 'admin' || initialRole == 'superadmin') {
+          initialRole = widget.availableRoles.containsKey('genel_mudur') ? 'genel_mudur' : widget.availableRoles.keys.first;
+        } else {
+          initialRole = widget.availableRoles.keys.first;
+        }
+      }
+      _selectedRole = initialRole;
 
       // Çalıştığı okul türlerini yükle
       final schoolTypesList = widget.userData!['schoolTypes'] as List<dynamic>?;
@@ -1605,12 +1961,14 @@ class _UserFormSheetState extends State<_UserFormSheet> {
 
     try {
       final isEdit = widget.userId != null;
-      final username = _usernameController.text.trim().toLowerCase();
-      final inputEmail = _emailController.text.trim();
-      final generatedEmail = '$username@${widget.institutionId}.edukn';
+      final username = _usernameController.text.trim().toLowerCase().replaceAll(' ', '');
+      final inputEmail = _emailController.text.trim().replaceAll(' ', '');
+      final generatedEmail = '$username@${widget.institutionId.toLowerCase().replaceAll(' ', '')}.edukn';
       
-      // Eğer kullanıcı mail girdiyse onu esas al, yoksa otomatik oluştur
-      final authEmail = inputEmail.isNotEmpty ? inputEmail : generatedEmail;
+      // Auth için HER ZAMAN kullanıcı adı tabanlı maili kullan (giriş kolaylığı için)
+      final authEmail = generatedEmail; 
+      // İletişim/Google login için ise eğer varsa girilen maili, yoksa oluşturulanı kullan
+      final contactEmail = inputEmail.isNotEmpty ? inputEmail : generatedEmail;
 
       // Sadece aktif modülleri filtrele
       Map<String, dynamic> activeModules = {};
@@ -1644,18 +2002,13 @@ class _UserFormSheetState extends State<_UserFormSheet> {
         'username': username,
         'phone': _phoneController.text.trim(),
         'role': _selectedRole,
-        'schoolTypes': _selectedSchoolTypes.toList(), // Çalıştığı okul türleri
+        'email': contactEmail, // İletişim/Google login için
+        'authEmail': authEmail, // Şifreli giriş için
+        'schoolTypes': _selectedSchoolTypes.toList(),
         'isActive': true,
         'updatedAt': FieldValue.serverTimestamp(),
+        'type': (_selectedRole == 'ogretmen' || _selectedRole == 'mudur' || _selectedRole == 'mudur_yardimcisi' || _selectedRole == 'hr' || _selectedRole == 'muhasebe' || _selectedRole == 'satin_alma' || _selectedRole == 'depo' || _selectedRole == 'destek_hizmetleri' || _selectedRole == 'personel') ? 'staff' : null,
       };
-
-      // Email'i her zaman kaydet (kullanıcı girmediyse otomatik oluştur)
-      if (_emailController.text.trim().isNotEmpty) {
-        userData['email'] = _emailController.text.trim();
-      } else {
-        // Email girilmediyse auth email'ini kullan
-        userData['email'] = authEmail;
-      }
 
       // Opsiyonel alanları ekle
       if (_tcController.text.trim().isNotEmpty) {
@@ -1679,25 +2032,38 @@ class _UserFormSheetState extends State<_UserFormSheet> {
       if (isEdit) {
         // Güncelleme
         // Şifre veya E-posta (Kullanıcı Adı) güncellemesi kontrolü
-        final authUserId = widget.userData?['authUserId'] ?? widget.userId;
+        final authUserIdFromData = widget.userData?['authUserId'] as String?;
+        final docId = widget.userId;
+        
+        // Eğer docId bir UID'ye benziyorsa (uzunluk ve karakter kontrolü) onu kullan, yoksa authUserId'yi bekle
+        String? targetUid = authUserIdFromData;
+        if (targetUid == null && docId != null && docId.length > 20) {
+          targetUid = docId;
+        }
+
         final originalEmail = widget.userData?['email'] as String?;
+        final originalAuthEmail = widget.userData?['authEmail'] as String?;
         final newPassword = _passwordController.text.trim();
 
         bool needsAuthUpdate = false;
-        Map<String, dynamic> authUpdateParams = {'uid': authUserId};
+        // Auth güncellenirken UID ve Email ikisini de gönderiyoruz (Fallback için)
+        Map<String, dynamic> authUpdateParams = {
+          if (targetUid != null) 'uid': targetUid,
+          'email': originalAuthEmail ?? originalEmail ?? authEmail,
+        };
 
         if (newPassword.isNotEmpty) {
           authUpdateParams['newPassword'] = newPassword;
           needsAuthUpdate = true;
         }
 
-        // Eğer e-posta değiştiyse (kullanıcı adı değişince de bu değişir) Auth'u güncelle
-        if (originalEmail != null && originalEmail.toLowerCase() != authEmail.toLowerCase()) {
+        // Eğer e-posta/kullanıcı adı değiştiyse Auth'u güncelle
+        if (originalAuthEmail != null && originalAuthEmail.toLowerCase() != authEmail.toLowerCase()) {
           authUpdateParams['newEmail'] = authEmail;
           needsAuthUpdate = true;
         }
 
-        if (needsAuthUpdate && authUserId != null) {
+        if (needsAuthUpdate) {
           try {
             print('🚀 Auth bilgileri güncelleniyor: $authUpdateParams');
 
@@ -1707,27 +2073,30 @@ class _UserFormSheetState extends State<_UserFormSheet> {
             print('✅ Auth bilgileri başarıyla güncellendi.');
           } catch (e) {
             print('❌ Auth güncelleme hatası: $e');
+            String errorMsg = e.toString();
+            if (errorMsg.contains('user-not-found')) {
+              errorMsg = 'Kullanıcı kaydı Firebase Auth tarafında bulunamadı. Bu kullanıcı sistemde farklı bir e-posta ile kayıtlı olabilir veya manuel silinmiş olabilir.';
+            }
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Kimlik bilgileri güncellenemedi: $e')),
+              SnackBar(content: Text('Kimlik bilgileri güncellenemedi: $errorMsg')),
             );
-            // Auth güncellenemezse Firestore güncellemesini de yapma veya kullanıcıyı uyar
           }
         }
 
 
-        // En doğru dokümanı hedefle: önce authUserId varsa ve doküman mevcutsa onu güncelle
+        // En doğru dokümanı hedefle: önce targetUid varsa ve doküman mevcutsa onu güncelle
         String? targetDocId;
-        if (authUserId != null) {
+        if (targetUid != null) {
           final authDoc = await FirebaseFirestore.instance
               .collection('users')
-              .doc(authUserId)
+              .doc(targetUid)
               .get();
           if (authDoc.exists) {
-            targetDocId = authUserId;
+            targetDocId = targetUid;
           }
         }
 
-        // authUserId yoksa veya bulunamadıysa, widget.userId dokümanı var mı bak
+        // targetUid yoksa veya bulunamadıysa, widget.userId dokümanı var mı bak
         if (targetDocId == null && widget.userId != null) {
           final legacyDoc = await FirebaseFirestore.instance
               .collection('users')
@@ -1745,14 +2114,14 @@ class _UserFormSheetState extends State<_UserFormSheet> {
               .doc(targetDocId)
               .update(userData);
         } else {
-          // İki doküman da yok: veri tutarsızlığı. Çözüm: authUserId altında oluştur/merge et.
-          final fallbackId = authUserId ?? widget.userId;
+          // İki doküman da yok: veri tutarsızlığı. Çözüm: targetUid altında oluştur/merge et.
+          final fallbackId = targetUid ?? widget.userId;
           print(
             '⚠️ Debug - Hedef doküman bulunamadı, set(merge) ile oluşturuluyor: users/$fallbackId',
           );
           await FirebaseFirestore.instance
               .collection('users')
-              .doc(fallbackId)
+              .doc(fallbackId!)
               .set(userData, SetOptions(merge: true));
         }
       } else {

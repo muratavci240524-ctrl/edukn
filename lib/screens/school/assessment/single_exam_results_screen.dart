@@ -1985,8 +1985,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                       // Group by class
                       Map<String, List<Map<String, dynamic>>> grouped = {};
                       for (var s in filtered) {
-                        String className = s['className'] ?? 'Diğer';
-                        if (className.isEmpty) className = 'Diğer';
+                        String className = s['className'] ?? 'Misafir';
+                        if (className.isEmpty) className = 'Misafir';
                         grouped.putIfAbsent(className, () => []).add(s);
                       }
 
@@ -5628,7 +5628,7 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
     // Group filtered data by Branch
     Map<String, List<Map<String, dynamic>>> grouped = {};
     for (var item in data) {
-      String b = item['className'] ?? 'Diğer';
+      String b = item['className'] ?? 'Misafir';
       grouped.putIfAbsent(b, () => []).add(item);
     }
 
@@ -6074,7 +6074,7 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
     // Group all results by branch
     Map<String, List<Map<String, dynamic>>> grouped = {};
     for (var item in _examResults) {
-      String b = item['className'] ?? 'Diğer';
+      String b = item['className'] ?? 'Misafir';
       grouped.putIfAbsent(b, () => []).add(item);
     }
 
@@ -7242,8 +7242,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
 
                       Map<String, List<Map<String, dynamic>>> grouped = {};
                       for (var s in filtered) {
-                        String className = s['className'] ?? 'Diğer';
-                        if (className.isEmpty) className = 'Diğer';
+                        String className = s['className'] ?? 'Misafir';
+                        if (className.isEmpty) className = 'Misafir';
                         grouped.putIfAbsent(className, () => []).add(s);
                       }
 

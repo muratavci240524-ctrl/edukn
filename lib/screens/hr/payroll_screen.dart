@@ -1,3 +1,4 @@
+import 'package:edukn/services/user_permission_service.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -41,7 +42,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
       if (user != null && user.email != null) {
         final email = user.email!;
         if (email.contains('@')) {
-           _myInstitutionId = email.split('@')[1].split('.')[0].toUpperCase();
+           _myInstitutionId = await UserPermissionService.resolveInstitutionId(email);
            await _loadData();
         }
       }
