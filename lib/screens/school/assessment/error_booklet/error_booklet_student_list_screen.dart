@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../../models/assessment/trial_exam_model.dart';
@@ -36,6 +37,12 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
   bool _isLoading = true;
   bool _isGeneratingBulk = false;
   final ErrorBookletGeneratorService _generatorService = ErrorBookletGeneratorService();
+
+  // Progress State for Premium Loading Overlay
+  bool _showProgress = false;
+  int _progressCurrent = 0;
+  int _progressTotal = 0;
+  String _progressStudentName = '';
 
   // Filters
   String _searchQuery = '';
@@ -121,24 +128,416 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
     });
   }
 
+  void _showCriteriaBottomSheet({
+    required Function(bool prioritizeCritical, int? maxQuestions, bool fillFromPool, bool individualPDFs) onGenerate,
+  }) {
+    bool prioritizeCritical = true;
+    bool hasMaxLimit = false;
+    bool fillFromPool = false;
+    bool individualPDFs = false;
+    final textController = TextEditingController(text: '20');
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      backgroundColor: Colors.white,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return AnimatedPadding(
+              padding: MediaQuery.of(context).viewInsets + const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+              duration: const Duration(milliseconds: 100),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.indigo.shade50,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(Icons.tune_rounded, color: Colors.indigo.shade600, size: 22),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        'Kitapçık Oluşturma Kriterleri',
+                        style: GoogleFonts.outfit(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.indigo.shade900,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.indigo.shade50,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(Icons.picture_as_pdf_rounded, color: Colors.indigo.shade600, size: 22),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        'Oluşturma Modu',
+                        style: GoogleFonts.outfit(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.indigo.shade900,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: const EdgeInsets.all(4),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: InkWell(
+                            onTap: () => setSheetState(() => individualPDFs = false),
+                            borderRadius: BorderRadius.circular(10),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              decoration: BoxDecoration(
+                                color: !individualPDFs ? Colors.white : Colors.transparent,
+                                borderRadius: BorderRadius.circular(10),
+                                boxShadow: !individualPDFs
+                                    ? [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))]
+                                    : [],
+                              ),
+                              child: Center(
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.library_books_rounded, size: 16, color: !individualPDFs ? Colors.indigo.shade700 : Colors.grey.shade600),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Tek Birleşik PDF',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 12,
+                                        fontWeight: !individualPDFs ? FontWeight.bold : FontWeight.normal,
+                                        color: !individualPDFs ? Colors.indigo.shade900 : Colors.grey.shade700,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: InkWell(
+                            onTap: () => setSheetState(() => individualPDFs = true),
+                            borderRadius: BorderRadius.circular(10),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              decoration: BoxDecoration(
+                                color: individualPDFs ? Colors.white : Colors.transparent,
+                                borderRadius: BorderRadius.circular(10),
+                                boxShadow: individualPDFs
+                                    ? [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))]
+                                    : [],
+                              ),
+                              child: Center(
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.person_pin_rounded, size: 16, color: individualPDFs ? Colors.indigo.shade700 : Colors.grey.shade600),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Kişiye Özel PDF',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 12,
+                                        fontWeight: individualPDFs ? FontWeight.bold : FontWeight.normal,
+                                        color: individualPDFs ? Colors.indigo.shade900 : Colors.grey.shade700,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.grey.shade100),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Kritik Soruları Önceliklendir',
+                                style: GoogleFonts.inter(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Yıldızladığınız kritik sorular öğrencinin yanlışları arasındaysa önce onları seçer.',
+                                style: GoogleFonts.inter(
+                                  fontSize: 11,
+                                  color: Colors.grey.shade500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Switch(
+                          value: prioritizeCritical,
+                          activeColor: Colors.indigo.shade600,
+                          onChanged: (val) {
+                            setSheetState(() => prioritizeCritical = val);
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.grey.shade100),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Maksimum Soru Limiti Koy',
+                                    style: GoogleFonts.inter(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 14,
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Kitapçıkta bulunacak maksimum soru sayısını sınırlandırır.',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 11,
+                                      color: Colors.grey.shade500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Switch(
+                              value: hasMaxLimit,
+                              activeColor: Colors.indigo.shade600,
+                              onChanged: (val) {
+                                setSheetState(() {
+                                  hasMaxLimit = val;
+                                  if (!val) fillFromPool = false;
+                                });
+                              },
+                            ),
+                          ],
+                        ),
+                        if (hasMaxLimit) ...[
+                          const SizedBox(height: 12),
+                          const Divider(height: 1),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Text(
+                                'Maksimum Soru Sayısı:',
+                                style: GoogleFonts.inter(
+                                  fontWeight: FontWeight.w500,
+                                  fontSize: 13,
+                                  color: Colors.grey.shade700,
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              SizedBox(
+                                width: 80,
+                                height: 40,
+                                child: TextField(
+                                  controller: textController,
+                                  keyboardType: TextInputType.number,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(fontWeight: FontWeight.bold),
+                                  decoration: InputDecoration(
+                                    contentPadding: EdgeInsets.zero,
+                                    filled: true,
+                                    fillColor: Colors.white,
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                      borderSide: BorderSide(color: Colors.grey.shade300),
+                                    ),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                      borderSide: BorderSide(color: Colors.grey.shade300),
+                                    ),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                      borderSide: BorderSide(color: Colors.indigo.shade600),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          const Divider(height: 1),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Soru Sayısını Sabitle',
+                                      style: GoogleFonts.inter(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 14,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Öğrencinin yanlışları eksikse, havuzdaki diğer zeki sorulardan (zordan kolaya) tamamlayarak standart kitapçık boyutu sunar.',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 11,
+                                        color: Colors.grey.shade500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Switch(
+                                value: fillFromPool,
+                                activeColor: Colors.indigo.shade600,
+                                onChanged: (val) {
+                                  setSheetState(() => fillFromPool = val);
+                                },
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: FilledButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        final int? maxQ = hasMaxLimit ? int.tryParse(textController.text) : null;
+                        onGenerate(prioritizeCritical, maxQ, fillFromPool, individualPDFs);
+                      },
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.indigo.shade600,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: Text(
+                        'KİTAPÇIĞI HAZIRLA',
+                        style: GoogleFonts.outfit(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   void _generateBulk() async {
     final selectedStudents = _allStudents.where((s) => s.isSelected).toList();
     if (selectedStudents.isEmpty) return;
 
-    setState(() => _isGeneratingBulk = true);
+    _showCriteriaBottomSheet(
+      onGenerate: (prioritizeCritical, maxQuestions, fillFromPool, individualPDFs) async {
+        setState(() {
+          _showProgress = true;
+          _progressCurrent = 0;
+          _progressTotal = selectedStudents.length;
+          _progressStudentName = 'Hazırlanıyor...';
+        });
 
-    try {
-      final bulkData = selectedStudents.map((s) => s.results.map((r) => r ?? {}).toList()).toList();
-      await _generatorService.generateBulkBooklets(
-        exams: widget.exams,
-        bulkStudentResults: bulkData,
-      );
-    } catch (e) {
-      debugPrint('Error generating bulk booklet: $e');
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e')));
-    } finally {
-      if (mounted) setState(() => _isGeneratingBulk = false);
-    }
+        try {
+          final bulkData = selectedStudents.map((s) => s.results.map((r) => r ?? {}).toList()).toList();
+          await _generatorService.generateBulkBooklets(
+            exams: widget.exams,
+            bulkStudentResults: bulkData,
+            prioritizeCritical: prioritizeCritical,
+            maxQuestions: maxQuestions,
+            fillFromPool: fillFromPool,
+            individualPDFs: individualPDFs,
+            onProgress: (current, total, studentName) {
+              if (mounted) {
+                setState(() {
+                  _progressCurrent = current;
+                  _progressTotal = total;
+                  _progressStudentName = studentName;
+                });
+              }
+            },
+          );
+        } catch (e) {
+          debugPrint('Error generating bulk booklet: $e');
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e')));
+        } finally {
+          if (mounted) setState(() => _showProgress = false);
+        }
+      },
+    );
   }
 
   void _showFilterSheet(String title, List<String> items, Set<String> currentSelected, Function(Set<String>) onApply) {
@@ -218,42 +617,160 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
     final selectedCount = _allStudents.where((s) => s.isSelected).length;
     final isAllSelected = _filteredStudents.isNotEmpty && _filteredStudents.every((s) => s.isSelected);
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        title: Text(
-          widget.exams.length == 1 
-            ? 'Öğrenci Listesi' 
-            : 'Karma Kitapçık: ${widget.exams.length} Sınav',
-          style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 20),
-        ),
-        elevation: 0,
-        backgroundColor: const Color(0xFFF8FAFC),
-        foregroundColor: Colors.indigo.shade900,
-        centerTitle: true,
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                _buildPremiumHeader(),
-                const SizedBox(height: 8),
-                _buildActionRow(isAllSelected),
-                Expanded(
-                  child: _filteredStudents.isEmpty
-                      ? Center(child: Text('Arama kriterlerine uygun öğrenci bulunamadı.', style: GoogleFonts.inter(color: Colors.grey)))
-                      : ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
-                          itemCount: _filteredStudents.length,
-                          itemBuilder: (context, index) {
-                            return _buildStudentCard(_filteredStudents[index]);
-                          },
-                        ),
-                ),
-              ],
+    return Stack(
+      children: [
+        Scaffold(
+          backgroundColor: const Color(0xFFF8FAFC),
+          appBar: AppBar(
+            title: Text(
+              widget.exams.length == 1 
+                ? 'Öğrenci Listesi' 
+                : 'Karma Kitapçık: ${widget.exams.length} Sınav',
+              style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 20),
             ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-      floatingActionButton: selectedCount > 0 ? _buildBulkActionBar(selectedCount) : null,
+            elevation: 0,
+            backgroundColor: const Color(0xFFF8FAFC),
+            foregroundColor: Colors.indigo.shade900,
+            centerTitle: true,
+          ),
+          body: _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : Column(
+                  children: [
+                    _buildPremiumHeader(),
+                    const SizedBox(height: 8),
+                    _buildActionRow(isAllSelected),
+                    Expanded(
+                      child: _filteredStudents.isEmpty
+                          ? Center(child: Text('Arama kriterlerine uygun öğrenci bulunamadı.', style: GoogleFonts.inter(color: Colors.grey)))
+                          : ListView.builder(
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
+                              itemCount: _filteredStudents.length,
+                              itemBuilder: (context, index) {
+                                return _buildStudentCard(_filteredStudents[index]);
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+          floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
+          floatingActionButton: selectedCount > 0 ? _buildBulkActionBar(selectedCount) : null,
+        ),
+        if (_showProgress) _buildProgressOverlay(),
+      ],
+    );
+  }
+
+  Widget _buildProgressOverlay() {
+    final percent = _progressTotal > 0 ? (_progressCurrent / _progressTotal) : 0.0;
+    final displayPercent = (percent * 100).toInt();
+
+    return Material(
+      color: Colors.transparent,
+      child: Stack(
+        children: [
+          // Glassmorphic background blur
+          Positioned.fill(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+              child: Container(
+                color: Colors.indigo.shade900.withOpacity(0.4),
+              ),
+            ),
+          ),
+          Center(
+            child: Container(
+              width: 320,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(28),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.15),
+                    blurRadius: 30,
+                    offset: const Offset(0, 15),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Circular Progress with percentage inside!
+                  SizedBox(
+                    width: 140,
+                    height: 140,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Positioned.fill(
+                          child: CircularProgressIndicator(
+                            value: percent,
+                            strokeWidth: 6.0, // Clean, sleek stroke width for the large circle
+                            backgroundColor: Colors.indigo.shade50,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.indigo.shade600),
+                          ),
+                        ),
+                        Text(
+                          '$displayPercent%',
+                          style: GoogleFonts.outfit(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 26, // Large, highly premium typography
+                            color: Colors.indigo.shade900,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Text(
+                    'Hata Kitapçığı Hazırlanıyor',
+                    style: GoogleFonts.outfit(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                      color: Colors.indigo.shade900,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _progressStudentName,
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                      color: Colors.grey.shade800,
+                    ),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '$_progressCurrent / $_progressTotal Öğrenci',
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.w500,
+                      fontSize: 12,
+                      color: Colors.grey.shade500,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 20),
+                  // Linear progress bar at the very bottom of the card
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: LinearProgressIndicator(
+                      value: percent,
+                      minHeight: 6,
+                      backgroundColor: Colors.grey.shade100,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.indigo.shade400),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -453,9 +970,39 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
                 // Single Generate Button
                 IconButton(
                   onPressed: () {
-                    _generatorService.generateBulkBooklets(
-                      exams: widget.exams,
-                      bulkStudentResults: [student.results.map((r) => r ?? {}).toList()],
+                    _showCriteriaBottomSheet(
+                      onGenerate: (prioritizeCritical, maxQuestions, fillFromPool, individualPDFs) async {
+                        setState(() {
+                          _showProgress = true;
+                          _progressCurrent = 0;
+                          _progressTotal = 1;
+                          _progressStudentName = student.name;
+                        });
+                        try {
+                          await _generatorService.generateBulkBooklets(
+                            exams: widget.exams,
+                            bulkStudentResults: [student.results.map((r) => r ?? {}).toList()],
+                            prioritizeCritical: prioritizeCritical,
+                            maxQuestions: maxQuestions,
+                            fillFromPool: fillFromPool,
+                            individualPDFs: individualPDFs,
+                            onProgress: (current, total, studentName) {
+                              if (mounted) {
+                                setState(() {
+                                  _progressCurrent = current;
+                                  _progressTotal = total;
+                                  _progressStudentName = studentName;
+                                });
+                              }
+                            },
+                          );
+                        } catch (e) {
+                          debugPrint('Error: $e');
+                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e')));
+                        } finally {
+                          if (mounted) setState(() => _showProgress = false);
+                        }
+                      },
                     );
                   },
                   icon: Container(

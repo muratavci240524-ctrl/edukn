@@ -20,6 +20,15 @@ service cloud.firestore {
       return getUserData().role in ['admin', 'manager', 'genel_mudur', 'mudur'];
     }
 
+    // 🔔 Bildirimler
+    match /notifications/{userId} {
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      match /items/{notificationId} {
+        allow read, update: if isAuthenticated() && request.auth.uid == userId;
+        allow create, delete: if false; // Sadece Cloud Functions yazabilir
+      }
+    }
+
     // Default deny for everything else NOT explicitly matched
     match /{document=**} {
       allow read, write: if false;
@@ -131,6 +140,10 @@ service cloud.firestore {
     match /trial_exams/{examId} {
       allow read: if isAuthenticated();
       allow write: if isAuthenticated();
+
+      match /questions_pool/{questionId} {
+        allow read, write: if isAuthenticated();
+      }
     }
     
     // Global Announcements
@@ -279,6 +292,14 @@ service cloud.firestore {
     match /trial_exams/{examId} {
       allow read: if isAuthenticated();
       allow write: if isAuthenticated();
+
+      match /questions_pool/{questionId} {
+        allow read, write: if isAuthenticated();
+      }
+    }
+
+    match /{path=**}/questions_pool/{questionId} {
+      allow read, write: if isAuthenticated();
     }
 
     match /outcome_lists/{listId} {
@@ -499,6 +520,42 @@ service cloud.firestore {
     }
 
     match /overtime_records/{overtimeId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // ─── KAMP PROGRAMI ────────────────────────────────────────────────────────
+    match /camp_cycles/{cycleId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /camp_groups/{groupId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /camp_assignments/{assignmentId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /camp_assignment_logs/{logId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if false;
+    }
+
+    match /camp_time_slots/{slotId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Assessment Action Plans
+    match /assessment_action_plans/{planId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /preRegistrations/{regId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /transactions/{transactionId} {
       allow read, write: if isAuthenticated();
     }
   }

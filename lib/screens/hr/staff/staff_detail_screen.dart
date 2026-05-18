@@ -1626,6 +1626,55 @@ class _JobTabState extends State<_JobTab> {
     } else if (staff['workLocation'] != null && staff['workLocation'].toString().isNotEmpty) {
       workLocations = [staff['workLocation'].toString()];
     }
+
+    // Normalize workLocations so they match the case of _schoolTypes names or fixed locations
+    final List<String> normalizedLocations = [];
+    for (var loc in workLocations) {
+      final locTrim = loc.trim();
+      final locLower = locTrim.toLowerCase();
+      
+      // Check in _schoolTypes
+      final matchedType = _schoolTypes.firstWhere(
+        (st) => (st['schoolTypeName'] ?? st['typeName'] ?? '').toString().toLowerCase().trim() == locLower,
+        orElse: () => {},
+      );
+      
+      if (matchedType.isNotEmpty) {
+        final correctCasing = (matchedType['schoolTypeName'] ?? matchedType['typeName'] ?? '').toString();
+        if (!normalizedLocations.contains(correctCasing)) {
+          normalizedLocations.add(correctCasing);
+        }
+      } else {
+        // Check in static locations
+        final staticMatches = [
+          {'value': 'ARGE', 'label': 'ARGE'},
+          {'value': 'INSAN_KAYNAKLARI', 'label': 'İnsan Kaynakları'},
+          {'value': 'DANISMA', 'label': 'Danışma'},
+          {'value': 'GUVENLIK', 'label': 'Güvenlik'},
+          {'value': 'TEMIZLIK', 'label': 'Temizlik'},
+          {'value': 'YEMEKHANE', 'label': 'Yemekhane'},
+          {'value': 'REVIR', 'label': 'Revir'},
+        ];
+        
+        final matchedStatic = staticMatches.firstWhere(
+          (s) => s['value']!.toLowerCase() == locLower || s['label']!.toLowerCase() == locLower,
+          orElse: () => {},
+        );
+        
+        if (matchedStatic.isNotEmpty) {
+          final correctCasing = matchedStatic['value']!;
+          if (!normalizedLocations.contains(correctCasing)) {
+            normalizedLocations.add(correctCasing);
+          }
+        } else {
+          // If no match, keep the original to not lose data
+          if (!normalizedLocations.contains(locTrim)) {
+            normalizedLocations.add(locTrim);
+          }
+        }
+      }
+    }
+    workLocations = normalizedLocations;
     String employmentType = (staff['employmentType'] ?? '').toString();
 
     await showModalBottomSheet(
@@ -1678,6 +1727,20 @@ class _JobTabState extends State<_JobTab> {
                   }
 
                   updateData['workLocations'] = workLocations;
+
+                  // schoolTypes ID'lerini de kaydet
+                  final selectedSchoolTypeIds = <String>[];
+                  for (final loc in workLocations) {
+                    final matched = _schoolTypes.firstWhere(
+                      (st) => (st['schoolTypeName'] ?? st['typeName'] ?? '').toString() == loc,
+                      orElse: () => {},
+                    );
+                    if (matched.isNotEmpty && matched['id'] != null) {
+                      selectedSchoolTypeIds.add(matched['id'].toString());
+                    }
+                  }
+                  updateData['schoolTypes'] = selectedSchoolTypeIds;
+
                   updateData['jobStartDate'] = startDateCtrl.text.trim();
 
                   // İstihdam
@@ -1744,7 +1807,13 @@ class _JobTabState extends State<_JobTab> {
                   if (isPositionCard) ...[
                     // Departman
                     DropdownButtonFormField<String>(
-                      value: department.isEmpty ? null : department,
+                      value: [
+                        'Öğretim Departmanı',
+                        'İdari Departman',
+                        'İnsan Kaynakları',
+                        'Muhasebe / Finans',
+                        'Destek Hizmetleri'
+                      ].contains(department) ? department : null,
                       items: const [
                         DropdownMenuItem(
                           value: 'Öğretim Departmanı',
@@ -1993,14 +2062,78 @@ class _JobTabState extends State<_JobTab> {
 
                     // Yönetici / Bağlı Olduğu Kişi
                     DropdownButtonFormField<String>(
-                      value: managerUserId.isEmpty ? null : managerUserId,
+                      value: (() {
+                        final validUids = _users
+                            .where((u) {
+                              final uid = (u['id'] ?? '').toString();
+                              final uTitle = (u['title'] ?? '').toString().toLowerCase().trim();
+                              final uRole = (u['role'] ?? '').toString().toLowerCase().trim();
+                              final uIsActive = u['isActive'] ?? true;
+                              
+                              if (uid == id || !uIsActive) return false;
+                              
+                              final isGenelMudur = uTitle == 'genel_mudur' || 
+                                                   uTitle == 'genel müdür' || 
+                                                   uRole == 'admin' || 
+                                                   uRole == 'yonetici' || 
+                                                   uRole == 'yönetici' || 
+                                                   uRole == 'super_admin';
+                                                   
+                              final isMudur = uTitle == 'mudur' || uTitle == 'müdür';
+                              
+                              final isMudurYardimcisi = uTitle == 'mudur_yardimcisi' || 
+                                                        uTitle == 'müdür yardımcısı' ||
+                                                        uTitle == 'mudur_yard';
+                                                        
+                              final empTitle = jobTitle.toLowerCase().trim();
+                              
+                              if (empTitle == 'ogretmen') {
+                                return isMudurYardimcisi || isMudur || isGenelMudur;
+                              } else if (empTitle == 'mudur_yardimcisi') {
+                                return isMudur || isGenelMudur;
+                              } else if (empTitle == 'mudur') {
+                                return isGenelMudur;
+                              } else {
+                                return isMudurYardimcisi || isMudur || isGenelMudur;
+                              }
+                            })
+                            .map((u) => (u['id'] ?? '').toString())
+                            .toList();
+                        return validUids.contains(managerUserId) ? managerUserId : null;
+                      })(),
                       items: _users
                           .where((u) {
-                            final authUserId = (u['authUserId'] ?? '')
-                                .toString()
-                                .trim();
                             final uid = (u['id'] ?? '').toString();
-                            return authUserId.isNotEmpty && uid != id;
+                            final uTitle = (u['title'] ?? '').toString().toLowerCase().trim();
+                            final uRole = (u['role'] ?? '').toString().toLowerCase().trim();
+                            final uIsActive = u['isActive'] ?? true;
+                            
+                            if (uid == id || !uIsActive) return false;
+                            
+                            final isGenelMudur = uTitle == 'genel_mudur' || 
+                                                 uTitle == 'genel müdür' || 
+                                                 uRole == 'admin' || 
+                                                 uRole == 'yonetici' || 
+                                                 uRole == 'yönetici' || 
+                                                 uRole == 'super_admin';
+                                                 
+                            final isMudur = uTitle == 'mudur' || uTitle == 'müdür';
+                            
+                            final isMudurYardimcisi = uTitle == 'mudur_yardimcisi' || 
+                                                      uTitle == 'müdür yardımcısı' ||
+                                                      uTitle == 'mudur_yard';
+                                                      
+                            final empTitle = jobTitle.toLowerCase().trim();
+                            
+                            if (empTitle == 'ogretmen') {
+                              return isMudurYardimcisi || isMudur || isGenelMudur;
+                            } else if (empTitle == 'mudur_yardimcisi') {
+                              return isMudur || isGenelMudur;
+                            } else if (empTitle == 'mudur') {
+                              return isGenelMudur;
+                            } else {
+                              return isMudurYardimcisi || isMudur || isGenelMudur;
+                            }
                           })
                           .map(
                             (u) => DropdownMenuItem<String>(
@@ -2041,16 +2174,15 @@ class _JobTabState extends State<_JobTab> {
                             // Okul türleri
                             ..._schoolTypes.map((st) {
                               final locationName = (st['schoolTypeName'] ?? st['typeName'] ?? '').toString();
-                              final isSelected = workLocations.contains(locationName);
+                              final isSelected = workLocations.any((loc) => loc.toLowerCase().trim() == locationName.toLowerCase().trim());
                               return FilterChip(
                                 label: Text(locationName),
                                 selected: isSelected,
                                 onSelected: (selected) {
                                   setSheetState(() {
+                                    workLocations.removeWhere((loc) => loc.toLowerCase().trim() == locationName.toLowerCase().trim());
                                     if (selected) {
                                       workLocations.add(locationName);
-                                    } else {
-                                      workLocations.remove(locationName);
                                     }
                                   });
                                 },
@@ -2068,16 +2200,15 @@ class _JobTabState extends State<_JobTab> {
                               {'value': 'YEMEKHANE', 'label': 'Yemekhane'},
                               {'value': 'REVIR', 'label': 'Revir'},
                             ].map((loc) {
-                              final isSelected = workLocations.contains(loc['value']);
+                              final isSelected = workLocations.any((l) => l.toLowerCase().trim() == loc['value']!.toLowerCase().trim() || l.toLowerCase().trim() == loc['label']!.toLowerCase().trim());
                               return FilterChip(
                                 label: Text(loc['label']!),
                                 selected: isSelected,
                                 onSelected: (selected) {
                                   setSheetState(() {
+                                    workLocations.removeWhere((l) => l.toLowerCase().trim() == loc['value']!.toLowerCase().trim() || l.toLowerCase().trim() == loc['label']!.toLowerCase().trim());
                                     if (selected) {
                                       workLocations.add(loc['value']!);
-                                    } else {
-                                      workLocations.remove(loc['value']!);
                                     }
                                   });
                                 },

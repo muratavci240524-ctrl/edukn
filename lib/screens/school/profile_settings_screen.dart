@@ -51,6 +51,33 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   void initState() {
     super.initState();
     _loadSchoolData();
+    _loadNotificationSettings();
+  }
+
+  Map<String, bool> _notificationSettings = {
+    'announcements': true,
+    'studies': true,
+    'homeworks': true,
+    'messages': true,
+    'exams': true,
+  };
+
+  Future<void> _loadNotificationSettings() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+    if (userDoc.exists) {
+      final data = userDoc.data();
+      if (data != null && data.containsKey('notificationSettings')) {
+        setState(() {
+          final settings = Map<String, dynamic>.from(data['notificationSettings']);
+          settings.forEach((key, value) {
+            _notificationSettings[key] = value as bool;
+          });
+        });
+      }
+    }
   }
 
   @override
@@ -237,6 +264,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
             'email': _userEmailController.text.trim(),
             'profileImageUrl': _profileImageUrl,
             'updatedAt': FieldValue.serverTimestamp(),
+            'notificationSettings': _notificationSettings,
           });
         }
         
@@ -372,12 +400,15 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
         SizedBox(height: 16),
         TextFormField(controller: _userEmailController, decoration: _modernInputDecoration(label: 'E-posta (İletişim)', icon: Icons.email)),
         SizedBox(height: 32),
-        Text('Şifre İşlemleri', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-        SizedBox(height: 16),
-        TextFormField(controller: _currentPasswordController, obscureText: true, decoration: _modernInputDecoration(label: 'Mevcut Şifre', icon: Icons.lock_outline)),
-        SizedBox(height: 16),
-        TextFormField(controller: _newPasswordController, obscureText: true, decoration: _modernInputDecoration(label: 'Yeni Şifre', icon: Icons.lock)),
-        SizedBox(height: 32),
+        const SizedBox(height: 32),
+        const Text('Bildirim Tercihleri', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 12),
+        _buildNotificationToggle('announcements', 'Duyurular', Icons.campaign_outlined),
+        _buildNotificationToggle('studies', 'Etüt ve Ek Dersler', Icons.school_outlined),
+        _buildNotificationToggle('homeworks', 'Ödevler', Icons.assignment_outlined),
+        _buildNotificationToggle('messages', 'Mesajlar', Icons.forum_outlined),
+        _buildNotificationToggle('exams', 'Sınav Sonuçları', Icons.analytics_outlined),
+        const SizedBox(height: 32),
         _buildSaveButton(),
       ],
     );
@@ -434,6 +465,17 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
           Text(value, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold), textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis),
         ],
       ),
+    );
+  }
+
+  Widget _buildNotificationToggle(String key, String title, IconData icon) {
+    return SwitchListTile(
+      value: _notificationSettings[key] ?? true,
+      onChanged: (val) => setState(() => _notificationSettings[key] = val),
+      title: Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+      secondary: Icon(icon, color: Colors.indigo, size: 20),
+      activeColor: Colors.indigo,
+      contentPadding: EdgeInsets.zero,
     );
   }
 }

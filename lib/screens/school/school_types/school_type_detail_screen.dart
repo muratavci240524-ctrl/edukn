@@ -1,6 +1,7 @@
 import 'dart:ui' as ui;
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:flutter/gestures.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:edukn/services/user_permission_service.dart';
@@ -39,6 +40,7 @@ import '../homework/homework_operations_screen.dart';
 import '../book_management_screen.dart';
 import '../etut_process_screen.dart';
 import '../activity/activity_list_screen.dart';
+import '../assessment/agm/screens/agm_teacher_timetable_screen.dart';
 import '../../../../widgets/recipient_selector_field.dart';
 import '../../../../widgets/edukn_logo.dart';
 
@@ -57,6 +59,8 @@ import '../../support_services/inventory/inventory_screen.dart';
 import '../../guidance/reports/development_report_management_screen.dart';
 import '../guidance/demand/demand_dashboard_screen.dart';
 import '../notes/personal_notes_screen.dart';
+import '../assessment/camp/screens/camp_dashboard_screen.dart';
+import '../assessment/agm/screens/agm_dashboard_screen.dart';
 
 class SchoolTypeDetailScreen extends StatefulWidget {
   final String schoolTypeId;
@@ -75,41 +79,59 @@ class SchoolTypeDetailScreen extends StatefulWidget {
 }
 
 class _SchoolTypeDetailScreenState extends State<SchoolTypeDetailScreen> {
-  int _currentIndex = 0;
-
-  // Alt menü sayfaları
-  late List<Widget> _pages;
+  int _currentIndex = 1;
+  Map<String, dynamic>? _userData;
+  bool _loading = true;
 
   @override
   void initState() {
     super.initState();
-    // Default to Dashboard (index 1) or Haberleşme (index 0). We will default to 1 (Dashboard).
-    _currentIndex = 1;
-    _pages = [
+    _loadInitialData();
+  }
+
+  Future<void> _loadInitialData() async {
+    final data = await UserPermissionService.loadUserData();
+    if (mounted) {
+      setState(() {
+        _userData = data;
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    final pages = [
       _CommunicationTab(
         schoolTypeId: widget.schoolTypeId,
         schoolTypeName: widget.schoolTypeName,
         institutionId: widget.institutionId,
+        userData: _userData,
       ),
       _DashboardTab(
         schoolTypeId: widget.schoolTypeId,
         schoolTypeName: widget.schoolTypeName,
         institutionId: widget.institutionId,
+        userData: _userData,
       ),
       _OperationsTab(
         schoolTypeId: widget.schoolTypeId,
         schoolTypeName: widget.schoolTypeName,
         institutionId: widget.institutionId,
+        userData: _userData,
       ),
     ];
-  }
 
-  @override
-  Widget build(BuildContext context) {
     return Scaffold(
       body: IndexedStack(
         index: _currentIndex,
-        children: _pages,
+        children: pages,
       ),
       bottomNavigationBar: Column(
         mainAxisSize: MainAxisSize.min,
@@ -175,12 +197,14 @@ class _CommunicationTab extends StatefulWidget {
   final String schoolTypeId;
   final String schoolTypeName;
   final String institutionId;
+  final Map<String, dynamic>? userData;
 
   const _CommunicationTab({
     Key? key,
     required this.schoolTypeId,
     required this.schoolTypeName,
     required this.institutionId,
+    this.userData,
   }) : super(key: key);
 
   @override
@@ -189,6 +213,11 @@ class _CommunicationTab extends StatefulWidget {
 
 class _CommunicationTabState extends State<_CommunicationTab> with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
+
+  bool get isTeacher {
+    final role = (widget.userData?['role'] as String?)?.toLowerCase();
+    return role == 'ogretmen' || role == 'öğretmen';
+  }
 
   @override
   void initState() {
@@ -242,7 +271,9 @@ class _CommunicationTabState extends State<_CommunicationTab> with SingleTickerP
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Okulunuzdaki iletişim kanallarına tek bir yerden ulaşın.',
+                        isTeacher 
+                          ? 'Öğretmenlere özel duyurular ve mesajlaşma merkezi.'
+                          : 'Okulunuzdaki iletişim kanallarına tek bir yerden ulaşın.',
                         style: TextStyle(
                           fontSize: 15,
                           color: Colors.blueGrey.shade600,
@@ -411,11 +442,13 @@ class _OperationsTab extends StatefulWidget {
   final String schoolTypeId;
   final String schoolTypeName;
   final String institutionId;
+  final Map<String, dynamic>? userData;
 
   const _OperationsTab({
     required this.schoolTypeId,
     required this.schoolTypeName,
     required this.institutionId,
+    this.userData,
   });
 
   @override
@@ -435,19 +468,17 @@ class _OperationsTabState extends State<_OperationsTab> {
   Map<String, dynamic>? userData;
   Map<String, dynamic>? schoolData;
 
+  bool get isTeacher {
+    final role = (userData?['role'] as String?)?.toLowerCase();
+    return role == 'ogretmen' || role == 'öğretmen';
+  }
+
   @override
   void initState() {
     super.initState();
-    _loadUserPermissions();
+    userData = widget.userData;
     _loadSchoolData();
     _loadTerms();
-  }
-
-  Future<void> _loadUserPermissions() async {
-    final data = await UserPermissionService.loadUserData();
-    if (mounted) {
-      setState(() => userData = data);
-    }
   }
 
   Future<void> _loadSchoolData() async {
@@ -858,6 +889,10 @@ class _OperationsTabState extends State<_OperationsTab> {
 
     final double currentCardWidth = isFiltered ? availableWidth : gridCardWidth;
 
+    if (isTeacher) {
+      return _buildTeacherGrid(isMobile, currentCardWidth, isFiltered);
+    }
+
     final allModules = <_ModuleCardWidget>[
       if (_hasModuleAccess('egitim') || _hasModuleAccess('insan_kaynaklari'))
         _ModuleCardWidget(
@@ -937,7 +972,7 @@ class _OperationsTabState extends State<_OperationsTab> {
         _ModuleCardWidget(
           key: const ValueKey('olcme'),
           title: 'ÖLÇME DEĞERLENDİRME',
-          badge: 'Sınav',
+          badge: 'Ölçme',
           icon: Icons.analytics,
           color: Colors.orange,
           cardWidth: currentCardWidth,
@@ -948,17 +983,15 @@ class _OperationsTabState extends State<_OperationsTab> {
             if (_hasSubModuleAccess('olcme_degerlendirme', 'tanimlar'))
               {'title': 'Tanımlar', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => AssessmentDefinitionsScreen(institutionId: widget.institutionId)))},
             if (_hasSubModuleAccess('olcme_degerlendirme', 'raporlar'))
-              {'title': 'Sınav Sonuç Raporları', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => AssessmentReportsScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
+              {'title': 'Raporlar', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => AssessmentReportsScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
             if (_hasSubModuleAccess('olcme_degerlendirme', 'denemeler'))
-              {'title': 'Deneme Sınavları', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => TrialExamListScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
+              {'title': 'Denemeler', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => TrialExamListScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
             if (_hasSubModuleAccess('olcme_degerlendirme', 'sinavlar'))
-              {'title': 'Aktif Sınavlar', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ActiveExamListScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
+              {'title': 'Sınavlar', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ActiveExamListScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
             if (_hasSubModuleAccess('olcme_degerlendirme', 'hata_kitapcigi'))
               {'title': 'Hata Kitapçığı', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ErrorBookletDashboardScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
             if (_hasSubModuleAccess('olcme_degerlendirme', 'soru_havuzu'))
-              {'title': 'Soru Havuzu', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => QuestionPoolScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
-            {'title': 'Optik Form ve Okuma', 'onTap': () => print('Optik Okuma')},
-            {'title': 'Sınav Görevlileri', 'onTap': () => print('Sınav Görevlileri')},
+              {'title': 'Soru havuzu', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => QuestionPoolScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
           ],
           onTap: () => setState(() => _selectedCategory = 'Ölçme'),
         ),
@@ -1083,6 +1116,98 @@ class _OperationsTabState extends State<_OperationsTab> {
     );
   }
 
+  Widget _buildTeacherGrid(bool isMobile, double currentCardWidth, bool isFiltered) {
+    final teacherModules = <_ModuleCardWidget>[
+      _ModuleCardWidget(
+        key: const ValueKey('t_ders'),
+        title: 'DERSLERİM VE YOKLAMA',
+        badge: 'Ders',
+        icon: Icons.class_outlined,
+        color: Colors.blue,
+        cardWidth: currentCardWidth,
+        isMobile: isMobile,
+        category: 'Ders',
+        showAllItems: isFiltered,
+        items: [
+          {'title': 'Haftalık Ders Programım', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => TeacherScheduleViewScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
+          {'title': 'Yoklama Girişi', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => AttendanceOperationsScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
+          {'title': 'Günlük Ders Planları', 'onTap': () => print('Ders Planları')},
+          {'title': 'Kazanım Takip', 'onTap': () => print('Kazanımlar')},
+          {'title': 'Ödev Takibi', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => HomeworkOperationsScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
+          {'title': 'Etütlerim', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => EtutProcessScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
+          {'title': 'AGM Ders Programım', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => AgmDashboardScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
+        ],
+        onTap: () => setState(() => _selectedCategory = 'Ders'),
+      ),
+      _ModuleCardWidget(
+        key: const ValueKey('t_sinav'),
+        title: 'SINAV VE BAŞARI',
+        badge: 'Sınav',
+        icon: Icons.analytics_outlined,
+        color: Colors.orange,
+        cardWidth: currentCardWidth,
+        isMobile: isMobile,
+        category: 'Sınav',
+        showAllItems: isFiltered,
+        items: [
+          {'title': 'Sınav Sonuç Raporları', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => AssessmentReportsScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
+          {'title': 'AGM Sonuçları', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => AgmDashboardScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
+          {'title': 'Hata Kitapçığı Stüdyosu', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ErrorBookletDashboardScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
+          {'title': 'Deneme Sınavları', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => TrialExamListScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
+          {'title': 'Soru Havuzu', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => QuestionPoolScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
+        ],
+        onTap: () => setState(() => _selectedCategory = 'Sınav'),
+      ),
+      _ModuleCardWidget(
+        key: const ValueKey('t_ogrenci'),
+        title: 'ÖĞRENCİ VE REHBERLİK',
+        badge: 'Rehberlik',
+        icon: Icons.face_outlined,
+        color: Colors.purple,
+        cardWidth: currentCardWidth,
+        isMobile: isMobile,
+        category: 'Rehberlik',
+        showAllItems: isFiltered,
+        items: [
+          {'title': 'Öğrenci Portfolyosu', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => PortfolioScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
+          {'title': 'Görüşme Kayıtları', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => GuidanceInterviewScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
+          {'title': 'Rehberlik Taleplerim', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => DemandDashboardScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
+          {'title': 'Toplu Gözlem Girişi', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ActivityListScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
+          {'title': 'Anket Uygulama', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => SurveyListScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
+        ],
+        onTap: () => setState(() => _selectedCategory = 'Rehberlik'),
+      ),
+      _ModuleCardWidget(
+        key: const ValueKey('t_idari'),
+        title: 'İDARİ VE KİŞİSEL',
+        badge: 'Kişisel',
+        icon: Icons.assignment_ind_outlined,
+        color: Colors.teal,
+        cardWidth: currentCardWidth,
+        isMobile: isMobile,
+        category: 'Kişisel',
+        showAllItems: isFiltered,
+        items: [
+          {'title': 'İzin Taleplerim', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => SchoolTypeLeaveManagementScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
+          {'title': 'Nöbet Programım', 'onTap': () => print('Nöbetlerim')},
+          {'title': 'Gezi Görevlerim', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => FieldTripListScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
+          {'title': 'To-Do List', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ToDoListScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
+          {'title': 'Öğretmen Ajandası', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => PersonalNotesScreen()))},
+          {'title': 'Profil Bilgilerim', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (ctx) => const UserProfileScreen()))},
+        ],
+        onTap: () => setState(() => _selectedCategory = 'Kişisel'),
+      ),
+    ];
+
+    final filteredModules = teacherModules.where((m) => _selectedCategory == 'Tümü' || m.category == _selectedCategory).toList();
+
+    return Wrap(
+      spacing: isMobile ? 0 : 24,
+      runSpacing: isMobile ? 12 : 24,
+      children: filteredModules,
+    );
+  }
+
   Widget _buildCategorySelector(bool isMobile) {
     final categories = [
       {'label': 'Tümü', 'icon': Icons.grid_view_rounded},
@@ -1181,12 +1306,14 @@ class _DashboardTab extends StatefulWidget {
   final String schoolTypeId;
   final String schoolTypeName;
   final String institutionId;
+  final Map<String, dynamic>? userData;
 
   const _DashboardTab({
     Key? key,
     required this.schoolTypeId,
     required this.schoolTypeName,
     required this.institutionId,
+    this.userData,
   }) : super(key: key);
 
   @override
@@ -1209,6 +1336,7 @@ class _DashboardTabState extends State<_DashboardTab> {
                 child: SharedNotificationSection(
                   schoolTypeId: widget.schoolTypeId,
                   institutionId: widget.institutionId,
+                  userData: widget.userData,
                 ),
               ),
               // Sağ Panel: Takvim
@@ -1217,6 +1345,7 @@ class _DashboardTabState extends State<_DashboardTab> {
                 child: SharedCalendarSection(
                   schoolTypeId: widget.schoolTypeId,
                   institutionId: widget.institutionId,
+                  userData: widget.userData,
                 ),
               ),
             ],
@@ -1263,10 +1392,12 @@ class _DashboardTabState extends State<_DashboardTab> {
                       SharedNotificationSection(
                         schoolTypeId: widget.schoolTypeId,
                         institutionId: widget.institutionId,
+                        userData: widget.userData,
                       ),
                       SharedCalendarSection(
                         schoolTypeId: widget.schoolTypeId,
                         institutionId: widget.institutionId,
+                        userData: widget.userData,
                       ),
                     ],
                   ),
@@ -1283,26 +1414,31 @@ class _DashboardTabState extends State<_DashboardTab> {
 class SharedNotificationSection extends StatelessWidget {
   final String schoolTypeId;
   final String institutionId;
+  final Map<String, dynamic>? userData;
 
   const SharedNotificationSection({
     required this.schoolTypeId,
     required this.institutionId,
+    this.userData,
   });
 
   @override
   Widget build(BuildContext context) {
+    final role = (userData?['role'] as String?)?.toLowerCase();
+    final isTeacher = role == 'ogretmen' || role == 'öğretmen';
+
     return Container(
-      padding: EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'BİLDİRİMLER',
+                  'DUYURULAR VE BİLDİRİMLER',
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
@@ -1310,30 +1446,70 @@ class SharedNotificationSection extends StatelessWidget {
                     letterSpacing: 1.2,
                   ),
                 ),
-                TextButton(
-                  onPressed: () {},
-                  child: Text('Tümünü Oku'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: Colors.blue,
-                    textStyle: TextStyle(fontSize: 12),
-                  ),
-                ),
               ],
             ),
           ),
           Expanded(
-            child: ListView.builder(
-              itemCount: 5,
-              itemBuilder: (context, index) {
-                return _buildNotificationCard(
-                  title: index == 0
-                      ? 'Yeni Duyuru: Veli Toplantısı'
-                      : 'Ölçme Değerlendirme Raporu Hazır',
-                  subtitle: index == 0
-                      ? '12 Mart Perşembe günü saat 15:00\'de online veli toplantısı yapılacaktır.'
-                      : 'Son deneme sınavı sonuçları sisteme yüklenmiştir.',
-                  time: '${index + 1} saat önce',
-                  type: index % 2 == 0 ? 'announcement' : 'report',
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('activities')
+                  .where('institutionId', isEqualTo: institutionId)
+                  .orderBy('createdAt', descending: true)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                final docs = snapshot.data?.docs ?? [];
+                final filteredDocs = docs.where((doc) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  
+                  // Okul Türü Filtresi: Sadece bu okul türüne ait olanlar VEYA genel olanlar (null)
+                  final sId = data['schoolTypeId'] as String?;
+                  if (schoolTypeId.isNotEmpty && sId != null && sId != schoolTypeId) {
+                    return false;
+                  }
+
+                  // Öğretmen Filtresi
+                  if (isTeacher) {
+                    final targetRoles = data['targetRoles'] as List<dynamic>?;
+                    if (targetRoles != null && !targetRoles.contains('ogretmen') && !targetRoles.contains('öğretmen')) {
+                      return false;
+                    }
+                  }
+                  return true;
+                }).take(10).toList();
+
+                if (filteredDocs.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.notifications_none_rounded, size: 48, color: Colors.grey.shade300),
+                        const SizedBox(height: 12),
+                        Text('Henüz bir duyuru yok.', style: TextStyle(color: Colors.grey.shade400)),
+                      ],
+                    ),
+                  );
+                }
+
+                return ListView.builder(
+                  itemCount: filteredDocs.length,
+                  itemBuilder: (context, index) {
+                    final data = filteredDocs[index].data() as Map<String, dynamic>;
+                    final title = data['title'] ?? 'Duyuru';
+                    final type = data['type'] ?? 'Genel';
+                    final ts = data['createdAt'] as Timestamp?;
+                    final timeStr = ts != null ? DateFormat('HH:mm').format(ts.toDate()) : '';
+
+                    return _buildNotificationCard(
+                      title: title,
+                      subtitle: '$type - $timeStr',
+                      time: ts != null ? DateFormat('dd.MM').format(ts.toDate()) : '',
+                      type: type == 'Önemli' ? 'announcement' : 'report',
+                    );
+                  },
                 );
               },
             ),
@@ -1450,10 +1626,12 @@ class SharedNotificationSection extends StatelessWidget {
 class SharedCalendarSection extends StatefulWidget {
   final String schoolTypeId;
   final String institutionId;
+  final Map<String, dynamic>? userData;
 
   const SharedCalendarSection({
     required this.schoolTypeId,
     required this.institutionId,
+    this.userData,
   });
 
   @override
@@ -1502,6 +1680,11 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
         59,
       );
 
+      final role = (widget.userData?['role'] as String?)?.toLowerCase();
+      final isTeacher = role == 'ogretmen' || role == 'öğretmen';
+      final isStudent = role == 'ogrenci' || role == 'öğrenci';
+      final myId = widget.userData?['id'];
+
       // 1. Sosyal Etkinlikler ve Özel Notlar (activities)
       final activitiesSnapshot = await FirebaseFirestore.instance
           .collection('activities')
@@ -1509,10 +1692,15 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
           .get();
 
       // 2. Etütler (etut_requests)
-      final etutSnapshot = await FirebaseFirestore.instance
+      Query etutQuery = FirebaseFirestore.instance
           .collection('etut_requests')
-          .where('institutionId', isEqualTo: widget.institutionId)
-          .get();
+          .where('institutionId', isEqualTo: widget.institutionId);
+      
+      if (isTeacher && myId != null) {
+        etutQuery = etutQuery.where('teacherId', isEqualTo: myId);
+      }
+
+      final etutSnapshot = await etutQuery.get();
 
       // 3. Geziler (field_trips)
       final geziSnapshot = await FirebaseFirestore.instance
@@ -1525,17 +1713,27 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
       // Mapper: Activities
       allEvents.addAll(
         activitiesSnapshot.docs
-            .map(
-              (doc) => {
-                ...doc.data(),
-                'id': doc.id,
-                'source': 'activity',
-                'displayType': doc.data()['type'] ?? 'Etkinlik',
-              },
-            )
+            .map((doc) {
+                final data = doc.data() as Map<String, dynamic>;
+                return <String, dynamic>{
+                  ...data,
+                  'id': doc.id,
+                  'source': 'activity',
+                  'displayType': data['type'] ?? 'Etkinlik',
+                };
+              })
             .where((data) {
               final sId = data['schoolTypeId'] as String?;
-              if (widget.schoolTypeId.isNotEmpty && sId != widget.schoolTypeId) return false;
+              if (widget.schoolTypeId.isNotEmpty && sId != null && sId != widget.schoolTypeId) return false;
+              
+              // Öğretmen filtreleme: Eğer activities içinde targetRoles varsa kontrol et
+              if (isTeacher) {
+                final targetRoles = data['targetRoles'] as List<dynamic>?;
+                if (targetRoles != null && !targetRoles.contains('ogretmen') && !targetRoles.contains('öğretmen')) {
+                  return false;
+                }
+              }
+
               final dateTs = data['date'] as Timestamp?;
               if (dateTs == null) return false;
               final date = dateTs.toDate();
@@ -1549,20 +1747,38 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
       // Mapper: Etütler
       allEvents.addAll(
         etutSnapshot.docs
-            .map(
-              (doc) => {
-                ...doc.data(),
-                'id': doc.id,
-                'source': 'etut',
-                'title': doc.data()['topic'] ?? 'Etüt',
-                'displayType': 'Etüt',
-                'date': doc.data()['startTime'], // Indicator için date alanı
-                'type': 'Etüt',
-              },
-            )
+            .map((doc) {
+                final data = doc.data() as Map<String, dynamic>;
+                final lesson = data['lessonName'] ?? '';
+                final teacher = data['teacherName'] ?? '';
+                final title = (lesson.isNotEmpty && teacher.isNotEmpty) 
+                    ? '$lesson - $teacher' 
+                    : (data['topic'] ?? 'Etüt');
+
+                return <String, dynamic>{
+                  ...data,
+                  'id': doc.id,
+                  'source': 'etut',
+                  'title': title,
+                  'topic': data['topic'],
+                  'displayType': 'Etüt',
+                  'date': data['startTime'],
+                  'type': 'Etüt',
+                };
+              })
             .where((data) {
               final sId = data['schoolTypeId'] as String?;
-              if (widget.schoolTypeId.isNotEmpty && sId != widget.schoolTypeId) return false;
+              if (widget.schoolTypeId.isNotEmpty && sId != null && sId != widget.schoolTypeId) return false;
+              
+              // Öğrenci Filtreleme: Eğer isStudent ise sadece kendi olduğu etütleri görsün
+              if (isStudent && myId != null) {
+                final studentIds = data['studentIds'] as List<dynamic>?;
+                final singleStudentId = data['studentId'] as String?;
+                if (studentIds != null && !studentIds.contains(myId) && singleStudentId != myId) {
+                  return false;
+                }
+              }
+
               final dateTs = data['startTime'] as Timestamp?;
               if (dateTs == null) return false;
               final date = dateTs.toDate();
@@ -1576,20 +1792,28 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
       // Mapper: Geziler
       allEvents.addAll(
         geziSnapshot.docs
-            .map(
-              (doc) => {
-                ...doc.data(),
-                'id': doc.id,
-                'source': 'gezi',
-                'title': doc.data()['name'] ?? 'Gezi',
-                'displayType': 'Gezi',
-                'date': doc.data()['departureTime'],
-                'type': 'Gezi',
-              },
-            )
+            .map((doc) {
+                final data = doc.data() as Map<String, dynamic>;
+                return <String, dynamic>{
+                  ...data,
+                  'id': doc.id,
+                  'source': 'gezi',
+                  'title': data['name'] ?? 'Gezi',
+                  'displayType': 'Gezi',
+                  'date': data['departureTime'],
+                  'type': 'Gezi',
+                };
+              })
             .where((data) {
               final sId = data['schoolTypeId'] as String?;
-              if (widget.schoolTypeId.isNotEmpty && sId != widget.schoolTypeId) return false;
+              if (widget.schoolTypeId.isNotEmpty && sId != null && sId != widget.schoolTypeId) return false;
+              
+              if (isTeacher) {
+                 // Gezilerde öğretmen filtreleme: Eğer teacherIds listesi varsa kontrol et
+                 final teacherIds = data['teacherIds'] as List<dynamic>?;
+                 if (teacherIds != null && !teacherIds.contains(myId)) return false;
+              }
+
               final dateTs = data['departureTime'] as Timestamp?;
               if (dateTs == null) return false;
               final date = dateTs.toDate();
@@ -1608,6 +1832,14 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
       print('Etkinlik yükleme hatası: $e');
       setState(() => _isLoading = false);
     }
+  }
+
+  String _formatTime(dynamic time) {
+    if (time == null) return '';
+    if (time is Timestamp) {
+      return DateFormat('HH:mm').format(time.toDate());
+    }
+    return time.toString();
   }
 
   @override
@@ -1941,9 +2173,15 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
           eventDate.year == _selectedDay.year;
     }).toList();
 
-    selectedDayEvents.sort(
-      (a, b) => (a['startTime'] ?? '').compareTo(b['startTime'] ?? ''),
-    );
+    selectedDayEvents.sort((a, b) {
+      final aTime = a['startTime'];
+      final bTime = b['startTime'];
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+      if (aTime is Timestamp && bTime is Timestamp) return aTime.compareTo(bTime);
+      return aTime.toString().compareTo(bTime.toString());
+    });
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2012,50 +2250,54 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
                   itemCount: selectedDayEvents.length,
                   itemBuilder: (context, index) {
                     final event = selectedDayEvents[index];
-                    return Container(
-                      margin: EdgeInsets.only(bottom: 12),
-                      padding: EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.grey.shade100),
-                      ),
-                      child: Row(
-                        children: [
-                          _buildEventIcon(event),
-                          SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  event['title'] ?? '',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                if (event['startTime'] != null)
+                    return InkWell(
+                      onTap: () => _showEventDetails(event),
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        margin: EdgeInsets.only(bottom: 12),
+                        padding: EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey.shade100),
+                        ),
+                        child: Row(
+                          children: [
+                            _buildEventIcon(event),
+                            SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
                                   Text(
-                                    '${event['startTime']} - ${event['endTime'] ?? ''}',
+                                    event['title'] ?? '',
                                     style: TextStyle(
-                                      color: Colors.grey,
-                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 14,
                                     ),
                                   ),
-                              ],
-                            ),
-                          ),
-                          if (event['source'] == 'activity')
-                            IconButton(
-                              icon: Icon(
-                                Icons.delete_outline_rounded,
-                                size: 18,
-                                color: Colors.grey.shade400,
+                                  if (event['startTime'] != null)
+                                    Text(
+                                      '${event['date'] is Timestamp ? DateFormat('dd MMM').format((event['date'] as Timestamp).toDate()) : ''} • ${_formatTime(event['startTime'])} - ${_formatTime(event['endTime'])}',
+                                      style: TextStyle(
+                                        color: Colors.grey,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                ],
                               ),
-                              onPressed: () => _deleteEvent(event['id']),
                             ),
-                        ],
+                            if (event['source'] == 'activity')
+                              IconButton(
+                                icon: Icon(
+                                  Icons.delete_outline_rounded,
+                                  size: 18,
+                                  color: Colors.grey.shade400,
+                                ),
+                                onPressed: () => _deleteEvent(event['id']),
+                              ),
+                          ],
+                        ),
                       ),
                     );
                   },
@@ -2084,6 +2326,249 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
     }
 
     return Icon(icon, color: color, size: size);
+  }
+
+  void _showEventDetails(Map<String, dynamic> event) {
+    final bool isEtut = event['source'] == 'etut';
+    final String title = event['title'] ?? 'Etkinlik Detayı';
+    final String type = event['displayType'] ?? 'Genel';
+    final String dateStr = event['date'] is Timestamp
+        ? DateFormat('dd MMMM yyyy').format((event['date'] as Timestamp).toDate())
+        : '';
+    final String timeStr = event['startTime'] != null
+        ? '${_formatTime(event['startTime'])} - ${_formatTime(event['endTime'])}'
+        : '';
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        height: MediaQuery.of(context).size.height * 0.75,
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+        ),
+        child: Column(
+          children: [
+            // Handle bar
+            Container(
+              margin: const EdgeInsets.symmetric(vertical: 12),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            // Header
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: _getEventColor(event['type']).withOpacity(0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: _buildEventIcon(event),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF1E293B),
+                          ),
+                        ),
+                        Text(
+                          '$type • $dateStr',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.all(24),
+                children: [
+                  if (timeStr.isNotEmpty)
+                    _buildDetailItem(Icons.access_time_rounded, 'Saat', timeStr),
+                  
+                  if (isEtut && event['topic'] != null)
+                    _buildDetailItem(Icons.auto_awesome_rounded, 'Kazanım Bilgisi', event['topic']),
+
+                  if (event['description'] != null && event['description'].toString().isNotEmpty)
+                    _buildDetailItem(Icons.description_outlined, 'Açıklama', event['description']),
+
+                  if (isEtut) ...[
+                    // Öğrenci değilse katılımcı listesini göster
+                    if (!( (widget.userData?['role'] as String?)?.toLowerCase() == 'ogrenci' || (widget.userData?['role'] as String?)?.toLowerCase() == 'öğrenci' )) ...[
+                      const SizedBox(height: 24),
+                      const Text(
+                        'Katılımcı Listesi',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF1E293B),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      if (event['recipientNames'] != null)
+                        ... (event['recipientNames'] as Map<String, dynamic>).entries.map((entry) {
+                          final userRole = (widget.userData?['role'] as String?)?.toLowerCase();
+                          final isStudentUser = userRole == 'ogrenci' || userRole == 'öğrenci';
+                          
+                          if (isStudentUser && entry.key != widget.userData?['id']) {
+                            return const SizedBox.shrink();
+                          }
+                          return _buildParticipantTile(entry.value.toString());
+                        }).toList()
+                      else if (isEtut && event['studentIds'] != null && (event['studentIds'] as List).isNotEmpty)
+                        FutureBuilder<List<String>>(
+                          future: _fetchStudentNames(event['studentIds'] as List<dynamic>),
+                          builder: (context, snapshot) {
+                            if (snapshot.connectionState == ConnectionState.waiting) {
+                              return const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator(strokeWidth: 2)));
+                            }
+                            if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                              return const Padding(padding: EdgeInsets.all(8.0), child: Text('Katılımcı bilgisi bulunamadı.', style: TextStyle(color: Colors.grey, fontSize: 13)));
+                            }
+                            
+                            final names = snapshot.data!;
+                            final userRole = (widget.userData?['role'] as String?)?.toLowerCase();
+                            final isStudentUser = userRole == 'ogrenci' || userRole == 'öğrenci';
+                            final myId = widget.userData?['id'];
+                            final studentIds = event['studentIds'] as List<dynamic>;
+
+                            return Column(
+                              children: List.generate(names.length, (index) {
+                                if (isStudentUser && studentIds[index] != myId) {
+                                  return const SizedBox.shrink();
+                                }
+                                return _buildParticipantTile(names[index]);
+                              }),
+                            );
+                          },
+                        )
+                      else
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 4),
+                          child: Text('Katılımcı bilgisi bulunamadı.', style: TextStyle(color: Colors.grey, fontSize: 13)),
+                        ),
+                    ],
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildParticipantTile(String name) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade100),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.blue.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.person_outline, size: 16, color: Colors.blue),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              name,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF1E293B),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<List<String>> _fetchStudentNames(List<dynamic> studentIds) async {
+    try {
+      List<String> results = [];
+      // Firestore batch limit (10) for 'where in'
+      for (var i = 0; i < studentIds.length; i += 10) {
+        final chunk = studentIds.sublist(i, i + 10 > studentIds.length ? studentIds.length : i + 10);
+        final snap = await FirebaseFirestore.instance
+            .collection('students')
+            .where(FieldPath.documentId, whereIn: chunk)
+            .get();
+        
+        final Map<String, String> nameMap = {};
+        for (var doc in snap.docs) {
+          final data = doc.data();
+          final name = data['name'] ?? 'İsimsiz';
+          final sube = data['subeAdi'] ?? data['className'] ?? '';
+          nameMap[doc.id] = sube.isNotEmpty ? '$name ($sube)' : name;
+        }
+
+        // Keep order
+        for (var id in chunk) {
+          if (nameMap.containsKey(id)) {
+            results.add(nameMap[id]!);
+          }
+        }
+      }
+      return results;
+    } catch (e) {
+      debugPrint('Error fetching student names: $e');
+      return [];
+    }
+  }
+
+  Widget _buildDetailItem(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(icon, size: 20, color: Colors.grey.shade400),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _ExpandableDetailText(label: label, value: value),
+          ),
+        ],
+      ),
+    );
   }
 
   Color _getEventColor(String? type) {
@@ -2782,4 +3267,32 @@ class DoodlePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(CustomPainter oldDelegate) => false;
+}
+
+class _ExpandableDetailText extends StatelessWidget {
+  final String label;
+  final String value;
+  const _ExpandableDetailText({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w500,
+            color: Colors.black87,
+          ),
+        ),
+      ],
+    );
+  }
 }

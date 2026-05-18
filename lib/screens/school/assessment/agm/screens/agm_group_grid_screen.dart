@@ -1477,11 +1477,10 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
   // ─── RAPORLAR TAB ────────────────────────────────────────────────────────
 
   Widget _buildReportsTab() {
-    return Padding(
+    return ListView(
       padding: const EdgeInsets.all(16),
-      child: Column(
-        children: [
-          _buildReportTile(
+      children: [
+        _buildReportTile(
             icon: Icons.history,
             title: 'İşlem ve Değişiklik Logu',
             subtitle: 'Yapılan manuel atama ve değişiklikler',
@@ -1544,7 +1543,6 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
             ),
           ),
         ],
-      ),
     );
   }
 
@@ -1555,6 +1553,7 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
     required VoidCallback onTap,
   }) {
     return Card(
+      clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
@@ -2933,6 +2932,7 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
         return Card(
           margin: const EdgeInsets.only(bottom: 12),
           elevation: 0,
+          clipBehavior: Clip.antiAlias,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
             side: BorderSide(color: Colors.grey.shade200),

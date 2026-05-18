@@ -655,6 +655,10 @@ class AgmService {
         'institutionId': cycle.institutionId,
         'studentId': groupAssignments.first.ogrenciId, // Legacy uyumluluk
         'studentIds': groupAssignments.map((a) => a.ogrenciId).toList(),
+        'recipientNames': {
+          for (final a in groupAssignments) 
+            a.ogrenciId: '${a.ogrenciAdi}${a.subeAdi != null && a.subeAdi!.isNotEmpty ? " (${a.subeAdi})" : ""}'
+        },
         'teacherId': grup.ogretmenId,
         'teacherName': grup.ogretmenAdi,
         'dersId': grup.dersId,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../services/assessment_service.dart';
@@ -41,8 +42,10 @@ class _ErrorBookletDashboardScreenState extends State<ErrorBookletDashboardScree
     setState(() => _isLoadingFilter = true);
     try {
       final userData = await UserPermissionService.loadUserData();
-      _realInstitutionId = userData?['institutionId'] ?? widget.institutionId;
+      final userEmail = (userData?['email'] ?? FirebaseAuth.instance.currentUser?.email) ?? '';
+      _realInstitutionId = await UserPermissionService.resolveInstitutionId(userEmail, userData: userData);
 
+      // Use school_types root collection for filtering if that's the project standard
       final stDoc = await FirebaseFirestore.instance.collection('schoolTypes').doc(widget.schoolTypeId).get();
       
       if (stDoc.exists) {

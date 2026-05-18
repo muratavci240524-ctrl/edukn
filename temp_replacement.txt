@@ -1,0 +1,322 @@
+﻿  @override
+  Widget build(BuildContext context) {
+    if (institutionId == null || _isLoadingPermissions) {
+      return Scaffold(
+        appBar: AppBar(
+          elevation: 0,
+          backgroundColor: Colors.white,
+          leading: IconButton(
+            icon: Icon(Icons.arrow_back, color: Colors.indigo),
+            onPressed: () => Navigator.pop(context),
+          ),
+          title: Text('Okul Türleri', style: TextStyle(color: Colors.grey.shade900, fontSize: 18, fontWeight: FontWeight.bold)),
+        ),
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF0F4FF),
+      appBar: AppBar(
+        elevation: 0,
+        backgroundColor: Colors.white,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back, color: Colors.indigo),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Text('Okul Türleri', style: TextStyle(color: Colors.grey.shade900, fontSize: 18, fontWeight: FontWeight.bold)),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.bar_chart, color: Colors.indigo),
+            tooltip: 'İstatistikleri Gör',
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => SchoolTypeStatsScreen())),
+          ),
+          SizedBox(width: 8),
+        ],
+      ),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance.collection('schoolTypes').where('institutionId', isEqualTo: institutionId).snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) return Center(child: Text('Hata: ${snapshot.error}'));
+          if (snapshot.connectionState == ConnectionState.waiting) return Center(child: CircularProgressIndicator());
+
+          final schoolTypes = snapshot.data!.docs.where((doc) => _canSwitchToSchoolType(doc.id)).toList();
+
+          const List<String> sortOrder = ['Anaokulu', 'İlkokul', 'Ortaokul', 'Lise', 'Kurs', 'Diğer'];
+          schoolTypes.sort((a, b) {
+            final aData = a.data() as Map<String, dynamic>;
+            final bData = b.data() as Map<String, dynamic>;
+            final aIndex = sortOrder.indexOf(aData['schoolType'] ?? '').clamp(0, sortOrder.length);
+            final bIndex = sortOrder.indexOf(bData['schoolType'] ?? '').clamp(0, sortOrder.length);
+            if (aIndex != bIndex) return aIndex.compareTo(bIndex);
+            final aTime = aData['createdAt'] as Timestamp?;
+            final bTime = bData['createdAt'] as Timestamp?;
+            return (bTime ?? Timestamp(0, 0)).compareTo(aTime ?? Timestamp(0, 0));
+          });
+
+          if (schoolTypes.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: EdgeInsets.all(28),
+                    decoration: BoxDecoration(color: Colors.indigo.shade50, shape: BoxShape.circle),
+                    child: Icon(Icons.school_outlined, size: 56, color: Colors.indigo.shade300),
+                  ),
+                  SizedBox(height: 20),
+                  Text('Henüz Okul Türü Yok', style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.grey.shade800)),
+                  SizedBox(height: 8),
+                  Text(_canCreateSchoolType() ? 'Okul türleri ekleyebilirsiniz' : 'Henüz okul türü eklenmemiş',
+                    textAlign: TextAlign.center, style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade500)),
+                  if (_canCreateSchoolType()) ...[
+                    SizedBox(height: 28),
+                    ElevatedButton.icon(
+                      onPressed: () => _showModernAddSheet(context),
+                      icon: Icon(Icons.add), label: Text('İlk Okul Türünü Ekle'),
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white,
+                        padding: EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
+                    ),
+                  ],
+                ],
+              ),
+            );
+          }
+
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final cols = constraints.maxWidth > 1100 ? 3 : (constraints.maxWidth > 600 ? 2 : 2);
+              final ratio = constraints.maxWidth > 600 ? 1.35 : 1.05;
+              return SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(16, 20, 16, 100),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: 900),
+                    child: GridView.builder(
+                      shrinkWrap: true,
+                      physics: NeverScrollableScrollPhysics(),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: cols, crossAxisSpacing: 14, mainAxisSpacing: 14, childAspectRatio: ratio),
+                      itemCount: schoolTypes.length,
+                      itemBuilder: (context, index) {
+                        final doc = schoolTypes[index];
+                        final data = doc.data() as Map<String, dynamic>;
+                        return _SchoolTypeCard(
+                          doc: doc, data: data, institutionId: institutionId!,
+                          canEdit: _canEditSpecificSchoolType(doc.id), canSwitch: _canSwitchToSchoolType(doc.id),
+                          onEdit: () => _showModernEditSheet(context, doc.id, data),
+                          onDelete: () => _deleteSchoolType(doc.id, data['name'] ?? data['schoolTypeName'] ?? 'Bu okul türü'),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      ),
+      floatingActionButton: _canCreateSchoolType()
+          ? FloatingActionButton.extended(
+              onPressed: () => _showModernAddSheet(context),
+              backgroundColor: Colors.indigo,
+              icon: Icon(Icons.add, color: Colors.white),
+              label: Text('Okul Türü Ekle', style: TextStyle(color: Colors.white)),
+            )
+          : null,
+    );
+  }
+}
+
+// ─── OKUL TÜRÜ KARTI ──────────────────────────────────────────────────────────
+class _SchoolTypeTheme {
+  final Color color;
+  final Color bgColor;
+  final IconData icon;
+  const _SchoolTypeTheme(this.color, this.bgColor, this.icon);
+}
+
+class _SchoolTypeCard extends StatelessWidget {
+  final QueryDocumentSnapshot doc;
+  final Map<String, dynamic> data;
+  final String institutionId;
+  final bool canEdit;
+  final bool canSwitch;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  static const Map<String, _SchoolTypeTheme> _themes = {};
+  static _SchoolTypeTheme _getTheme(String type) {
+    switch (type) {
+      case 'Anaokulu': return _SchoolTypeTheme(Color(0xFFEC4899), Color(0xFFFDF2F8), Icons.child_care);
+      case 'İlkokul':  return _SchoolTypeTheme(Color(0xFF3B82F6), Color(0xFFEFF6FF), Icons.school);
+      case 'Ortaokul': return _SchoolTypeTheme(Color(0xFF10B981), Color(0xFFECFDF5), Icons.menu_book);
+      case 'Lise':     return _SchoolTypeTheme(Color(0xFF8B5CF6), Color(0xFFF5F3FF), Icons.collections_bookmark);
+      case 'Kurs':     return _SchoolTypeTheme(Color(0xFFF59E0B), Color(0xFFFFFBEB), Icons.class_);
+      default:         return _SchoolTypeTheme(Color(0xFF6B7280), Color(0xFFF9FAFB), Icons.category);
+    }
+  }
+
+  const _SchoolTypeCard({
+    required this.doc, required this.data, required this.institutionId,
+    required this.canEdit, required this.canSwitch, required this.onEdit, required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final schoolType = data['schoolType'] as String? ?? 'Diğer';
+    final theme = _getTheme(schoolType);
+    final name = data['name'] ?? data['schoolTypeName'] ?? data['typeName'] ?? 'İsimsiz';
+    final isActive = data['isActive'] != false;
+
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(20),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: canSwitch
+            ? () => Navigator.push(context, MaterialPageRoute(
+                builder: (context) => SchoolTypeDetailScreen(schoolTypeId: doc.id, schoolTypeName: name, institutionId: institutionId)))
+            : () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                content: Text('Bu okul türüne giriş yetkiniz bulunmamaktadır.'), backgroundColor: Colors.red)),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: theme.color.withOpacity(0.18), width: 1.5),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Renkli ust serit
+              Container(height: 5, decoration: BoxDecoration(
+                color: theme.color, borderRadius: BorderRadius.vertical(top: Radius.circular(18)))),
+
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Ikon + Menu satiri
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: EdgeInsets.all(10),
+                            decoration: BoxDecoration(color: theme.bgColor, borderRadius: BorderRadius.circular(13)),
+                            child: Icon(theme.icon, color: theme.color, size: 22),
+                          ),
+                          Spacer(),
+                          if (!isActive)
+                            Container(
+                              padding: EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                              decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(6)),
+                              child: Text('PASİF', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: Colors.red.shade700)),
+                            ),
+                          if (canEdit)
+                            SizedBox(
+                              width: 30, height: 30,
+                              child: PopupMenuButton<String>(
+                                icon: Icon(Icons.more_vert, size: 17, color: Colors.grey.shade400),
+                                padding: EdgeInsets.zero,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                onSelected: (v) { if (v == 'edit') onEdit(); if (v == 'delete') onDelete(); },
+                                itemBuilder: (_) => [
+                                  PopupMenuItem(value: 'edit', child: Row(children: [
+                                    Icon(Icons.edit_outlined, size: 17, color: Colors.indigo), SizedBox(width: 10), Text('Düzenle')])),
+                                  PopupMenuItem(value: 'delete', child: Row(children: [
+                                    Icon(Icons.delete_outline, size: 17, color: Colors.red), SizedBox(width: 10),
+                                    Text('Sil', style: TextStyle(color: Colors.red))])),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
+
+                      SizedBox(height: 10),
+
+                      // Tur etiketi
+                      Container(
+                        padding: EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                        decoration: BoxDecoration(color: theme.bgColor, borderRadius: BorderRadius.circular(6)),
+                        child: Text(schoolType.toUpperCase(),
+                          style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: theme.color, letterSpacing: 0.5)),
+                      ),
+                      SizedBox(height: 4),
+
+                      // Okul adi
+                      Text(name,
+                        style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.grey.shade900, height: 1.2),
+                        maxLines: 2, overflow: TextOverflow.ellipsis),
+
+                      Spacer(),
+
+                      // Istatistikler + ok
+                      Row(
+                        children: [
+                          _LiveStatChip(
+                            stream: FirebaseFirestore.instance.collection('students')
+                                .where('institutionId', isEqualTo: institutionId)
+                                .where('schoolTypeId', isEqualTo: doc.id).snapshots(),
+                            icon: Icons.people_alt_outlined, color: Color(0xFF3B82F6)),
+                          SizedBox(width: 5),
+                          _LiveStatChip(
+                            stream: FirebaseFirestore.instance.collection('users')
+                                .where('institutionId', isEqualTo: institutionId)
+                                .where('role', whereIn: ['öğretmen','teacher','rehber_öğretmen','Öğretmen','Rehber Öğretmen'])
+                                .where('schoolTypes', arrayContains: doc.id).snapshots(),
+                            icon: Icons.person_outline, color: Color(0xFFF59E0B)),
+                          SizedBox(width: 5),
+                          _LiveStatChip(
+                            stream: FirebaseFirestore.instance.collection('classes')
+                                .where('institutionId', isEqualTo: institutionId)
+                                .where('schoolTypeId', isEqualTo: doc.id)
+                                .where('isActive', isEqualTo: true).snapshots(),
+                            icon: Icons.class_outlined, color: Color(0xFF10B981)),
+                          Spacer(),
+                          Icon(canSwitch ? Icons.arrow_forward_ios_rounded : Icons.lock_outline_rounded,
+                            size: 13, color: canSwitch ? theme.color : Colors.grey.shade400),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// Canli istatistik chip
+class _LiveStatChip extends StatelessWidget {
+  final Stream<QuerySnapshot> stream;
+  final IconData icon;
+  final Color color;
+  const _LiveStatChip({required this.stream, required this.icon, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: stream,
+      builder: (context, snapshot) {
+        final count = snapshot.hasData ? snapshot.data!.docs.length : 0;
+        return Container(
+          padding: EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+          decoration: BoxDecoration(color: color.withOpacity(0.09), borderRadius: BorderRadius.circular(8)),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, size: 12, color: color),
+            SizedBox(width: 4),
+            Text('$count', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: color)),
+          ]),
+        );
+      },
+    );
+  }
+}
+
+// Modern Form Widget - Bottom Sheet

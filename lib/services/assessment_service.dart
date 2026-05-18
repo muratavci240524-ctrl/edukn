@@ -130,6 +130,24 @@ class AssessmentService {
     });
   }
 
+  // --- Question Pool ---
+  Stream<QuerySnapshot> getGlobalQuestionsPool(String institutionId) {
+    return _firestore
+        .collectionGroup('questions_pool')
+        .where('institutionId', isEqualTo: institutionId)
+        .orderBy('updatedAt', descending: true)
+        .snapshots();
+  }
+
+  Future<void> deleteFromPool(String examId, String docId) async {
+    await _firestore
+        .collection('trial_exams')
+        .doc(examId)
+        .collection('questions_pool')
+        .doc(docId)
+        .delete();
+  }
+
   // --- Outcome Lists ---
 
   Future<void> saveOutcomeList(OutcomeList outcomeList) async {

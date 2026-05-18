@@ -27,6 +27,7 @@ import 'screens/school/accounting/accounting_dashboard_screen.dart';
 // --- 1. FIREBASE CORE PAKETLERİNİ IMPORT ET ---
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart'; // FlutterFire CLI'nin oluşturduğu dosya
+import 'services/notification_service.dart';
 // --- BİTTİ ---
 
 // --- Firebase'i uygulama başlamadan önce başlat ---
@@ -96,6 +97,8 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // NotificationService'e navigatorKey'i bağla
+    NotificationService.navigatorKey = navigatorKey;
     return _buildApp(context);
   }
 

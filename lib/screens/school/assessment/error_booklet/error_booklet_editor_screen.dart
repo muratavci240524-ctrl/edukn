@@ -124,8 +124,10 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
     _currentPage = List.filled(n, 1);
     _loadAllPdfs();
 
+    _precalculateStats();
+
     if (_localSessions.isNotEmpty) {
-      _subjects = List.from(_localSessions[0].selectedSubjects);
+      _subjects = _getActualSubjectsForSession(0);
     }
     // Fallback if subjects aren't defined in the session
     if (_subjects.isEmpty && widget.exam.answerKeys.isNotEmpty) {
@@ -138,7 +140,6 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
     }
     
     _loadPublishedCrops();
-    _precalculateStats();
   }
 
   void _sortSubjects() {
@@ -167,6 +168,96 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
     });
   }
 
+  String _normalizeSubjectName(String name) {
+    String normalized = name.toLowerCase().trim();
+    // Replace Turkish characters for robust matching
+    normalized = normalized.replaceAll('ı', 'i')
+                           .replaceAll('ğ', 'g')
+                           .replaceAll('ü', 'u')
+                           .replaceAll('ş', 's')
+                           .replaceAll('ö', 'o')
+                           .replaceAll('ç', 'c');
+    // Common aliases mapping
+    if (normalized.contains('matematik') || normalized.contains('mat')) {
+      return 'matematik';
+    }
+    if (normalized.contains('fen') || normalized.contains('fizik') || normalized.contains('kimya') || normalized.contains('biyoloji')) {
+      return 'fen';
+    }
+    if (normalized.contains('sosyal') || normalized.contains('inkilap') || normalized.contains('tarih')) {
+      return 'sosyal';
+    }
+    if (normalized.contains('din') || normalized.contains('ahlak')) {
+      return 'din';
+    }
+    if (normalized.contains('ingilizce') || normalized.contains('yabanci') || normalized.contains('dil')) {
+      return 'ingilizce';
+    }
+    if (normalized.contains('turkce') || normalized.contains('edebiyat')) {
+      return 'turkce';
+    }
+    return normalized;
+  }
+
+  List<String> _getActualSubjectsForSession(int sessionIdx) {
+    if (sessionIdx < 0 || sessionIdx >= _localSessions.length) return [];
+    
+    final selected = _localSessions[sessionIdx].selectedSubjects;
+    final allActualKeys = widget.exam.answerKeys['A']?.keys.toList() 
+        ?? widget.exam.answerKeys.values.firstOrNull?.keys.toList() 
+        ?? [];
+        
+    if (selected.isEmpty) {
+      return allActualKeys;
+    }
+    
+    final result = <String>{};
+    for (final sel in selected) {
+      final normalizedSel = _normalizeSubjectName(sel);
+      
+      bool foundMatch = false;
+      for (final actual in allActualKeys) {
+        final normalizedActual = _normalizeSubjectName(actual);
+        
+        if (normalizedActual.contains(normalizedSel) || normalizedSel.contains(normalizedActual)) {
+          result.add(actual);
+          foundMatch = true;
+        }
+      }
+      
+      if (!foundMatch && allActualKeys.contains(sel)) {
+        result.add(sel);
+      }
+    }
+    
+    return result.toList();
+  }
+
+  String? _getOutcomeForQuestion(String subject, int masterQNo) {
+    try {
+      // Find booklet A or first available booklet that has outcomes for subject
+      String refBooklet = '';
+      if (widget.exam.outcomes.containsKey('A') &&
+          widget.exam.outcomes['A']!.containsKey(subject)) {
+        refBooklet = 'A';
+      } else {
+        refBooklet = widget.exam.outcomes.keys.firstWhere(
+          (k) => widget.exam.outcomes[k]!.containsKey(subject),
+          orElse: () => '',
+        );
+      }
+      if (refBooklet.isEmpty) return null;
+      
+      final list = widget.exam.outcomes[refBooklet]?[subject];
+      if (list != null && masterQNo > 0 && masterQNo <= list.length) {
+        return list[masterQNo - 1];
+      }
+    } catch (e) {
+      debugPrint('Error getting outcome for question: $e');
+    }
+    return null;
+  }
+
   /// Populate _questionStats from exam.resultsJson and outcomes
   void _precalculateStats() {
     if (widget.exam.resultsJson == null || widget.exam.resultsJson!.isEmpty) return;
@@ -181,10 +272,12 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
     if (results.isEmpty) return;
 
     try {
-      var subjects = widget.exam.sessions.expand((s) => s.selectedSubjects).toSet().toList();
-      if (subjects.isEmpty && widget.exam.answerKeys.isNotEmpty) {
-        subjects = (widget.exam.answerKeys['A']?.keys ?? widget.exam.answerKeys.values.first.keys).toList();
-      }
+      var subjects = (widget.exam.answerKeys['A']?.keys 
+          ?? widget.exam.answerKeys.values.firstOrNull?.keys 
+          ?? widget.exam.outcomes['A']?.keys
+          ?? widget.exam.outcomes.values.firstOrNull?.keys
+          ?? widget.exam.sessions.expand((s) => s.selectedSubjects).toSet())
+          .toList();
       for (var subject in subjects) {
         // Find Master Booklet (preferably 'A')
         String refBooklet = '';
@@ -294,43 +387,47 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
         var outcome = data['outcome'];
         var correctAnswer = data['correctAnswer'];
 
-        // Older questions might not have metadata. Backfill them from _questionStats!
+        // Older questions might not have metadata, or results might have been evaluated later.
+        // Sync them against the latest computed values!
+        final stat = _questionStats[subject]?[qNo];
+        final latestDifficulty = stat?['success'];
+        final latestOutcome = stat?['outcome'] ?? _getOutcomeForQuestion(subject as String, qNo as int);
+        final latestCorrectAnswer = stat?['correctAnswer'] ?? _correctAnswer(subject as String, qNo as int);
+
         bool needsUpdate = false;
         final updateMap = <String, dynamic>{};
 
-        if (difficulty == null || outcome == null || correctAnswer == null) {
-          final stat = _questionStats[subject]?[qNo];
-          if (stat != null) {
-            if (difficulty == null && stat['success'] != null) {
-              difficulty = stat['success'];
-              updateMap['difficulty'] = difficulty;
-              needsUpdate = true;
-            }
-            if (outcome == null && stat['outcome'] != null) {
-              outcome = stat['outcome'];
-              updateMap['outcome'] = outcome;
-              needsUpdate = true;
-            }
-            if (correctAnswer == null && stat['correctAnswer'] != null) {
-              correctAnswer = stat['correctAnswer'];
-              updateMap['correctAnswer'] = correctAnswer;
-              needsUpdate = true;
-            }
-          } else {
-            // Unlikely, but if stat is not present, we can fallback correctAnswer from answerKeys
-            if (correctAnswer == null) {
-              final fallbackAns = _correctAnswer(subject as String, qNo as int);
-              if (fallbackAns != null) {
-                correctAnswer = fallbackAns;
-                updateMap['correctAnswer'] = correctAnswer;
-                needsUpdate = true;
-              }
-            }
-          }
+        if (latestDifficulty != null && difficulty != latestDifficulty) {
+          difficulty = latestDifficulty;
+          updateMap['difficulty'] = difficulty;
+          needsUpdate = true;
+        }
+        if (latestOutcome != null && outcome != latestOutcome) {
+          outcome = latestOutcome;
+          updateMap['outcome'] = outcome;
+          needsUpdate = true;
+        }
+        if (latestCorrectAnswer != null && correctAnswer != latestCorrectAnswer) {
+          correctAnswer = latestCorrectAnswer;
+          updateMap['correctAnswer'] = correctAnswer;
+          needsUpdate = true;
+        }
+
+        // As a fallback for older questions/outcomes if latest outcome is still null but we need to check K12 text mappings
+        if (outcome == null && latestOutcome != null) {
+          outcome = latestOutcome;
+          updateMap['outcome'] = outcome;
+          needsUpdate = true;
+        }
+        // Fallback for correctAnswer
+        if (correctAnswer == null && latestCorrectAnswer != null) {
+          correctAnswer = latestCorrectAnswer;
+          updateMap['correctAnswer'] = correctAnswer;
+          needsUpdate = true;
         }
 
         // Fire-and-forget update to persist backfilled metadata to the DB
-        if (needsUpdate) {
+        if (needsUpdate && doc.id.isNotEmpty) {
           doc.reference.update(updateMap).catchError((_) {});
         }
 
@@ -341,6 +438,7 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
           'subject': subject,
           'questionNo': qNo,
           'isWide': data['isWide'] ?? false,
+          'isCritical': data['isCritical'] ?? false,
           'correctAnswer': correctAnswer,
           'difficulty': difficulty,
           'outcome': outcome,
@@ -385,7 +483,7 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
   void _switchToSession(int idx) {
     setState(() {
       _sessionIdx = idx;
-      _subjects = List.from(_localSessions[idx].selectedSubjects);
+      _subjects = _getActualSubjectsForSession(idx);
       if (_subjects.isEmpty && widget.exam.answerKeys.isNotEmpty) {
         final bookletKeys = widget.exam.answerKeys['A']?.keys ?? widget.exam.answerKeys.values.first.keys;
         _subjects = bookletKeys.toList();
@@ -675,7 +773,7 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
       final stat       = _questionStats[subject]?[masterQNo];
       final correctAns = stat?['correctAnswer'] ?? _correctAnswer(subject, qNoInBooklet);
       final difficulty = stat?['success'];
-      final outcome    = stat?['outcome'];
+      final outcome    = stat?['outcome'] ?? _getOutcomeForQuestion(subject, masterQNo);
 
       final txSnapshot = Matrix4.copy(_tx.value);
       final startPt    = _startPt!;
@@ -725,7 +823,7 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
       // ── Immediately register a loading placeholder ↔ sidebar stays live ──
       final placeholder = <String, dynamic>{
         'bytes': null, 'subject': subject, 'questionNo': masterQNo,
-        'isWide': false, 'correctAnswer': correctAns, 
+        'isWide': false, 'isCritical': false, 'correctAnswer': correctAns, 
         'difficulty': difficulty, 'outcome': outcome,
         'loading': true,
         'originalQNo': qNoInBooklet, // Keep track of source
@@ -760,7 +858,7 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
             if (idx != -1) {
               _localCrops[idx] = {
                 'bytes': cropBytes, 'subject': subject, 'questionNo': masterQNo,
-                'isWide': false, 'correctAnswer': correctAns, 
+                'isWide': false, 'isCritical': false, 'correctAnswer': correctAns, 
                 'difficulty': difficulty, 'outcome': outcome,
                 'loading': false,
                 'originalQNo': qNoInBooklet,
@@ -1227,11 +1325,21 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
 
   // ─── Sidebar ──────────────────────────────────────────────────────────────
   Widget _sidebar() {
+    final criticalCount = _localCrops.where((c) => c['isCritical'] == true).length;
     final grouped = <String, List<Map<String, dynamic>>>{};
     for (final s in _subjects) {
       grouped[s] = _localCrops.where((c) => c['subject'] == s).toList()
         ..sort((a, b) => (a['questionNo'] as int).compareTo(b['questionNo']));
     }
+    
+    final activeSubjects = _subjects.toSet();
+    final otherCrops = _localCrops.where((c) => !activeSubjects.contains(c['subject'])).toList()
+      ..sort((a, b) {
+        final subCompare = (a['subject'] as String? ?? '').compareTo(b['subject'] as String? ?? '');
+        if (subCompare != 0) return subCompare;
+        return (a['questionNo'] as int? ?? 0).compareTo(b['questionNo'] as int? ?? 0);
+      });
+
     return Container(
       width: 360,
       color: Colors.white,
@@ -1243,9 +1351,31 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
           child: Row(children: [
             const Icon(Icons.layers_outlined, color: Colors.indigo, size: 20),
             const SizedBox(width: 10),
-            Text('Soru Havuzu',
-                style: GoogleFonts.outfit(
-                    fontWeight: FontWeight.bold, fontSize: 15)),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Soru Havuzu',
+                    style: GoogleFonts.outfit(
+                        fontWeight: FontWeight.bold, fontSize: 15)),
+                const SizedBox(height: 2),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.star_rounded, size: 13, color: Colors.amber.shade700),
+                    const SizedBox(width: 2),
+                    Text(
+                      '$criticalCount Kritik Soru',
+                      style: GoogleFonts.inter(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.amber.shade700,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
             const Spacer(),
             if (_localSessions[_sessionIdx].fileUrl == null)
               TextButton.icon(
@@ -1287,28 +1417,47 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
                   child: Text('Henüz soru eklenmedi',
                       style: TextStyle(
                           color: Colors.grey.shade400, fontSize: 13)))
-              : ListView.builder(
-                  itemCount: _subjects.length,
-                  itemBuilder: (ctx, i) {
-                    final sub = _subjects[i];
-                    final crops = grouped[sub] ?? [];
-                    if (crops.isEmpty) return const SizedBox.shrink();
-                    return ExpansionTile(
-                      initiallyExpanded: true,
-                      leading: const Icon(Icons.folder_outlined,
-                          color: Colors.indigo, size: 20),
-                      title: Text(sub,
-                          style: const TextStyle(
-                              fontSize: 13, fontWeight: FontWeight.bold)),
-                      trailing: CircleAvatar(
-                          radius: 10,
-                          backgroundColor: Colors.indigo,
-                          child: Text('${crops.length}',
-                              style: const TextStyle(
-                                  color: Colors.white, fontSize: 10))),
-                      children: crops.map(_cropTile).toList(),
-                    );
-                  }),
+              : ListView(
+                  children: [
+                    ..._subjects.map((sub) {
+                      final crops = grouped[sub] ?? [];
+                      if (crops.isEmpty) return const SizedBox.shrink();
+                      return ExpansionTile(
+                        initiallyExpanded: true,
+                        leading: const Icon(Icons.folder_outlined,
+                            color: Colors.indigo, size: 20),
+                        title: Text(sub,
+                            style: const TextStyle(
+                                fontSize: 13, fontWeight: FontWeight.bold)),
+                        trailing: CircleAvatar(
+                            radius: 10,
+                            backgroundColor: Colors.indigo,
+                            child: Text('${crops.length}',
+                                style: const TextStyle(
+                                    color: Colors.white, fontSize: 10))),
+                        children: crops.map(_cropTile).toList(),
+                      );
+                    }),
+                    if (otherCrops.isNotEmpty) ...[
+                      const Divider(),
+                      ExpansionTile(
+                        initiallyExpanded: false,
+                        leading: const Icon(Icons.warning_amber_rounded,
+                            color: Colors.orange, size: 20),
+                        title: const Text('Diğer / Geçersiz Sorular',
+                            style: TextStyle(
+                                fontSize: 13, fontWeight: FontWeight.bold, color: Colors.orange)),
+                        trailing: CircleAvatar(
+                            radius: 10,
+                            backgroundColor: Colors.orange,
+                            child: Text('${otherCrops.length}',
+                                style: const TextStyle(
+                                    color: Colors.white, fontSize: 10))),
+                        children: otherCrops.map(_cropTile).toList(),
+                      ),
+                    ],
+                  ],
+                ),
         ),
       ]),
     );
@@ -1385,6 +1534,25 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
           ? null
           : Row(mainAxisSize: MainAxisSize.min, children: [
               IconButton(
+                tooltip: c['isCritical'] == true ? 'Kritik Soru' : 'Kritik Olarak İşaretle',
+                icon: Icon(
+                    c['isCritical'] == true ? Icons.star_rounded : Icons.star_outline_rounded,
+                    size: 18,
+                    color: c['isCritical'] == true ? Colors.amber.shade700 : Colors.grey),
+                onPressed: () async {
+                  final newVal = !(c['isCritical'] == true);
+                  setState(() => c['isCritical'] = newVal);
+                  if (c['docId'] != null) {
+                    await FirebaseFirestore.instance
+                        .collection('trial_exams')
+                        .doc(widget.exam.id)
+                        .collection('questions_pool')
+                        .doc(c['docId'] as String)
+                        .update({'isCritical': newVal});
+                  }
+                },
+              ),
+              IconButton(
                 tooltip: c['isWide'] ? 'Daralt' : 'Genişlet',
                 icon: Icon(
                     c['isWide'] ? Icons.width_normal_rounded : Icons.width_full_rounded,
@@ -1406,28 +1574,54 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
       child: const Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.indigo))));
 
   Future<void> _deleteCrop(Map<String, dynamic> crop) async {
-    if (crop['imageUrl'] != null) {
+    String? docId = crop['docId'] as String?;
+    if (docId == null) {
+      final sub = crop['subject'] as String?;
+      final qNo = crop['questionNo'] as int?;
+      final sIdx = crop['sessionIdx'] as int? ?? _sessionIdx;
+      if (sub != null && qNo != null) {
+        docId = 's${sIdx + 1}_${sub}_q$qNo'.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
+      }
+    }
+
+    final hasRemote = docId != null || crop['imageUrl'] != null || crop['base64Image'] != null;
+    
+    if (hasRemote) {
       final confirm = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('Soruyu Sil'),
-          content: const Text('Bu soru yayınlanmış. Kalıcı olarak silmek istiyor musunuz?'),
+          content: const Text('Bu soru veri tabanından kalıcı olarak silinecektir. Emin misiniz?'),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Vazgeç')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Sil')),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+              child: const Text('Sil'),
+            ),
           ],
         ),
       );
       if (confirm != true) return;
       
       // Delete from Firestore record using docId
-      if (crop['docId'] != null) {
-        await FirebaseFirestore.instance
-            .collection('trial_exams')
-            .doc(widget.exam.id)
-            .collection('questions_pool')
-            .doc(crop['docId'])
-            .delete();
+      if (docId != null) {
+        try {
+          await FirebaseFirestore.instance
+              .collection('trial_exams')
+              .doc(widget.exam.id)
+              .collection('questions_pool')
+              .doc(docId)
+              .delete();
+          debugPrint('Successfully deleted crop $docId from Firestore');
+        } catch (e) {
+          debugPrint('Error deleting crop from Firestore: $e');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Veritabanından silinirken hata oluştu: $e')),
+            );
+          }
+        }
       }
     }
     
@@ -1458,6 +1652,30 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
                     child: Text('${crop['subject']} – ${crop['questionNo']}. Soru',
                         style: GoogleFonts.outfit(
                             fontWeight: FontWeight.bold, fontSize: 16)),
+                  ),
+                  // Star button for critical toggle
+                  Tooltip(
+                    message: crop['isCritical'] == true ? 'Kritik Soru' : 'Kritik Olarak İşaretle',
+                    child: IconButton(
+                      icon: Icon(
+                          crop['isCritical'] == true ? Icons.star_rounded : Icons.star_outline_rounded,
+                          color: crop['isCritical'] == true ? Colors.amber.shade700 : Colors.grey),
+                      onPressed: () async {
+                        final newVal = !(crop['isCritical'] == true);
+                        setDlg(() => crop['isCritical'] = newVal);
+                        setState(() {}); // update sidebar
+                        
+                        // If already published, sync to cloud immediately
+                        if (crop['docId'] != null) {
+                          await FirebaseFirestore.instance
+                              .collection('trial_exams')
+                              .doc(widget.exam.id)
+                              .collection('questions_pool')
+                              .doc(crop['docId'])
+                              .update({'isCritical': newVal});
+                        }
+                      },
+                    ),
                   ),
                   // Wide/Narrow toggle
                   Tooltip(
@@ -1721,10 +1939,14 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
           'questionNo': qNo,
           'base64Image': base64Image,
           'isWide': crop['isWide'] ?? false,
+          'isCritical': crop['isCritical'] ?? false,
           'correctAnswer': crop['correctAnswer'],
           'difficulty': crop['difficulty'],
           'outcome': crop['outcome'],
           'updatedAt': FieldValue.serverTimestamp(),
+          'institutionId': widget.exam.institutionId,
+          'examId': widget.exam.id,
+          'examName': widget.exam.name,
         });
         
         if (mounted) setState(() => _publishCount++);

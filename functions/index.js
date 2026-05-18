@@ -1,4 +1,5 @@
 const {onCall, HttpsError} = require("firebase-functions/v2/https");
+const {onDocumentCreated} = require("firebase-functions/v2/firestore");
 const admin = require("firebase-admin");
 const nodemailer = require("nodemailer");
 
@@ -450,3 +451,371 @@ exports.verifyCodeAndResetPassword = onCall(async (request) => {
         throw new HttpsError("internal", error.message);
     }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BİLDİRİM SİSTEMİ — FIRESTORE TRIGGER FONKSİYONLARI
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Hedef kullanıcı ID'lerini al, FCM token'larını Firestore'dan çek,
+ * FCM bildirimi gönder ve Firestore'a in-app bildirim yaz.
+ */
+async function sendNotifications({ recipientUids, title, body, route, type, entityId }) {
+    if (!recipientUids || recipientUids.length === 0) return;
+
+    const uniqueUids = [...new Set(recipientUids)].filter(Boolean);
+
+    // Tüm kullanıcıların token'larını topla
+    const allTokens = [];
+    const batch = db.batch();
+    const now = admin.firestore.FieldValue.serverTimestamp();
+
+    for (const uid of uniqueUids) {
+        try {
+            const userDoc = await db.collection("users").doc(uid).get();
+            if (!userDoc.exists) continue;
+
+            const userData = userDoc.data();
+            
+            // Bildirim ayarlarını kontrol et
+            const settings = userData.notificationSettings || {};
+            const typeMap = {
+                'etut': 'studies',
+                'announcement': 'announcements',
+                'message': 'messages',
+                'homework': 'homeworks',
+                'exam': 'exams'
+            };
+            const settingKey = typeMap[type] || type;
+            if (settings[settingKey] === false) {
+                console.log(`ℹ️ Kullanıcı ${uid} için ${type} bildirimi kapalı, atlanıyor.`);
+                continue;
+            }
+
+            const tokens = userData.fcmTokens || [];
+            allTokens.push(...tokens);
+
+            // In-app bildirim yaz
+            const notifRef = db.collection("notifications").doc(uid).collection("items").doc();
+            batch.set(notifRef, {
+                title,
+                body,
+                route: route || "/school-dashboard",
+                type: type || "general",
+                entityId: entityId || null,
+                isRead: false,
+                createdAt: now,
+            });
+        } catch (err) {
+            console.error(`Kullanıcı ${uid} için bildirim hazırlanamadı:`, err);
+        }
+    }
+
+    // In-app bildirimleri toplu kaydet
+    try {
+        await batch.commit();
+        console.log(`✅ ${uniqueUids.length} kullanıcıya in-app bildirim yazıldı.`);
+    } catch (err) {
+        console.error("In-app bildirim yazma hatası:", err);
+    }
+
+    // FCM Push Gönder
+    if (allTokens.length > 0) {
+        const message = {
+            notification: { title, body },
+            data: { route: route || "/school-dashboard", entityId: entityId || "", type: type || "general" },
+            tokens: allTokens,
+            webpush: {
+                notification: {
+                    icon: "/icons/Icon-192.png",
+                    badge: "/icons/Icon-192.png",
+                    click_action: route || "/school-dashboard",
+                },
+            },
+        };
+
+        try {
+            const response = await admin.messaging().sendEachForMulticast(message);
+            console.log(`✅ FCM: ${response.successCount} başarılı, ${response.failureCount} başarısız.`);
+
+            // Geçersiz token'ları temizle
+            response.responses.forEach(async (resp, idx) => {
+                if (!resp.success && (resp.error?.code === "messaging/invalid-registration-token" ||
+                    resp.error?.code === "messaging/registration-token-not-registered")) {
+                    const invalidToken = allTokens[idx];
+                    // Token'ı tüm kullanıcılardan kaldır
+                    for (const uid of uniqueUids) {
+                        await db.collection("users").doc(uid).update({
+                            fcmTokens: admin.firestore.FieldValue.arrayRemove(invalidToken),
+                        }).catch(() => {});
+                    }
+                }
+            });
+        } catch (err) {
+            console.error("FCM gönderme hatası:", err);
+        }
+    }
+}
+
+/**
+ * Kurum ID'sine göre tüm aktif kullanıcıların UID'lerini getirir.
+ */
+async function getInstitutionUserUids(institutionId) {
+    const snapshot = await db.collection("users")
+        .where("institutionId", "==", institutionId)
+        .where("isActive", "==", true)
+        .get();
+    return snapshot.docs.map(doc => doc.id);
+}
+
+// ─── 1. ETÜTLERe BİLDİRİM ────────────────────────────────────────────────────
+exports.onEtutCreated = onDocumentCreated("etut_requests/{etutId}", async (event) => {
+    const etut = event.data?.data();
+    if (!etut) return;
+
+    const { institutionId, dersAdi, teacherName, className, studentIds = [] } = etut;
+
+    const title = `📚 Yeni Etüt: ${dersAdi || "Ders"}`;
+    const body = `${teacherName || "Öğretmen"} · ${className || "Grup"}`;
+
+    // Hedefler: atanan öğrencilerin velileri + kurum yöneticileri
+    let recipientUids = [];
+
+    // Kurum yöneticilerini ekle
+    const adminUids = await getInstitutionUserUids(institutionId);
+    recipientUids.push(...adminUids);
+
+    // Öğrencilerin velilerini bul
+    for (const studentId of studentIds) {
+        try {
+            const studentDoc = await db.collection("students").doc(studentId).get();
+            if (!studentDoc.exists) continue;
+            const student = studentDoc.data();
+            const parentTcNos = student.parentTcNos || [];
+            for (const tcNo of parentTcNos) {
+                const parentQuery = await db.collection("users")
+                    .where("tcNo", "==", tcNo)
+                    .where("role", "==", "parent")
+                    .limit(1).get();
+                if (!parentQuery.empty) {
+                    recipientUids.push(parentQuery.docs[0].id);
+                }
+            }
+        } catch (err) {
+            console.error("Veli bulma hatası:", err);
+        }
+    }
+
+    await sendNotifications({
+        recipientUids,
+        title,
+        body,
+        route: "/school-dashboard",
+        type: "etut",
+        entityId: event.params.etutId,
+    });
+});
+
+// ─── 2. DUYURULARA BİLDİRİM ──────────────────────────────────────────────────
+exports.onAnnouncementCreated = onDocumentCreated(
+    "schools/{schoolId}/announcements/{announcementId}",
+    async (event) => {
+        const announcement = event.data?.data();
+        if (!announcement) return;
+
+        const { institutionId, title: annTitle, content } = announcement;
+        if (!institutionId) return;
+
+        const recipientUids = await getInstitutionUserUids(institutionId);
+
+        await sendNotifications({
+            recipientUids,
+            title: `📢 Duyuru: ${annTitle || "Yeni Duyuru"}`,
+            body: (content || "").substring(0, 100),
+            route: "/announcements",
+            type: "announcement",
+            entityId: event.params.announcementId,
+        });
+    }
+);
+
+// ─── 3. MESAJLARA BİLDİRİM ───────────────────────────────────────────────────
+exports.onMessageSent = onDocumentCreated(
+    "conversations/{conversationId}/messages/{messageId}",
+    async (event) => {
+        const message = event.data?.data();
+        if (!message) return;
+
+        const { senderId, senderName, content, participants = [] } = message;
+
+        // Gönderici hariç katılımcılara bildir
+        const recipientUids = participants.filter(uid => uid !== senderId);
+        if (recipientUids.length === 0) return;
+
+        await sendNotifications({
+            recipientUids,
+            title: `💬 ${senderName || "Yeni Mesaj"}`,
+            body: (content || "").substring(0, 100),
+            route: "/school-dashboard",
+            type: "message",
+            entityId: event.params.conversationId,
+        });
+    }
+);
+
+// ─── 4. ÖDEVLERE BİLDİRİM ────────────────────────────────────────────────────
+exports.onHomeworkCreated = onDocumentCreated("homeworks/{homeworkId}", async (event) => {
+    const homework = event.data?.data();
+    if (!homework) return;
+
+    const { institutionId, title: hwTitle, schoolTypeId } = homework;
+    if (!institutionId) return;
+
+    const recipientUids = await getInstitutionUserUids(institutionId);
+
+    await sendNotifications({
+        recipientUids,
+        title: `📝 Yeni Ödev: ${hwTitle || "Ödev"}`,
+        body: "Öğretmen tarafından yeni ödev eklendi.",
+        route: "/school-dashboard",
+        type: "homework",
+        entityId: event.params.homeworkId,
+    });
+});
+
+// ─── 5. DENEME SINAVI YÜKLENDİĞİNDE BİLDİRİM ─────────────────────────────────
+exports.onTrialExamCreated = onDocumentCreated("trial_exams/{examId}", async (event) => {
+    const exam = event.data?.data();
+    if (!exam) return;
+
+    const { institutionId, examName } = exam;
+    if (!institutionId) return;
+
+    const recipientUids = await getInstitutionUserUids(institutionId);
+
+    await sendNotifications({
+        recipientUids,
+        title: `📊 Deneme Yüklendi: ${examName || "Yeni Deneme"}`,
+        body: "Yeni deneme sınavı sonuçları sisteme yüklendi.",
+        route: "/school-dashboard",
+        type: "exam",
+        entityId: event.params.examId,
+    });
+});
+
+// ─── 6. KAMP ÖĞRETMEN HAFTALIK DERS PROGRAMI E-POSTA GÖNDERİMİ ───────────────
+exports.sendCampProgramEmail = onCall(async (request) => {
+    const { data, auth } = request;
+    
+    // 1. Güvenlik Kontrolü
+    if (!auth) {
+        throw new HttpsError(
+            "unauthenticated",
+            "Bu işlemi yapmak için giriş yapmış olmalısınız."
+        );
+    }
+
+    const { email, teacherName, cycleName, cycleStartDate, pdfBase64, fileName } = data;
+
+    if (!email || !teacherName || !cycleName || !pdfBase64) {
+        throw new HttpsError(
+            "invalid-argument",
+            "Eksik bilgi gönderildi. 'email', 'teacherName', 'cycleName' ve 'pdfBase64' alanları zorunludur."
+        );
+    }
+
+    try {
+        let startDate = cycleStartDate;
+        if (!startDate) {
+            const dt = new Date();
+            const d = String(dt.getDate()).padStart(2, '0');
+            const m = String(dt.getMonth() + 1).padStart(2, '0');
+            const y = dt.getFullYear();
+            startDate = `${d}.${m}.${y}`;
+        }
+
+        const mailOptions = {
+            from: '"eduKN Destek" <muratavci2405@gmail.com>',
+            to: email,
+            subject: `eduKN Kamp: ${startDate} Tarihli Kamp Programı`,
+            html: `
+                <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 30px; border: 1px solid #e2e8f0; border-radius: 20px; background-color: #f8fafc;">
+                    <div style="text-align: center; margin-bottom: 25px;">
+                        <div style="display: inline-block; vertical-align: middle;">
+                            <table cellpadding="0" cellspacing="0" border="0" style="margin: 0 auto;">
+                                <tr>
+                                    <td style="vertical-align: middle; padding-right: 10px;">
+                                        <svg width="45" height="38" viewBox="0 0 120 100" style="display: block;">
+                                            <g transform="skewX(-15) translate(15, 0)">
+                                                <path d="M0,15 L35,15 L55,40 L35,65 L0,65 L20,40 Z" fill="url(#grad1)" />
+                                                <path d="M25,15 L60,15 L80,40 L60,65 L25,65 L45,40 Z" fill="url(#grad2)" />
+                                                <path d="M50,15 L85,15 L105,40 L85,65 L50,65 L70,40 Z" fill="#60A5FA" />
+                                            </g>
+                                            <defs>
+                                                <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+                                                    <stop offset="0%" stop-color="#1E3A8A" stop-opacity="0.9" />
+                                                    <stop offset="100%" stop-color="#2563EB" stop-opacity="0.9" />
+                                                </linearGradient>
+                                                <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="100%">
+                                                    <stop offset="0%" stop-color="#2563EB" stop-opacity="0.9" />
+                                                    <stop offset="100%" stop-color="#60A5FA" stop-opacity="0.9" />
+                                                </linearGradient>
+                                            </defs>
+                                        </svg>
+                                    </td>
+                                    <td style="vertical-align: middle;">
+                                        <span style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 34px; font-weight: 900; font-style: italic; letter-spacing: -1.5px; color: #1e1b4b; line-height: 1;">
+                                            edu<span style="color: #3b82f6;">KN</span>
+                                        </span>
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+                        <p style="color: #64748b; font-size: 14px; margin-top: 8px; font-weight: 500;">Okul Yönetim Sistemi</p>
+                    </div>
+                    <div style="background-color: #ffffff; padding: 35px; border-radius: 16px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03);">
+                        <h2 style="color: #1e1b4b; margin-top: 0; font-size: 20px; font-weight: 700;">Sayın ${teacherName},</h2>
+                        <p style="color: #334155; font-size: 15px; line-height: 1.6; margin-top: 15px;">
+                            Kurumunuz tarafından düzenlenen <strong>${cycleName}</strong> kapsamındaki <strong>${startDate} tarihli ders ve soru çözüm programınız</strong> hazırlanmıştır.
+                        </p>
+                        <p style="color: #334155; font-size: 15px; line-height: 1.6;">
+                            Size özel olarak oluşturulan detaylı programınız, derslikleriniz, ders saatleriniz ve öğrenci listeleriniz bu e-postanın ekinde PDF formatında yer almaktadır.
+                        </p>
+                        <div style="margin: 30px 0; padding: 20px; background-color: #eef2ff; border-left: 4px solid #4f46e5; border-radius: 8px;">
+                            <h3 style="color: #4338ca; margin: 0 0 8px 0; font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">Bilgilendirme</h3>
+                            <p style="color: #3730a3; margin: 0; font-size: 13px; line-height: 1.5;">
+                                Kamp süresince başarı oranı %95 ve üzeri olan öğrenci gruplarında sistem tarafından otomatik olarak <strong>Soru Çözümü</strong> çalışması planlanmıştır. Program detaylarına ekteki belgeden ulaşabilirsiniz.
+                            </p>
+                        </div>
+                        <p style="color: #64748b; font-size: 13px; line-height: 1.6; margin-bottom: 0; text-align: center;">
+                            İyi dersler ve başarılı bir kamp dönemi dileriz.
+                        </p>
+                    </div>
+                    <div style="text-align: center; margin-top: 30px; color: #94a3b8; font-size: 12px; font-weight: 500;">
+                        © ${new Date().getFullYear()} eduKN. Tüm hakları saklıdır.<br>
+                        <span style="color: #94a3b8; font-size: 11px;">Bu e-posta otomatik olarak gönderilmiştir, lütfen yanıtlamayınız.</span>
+                    </div>
+                </div>
+            `,
+            attachments: [
+                {
+                    filename: fileName || 'kamp_ders_programi.pdf',
+                    content: pdfBase64,
+                    encoding: 'base64'
+                }
+            ]
+        };
+
+        await transporter.sendMail(mailOptions);
+
+        return {
+            status: "success",
+            message: "Kamp programı e-posta ile başarıyla gönderildi."
+        };
+
+    } catch (error) {
+        console.error("Kamp programı mail gönderim hatası:", error);
+        throw new HttpsError("internal", error.message || "E-posta gönderilirken sunucu hatası oluştu.");
+    }
+});
+

@@ -124,9 +124,11 @@ class _AgmStudentTimetableScreenState extends State<AgmStudentTimetableScreen> {
     }
 
     // Güne göre sırala
-    entries.sort(
-      (a, b) => _gunler.indexOf(a.gun).compareTo(_gunler.indexOf(b.gun)),
-    );
+    entries.sort((a, b) {
+      int dayCompare = _gunler.indexOf(a.gun).compareTo(_gunler.indexOf(b.gun));
+      if (dayCompare != 0) return dayCompare;
+      return a.baslangicSaat.compareTo(b.baslangicSaat);
+    });
 
     setState(() {
       _selectedStudentId = studentId;
@@ -153,7 +155,7 @@ class _AgmStudentTimetableScreenState extends State<AgmStudentTimetableScreen> {
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert),
+            icon: const Icon(Icons.more_vert, color: Colors.white),
             onSelected: (value) {
               final allSelected = _selectedStudentId == null;
               switch (value) {
@@ -912,9 +914,11 @@ class _AgmStudentTimetableScreenState extends State<AgmStudentTimetableScreen> {
         );
       }
     }
-    entries.sort(
-      (a, b) => _gunler.indexOf(a.gun).compareTo(_gunler.indexOf(b.gun)),
-    );
+    entries.sort((a, b) {
+      int dayCompare = _gunler.indexOf(a.gun).compareTo(_gunler.indexOf(b.gun));
+      if (dayCompare != 0) return dayCompare;
+      return a.baslangicSaat.compareTo(b.baslangicSaat);
+    });
     return entries;
   }
 

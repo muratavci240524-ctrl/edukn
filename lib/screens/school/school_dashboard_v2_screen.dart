@@ -573,7 +573,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
             physics: const BouncingScrollPhysics(),
             children: [
-              if (_hasModuleAccess('genel_duyurular')) ...[
+              if (_hasSubModuleAccess('haberlesme', 'genel_duyurular')) ...[
                 _buildCommCard(
                   title: 'Duyurular',
                   description: 'Tüm okul türlerinin duyurularını görüntüleyin ve yönetin.',
@@ -583,7 +583,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
                 ),
                 const SizedBox(height: 20),
               ],
-              if (_hasModuleAccess('sosyal_medya')) ...[
+              if (_hasSubModuleAccess('haberlesme', 'sosyal_medya')) ...[
                 _buildCommCard(
                   title: 'Sosyal Medya',
                   description: 'Okulun global sosyal medya paylaşımlarını inceleyin.',
@@ -597,7 +597,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
                 ),
                 const SizedBox(height: 20),
               ],
-              if (_hasModuleAccess('mesajlar')) ...[
+              if (_hasSubModuleAccess('haberlesme', 'mesajlar')) ...[
                 _buildCommCard(
                   title: 'Mesajlar',
                   description: 'Tüm kullanıcılara ve okul türlerine mesajlaşın.',
@@ -620,32 +620,89 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
 
   Widget _buildCommCard({required String title, required String description, required IconData icon, required MaterialColor color, required VoidCallback onTap}) {
     return Container(
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(24), boxShadow: [BoxShadow(color: color.shade100.withOpacity(0.5), blurRadius: 20, offset: const Offset(0, 10))]),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(24),
-          splashColor: color.shade50.withOpacity(0.5),
-          highlightColor: color.shade50.withOpacity(0.5),
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Row(
-              children: [
-                Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: color.shade50, borderRadius: BorderRadius.circular(20)), child: Icon(icon, size: 32, color: color.shade700)),
-                const SizedBox(width: 20),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.indigo.shade900)),
-                      const SizedBox(height: 6),
-                      Text(description, style: TextStyle(fontSize: 13, color: Colors.blueGrey.shade600, height: 1.4)),
-                    ],
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: color.shade500.withOpacity(0.08),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            splashColor: color.shade50,
+            highlightColor: Colors.transparent,
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [color.shade400, color.shade600],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: color.withOpacity(0.3),
+                          blurRadius: 12,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
+                    ),
+                    child: Icon(icon, size: 32, color: Colors.white),
                   ),
-                ),
-                Icon(Icons.arrow_forward_ios_rounded, size: 18, color: Colors.indigo.shade200),
-              ],
+                  const SizedBox(width: 20),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.indigo.shade900,
+                            letterSpacing: -0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          description,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.blueGrey.shade600,
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.indigo.shade50,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.arrow_forward_ios_rounded,
+                      size: 14,
+                      color: Colors.indigo.shade400,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -847,6 +904,13 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
               builder: (ctx) => const ProfileSettingsScreen(isSchoolSettings: true),
             ),
           );
+        } else if (value == 'notifications') {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (ctx) => const ProfileSettingsScreen(isSchoolSettings: false),
+            ),
+          );
         } else if (value == 'qr') {
           Navigator.push(context, MaterialPageRoute(builder: (_) => const TeacherQrScanScreen()));
         } else if (value == 'logout') {
@@ -908,6 +972,18 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
             ]),
           ),
         ],
+        const PopupMenuDivider(),
+        PopupMenuItem<String>(
+          value: 'notifications',
+          child: Row(children: [
+            Container(padding: const EdgeInsets.all(7), decoration: BoxDecoration(color: Colors.teal.shade50, borderRadius: BorderRadius.circular(8)), child: Icon(Icons.notifications_active_outlined, color: Colors.teal.shade700, size: 18)),
+            const SizedBox(width: 12),
+            const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Bildirim Ayarları', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              Text('Tercihleri Düzenle', style: TextStyle(fontSize: 11, color: Colors.blueGrey)),
+            ]),
+          ]),
+        ),
         const PopupMenuDivider(),
         PopupMenuItem<String>(
           value: 'qr',

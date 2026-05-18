@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../../../services/assessment_service.dart';
 
 // ─── Models ───────────────────────────────────────────────────────────────────
 
@@ -92,29 +93,39 @@ class _QuestionPoolScreenState extends State<QuestionPoolScreen> {
       .orderBy('createdAt', descending: true)
       .snapshots();
 
+  final AssessmentService _assessmentService = AssessmentService();
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      appBar: _buildAppBar(),
-      body: Stack(
-        children: [
-          _buildBody(),
-          if (_showWizard)
-            _TestCreationWizard(
-              institutionId: widget.institutionId,
-              schoolTypeId: widget.schoolTypeId,
-              editingData: _editingTest,
-              onClose: () => setState(() {
-                _showWizard = false;
-                _editingTest = null;
-              }),
-              onSaved: () => setState(() {
-                _showWizard = false;
-                _editingTest = null;
-              }),
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        appBar: _buildAppBar(),
+        body: Stack(
+          children: [
+            TabBarView(
+              children: [
+                _buildTestsTab(),
+                _buildPoolTab(),
+              ],
             ),
-        ],
+            if (_showWizard)
+              _TestCreationWizard(
+                institutionId: widget.institutionId,
+                schoolTypeId: widget.schoolTypeId,
+                editingData: _editingTest,
+                onClose: () => setState(() {
+                  _showWizard = false;
+                  _editingTest = null;
+                }),
+                onSaved: () => setState(() {
+                  _showWizard = false;
+                  _editingTest = null;
+                }),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -139,6 +150,16 @@ class _QuestionPoolScreenState extends State<QuestionPoolScreen> {
             ),
           ],
         ),
+        bottom: TabBar(
+          labelColor: Colors.indigo,
+          unselectedLabelColor: Colors.grey,
+          indicatorColor: Colors.indigo,
+          labelStyle: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13),
+          tabs: const [
+            Tab(text: 'Testler & Ödevler'),
+            Tab(text: 'Tüm Soru Havuzu'),
+          ],
+        ),
         actions: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -160,7 +181,7 @@ class _QuestionPoolScreenState extends State<QuestionPoolScreen> {
         ],
       );
 
-  Widget _buildBody() {
+  Widget _buildTestsTab() {
     return StreamBuilder<QuerySnapshot>(
       stream: _testsStream,
       builder: (context, snapshot) {
@@ -187,6 +208,140 @@ class _QuestionPoolScreenState extends State<QuestionPoolScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildPoolTab() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: _assessmentService.getGlobalQuestionsPool(widget.institutionId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final docs = snapshot.data?.docs ?? [];
+
+        if (docs.isEmpty) {
+          return _buildEmptyPoolState();
+        }
+
+        return Column(
+          children: [
+            _buildPoolHeader(docs.length),
+            Expanded(
+              child: GridView.builder(
+                padding: const EdgeInsets.all(24),
+                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                  maxCrossAxisExtent: 300,
+                  mainAxisSpacing: 20,
+                  crossAxisSpacing: 20,
+                  mainAxisExtent: 320,
+                ),
+                itemCount: docs.length,
+                itemBuilder: (ctx, i) => _buildPoolQuestionCard(docs[i]),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildEmptyPoolState() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.layers_clear_outlined, size: 80, color: Colors.grey.shade300),
+          const SizedBox(height: 16),
+          Text(
+            'Soru Havuzu Boş',
+            style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey.shade600),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Hata kitapçığı üzerinden soru kırpıp havuza atarak\nburada biriktirebilirsiniz.',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.inter(fontSize: 14, color: Colors.grey.shade400),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPoolHeader(int count) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      color: Colors.white,
+      child: Row(
+        children: [
+          Text(
+            'Havuzdaki Sorular ($count)',
+            style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: Colors.indigo.shade900),
+          ),
+          const Spacer(),
+          // Filter options could go here
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPoolQuestionCard(QueryDocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    final base64Image = data['base64Image'] as String?;
+    final imageUrl = data['imageUrl'] as String?;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4))],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Container(
+              width: double.infinity,
+              color: Colors.grey.shade50,
+              child: base64Image != null
+                  ? Image.memory(base64Decode(base64Image), fit: BoxFit.contain)
+                  : (imageUrl != null
+                      ? Image.network(imageUrl, fit: BoxFit.contain)
+                      : const Icon(Icons.image_not_supported, color: Colors.grey)),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  data['subject'] ?? 'Ders Belirtilmemiş',
+                  style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.indigo),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${data['examName'] ?? 'Sınav'} - Soru ${data['questionNo']}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+                if (data['outcome'] != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    data['outcome'],
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(fontSize: 10, color: Colors.grey.shade600),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -429,7 +584,12 @@ class _QuestionPoolScreenState extends State<QuestionPoolScreen> {
         ],
       ),
       child: InkWell(
-        onTap: () {},
+        onTap: () {
+          setState(() {
+            _editingTest = {...data, 'docId': doc.id};
+            _showWizard = true;
+          });
+        },
         borderRadius: BorderRadius.circular(20),
         child: Padding(
           padding: const EdgeInsets.all(20),
@@ -625,6 +785,9 @@ class _TestCreationWizardState extends State<_TestCreationWizard>
   // Step 3
   final _examLabelCtrl = TextEditingController();
 
+  // Step 4
+  final List<String> _selectedQuestionIds = [];
+
   @override
   void initState() {
     super.initState();
@@ -654,6 +817,10 @@ class _TestCreationWizardState extends State<_TestCreationWizard>
           : sort == 'none'
               ? SortingAlgorithm.none
               : SortingAlgorithm.fixed;
+      
+      if (d['questionIds'] != null) {
+        _selectedQuestionIds.addAll(List<String>.from(d['questionIds']));
+      }
     }
   }
 
@@ -680,7 +847,7 @@ class _TestCreationWizardState extends State<_TestCreationWizard>
           const SnackBar(content: Text('Lütfen test türü ve soru seçim yöntemini belirleyiniz.')));
       return;
     }
-    if (_step < 2) setState(() => _step++);
+    if (_step < 3) setState(() => _step++);
   }
 
   void _back() {
@@ -688,6 +855,21 @@ class _TestCreationWizardState extends State<_TestCreationWizard>
   }
 
   Future<void> _save() async {
+    if (_selectionMethod == QuestionSelectionMethod.manuel && _selectedQuestionIds.isEmpty) {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Soru Seçilmedi'),
+          content: const Text('Hiç soru seçmediniz. Boş bir test oluşturmak istediğinize emin misiniz?'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('İptal')),
+            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Evet, Devam Et')),
+          ],
+        ),
+      );
+      if (confirm != true) return;
+    }
+
     setState(() => _isSaving = true);
     try {
       final data = {
@@ -709,7 +891,8 @@ class _TestCreationWizardState extends State<_TestCreationWizard>
         'examLabel': _examLabelCtrl.text.trim(),
         'institutionId': widget.institutionId,
         'schoolTypeId': widget.schoolTypeId,
-        'questionCount': 0,
+        'questionCount': _selectedQuestionIds.length,
+        'questionIds': _selectedQuestionIds,
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
@@ -792,7 +975,7 @@ class _TestCreationWizardState extends State<_TestCreationWizard>
       );
 
   Widget _buildProgressBar() {
-    final steps = ['Temel Bilgiler', 'Test Türü ve Ayarlar', 'Tasarım ve Çıktı'];
+    final steps = ['Temel Bilgiler', 'Test Türü', 'Tasarım', 'Soru Seçimi'];
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
       child: Row(
@@ -883,9 +1066,121 @@ class _TestCreationWizardState extends State<_TestCreationWizard>
         return _buildStep2();
       case 2:
         return _buildStep3();
+      case 3:
+        return _buildStep4();
       default:
         return const SizedBox.shrink();
     }
+  }
+
+  // ── Step 4: Soru Seçimi ─────────────────────────────────────────────────────
+  Widget _buildStep4() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: AssessmentService().getGlobalQuestionsPool(widget.institutionId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const SizedBox(height: 300, child: Center(child: CircularProgressIndicator()));
+        }
+
+        final docs = snapshot.data?.docs ?? [];
+
+        if (docs.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.all(40),
+            child: Column(
+              children: [
+                Icon(Icons.layers_clear_outlined, size: 60, color: Colors.grey.shade300),
+                const SizedBox(height: 16),
+                const Text('Havuzda hiç soru bulunamadı.', style: TextStyle(color: Colors.grey)),
+              ],
+            ),
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+              child: _buildSectionHeader('Soru Seçimi', 'Hangi soruların bu testte yer alacağını belirleyin. (${_selectedQuestionIds.length} Seçili)'),
+            ),
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(24),
+              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 200,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+                mainAxisExtent: 220,
+              ),
+              itemCount: docs.length,
+              itemBuilder: (ctx, i) {
+                final doc = docs[i];
+                final data = doc.data() as Map<String, dynamic>;
+                final isSelected = _selectedQuestionIds.contains(doc.id);
+
+                return InkWell(
+                  onTap: () {
+                    setState(() {
+                      if (isSelected) {
+                        _selectedQuestionIds.remove(doc.id);
+                      } else {
+                        _selectedQuestionIds.add(doc.id);
+                      }
+                    });
+                  },
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: isSelected ? Colors.indigo : Colors.grey.shade200, width: isSelected ? 2 : 1),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Stack(
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Container(
+                                color: Colors.grey.shade50,
+                                child: data['base64Image'] != null
+                                    ? Image.memory(base64Decode(data['base64Image']), fit: BoxFit.contain)
+                                    : (data['imageUrl'] != null
+                                        ? Image.network(data['imageUrl'], fit: BoxFit.contain)
+                                        : const Icon(Icons.image_not_supported)),
+                              ),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: Text(
+                                '${data['subject']} - Q${data['questionNo']}',
+                                style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (isSelected)
+                          Positioned(
+                            top: 4,
+                            right: 4,
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: const BoxDecoration(color: Colors.indigo, shape: BoxShape.circle),
+                              child: const Icon(Icons.check, color: Colors.white, size: 12),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ],
+        );
+      },
+    );
   }
 
   // ── Step 1: Temel Bilgiler ──────────────────────────────────────────────────

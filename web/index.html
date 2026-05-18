@@ -6,6 +6,7 @@
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="edukn management system">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
   
   <!-- Google Sign-In Configuration -->
   <meta name="google-signin-client_id" content="158619513037-aofci9vverr1jblg3pnqer2rf3gn0i4h.apps.googleusercontent.com">
@@ -89,6 +90,25 @@
     var pdfRenderOptions = {
       cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
       cMapPacked: true,
+    }
+  </script>
+  <!-- Firebase Messaging Service Worker Kaydı (Web Push için) -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/firebase-messaging-sw.js')
+        .then(function(registration) {
+          console.log('✅ FCM Service Worker kaydedildi:', registration.scope);
+        })
+        .catch(function(err) {
+          console.log('❌ FCM Service Worker kayıt hatası:', err);
+        });
+      
+      // Service Worker'dan gelen mesajları dinle (bildirim tıklama yönlendirmesi)
+      navigator.serviceWorker.addEventListener('message', (event) => {
+        if (event.data?.type === 'NOTIFICATION_CLICK' && event.data?.route) {
+          window.location.hash = event.data.route;
+        }
+      });
     }
   </script>
   <script src="flutter_bootstrap.js" async></script>

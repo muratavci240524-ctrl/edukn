@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -8,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../widgets/edukn_logo.dart';
 import '../teacher/teacher_main_screen.dart';
 import 'parent_student_selection_screen.dart';
+import '../../services/notification_service.dart';
 
 class SchoolLoginScreen extends StatefulWidget {
   const SchoolLoginScreen({Key? key}) : super(key: key);
@@ -188,6 +190,11 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
 
       final uid = userCredential?.user?.uid;
       if (uid == null) throw 'Kullanıcı kimliği alınamadı.';
+
+      // 🔔 FCM Token kaydet (bildirim sistemi için)
+      NotificationService().initialize(uid: uid).catchError((e) {
+        print('⚠️ FCM init hatası (kritik değil): $e');
+      });
 
       final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get()
           .timeout(const Duration(seconds: 15), onTimeout: () => throw 'Kullanıcı verisi alınırken zaman aşımı oluştu.');
@@ -641,22 +648,30 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
     setState(() => _isLoading = true);
 
     try {
-      final GoogleSignIn googleSignIn = GoogleSignIn();
-      final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+      User? user;
 
-      if (googleUser == null) {
-        if (mounted) setState(() => _isLoading = false);
-        return;
+      if (kIsWeb) {
+        // Web: Firebase Auth'un kendi popup akışını kullan (google_sign_in_web gerektirmez)
+        final provider = GoogleAuthProvider();
+        provider.addScope('email');
+        final userCredential = await FirebaseAuth.instance.signInWithPopup(provider);
+        user = userCredential.user;
+      } else {
+        // Native (iOS/Android): google_sign_in paketi ile
+        final GoogleSignIn googleSignIn = GoogleSignIn();
+        final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+        if (googleUser == null) {
+          if (mounted) setState(() => _isLoading = false);
+          return;
+        }
+        final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+        final AuthCredential credential = GoogleAuthProvider.credential(
+          accessToken: googleAuth.accessToken,
+          idToken: googleAuth.idToken,
+        );
+        final userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
+        user = userCredential.user;
       }
-
-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
-      final AuthCredential credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
-
-      final userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
-      final user = userCredential.user;
 
       if (user != null) {
         // Kullanıcının sistemde kaydı var mı kontrol et (Email ile)
@@ -667,16 +682,13 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
             .get();
 
         if (userDoc.docs.isEmpty) {
-          // Kayıt yoksa hata ver ve çıkış yap
           await FirebaseAuth.instance.signOut();
-          await googleSignIn.signOut();
           throw 'Bu Google hesabı ile kayıtlı bir personel bulunamadı. Lütfen yöneticinizle iletişime geçin.';
         }
 
         final userData = userDoc.docs.first.data();
         if (userData['isActive'] != true) {
           await FirebaseAuth.instance.signOut();
-          await googleSignIn.signOut();
           throw 'Hesabınız pasif durumda!';
         }
 
@@ -686,18 +698,16 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       }
     } catch (e) {
       print('❌ Google Giriş Hatası: $e');
-      String errorMessage = 'Google ile giriş yapılamadı: $e';
-      
-      if (e.toString().contains('MissingPluginException')) {
-        errorMessage = 'Google Giriş Yapılandırma Hatası!\n\nLütfen web/index.html dosyasındaki Client ID\'nin doğru olduğunu ve uygulamayı DURDURUP YENİDEN BAŞLATTIĞINIZI kontrol edin.';
-      }
+      final errorMessage = e.toString().contains('popup_closed')
+          ? 'Giriş penceresi kapatıldı. Lütfen tekrar deneyin.'
+          : 'Google ile giriş yapılamadı. Lütfen tekrar deneyin.';
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(errorMessage),
             backgroundColor: Colors.red,
-            duration: const Duration(seconds: 10),
+            duration: const Duration(seconds: 6),
             action: SnackBarAction(
               label: 'TAMAM',
               textColor: Colors.white,

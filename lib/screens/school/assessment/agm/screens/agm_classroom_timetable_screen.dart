@@ -111,7 +111,7 @@ class _AgmClassroomTimetableScreenState
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert),
+            icon: const Icon(Icons.more_vert, color: Colors.white),
             onSelected: (value) {
               final allSelected = _selectedClassroomId == null;
               switch (value) {

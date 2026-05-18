@@ -24,12 +24,14 @@ class StaffFormScreen extends StatefulWidget {
   final String? staffId;
   final Map<String, dynamic>? staffData;
   final String? fixedSchoolTypeName; // Okul türü içinden ekleniyorsa
+  final String? fixedSchoolTypeId; // Okul türü ID'si
 
   const StaffFormScreen({
     super.key, 
     this.staffId, 
     this.staffData,
     this.fixedSchoolTypeName,
+    this.fixedSchoolTypeId,
   });
 
   @override
@@ -269,7 +271,7 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
         'type': 'staff',
         'tcKimlik': _tcController.text.trim(),
         'phone': _mobilePhoneController.text.trim(),
-        'schoolTypes': widget.fixedSchoolTypeName != null ? [widget.fixedSchoolTypeName] : [],
+        'schoolTypes': widget.fixedSchoolTypeId != null ? [widget.fixedSchoolTypeId] : (widget.fixedSchoolTypeName != null ? [widget.fixedSchoolTypeName] : []),
         'modulePermissions': {
           'genel_duyurular': {'enabled': true, 'level': 'editor'},
           'okul_turleri': {'enabled': true, 'level': 'viewer'},

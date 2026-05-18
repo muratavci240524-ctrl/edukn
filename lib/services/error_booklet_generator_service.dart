@@ -1,8 +1,13 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
+// ignore: avoid_web_libraries_in_flutter
+import 'dart:html' as html;
+import 'package:archive/archive.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:vector_math/vector_math_64.dart' as vm;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:http/http.dart' as http;
 import '../../../../models/assessment/trial_exam_model.dart';
@@ -13,13 +18,31 @@ class ErrorBookletGeneratorService {
   Future<void> generateAndDownloadBooklet({
     required List<TrialExam> exams,
     required List<Map<String, dynamic>> studentResults,
+    bool prioritizeCritical = true,
+    int? maxQuestions,
+    bool fillFromPool = false,
+    bool individualPDFs = false,
+    Function(int current, int total, String studentName)? onProgress,
   }) async {
-    await generateBulkBooklets(exams: exams, bulkStudentResults: [studentResults]);
+    await generateBulkBooklets(
+      exams: exams,
+      bulkStudentResults: [studentResults],
+      prioritizeCritical: prioritizeCritical,
+      maxQuestions: maxQuestions,
+      fillFromPool: fillFromPool,
+      individualPDFs: individualPDFs,
+      onProgress: onProgress,
+    );
   }
 
   Future<void> generateBulkBooklets({
     required List<TrialExam> exams,
     required List<List<Map<String, dynamic>>> bulkStudentResults,
+    bool prioritizeCritical = true,
+    int? maxQuestions,
+    bool fillFromPool = false,
+    bool individualPDFs = false,
+    Function(int current, int total, String studentName)? onProgress,
   }) async {
     try {
       // 1. Restore Unicode support for Turkish characters with robust loading
@@ -35,7 +58,7 @@ class ErrorBookletGeneratorService {
       }
 
       if (bulkStudentResults.isEmpty || exams.isEmpty) return;
-      final pdf = pw.Document();
+      final singlePdf = pw.Document();
 
       // 2. Pre-fetch Data & Metadata
       Map<String, Map<String, Map<String, dynamic>>> allPoolMaps = {};
@@ -72,13 +95,26 @@ class ErrorBookletGeneratorService {
       }
 
       // 3. Process Students
+      int currentIdx = 0;
+      final int totalCount = bulkStudentResults.length;
+      final zipArchive = (individualPDFs && totalCount > 1) ? Archive() : null;
+
       for (var studentResults in bulkStudentResults) {
+        currentIdx++;
         try {
           if (studentResults.isEmpty) continue;
           final Map<String, dynamic> firstValid = studentResults.firstWhere((r) => r.isNotEmpty, orElse: () => {});
           if (firstValid.isEmpty) continue;
 
           final String studentName = (firstValid['studentName'] ?? firstValid['name'] ?? 'Öğrenci').toString();
+          final String branch = (firstValid['branch'] ?? firstValid['className'] ?? firstValid['sube'] ?? 'Bilinmeyen').toString().trim().replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+          
+          // Invoke progress callback & yield thread to prevent blocking the UI
+          onProgress?.call(currentIdx, totalCount, studentName);
+          await Future.delayed(const Duration(milliseconds: 50));
+
+          final activePdf = individualPDFs ? pw.Document() : singlePdf;
+
           Map<String, List<Map<String, dynamic>>> compositeGrouped = {};
           Map<String, Map<String, dynamic>> stats = {}; // subject -> {T, C, W, E, Net}
 
@@ -236,8 +272,10 @@ class ErrorBookletGeneratorService {
                         'masterQNo': masterQNo, // But we use the master index for the image
                         'imageBytes': bytes,
                         'isWide': meta['isWide'] ?? false, 
+                        'isCritical': meta['isCritical'] == true,
                         'correctAnswer': meta['correctAnswer'] ?? rChar,
                         'booklet': booklet,
+                        'difficulty': meta['difficulty'],
                       });
                     }
                   }
@@ -248,6 +286,146 @@ class ErrorBookletGeneratorService {
               final int tw = stats[subject]!['W'] as int;
               stats[subject]!['Net'] = (tc - (tw / 3.0)).clamp(0, stats[subject]!['T'] as int);
             }
+          }
+
+          // Apply smart question prioritization & difficulty sorting (zordan kolaya - difficulty ascending)
+          final List<Map<String, dynamic>> allCandidates = [];
+          compositeGrouped.forEach((sub, list) {
+            for (var item in list) {
+              item['subjectGroup'] = sub;
+              allCandidates.add(item);
+            }
+          });
+
+          // Separate candidates by critical status
+          final List<Map<String, dynamic>> wrongCriticals = allCandidates.where((q) => q['isCritical'] == true).toList();
+          final List<Map<String, dynamic>> wrongNonCriticals = allCandidates.where((q) => q['isCritical'] != true).toList();
+
+          // Sort each sublist from hardest to easiest (success rate ascending: 0% to 100%)
+          wrongCriticals.sort((a, b) {
+            final double diffA = (a['difficulty'] as num?)?.toDouble() ?? 50.0;
+            final double diffB = (b['difficulty'] as num?)?.toDouble() ?? 50.0;
+            return diffA.compareTo(diffB);
+          });
+          wrongNonCriticals.sort((a, b) {
+            final double diffA = (a['difficulty'] as num?)?.toDouble() ?? 50.0;
+            final double diffB = (b['difficulty'] as num?)?.toDouble() ?? 50.0;
+            return diffA.compareTo(diffB);
+          });
+
+          List<Map<String, dynamic>> selectedQuestions = [];
+          if (prioritizeCritical) {
+            selectedQuestions = [...wrongCriticals, ...wrongNonCriticals];
+          } else {
+            selectedQuestions = [...allCandidates];
+            selectedQuestions.sort((a, b) {
+              final double diffA = (a['difficulty'] as num?)?.toDouble() ?? 50.0;
+              final double diffB = (b['difficulty'] as num?)?.toDouble() ?? 50.0;
+              return diffA.compareTo(diffB);
+            });
+          }
+
+          // If maximum limit is set and candidates exceed limit, slice to maxQuestions
+          if (maxQuestions != null && maxQuestions > 0 && selectedQuestions.length > maxQuestions) {
+            selectedQuestions = selectedQuestions.sublist(0, maxQuestions);
+          }
+
+          // DYNAMIC POOL FILL-UP: If fillFromPool is active, fill remaining slots up to maxQuestions
+          if (fillFromPool && maxQuestions != null && maxQuestions > 0 && selectedQuestions.length < maxQuestions) {
+            final int neededCount = maxQuestions - selectedQuestions.length;
+            final List<Map<String, dynamic>> fillCandidates = [];
+
+            // Tracking selected keys to avoid duplicating any questions in the booklet
+            final Set<String> selectedKeys = selectedQuestions.map((q) {
+              final String subGroup = (q['subjectGroup'] ?? '').toString().toLowerCase().trim();
+              return '${q['examName']}_${subGroup}_${q['masterQNo']}';
+            }).toSet();
+
+            for (var exam in exams) {
+              final Map<String, Map<String, dynamic>> poolMap = allPoolMaps[exam.id] ?? {};
+              for (var key in poolMap.keys) {
+                final Map<String, dynamic> meta = poolMap[key]!;
+                final String sKey = (meta['subject'] ?? '').toString();
+                final String normSubject = sKey.toLowerCase().trim();
+                final int masterQNo = (num.tryParse((meta['questionNo'] ?? '').toString()) ?? 0).toInt();
+
+                final String uniqueKey = '${exam.name}_${normSubject}_$masterQNo';
+                if (!selectedKeys.contains(uniqueKey)) {
+                  fillCandidates.add({
+                    'exam': exam,
+                    'meta': meta,
+                    'subject': sKey,
+                    'masterQNo': masterQNo,
+                    'uniqueKey': uniqueKey,
+                    'difficulty': meta['difficulty'],
+                    'isCritical': meta['isCritical'] == true,
+                  });
+                }
+              }
+            }
+
+            // Separate fill candidates by critical status
+            final List<Map<String, dynamic>> fillCriticals = fillCandidates.where((q) => q['isCritical'] == true).toList();
+            final List<Map<String, dynamic>> fillNonCriticals = fillCandidates.where((q) => q['isCritical'] != true).toList();
+
+            // Sort fill candidates by difficulty ascending (zordan kolaya)
+            fillCriticals.sort((a, b) {
+              final double diffA = (a['difficulty'] as num?)?.toDouble() ?? 50.0;
+              final double diffB = (b['difficulty'] as num?)?.toDouble() ?? 50.0;
+              return diffA.compareTo(diffB);
+            });
+            fillNonCriticals.sort((a, b) {
+              final double diffA = (a['difficulty'] as num?)?.toDouble() ?? 50.0;
+              final double diffB = (b['difficulty'] as num?)?.toDouble() ?? 50.0;
+              return diffA.compareTo(diffB);
+            });
+
+            // Starred (critical) pool questions are ALWAYS prioritized first (hardest to easiest)
+            final List<Map<String, dynamic>> orderedFillCandidates = [...fillCriticals, ...fillNonCriticals];
+
+            // Decode image bytes for chosen fill-up questions
+            int filled = 0;
+            for (var cand in orderedFillCandidates) {
+              if (filled >= neededCount) break;
+
+              final Map<String, dynamic> meta = cand['meta'];
+              final TrialExam exam = cand['exam'];
+              final String subject = cand['subject'];
+              final int masterQNo = cand['masterQNo'];
+
+              Uint8List? bytes;
+              try {
+                if (meta['base64Image'] != null) {
+                  bytes = base64Decode(meta['base64Image']);
+                } else if (meta['imageUrl'] != null) {
+                  final res = await http.get(Uri.parse(meta['imageUrl'])).timeout(const Duration(seconds: 4));
+                  if (res.statusCode == 200) bytes = res.bodyBytes;
+                }
+              } catch (_) {}
+
+              if (bytes != null) {
+                selectedQuestions.add({
+                  'examName': exam.name,
+                  'questionNo': masterQNo,
+                  'masterQNo': masterQNo,
+                  'imageBytes': bytes,
+                  'isWide': meta['isWide'] ?? false,
+                  'isCritical': meta['isCritical'] == true,
+                  'correctAnswer': meta['correctAnswer'] ?? 'A',
+                  'booklet': 'A',
+                  'subjectGroup': subject,
+                  'difficulty': meta['difficulty'],
+                  'isFromPoolFill': true,
+                });
+                filled++;
+              }
+            }
+          }
+
+          compositeGrouped.clear();
+          for (var q in selectedQuestions) {
+            final String sub = q['subjectGroup'] as String;
+            compositeGrouped.putIfAbsent(sub, () => []).add(q);
           }
 
           // Assign sequence numbers per subject (1, 2, 3...)
@@ -268,69 +446,122 @@ class ErrorBookletGeneratorService {
           });
 
           // 1. Premium Cover Page
-          pdf.addPage(pw.Page(pageFormat: PdfPageFormat.a4, build: (ctx) => pw.Container(
-            padding: const pw.EdgeInsets.all(32),
-            decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.indigo900, width: 4)),
-            child: pw.Column(children: [
-              pw.SizedBox(height: 40),
-              pw.Container(
-                padding: const pw.EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                decoration: const pw.BoxDecoration(color: PdfColors.indigo900),
-                child: pw.Text('HATA KİTAPÇIĞI', style: pw.TextStyle(font: fontBold, fontSize: 36, color: PdfColors.white, letterSpacing: 2)),
-              ),
-              pw.SizedBox(height: 10),
-              pw.Text('KİŞİYE ÖZEL PERFORMANS RAPORU', style: pw.TextStyle(font: font, fontSize: 14, color: PdfColors.indigo300)),
-              pw.SizedBox(height: 60),
-              pw.Text(studentName.toUpperCase(), style: pw.TextStyle(font: fontBold, fontSize: 28, color: PdfColors.black)),
-              pw.SizedBox(height: 10),
-              pw.Container(width: 80, height: 3, color: PdfColors.indigo900),
-              pw.SizedBox(height: 60),
-              pw.Align(alignment: pw.Alignment.centerLeft, child: pw.Text('KAPSAMDAKİ SINAVLAR', style: pw.TextStyle(font: fontBold, fontSize: 12, color: PdfColors.indigo900))),
-              pw.SizedBox(height: 10),
-              pw.Container(
-                width: double.infinity,
-                padding: const pw.EdgeInsets.all(15),
-                decoration: pw.BoxDecoration(color: PdfColors.grey50, borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8))),
-                child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-                  for (var e in exams)
-                    pw.Padding(
-                      padding: const pw.EdgeInsets.only(bottom: 6),
-                      child: pw.Row(children: [
-                        pw.Container(width: 6, height: 6, decoration: const pw.BoxDecoration(color: PdfColors.indigo900, shape: pw.BoxShape.circle)),
-                        pw.SizedBox(width: 10),
-                        pw.Text(e.name, style: pw.TextStyle(font: font, fontSize: 11)),
-                      ]),
+          activePdf.addPage(pw.Page(pageFormat: PdfPageFormat.a4, build: (ctx) => pw.Container(
+            padding: const pw.EdgeInsets.all(24),
+            decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.indigo900, width: 3)),
+            child: pw.Container(
+              padding: const pw.EdgeInsets.all(12),
+              decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.blue300, width: 1)),
+              child: pw.Column(children: [
+                pw.SizedBox(height: 20),
+                
+                // 🌟 HIGH FIDELITY eduKN VECTOR BRAND LOGO (Matches Home Page App Bar exactly)
+                pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.center,
+                  children: [
+                    // Slanted 3 speed bars slanted at -15 degrees skew
+                    pw.Transform(
+                      transform: vm.Matrix4.skewX(-0.2679),
+                      child: pw.Column(
+                        mainAxisAlignment: pw.MainAxisAlignment.center,
+                        crossAxisAlignment: pw.CrossAxisAlignment.end,
+                        children: [
+                          // Top Speed Bar (Bright Blue)
+                          pw.Container(width: 18, height: 3.5, decoration: const pw.BoxDecoration(color: PdfColors.blue600, borderRadius: pw.BorderRadius.all(pw.Radius.circular(1.5)))),
+                          pw.SizedBox(height: 2.5),
+                          // Middle Speed Bar (Bright Blue - longest)
+                          pw.Container(width: 26, height: 3.5, decoration: const pw.BoxDecoration(color: PdfColors.blue600, borderRadius: pw.BorderRadius.all(pw.Radius.circular(1.5)))),
+                          pw.SizedBox(height: 2.5),
+                          // Bottom Speed Bar (Cyan - shortest)
+                          pw.Container(width: 14, height: 3.5, decoration: const pw.BoxDecoration(color: PdfColors.cyan400, borderRadius: pw.BorderRadius.all(pw.Radius.circular(1.5)))),
+                        ],
+                      ),
                     ),
-                ]),
-              ),
-              pw.SizedBox(height: 40),
-              pw.Text('GENEL PERFORMANS ÖZETİ', style: pw.TextStyle(font: fontBold, fontSize: 14, color: PdfColors.indigo900)),
-              pw.SizedBox(height: 15),
-              pw.Table(border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5), children: [
-                pw.TableRow(decoration: const pw.BoxDecoration(color: PdfColors.indigo900), children: [
-                  _cell('DERS ADI', fontBold, isHeader: true, color: PdfColors.white),
-                  _cell('S', fontBold, isHeader: true, color: PdfColors.white),
-                  _cell('D', fontBold, isHeader: true, color: PdfColors.white),
-                  _cell('Y', fontBold, isHeader: true, color: PdfColors.white),
-                  _cell('B', fontBold, isHeader: true, color: PdfColors.white),
-                  _cell('NET', fontBold, isHeader: true, color: PdfColors.white),
-                ]),
-                for (var s in sortedSubjects)
-                  pw.TableRow(children: [
-                    _cell(s, font),
-                    _cell('${stats[s]?['T']}', font),
-                    _cell('${stats[s]?['C']}', font),
-                    _cell('${stats[s]?['W']}', font, color: PdfColors.red700),
-                    _cell('${stats[s]?['E']}', font, color: PdfColors.orange700),
-                    _cell((stats[s]?['Net'] as double).toStringAsFixed(2), fontBold, color: PdfColors.indigo900),
+                    pw.SizedBox(width: 10),
+                    // eduKN Logo text (Italic style matching official app bar & login page)
+                    pw.Text(
+                      'eduKN',
+                      style: pw.TextStyle(
+                        font: fontBold,
+                        fontSize: 34,
+                        fontStyle: pw.FontStyle.italic,
+                        color: PdfColors.indigo900,
+                      ),
+                    ),
+                  ],
+                ),
+                
+                pw.SizedBox(height: 35),
+                pw.Container(
+                  padding: const pw.EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                  decoration: const pw.BoxDecoration(
+                    color: PdfColors.indigo900,
+                    borderRadius: pw.BorderRadius.all(pw.Radius.circular(16)),
+                  ),
+                  child: pw.Text('HATA KİTAPÇIĞI', style: pw.TextStyle(font: fontBold, fontSize: 30, color: PdfColors.white, letterSpacing: 3)),
+                ),
+                pw.SizedBox(height: 8),
+                pw.Text('KİŞİYE ÖZEL PERFORMANS RAPORU', style: pw.TextStyle(font: font, fontSize: 11, color: PdfColors.indigo500, letterSpacing: 1.5)),
+                pw.SizedBox(height: 45),
+                
+                // Student Banner Name Card
+                pw.Text('ÖĞRENCİ ADI SOYADI', style: pw.TextStyle(font: font, fontSize: 10, color: PdfColors.grey500, letterSpacing: 1.5)),
+                pw.SizedBox(height: 4),
+                pw.Text(studentName.toUpperCase(), style: pw.TextStyle(font: fontBold, fontSize: 26, color: PdfColors.indigo900, letterSpacing: 1)),
+                pw.SizedBox(height: 8),
+                pw.Container(width: 100, height: 2.5, color: PdfColors.blue300),
+                pw.SizedBox(height: 45),
+                
+                pw.Align(alignment: pw.Alignment.centerLeft, child: pw.Text('KAPSAMDAKİ SINAVLAR', style: pw.TextStyle(font: fontBold, fontSize: 11, color: PdfColors.indigo900, letterSpacing: 1))),
+                pw.SizedBox(height: 8),
+                pw.Container(
+                  width: double.infinity,
+                  padding: const pw.EdgeInsets.all(12),
+                  decoration: const pw.BoxDecoration(
+                    color: PdfColors.grey50,
+                    borderRadius: pw.BorderRadius.all(pw.Radius.circular(12)),
+                  ),
+                  child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+                    for (var e in exams)
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.only(bottom: 6),
+                        child: pw.Row(children: [
+                          pw.Container(width: 5, height: 5, decoration: const pw.BoxDecoration(color: PdfColors.blue500, shape: pw.BoxShape.circle)),
+                          pw.SizedBox(width: 10),
+                          pw.Text(e.name, style: pw.TextStyle(font: font, fontSize: 11, color: PdfColors.grey800)),
+                        ]),
+                      ),
                   ]),
+                ),
+                pw.SizedBox(height: 35),
+                pw.Text('GENEL PERFORMANS ÖZETİ', style: pw.TextStyle(font: fontBold, fontSize: 11, color: PdfColors.indigo900, letterSpacing: 1)),
+                pw.SizedBox(height: 12),
+                pw.Table(border: pw.TableBorder.all(color: PdfColors.grey200, width: 0.5), children: [
+                  pw.TableRow(decoration: const pw.BoxDecoration(color: PdfColors.indigo900), children: [
+                    _cell('DERS ADI', fontBold, isHeader: true, color: PdfColors.white),
+                    _cell('S', fontBold, isHeader: true, color: PdfColors.white),
+                    _cell('D', fontBold, isHeader: true, color: PdfColors.white),
+                    _cell('Y', fontBold, isHeader: true, color: PdfColors.white),
+                    _cell('B', fontBold, isHeader: true, color: PdfColors.white),
+                    _cell('NET', fontBold, isHeader: true, color: PdfColors.white),
+                  ]),
+                  for (var s in sortedSubjects)
+                    pw.TableRow(children: [
+                      _cell(s, font),
+                      _cell('${stats[s]?['T']}', font),
+                      _cell('${stats[s]?['C']}', font),
+                      _cell('${stats[s]?['W']}', font, color: PdfColors.red700),
+                      _cell('${stats[s]?['E']}', font, color: PdfColors.orange700),
+                      _cell((stats[s]?['Net'] as double).toStringAsFixed(2), fontBold, color: PdfColors.indigo900),
+                    ]),
+                ]),
+                pw.Spacer(),
+                pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
+                  pw.Text('eduKN Okul Yönetimi', style: pw.TextStyle(font: fontBold, fontSize: 9, color: PdfColors.indigo900)),
+                  pw.Text('www.edukn.co', style: pw.TextStyle(font: font, fontSize: 9, color: PdfColors.grey500)),
+                ]),
               ]),
-              pw.Spacer(),
-              pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
-                pw.Text('eduKN Eğitim Teknolojileri', style: pw.TextStyle(font: fontBold, fontSize: 10, color: PdfColors.indigo900)),
-                pw.Text('www.edukn.com', style: pw.TextStyle(font: font, fontSize: 10, color: PdfColors.grey500)),
-              ]),
-            ]),
+            ),
           )));
 
           // 2. Question Pages
@@ -344,7 +575,7 @@ class ErrorBookletGeneratorService {
             final double net = (tc - (tw / 3.0)).clamp(0, tt);
             final double perc = tt > 0 ? (tc / tt * 100) : 0.0;
 
-            pdf.addPage(pw.MultiPage(pageFormat: PdfPageFormat.a4, margin: const pw.EdgeInsets.all(32),
+            activePdf.addPage(pw.MultiPage(pageFormat: PdfPageFormat.a4, margin: const pw.EdgeInsets.all(32),
               header: (ctx) => pw.Container(alignment: pw.Alignment.topRight, child: pw.Text('$studentName | Hata Kitapçığı', style: pw.TextStyle(font: font, fontSize: 8))),
               build: (ctx) {
                 List<pw.Widget> wgs = [];
@@ -391,15 +622,21 @@ class ErrorBookletGeneratorService {
                       if (r < rightCol.length) rowItems.add(rightCol[r]);
                       
                       wgs.add(_buildRow(rowItems, fontBold, font));
-                      wgs.add(pw.SizedBox(height: 20));
+                      // Only add inter-question spacing if there are more questions in this narrow block OR after it
+                      if (r < rowCount - 1 || i < sortedQ.length) {
+                        wgs.add(pw.SizedBox(height: 12));
+                      }
                     }
                   }
                   
                   // If we hit a wide question, add it and continue
                   if (i < sortedQ.length && sortedQ[i]['isWide'] == true) {
                     wgs.add(_buildFullWidth(sortedQ[i], fontBold, font));
-                    wgs.add(pw.SizedBox(height: 20));
                     i++;
+                    // Only add spacing if there are more questions coming
+                    if (i < sortedQ.length) {
+                      wgs.add(pw.SizedBox(height: 12));
+                    }
                   }
                 }
                 
@@ -409,18 +646,69 @@ class ErrorBookletGeneratorService {
           }
 
           // 3. Answer Key
-          pdf.addPage(pw.Page(pageFormat: PdfPageFormat.a4, build: (ctx) => pw.Container(padding: const pw.EdgeInsets.all(32), child: pw.Column(children: [
+          activePdf.addPage(pw.Page(pageFormat: PdfPageFormat.a4, build: (ctx) => pw.Container(padding: const pw.EdgeInsets.all(32), child: pw.Column(children: [
             pw.Text('GENEL CEVAP ANAHTARI', style: pw.TextStyle(font: fontBold, fontSize: 22, color: PdfColors.indigo900)),
             pw.SizedBox(height: 20),
             for (var s in sortedSubjects) if (compositeGrouped.containsKey(s)) _buildSubjectAnswerKey(s, compositeGrouped[s]!, fontBold, font),
           ]))));
+
+          // If individualPDFs is true, handle individual student booklet saving
+          if (individualPDFs) {
+            final bytes = await activePdf.save();
+            final String examNameStr = exams.length == 1 ? exams[0].name : 'Karma';
+            final String sanitizedStudentName = studentName.trim().replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+            final String sanitizedExamName = examNameStr.trim().replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+            final String filename = '$sanitizedStudentName - $sanitizedExamName Hata Kitapçığı.pdf';
+
+            if (zipArchive != null) {
+              // Add to ZIP under branch folder without slow double-compression (1000x speedup!)
+              final String zipPath = '$branch/$filename';
+              zipArchive.addFile(ArchiveFile.noCompress(zipPath, bytes.length, bytes));
+            } else {
+              // Single student direct download
+              if (kIsWeb) {
+                final blob = html.Blob([bytes], 'application/pdf');
+                final url = html.Url.createObjectUrlFromBlob(blob);
+                html.AnchorElement(href: url)
+                  ..setAttribute("download", filename)
+                  ..click();
+                html.Url.revokeObjectUrl(url);
+              } else {
+                await Printing.sharePdf(bytes: bytes, filename: filename);
+              }
+            }
+          }
           
         } catch (stErr) {
           print('Single Student Generation Error: $stErr');
         }
       }
 
-      await Printing.layoutPdf(onLayout: (format) => pdf.save(), name: 'Hata_Kitapcigi.pdf');
+      // 4. Finalize & Download ZIP Archive if bulk individual PDFs were processed
+      if (zipArchive != null) {
+        onProgress?.call(totalCount, totalCount, 'Klasörler Paketleniyor (ZIP)...');
+        await Future.delayed(const Duration(milliseconds: 150)); // Allow Flutter to render the progress update
+        
+        final zipBytes = Uint8List.fromList(ZipEncoder().encode(zipArchive)!);
+        final String examNameStr = exams.length == 1 ? exams[0].name : 'Karma';
+        final String sanitizedExamName = examNameStr.trim().replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+        final String zipFilename = '$sanitizedExamName - Sınıf Bazlı Hata Kitapçıkları.zip';
+
+        if (kIsWeb) {
+          final blob = html.Blob([zipBytes], 'application/zip');
+          final url = html.Url.createObjectUrlFromBlob(blob);
+          html.AnchorElement(href: url)
+            ..setAttribute("download", zipFilename)
+            ..click();
+          html.Url.revokeObjectUrl(url);
+        } else {
+          await Printing.sharePdf(bytes: zipBytes, filename: zipFilename);
+        }
+      }
+
+      if (!individualPDFs) {
+        await Printing.layoutPdf(onLayout: (format) => singlePdf.save(), name: 'Hata_Kitapcigi.pdf');
+      }
     } catch (e) {
       print('Composite PDF Critical Error: $e');
     }
@@ -528,62 +816,49 @@ class ErrorBookletGeneratorService {
   }
 
   pw.Widget _buildFullWidth(Map<String, dynamic> q, pw.Font bold, pw.Font reg) {
-    return pw.Table(
-      children: [
-        pw.TableRow(
-          children: [
-            pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                _questionHeader(q, bold),
-                pw.SizedBox(height: 10),
-                pw.Center(
-                  child: pw.Container(
-                    constraints: const pw.BoxConstraints(maxHeight: 380),
-                    child: pw.Image(pw.MemoryImage(q['imageBytes']), width: 480, fit: pw.BoxFit.contain),
-                  ),
-                ),
-                pw.SizedBox(height: 15),
-                pw.Divider(color: PdfColors.grey100, thickness: 0.5),
-              ],
+    return pw.Inseparable(
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          _questionHeader(q, bold),
+          pw.SizedBox(height: 8),
+          pw.Center(
+            child: pw.Container(
+              constraints: const pw.BoxConstraints(maxHeight: 340),
+              child: pw.Image(pw.MemoryImage(q['imageBytes']), width: 480, fit: pw.BoxFit.contain),
             ),
-          ],
-        ),
-      ],
+          ),
+        ],
+      ),
     );
   }
 
   pw.Widget _buildRow(List<Map<String, dynamic>> items, pw.Font bold, pw.Font reg) {
-    return pw.Row(
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
-      children: [
-        pw.Expanded(child: _buildHalfWidth(items[0], bold, reg)),
-        if (items.length > 1) ...[
-          pw.SizedBox(width: 20),
-          pw.Expanded(child: _buildHalfWidth(items[1], bold, reg)),
-        ] else pw.Expanded(child: pw.SizedBox()),
-      ],
+    return pw.Inseparable(
+      child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Expanded(child: _buildHalfWidth(items[0], bold, reg)),
+          if (items.length > 1) ...[
+            pw.SizedBox(width: 20),
+            pw.Expanded(child: _buildHalfWidth(items[1], bold, reg)),
+          ] else pw.Expanded(child: pw.SizedBox()),
+        ],
+      ),
     );
   }
 
   pw.Widget _buildHalfWidth(Map<String, dynamic> q, pw.Font bold, pw.Font reg) {
-    return pw.Table(
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        pw.TableRow(
-          children: [
-            pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                _questionHeader(q, bold, isNarrow: true),
-                pw.SizedBox(height: 8),
-                pw.Container(
-                  constraints: const pw.BoxConstraints(maxHeight: 250),
-                  child: pw.Image(pw.MemoryImage(q['imageBytes']), fit: pw.BoxFit.contain, width: 230),
-                ),
-                pw.SizedBox(height: 15),
-              ],
-            ),
-          ],
+        _questionHeader(q, bold, isNarrow: true),
+        pw.SizedBox(height: 6),
+        pw.Center(
+          child: pw.Container(
+            constraints: const pw.BoxConstraints(maxHeight: 230),
+            child: pw.Image(pw.MemoryImage(q['imageBytes']), fit: pw.BoxFit.contain, width: 230),
+          ),
         ),
       ],
     );

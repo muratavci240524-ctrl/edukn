@@ -101,7 +101,7 @@ class _AgmTeacherTimetableScreenState extends State<AgmTeacherTimetableScreen> {
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert),
+            icon: const Icon(Icons.more_vert, color: Colors.white),
             onSelected: (value) {
               final allSelected = _selectedTeacherId == null;
               switch (value) {

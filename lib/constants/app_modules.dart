@@ -132,6 +132,21 @@ class AppModules {
         'notlarim': 'Notlarım',
       },
     ),
+
+    // 9. HABERLEŞME
+    'haberlesme': ModuleInfo(
+      key: 'haberlesme',
+      name: 'Haberleşme Merkezi',
+      icon: Icons.campaign_outlined,
+      color: Colors.orange,
+      category: 'Kurumsal',
+      description: 'Duyurular, sosyal medya ve mesajlaşma',
+      subModules: {
+        'genel_duyurular': 'Duyurular',
+        'sosyal_medya': 'Sosyal Medya',
+        'mesajlar': 'Mesajlar',
+      },
+    ),
   };
 
   /// Tüm modüllerin key'lerini liste olarak döner

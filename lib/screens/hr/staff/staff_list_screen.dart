@@ -110,13 +110,15 @@ class _StaffListScreenState extends State<StaffListScreen>
       final query = await FirebaseFirestore.instance
           .collection('users')
           .where('institutionId', isEqualTo: institutionId)
-          .where('type', isEqualTo: 'staff')
           .get();
 
       final items = query.docs.map((doc) {
         final data = doc.data();
         data['id'] = doc.id;
         return data;
+      }).where((data) {
+        final role = (data['role'] ?? '').toString().toLowerCase();
+        return role != 'veli' && role != 'ogrenci' && role != 'öğrenci';
       }).toList();
 
       setState(() {
@@ -362,6 +364,7 @@ class _StaffListScreenState extends State<StaffListScreen>
         final isActive = s['isActive'] ?? true;
         final department = (s['department'] ?? '').toString();
         final title = (s['title'] ?? '').toString();
+        final role = (s['role'] ?? '').toString().toLowerCase();
 
         final matchesSearch =
             query.isEmpty ||
@@ -384,21 +387,27 @@ class _StaffListScreenState extends State<StaffListScreen>
             _formatTitleForFilter(title) == _titleFilter;
 
         // Okul türü filtresi (eğer sabitlendiyse)
-        // workLocations array'inde schoolTypeName'i ara
         bool matchesSchoolType = widget.fixedSchoolTypeId == null;
-        if (!matchesSchoolType && widget.fixedSchoolTypeName != null) {
-          // workLocations array'inde schoolTypeName var mı kontrol et
-          if (s['workLocations'] != null && s['workLocations'] is List) {
-            final locations = List<String>.from(s['workLocations']);
-            matchesSchoolType = locations.contains(widget.fixedSchoolTypeName);
+        if (!matchesSchoolType) {
+          final fixedNameLower = widget.fixedSchoolTypeName?.toLowerCase().trim() ?? '';
+          final fixedId = widget.fixedSchoolTypeId;
+
+          // 1. Önce schoolTypes ID'si ile eşleşiyor mu kontrol et
+          if (fixedId != null && s['schoolTypes'] != null && s['schoolTypes'] is List) {
+            final stIds = List<String>.from(s['schoolTypes']);
+            matchesSchoolType = stIds.contains(fixedId);
           }
-          // Eski format için workLocation string kontrolü
-          else if (s['workLocation'] != null) {
-            matchesSchoolType = s['workLocation'].toString() == widget.fixedSchoolTypeName;
-          }
-          // workLocations boşsa veya tanımlanmamışsa, bu okul türüne ait değildir
-          else {
-            matchesSchoolType = false;
+
+          // 2. ID ile eşleşmediyse veya schoolTypes boşsa, isimle (workLocations veya workLocation) case-insensitive eşleşiyor mu kontrol et
+          if (!matchesSchoolType && fixedNameLower.isNotEmpty) {
+            if (s['workLocations'] != null && s['workLocations'] is List) {
+              final locations = List<String>.from(s['workLocations']);
+              matchesSchoolType = locations.any((loc) => loc.toLowerCase().trim() == fixedNameLower);
+            } else if (s['workLocation'] != null) {
+              matchesSchoolType = s['workLocation'].toString().toLowerCase().trim() == fixedNameLower;
+            } else {
+              matchesSchoolType = false;
+            }
           }
         }
 
@@ -751,6 +760,7 @@ class _StaffListScreenState extends State<StaffListScreen>
             MaterialPageRoute(
               builder: (_) => StaffFormScreen(
                 fixedSchoolTypeName: widget.fixedSchoolTypeName,
+                fixedSchoolTypeId: widget.fixedSchoolTypeId,
               ),
             ),
           );
