@@ -7,6 +7,9 @@ import 'package:printing/printing.dart';
 
 import 'evaluation_models.dart';
 import '../../../models/assessment/trial_exam_model.dart';
+import '../../../models/assessment/external_exam_model.dart';
+import '../../../services/external_exam_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class StudentReportCardDialog extends StatefulWidget {
   final StudentResult student;
@@ -17,6 +20,7 @@ class StudentReportCardDialog extends StatefulWidget {
   final int schoolStudents;
   final int branchStudents;
   final bool isRankingVisible;
+  final String? trialExamId;
 
   const StudentReportCardDialog({
     Key? key,
@@ -28,6 +32,7 @@ class StudentReportCardDialog extends StatefulWidget {
     this.schoolStudents = 0,
     this.branchStudents = 0,
     this.isRankingVisible = true,
+    this.trialExamId,
   }) : super(key: key);
 
   @override
@@ -48,6 +53,10 @@ class _StudentReportCardDialogState extends State<StudentReportCardDialog> {
   String? _selectedKeySubject;
   String? _selectedOutcomeSubject;
 
+  ExternalExam? _externalExam;
+  ScholarshipTier? _scholarshipTier;
+  bool _loadingScholarship = false;
+
   @override
   void initState() {
     super.initState();
@@ -65,6 +74,161 @@ class _StudentReportCardDialogState extends State<StudentReportCardDialog> {
       _selectedKeySubject = subjects.first;
       _selectedOutcomeSubject = subjects.first;
     }
+    _checkScholarship();
+  }
+
+  Future<void> _checkScholarship() async {
+    if (widget.trialExamId == null) return;
+    setState(() => _loadingScholarship = true);
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('external_exams')
+          .where('isActive', isEqualTo: true)
+          .get();
+
+      for (var doc in snap.docs) {
+        final data = doc.data();
+        final trialExamIds = data['trialExamIds'] as Map<dynamic, dynamic>?;
+        if (trialExamIds != null &&
+            trialExamIds.values.contains(widget.trialExamId)) {
+          final exam = ExternalExam.fromMap(data, doc.id);
+          final tier = ExternalExamService().getScholarshipTier(
+            exam,
+            student.classLevel,
+            student.rankGeneral,
+          );
+          if (mounted) {
+            setState(() {
+              _externalExam = exam;
+              _scholarshipTier = tier;
+            });
+          }
+          break;
+        }
+      }
+    } catch (e) {
+      debugPrint("Scholarship check failed: $e");
+    } finally {
+      if (mounted) {
+        setState(() => _loadingScholarship = false);
+      }
+    }
+  }
+
+  Widget _buildScholarshipBanner() {
+    if (_scholarshipTier == null) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFFFFF8E1), Color(0xFFFFECB3)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.amber.shade300, width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.amber.shade100.withOpacity(0.5),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.emoji_events_rounded, color: Colors.amber, size: 28),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'KAZANILAN BURS DERECESİ',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.amber.shade900,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Tebrikler! Sınav sonucunuza göre %${_scholarshipTier!.rate} Burs kazandınız.',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey.shade800,
+                  ),
+                ),
+                Text(
+                  '(${student.classLevel}. Sınıf Seviyesinde ${student.rankGeneral}. Sıradasınız)',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.amber.shade800,
+              borderRadius: BorderRadius.circular(30),
+            ),
+            child: Text(
+              '%${_scholarshipTier!.rate} BURS',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  pw.Widget _buildPdfScholarshipBanner() {
+    return pw.Container(
+      padding: const pw.EdgeInsets.all(5),
+      decoration: pw.BoxDecoration(
+        color: PdfColors.amber100,
+        border: pw.Border.all(color: PdfColors.amber700, width: 1),
+        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+      ),
+      child: pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        children: [
+          pw.Text(
+            "TEBRİKLER! SINAV DERECENİZE GÖRE KAZANILAN BURS ORANI:  %${_scholarshipTier!.rate} BURS",
+            style: pw.TextStyle(
+              fontWeight: pw.FontWeight.bold,
+              fontSize: 8,
+              color: PdfColors.amber900,
+            ),
+          ),
+          pw.Text(
+            "(${student.classLevel}. Sınıf Seviyesinde ${student.rankGeneral}. Sıra)",
+            style: pw.TextStyle(
+              fontSize: 7,
+              color: PdfColors.grey800,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -106,6 +270,7 @@ class _StudentReportCardDialogState extends State<StudentReportCardDialog> {
                 SizedBox(height: 24),
                 _buildAnswerKeySectionWithTabs(),
                 SizedBox(height: 24),
+                _buildScholarshipBanner(),
                 Center(
                   child: Text(
                     'DERSLERE VE KONULARA GÖRE SINAV ANALİZİ',
@@ -882,6 +1047,10 @@ class _StudentReportCardDialogState extends State<StudentReportCardDialog> {
               pw.SizedBox(height: 4),
               _buildPdfScoreRankSection(),
               pw.SizedBox(height: 4),
+              if (_scholarshipTier != null) ...[
+                _buildPdfScholarshipBanner(),
+                pw.SizedBox(height: 4),
+              ],
               _buildPdfAnswerKeyCompact(),
               pw.SizedBox(height: 4),
               pw.Center(

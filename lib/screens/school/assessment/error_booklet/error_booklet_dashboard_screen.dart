@@ -171,100 +171,130 @@ class _ErrorBookletDashboardScreenState extends State<ErrorBookletDashboardScree
 
   Widget _buildExamCard(TrialExam exam) {
     bool isSelected = _selectedExamIds.contains(exam.id);
+    final bool isMobile = MediaQuery.of(context).size.width < 600;
     
     return Container(
-      margin: const EdgeInsets.only(bottom: 16),
+      margin: EdgeInsets.only(bottom: isMobile ? 12 : 16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 2))],
-        border: Border.all(color: isSelected ? Colors.indigo : Colors.indigo.withOpacity(0.05), width: isSelected ? 2 : 1),
-      ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        leading: Checkbox(
-          value: isSelected,
-          activeColor: Colors.indigo,
-          onChanged: (val) {
-            setState(() {
-              if (val == true) {
-                _selectedExamIds.add(exam.id);
-              } else {
-                _selectedExamIds.remove(exam.id);
-              }
-            });
-          },
-        ),
-        title: Text(
-          exam.name,
-          style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: Colors.indigo.shade900),
-        ),
-        subtitle: Text(
-          '${exam.examTypeName} - ${exam.date.day}/${exam.date.month}/${exam.date.year}',
-          style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade600),
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _buildProgressBadge(exam),
-            const SizedBox(width: 8),
-            IconButton(
-              icon: const Icon(Icons.design_services_outlined, color: Colors.indigo),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (ctx) => ErrorBookletEditorScreen(exam: exam)),
-                );
-              },
-              tooltip: 'Soruları Kırp',
-            ),
-          ],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.indigo.withOpacity(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          )
+        ],
+        border: Border.all(
+          color: isSelected ? Colors.indigo : Colors.grey.shade200,
+          width: isSelected ? 2 : 1,
         ),
       ),
-    );
-  }
-
-  Widget _buildProgressBadge(TrialExam exam) {
-    final total = _getTotalQuestions(exam);
-    
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('trial_exams')
-          .doc(exam.id)
-          .collection('questions_pool')
-          .snapshots(),
-      builder: (context, snapshot) {
-        final count = snapshot.data?.docs.length ?? 0;
-        final isComplete = total > 0 && count >= total;
-        
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(
-            color: isComplete ? Colors.green.shade50 : Colors.indigo.shade50,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: isComplete ? Colors.green.shade200 : Colors.indigo.shade100),
-          ),
+      child: InkWell(
+        onTap: () {
+          setState(() {
+            if (isSelected) {
+              _selectedExamIds.remove(exam.id);
+            } else {
+              _selectedExamIds.add(exam.id);
+            }
+          });
+        },
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: EdgeInsets.all(isMobile ? 12.0 : 16.0),
           child: Row(
-            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Icon(
-                isComplete ? Icons.check_circle : Icons.collections_outlined,
-                size: 14,
-                color: isComplete ? Colors.green.shade700 : Colors.indigo,
+              // Checkbox
+              SizedBox(
+                width: 24,
+                height: 24,
+                child: Checkbox(
+                  value: isSelected,
+                  activeColor: Colors.indigo,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                  onChanged: (val) {
+                    setState(() {
+                      if (val == true) {
+                        _selectedExamIds.add(exam.id);
+                      } else {
+                        _selectedExamIds.remove(exam.id);
+                      }
+                    });
+                  },
+                ),
               ),
-              const SizedBox(width: 4),
-              Text(
-                '$count / $total',
-                style: GoogleFonts.outfit(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: isComplete ? Colors.green.shade700 : Colors.indigo,
+              SizedBox(width: isMobile ? 8 : 12),
+              // Title & Subtitle Column
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Title
+                    Text(
+                      exam.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.inter(
+                        fontWeight: FontWeight.bold,
+                        fontSize: isMobile ? 13 : 16,
+                        color: Colors.indigo.shade900,
+                        height: 1.3,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    // Subtitle (thin text: Sınav Türü - Tarih - Soru/Soru)
+                    StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('trial_exams')
+                          .doc(exam.id)
+                          .collection('questions_pool')
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        final count = snapshot.data?.docs.length ?? 0;
+                        final total = _getTotalQuestions(exam);
+                        final formattedDate = '${exam.date.day}/${exam.date.month}/${exam.date.year}';
+                        
+                        return Text(
+                          '${exam.examTypeName} - $formattedDate - $count/$total',
+                          style: GoogleFonts.inter(
+                            fontSize: isMobile ? 10 : 12,
+                            fontWeight: FontWeight.w400,
+                            color: Colors.blueGrey.shade500,
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              // Action Button (Crop Questions)
+              Material(
+                color: Colors.indigo.shade50,
+                borderRadius: BorderRadius.circular(10),
+                child: IconButton(
+                  icon: Icon(Icons.design_services_outlined, color: Colors.indigo, size: isMobile ? 18 : 20),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (ctx) => ErrorBookletEditorScreen(exam: exam)),
+                    );
+                  },
+                  constraints: BoxConstraints(
+                    minWidth: isMobile ? 32 : 38,
+                    minHeight: isMobile ? 32 : 38,
+                  ),
+                  padding: EdgeInsets.zero,
+                  tooltip: 'Soruları Kırp',
                 ),
               ),
             ],
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Inspect Pixels</title>
+</head>
+<body>
+<canvas id="canvas" width="512" height="512"></canvas>
+<div id="output" style="font-family: monospace; white-space: pre; margin-top: 20px;"></div>
+<script>
+    const img = new Image();
+    img.src = "../assets/images/google_auth_logo.png";
+    img.onload = function() {
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        
+        const imgData = ctx.getImageData(0, 0, 512, 512);
+        const data = imgData.data;
+        
+        let out = "Pixel Analysis at x > 380, y between 200 and 300:\n";
+        out += "x\ty\tR\tG\tB\tA\tBrightness\tMaxDiff\n";
+        
+        for (let y = 240; y <= 270; y++) {
+            for (let x = 390; x <= 450; x++) {
+                const idx = (y * 512 + x) * 4;
+                const r = data[idx];
+                const g = data[idx+1];
+                const b = data[idx+2];
+                const a = data[idx+3];
+                const brightness = Math.round((r + g + b) / 3);
+                const maxDiff = Math.max(Math.abs(r - g), Math.abs(g - b), Math.abs(r - b));
+                
+                if (brightness < 255) {
+                    out += `${x}\t${y}\t${r}\t${g}\t${b}\t${a}\t${brightness}\t${maxDiff}\n`;
+                }
+            }
+        }
+        document.getElementById('output').textContent = out;
+    };
+</script>
+</body>
+</html>

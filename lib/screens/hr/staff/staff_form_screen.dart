@@ -345,8 +345,9 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
     return InputDecoration(
       labelText: label,
       labelStyle: TextStyle(
-        color: isRequired ? Colors.indigo.shade700 : Colors.grey.shade700,
+        color: isRequired ? Colors.indigo.shade700 : Colors.grey.shade600,
         fontWeight: isRequired ? FontWeight.w600 : FontWeight.normal,
+        fontSize: 14,
       ),
       prefixIcon: icon != null ? Icon(icon, color: Colors.indigo.shade300, size: 20) : null,
       border: OutlineInputBorder(
@@ -361,16 +362,21 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
         borderRadius: BorderRadius.circular(12),
         borderSide: const BorderSide(color: Colors.indigo, width: 2),
       ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Colors.red, width: 1.5),
+      ),
       filled: true,
       fillColor: Colors.white,
       isDense: true,
+      counterText: '', // 0/10 gibi sayaçları gizle
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
     );
   }
 
   Widget _buildSectionHeader(String title, IconData icon) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 16, top: 8),
+      padding: const EdgeInsets.only(bottom: 16, top: 4),
       child: Row(
         children: [
           Container(
@@ -385,10 +391,9 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
           Text(
             title,
             style: const TextStyle(
-              fontSize: 18,
+              fontSize: 17,
               fontWeight: FontWeight.bold,
               color: Colors.indigo,
-              letterSpacing: 0.5,
             ),
           ),
         ],
@@ -396,26 +401,60 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
     );
   }
 
-  Widget _buildCard({required List<Widget> children}) {
+  /// Mobilde Card yerine düz section — edge-to-edge görünüm
+  Widget _buildSection({required List<Widget> children, required bool isWeb}) {
+    if (isWeb) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 15,
+              offset: const Offset(0, 5),
+            ),
+          ],
+          border: Border.all(color: Colors.grey.shade100),
+        ),
+        padding: const EdgeInsets.all(24),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: children),
+      );
+    }
+    // Mobilde: tam genişlik, ince üst/alt çizgi, padding
     return Container(
-      margin: const EdgeInsets.only(bottom: 24),
+      margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 15,
-            offset: const Offset(0, 5),
-          ),
+        border: Border(
+          top: BorderSide(color: Colors.grey.shade200),
+          bottom: BorderSide(color: Colors.grey.shade200),
+        ),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: children),
+    );
+  }
+
+  /// İki widget'ı: web'de yan yana, mobilde alt alta koy
+  Widget _buildRow(Widget left, Widget right, {bool isWeb = false}) {
+    if (isWeb) {
+      return Row(
+        children: [
+          Expanded(child: left),
+          const SizedBox(width: 16),
+          Expanded(child: right),
         ],
-        border: Border.all(color: Colors.grey.shade100),
-      ),
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: children,
-      ),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        left,
+        const SizedBox(height: 14),
+        right,
+      ],
     );
   }
 
@@ -424,14 +463,14 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
     final isWeb = MediaQuery.of(context).size.width > 900;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: isWeb ? const Color(0xFFF8FAFC) : const Color(0xFFF3F4F8),
       appBar: AppBar(
         elevation: 0,
         backgroundColor: Colors.white,
         foregroundColor: Colors.indigo,
         title: Text(
           widget.staffId != null ? 'Personeli Düzenle' : 'Yeni Personel Ekle',
-          style: const TextStyle(fontWeight: FontWeight.bold),
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
         ),
         actions: [
           if (isWeb)
@@ -456,204 +495,198 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
           key: _formKey,
           child: SingleChildScrollView(
             padding: EdgeInsets.symmetric(
-              horizontal: isWeb ? MediaQuery.of(context).size.width * 0.1 : 16,
-              vertical: 24,
+              horizontal: isWeb ? MediaQuery.of(context).size.width * 0.1 : 0,
+              vertical: isWeb ? 24 : 0,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // ══════════════════════════════════════════
                 // 1. KİŞİSEL BİLGİLER
-                _buildCard(
+                // ══════════════════════════════════════════
+                _buildSection(
+                  isWeb: isWeb,
                   children: [
                     _buildSectionHeader('Kişisel Bilgiler', Icons.badge_outlined),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextFormField(
-                            controller: _tcController,
-                            decoration: _inputDecoration('T.C. Kimlik Numarası', isRequired: true, icon: Icons.fingerprint)
-                                .copyWith(
-                                  counterText: '',
-                                  suffixText: '${_tcController.text.length}/11',
-                                ),
-                            keyboardType: TextInputType.number,
-                            maxLength: 11,
-                            onChanged: (_) => setState(() {}),
-                            validator: (value) {
-                              if (value == null || value.isEmpty) return 'TC zorunlu';
-                              if (value.length != 11) return '11 haneli olmalı';
-                              return null;
-                            },
-                          ),
+
+                    // TC Kimlik + Ad Soyad
+                    _buildRow(
+                      TextFormField(
+                        controller: _tcController,
+                        decoration: _inputDecoration(
+                          'T.C. Kimlik No',
+                          isRequired: true,
+                          icon: Icons.fingerprint,
+                        ).copyWith(
+                          suffixText: '${_tcController.text.length}/11',
+                          suffixStyle: TextStyle(fontSize: 11, color: Colors.grey.shade500),
                         ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: TextFormField(
-                            controller: _fullNameController,
-                            decoration: _inputDecoration('Ad Soyad', isRequired: true, icon: Icons.person_outline),
-                            inputFormatters: [_UpperCaseTextFormatter()],
-                            validator: (value) {
-                              if (value == null || value.isEmpty) return 'Ad Soyad zorunlu';
-                              return null;
-                            },
-                          ),
-                        ),
-                      ],
+                        keyboardType: TextInputType.number,
+                        maxLength: 11,
+                        onChanged: (_) => setState(() {}),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) return 'TC zorunlu';
+                          if (value.length != 11) return '11 haneli olmalı';
+                          return null;
+                        },
+                      ),
+                      TextFormField(
+                        controller: _fullNameController,
+                        decoration: _inputDecoration('Ad Soyad', isRequired: true, icon: Icons.person_outline),
+                        inputFormatters: [_UpperCaseTextFormatter()],
+                        validator: (value) {
+                          if (value == null || value.isEmpty) return 'Ad Soyad zorunlu';
+                          return null;
+                        },
+                      ),
+                      isWeb: isWeb,
                     ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: DropdownButtonFormField<String>(
-                            decoration: _inputDecoration('Ünvan / Görev', isRequired: true, icon: Icons.work_outline),
-                            value: _title,
-                            items: const [
-                              DropdownMenuItem(value: 'ogretmen', child: Text('Öğretmen')),
-                              DropdownMenuItem(value: 'mudur', child: Text('Müdür')),
-                              DropdownMenuItem(value: 'mudur_yardimcisi', child: Text('Müdür Yardımcısı')),
-                              DropdownMenuItem(value: 'personel', child: Text('Personel')),
-                              DropdownMenuItem(value: 'hr', child: Text('İnsan Kaynakları')),
-                              DropdownMenuItem(value: 'muhasebe', child: Text('Muhasebe')),
-                              DropdownMenuItem(value: 'satin_alma', child: Text('Satın Alma')),
-                              DropdownMenuItem(value: 'depo', child: Text('Depo Sorumlusu')),
-                              DropdownMenuItem(value: 'destek_hizmetleri', child: Text('Destek Hizmetleri')),
-                            ],
-                            onChanged: (value) => setState(() {
-                              _title = value;
-                              if (value != 'ogretmen') _branch = null;
-                            }),
-                            validator: (value) => value == null ? 'Gerekli' : null,
-                          ),
-                        ),
-                        if (_title == 'ogretmen') ...[
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: DropdownButtonFormField<String>(
-                              decoration: _inputDecoration('Branş', isRequired: true, icon: Icons.school_outlined),
-                              value: _branchList.contains(_branch) ? _branch : null,
-                              items: _branchList.map((name) => DropdownMenuItem(value: name, child: Text(name))).toList(),
-                              onChanged: (value) => setState(() => _branch = value),
-                              validator: (value) => _title == 'ogretmen' && value == null ? 'Gerekli' : null,
-                            ),
-                          ),
+                    const SizedBox(height: 14),
+
+                    // Ünvan / Görev (+ Branş varsa)
+                    DropdownButtonFormField<String>(
+                      decoration: _inputDecoration('Ünvan / Görev', isRequired: true, icon: Icons.work_outline),
+                      value: _title,
+                      isExpanded: true,
+                      items: const [
+                        DropdownMenuItem(value: 'ogretmen', child: Text('Öğretmen')),
+                        DropdownMenuItem(value: 'mudur', child: Text('Müdür')),
+                        DropdownMenuItem(value: 'mudur_yardimcisi', child: Text('Müdür Yardımcısı')),
+                        DropdownMenuItem(value: 'personel', child: Text('Personel')),
+                        DropdownMenuItem(value: 'hr', child: Text('İnsan Kaynakları')),
+                        DropdownMenuItem(value: 'muhasebe', child: Text('Muhasebe')),
+                        DropdownMenuItem(value: 'satin_alma', child: Text('Satın Alma')),
+                        DropdownMenuItem(value: 'depo', child: Text('Depo Sorumlusu')),
+                        DropdownMenuItem(value: 'destek_hizmetleri', child: Text('Destek Hizmetleri')),
+                      ],
+                      onChanged: (value) => setState(() {
+                        _title = value;
+                        if (value != 'ogretmen') _branch = null;
+                      }),
+                      validator: (value) => value == null ? 'Gerekli' : null,
+                    ),
+
+                    // Branş (sadece öğretmen seçiliyse)
+                    if (_title == 'ogretmen') ...[
+                      const SizedBox(height: 14),
+                      DropdownButtonFormField<String>(
+                        decoration: _inputDecoration('Branş', isRequired: true, icon: Icons.school_outlined),
+                        value: _branchList.contains(_branch) ? _branch : null,
+                        isExpanded: true,
+                        items: _branchList.map((name) => DropdownMenuItem(value: name, child: Text(name))).toList(),
+                        onChanged: (value) => setState(() => _branch = value),
+                        validator: (value) => _title == 'ogretmen' && value == null ? 'Gerekli' : null,
+                      ),
+                    ],
+                    const SizedBox(height: 14),
+
+                    // Doğum Tarihi + Doğum Yeri
+                    _buildRow(
+                      TextFormField(
+                        controller: _birthDateController,
+                        decoration: _inputDecoration('Doğum Tarihi', icon: Icons.calendar_today_outlined)
+                            .copyWith(hintText: 'gg.aa.yyyy'),
+                        keyboardType: TextInputType.number,
+                        maxLength: 10,
+                        onChanged: (value) {
+                          final digits = value.replaceAll(RegExp(r'[^0-9]'), '');
+                          String formatted = digits;
+                          if (digits.length > 2) formatted = '${digits.substring(0, 2)}.${digits.substring(2)}';
+                          if (digits.length > 4) formatted = '${digits.substring(0, 2)}.${digits.substring(2, 4)}.${digits.substring(4)}';
+                          if (formatted != value) {
+                            _birthDateController.value = TextEditingValue(
+                              text: formatted,
+                              selection: TextSelection.collapsed(offset: formatted.length),
+                            );
+                          }
+                        },
+                      ),
+                      TextFormField(
+                        controller: _birthPlaceController,
+                        decoration: _inputDecoration('Doğum Yeri', icon: Icons.location_city_outlined),
+                      ),
+                      isWeb: isWeb,
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Cinsiyet (tek satır — tam genişlik mobilde)
+                    DropdownButtonFormField<String>(
+                      decoration: _inputDecoration('Cinsiyet', icon: Icons.wc_outlined),
+                      value: _gender,
+                      isExpanded: true,
+                      items: const [
+                        DropdownMenuItem(value: 'erkek', child: Text('Erkek')),
+                        DropdownMenuItem(value: 'kadin', child: Text('Kadın')),
+                      ],
+                      onChanged: (value) => setState(() => _gender = value),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Medeni Durum + Kan Grubu
+                    _buildRow(
+                      DropdownButtonFormField<String>(
+                        decoration: _inputDecoration('Medeni Durum', icon: Icons.favorite_outline),
+                        value: _maritalStatus,
+                        isExpanded: true,
+                        items: const [
+                          DropdownMenuItem(value: 'bekar', child: Text('Bekar')),
+                          DropdownMenuItem(value: 'evli', child: Text('Evli')),
                         ],
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextFormField(
-                            controller: _birthDateController,
-                            decoration: _inputDecoration('Doğum Tarihi', icon: Icons.calendar_today_outlined).copyWith(hintText: 'gg.aa.yyyy'),
-                            keyboardType: TextInputType.number,
-                            maxLength: 10,
-                            onChanged: (value) {
-                              final digits = value.replaceAll(RegExp(r'[^0-9]'), '');
-                              String formatted = digits;
-                              if (digits.length > 2) formatted = '${digits.substring(0, 2)}.${digits.substring(2)}';
-                              if (digits.length > 4) formatted = '${digits.substring(0, 2)}.${digits.substring(2, 4)}.${digits.substring(4)}';
-                              
-                              if (formatted != value) {
-                                _birthDateController.value = TextEditingValue(
-                                  text: formatted,
-                                  selection: TextSelection.collapsed(offset: formatted.length),
-                                );
-                              }
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: TextFormField(
-                            controller: _birthPlaceController,
-                            decoration: _inputDecoration('Doğum Yeri', icon: Icons.location_city_outlined),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: DropdownButtonFormField<String>(
-                            decoration: _inputDecoration('Cinsiyet', icon: Icons.wc_outlined),
-                            value: _gender,
-                            items: const [
-                              DropdownMenuItem(value: 'erkek', child: Text('Erkek')),
-                              DropdownMenuItem(value: 'kadin', child: Text('Kadın')),
-                            ],
-                            onChanged: (value) => setState(() => _gender = value),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: DropdownButtonFormField<String>(
-                            decoration: _inputDecoration('Medeni Durum', icon: Icons.favorite_outline),
-                            value: _maritalStatus,
-                            items: const [
-                              DropdownMenuItem(value: 'bekar', child: Text('Bekar')),
-                              DropdownMenuItem(value: 'evli', child: Text('Evli')),
-                            ],
-                            onChanged: (value) => setState(() => _maritalStatus = value),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: DropdownButtonFormField<String>(
-                            decoration: _inputDecoration('Kan Grubu', icon: Icons.bloodtype_outlined),
-                            value: _bloodGroup,
-                            items: const ['0+', '0-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-'].map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
-                            onChanged: (value) => setState(() => _bloodGroup = value),
-                          ),
-                        ),
-                      ],
+                        onChanged: (value) => setState(() => _maritalStatus = value),
+                      ),
+                      DropdownButtonFormField<String>(
+                        decoration: _inputDecoration('Kan Grubu', icon: Icons.bloodtype_outlined),
+                        value: _bloodGroup,
+                        isExpanded: true,
+                        items: const ['0+', '0-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-']
+                            .map((g) => DropdownMenuItem(value: g, child: Text(g)))
+                            .toList(),
+                        onChanged: (value) => setState(() => _bloodGroup = value),
+                      ),
+                      isWeb: isWeb,
                     ),
                   ],
                 ),
 
+                // ══════════════════════════════════════════
                 // 2. İLETİŞİM BİLGİLERİ
-                _buildCard(
+                // ══════════════════════════════════════════
+                _buildSection(
+                  isWeb: isWeb,
                   children: [
                     _buildSectionHeader('İletişim Bilgileri', Icons.contact_mail_outlined),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextFormField(
-                            controller: _corporateEmailController,
-                            decoration: _inputDecoration('Kurumsal E-posta', icon: Icons.email_outlined),
-                            keyboardType: TextInputType.emailAddress,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: TextFormField(
-                            controller: _mobilePhoneController,
-                            decoration: _inputDecoration('Cep Telefonu', icon: Icons.phone_android_outlined),
-                            keyboardType: TextInputType.phone,
-                          ),
-                        ),
-                      ],
+
+                    // Kurumsal E-posta + Cep Telefonu
+                    _buildRow(
+                      TextFormField(
+                        controller: _corporateEmailController,
+                        decoration: _inputDecoration('Kurumsal E-posta', icon: Icons.email_outlined),
+                        keyboardType: TextInputType.emailAddress,
+                      ),
+                      TextFormField(
+                        controller: _mobilePhoneController,
+                        decoration: _inputDecoration('Cep Telefonu', icon: Icons.phone_android_outlined),
+                        keyboardType: TextInputType.phone,
+                      ),
+                      isWeb: isWeb,
                     ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextFormField(
-                            controller: _cityController,
-                            decoration: _inputDecoration('İl', icon: Icons.map_outlined),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: TextFormField(
-                            controller: _districtController,
-                            decoration: _inputDecoration('İlçe'),
-                          ),
-                        ),
-                      ],
+                    const SizedBox(height: 14),
+
+                    // İl + İlçe
+                    _buildRow(
+                      TextFormField(
+                        controller: _cityController,
+                        decoration: _inputDecoration('İl', icon: Icons.map_outlined),
+                      ),
+                      TextFormField(
+                        controller: _districtController,
+                        decoration: _inputDecoration('İlçe'),
+                      ),
+                      isWeb: isWeb,
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 14),
+
+                    // Açık Adres (tam genişlik)
                     TextFormField(
                       controller: _addressController,
                       decoration: _inputDecoration('Açık Adres', icon: Icons.home_outlined),
@@ -662,18 +695,25 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
                   ],
                 ),
 
-                // 3. KULLANICI GİRİŞ BİLGİLERİ (OTOMATİK OLUŞTURMA İLE)
-                _buildCard(
+                // ══════════════════════════════════════════
+                // 3. GİRİŞ BİLGİLERİ
+                // ══════════════════════════════════════════
+                _buildSection(
+                  isWeb: isWeb,
                   children: [
                     Row(
                       children: [
-                        _buildSectionHeader('Giriş Bilgileri', Icons.vpn_key_outlined),
-                        const Spacer(),
+                        Expanded(child: _buildSectionHeader('Giriş Bilgileri', Icons.vpn_key_outlined)),
                         TextButton.icon(
                           onPressed: () {
                             final tc = _tcController.text.trim();
                             if (tc.length < 6) {
-                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('TC en az 6 hane olmalı'), backgroundColor: Colors.orange));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('TC en az 6 hane olmalı'),
+                                  backgroundColor: Colors.orange,
+                                ),
+                              );
                               return;
                             }
                             final last6 = tc.substring(tc.length - 6);
@@ -683,50 +723,54 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
                             });
                           },
                           icon: const Icon(Icons.auto_awesome_outlined, size: 18),
-                          label: const Text('Otomatik Oluştur'),
+                          label: const Text('Otomatik'),
                           style: TextButton.styleFrom(foregroundColor: Colors.indigo),
                         ),
                       ],
                     ),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextFormField(
-                            controller: _usernameController,
-                            decoration: _inputDecoration('Kullanıcı Adı', isRequired: true, icon: Icons.alternate_email),
-                            validator: (value) => (value == null || value.isEmpty) ? 'Gerekli' : null,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: TextFormField(
-                            controller: _passwordController,
-                            decoration: _inputDecoration('Şifre', isRequired: true, icon: Icons.lock_outline),
-                            obscureText: true,
-                            validator: (value) => (value == null || value.length < 6) ? 'En az 6 karakter' : null,
-                          ),
-                        ),
-                      ],
+
+                    // Kullanıcı Adı + Şifre
+                    _buildRow(
+                      TextFormField(
+                        controller: _usernameController,
+                        decoration: _inputDecoration('Kullanıcı Adı', isRequired: true, icon: Icons.alternate_email),
+                        validator: (value) => (value == null || value.isEmpty) ? 'Gerekli' : null,
+                      ),
+                      TextFormField(
+                        controller: _passwordController,
+                        decoration: _inputDecoration('Şifre', isRequired: true, icon: Icons.lock_outline),
+                        obscureText: true,
+                        validator: (value) => (value == null || value.length < 6) ? 'En az 6 karakter' : null,
+                      ),
+                      isWeb: isWeb,
                     ),
                   ],
                 ),
 
+                // ══════════════════════════════════════════
                 // KAYDET BUTONU (MOBİL)
+                // ══════════════════════════════════════════
                 if (!isWeb)
-                  SizedBox(
-                    width: double.infinity,
-                    height: 56,
-                    child: ElevatedButton.icon(
-                      onPressed: _isSaving ? null : _saveStaff,
-                      icon: _isSaving
-                          ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                          : const Icon(Icons.save),
-                      label: Text(_isSaving ? 'Kaydediliyor...' : 'Kaydet', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.indigo,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                        elevation: 4,
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                    child: SizedBox(
+                      width: double.infinity,
+                      height: 56,
+                      child: ElevatedButton.icon(
+                        onPressed: _isSaving ? null : _saveStaff,
+                        icon: _isSaving
+                            ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                            : const Icon(Icons.save),
+                        label: Text(
+                          _isSaving ? 'Kaydediliyor...' : 'Kaydet',
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.indigo,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          elevation: 2,
+                        ),
                       ),
                     ),
                   ),

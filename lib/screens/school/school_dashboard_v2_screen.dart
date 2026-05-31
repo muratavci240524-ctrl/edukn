@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../widgets/edukn_logo.dart';
+import '../../widgets/web_image_renderer.dart';
 import '../../services/term_service.dart';
 import 'dart:async';
 import 'dart:ui';
@@ -19,6 +20,7 @@ import 'assessment/trial_exam_list_screen.dart';
 import 'assessment/active_exam_list_screen.dart';
 import 'assessment/error_booklet/error_booklet_dashboard_screen.dart';
 import 'assessment/question_pool/question_pool_screen.dart';
+import 'assessment/external_exam/external_exam_list_screen.dart';
 import '../teacher/teacher_qr_scan_screen.dart';
 import 'student_registration_screen.dart';
 import '../../main.dart';
@@ -32,6 +34,7 @@ import '../../widgets/stylish_bottom_nav.dart';
 import '../../services/user_permission_service.dart';
 import '../../constants/app_modules.dart';
 import '../../constants/school_type_modules.dart';
+import 'settings/sms_integration_screen.dart';
 
 class SchoolDashboardV2Screen extends StatefulWidget {
   const SchoolDashboardV2Screen({Key? key}) : super(key: key);
@@ -122,17 +125,17 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
     final size = MediaQuery.of(context).size;
     final isMobile = size.width < 1100;
     final overlayWidth = isMobile ? (size.width - 32) : 450.0;
+    final double appBarHeight = kToolbarHeight + MediaQuery.of(context).padding.top;
+
     return OverlayEntry(
-      builder: (overlayCtx) => Stack(
-        children: [
-          CompositedTransformFollower(
-            link: _searchLayerLink,
-            showWhenUnlinked: false,
-            offset: Offset(isMobile ? -(size.width * 0.05) : 0, 52),
-            child: Align(
-              alignment: Alignment.topLeft,
-              child: SizedBox(
-                width: overlayWidth,
+      builder: (overlayCtx) {
+        if (isMobile) {
+          return Stack(
+            children: [
+              Positioned(
+                top: appBarHeight + 4,
+                left: 16,
+                right: 16,
                 child: StatefulBuilder(
                   builder: (_, setOverlayState) {
                     _overlaySetState = setOverlayState;
@@ -199,10 +202,91 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
                   },
                 ),
               ),
+            ],
+          );
+        }
+
+        return Stack(
+          children: [
+            CompositedTransformFollower(
+              link: _searchLayerLink,
+              showWhenUnlinked: false,
+              offset: const Offset(0, 52),
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: SizedBox(
+                  width: overlayWidth,
+                  child: StatefulBuilder(
+                    builder: (_, setOverlayState) {
+                      _overlaySetState = setOverlayState;
+                      return Material(
+                        elevation: 8,
+                        shadowColor: Colors.black.withOpacity(0.05),
+                        borderRadius: BorderRadius.circular(24),
+                        color: Colors.white,
+                        child: Container(
+                          constraints: const BoxConstraints(maxHeight: 400),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(24),
+                            border: Border.all(color: Colors.indigo.shade100, width: 1.2),
+                          ),
+                          child: _isSearching
+                            ? const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator(strokeWidth: 2)))
+                            : _searchResults.isEmpty && _searchController.text.isNotEmpty
+                              ? const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('Sonuç bulunamadı.', style: TextStyle(color: Colors.blueGrey, fontSize: 13, fontWeight: FontWeight.w500))))
+                              : _searchResults.isEmpty
+                                ? _buildInitialSearchItems()
+                                : ListView.separated(
+                                    shrinkWrap: true,
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    itemCount: _searchResults.length,
+                                    separatorBuilder: (_, __) => Divider(height: 1, color: Colors.indigo.withOpacity(0.05)),
+                                    itemBuilder: (_, index) {
+                                      final item = _searchResults[index];
+                                      final isStudent = item['type'] == 'student';
+                                      final onTapAction = item['onTap'] as Function?;
+                                      final onRegTapAction = item['onRegTap'] as Function?;
+                                      return ListTile(
+                                        onTap: () { if (onTapAction != null) _safeNavigate(onTapAction); },
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                                        leading: Container(
+                                          padding: const EdgeInsets.all(8),
+                                          decoration: BoxDecoration(color: Colors.indigo.shade50, borderRadius: BorderRadius.circular(10)),
+                                          child: Icon(item['icon'] as IconData, color: Colors.indigo, size: 20),
+                                        ),
+                                        title: Text(item['title'] as String, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1E293B))),
+                                        subtitle: Text(item['subtitle'] as String, style: TextStyle(fontSize: 11, color: Colors.blueGrey.shade400)),
+                                        trailing: isStudent ? Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            IconButton(
+                                              icon: const Icon(Icons.folder_shared_outlined, size: 18, color: Colors.indigo),
+                                              onPressed: () { if (onTapAction != null) _safeNavigate(onTapAction); },
+                                              constraints: const BoxConstraints(),
+                                              padding: const EdgeInsets.all(8),
+                                            ),
+                                            IconButton(
+                                              icon: const Icon(Icons.how_to_reg_outlined, size: 18, color: Colors.orange),
+                                              onPressed: () { if (onRegTapAction != null) _safeNavigate(onRegTapAction); },
+                                              constraints: const BoxConstraints(),
+                                              padding: const EdgeInsets.all(8),
+                                            ),
+                                          ],
+                                        ) : null,
+                                      );
+                                    },
+                                  ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
             ),
-          ),
-        ],
-      ),
+          ],
+        );
+      },
     );
   }
 
@@ -825,31 +909,21 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
       backgroundColor: Colors.white.withOpacity(0.95),
       elevation: 0,
       centerTitle: true,
-      flexibleSpace: Stack(
-        children: [
-          if (!_isMobileSearchActive)
-            Positioned(
-              left: 16,
-              top: 0,
-              bottom: 0,
-              child: Row(
-                children: [
-                  const EduKnLogo(iconSize: 28, type: EduKnLogoType.iconOnly),
-                  const SizedBox(width: 12),
-                  Text(
-                    'eduKN',
-                    style: TextStyle(
-                      color: Colors.indigo.shade900,
-                      fontWeight: FontWeight.w900,
-                    letterSpacing: -0.5,
-                    fontSize: 20,
-                    ),
-                  ),
-                ],
+      leadingWidth: _isMobileSearchActive ? 0 : 180,
+      leading: _isMobileSearchActive
+          ? const SizedBox.shrink()
+          : Padding(
+              padding: const EdgeInsets.only(left: 16.0),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: buildWebImage(
+                  'assets/images/google_auth_full_logo_light.png',
+                  width: 140,
+                  height: 36,
+                  fit: BoxFit.contain,
+                ),
               ),
             ),
-        ],
-      ),
       title: _isMobileSearchActive
           ? _buildMobileSearchInput()
           : (!isMobile ? _buildSearchBar(isMobile) : const SizedBox.shrink()),
@@ -1214,6 +1288,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
             if (_hasSubModuleAccess('olcme_degerlendirme', 'sinavlar')) {'title': 'Sınavlar', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => ActiveExamListScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'])))},
             if (_hasSubModuleAccess('olcme_degerlendirme', 'hata_kitapcigi')) {'title': 'Hata Kitapçığı', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => ErrorBookletDashboardScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'])))},
             if (_hasSubModuleAccess('olcme_degerlendirme', 'soru_havuzu')) {'title': 'Soru Havuzu', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => QuestionPoolScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'])))},
+            if (_hasSubModuleAccess('olcme_degerlendirme', 'dis_katilimli_sinav')) {'title': 'Dış Katılımlı Sınav', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => ExternalExamListScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id'])))},
           ],
           onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AssessmentDashboardScreen(institutionId: schoolData!['institutionId'], schoolTypeId: schoolData!['id']))),
         ),
@@ -1267,8 +1342,9 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
             if (_hasSubModuleAccess('sistem_ayarlari', 'yetki_tanimlama')) {'title': 'Yetki Tanımlama', 'onTap': () => Navigator.pushNamed(context, '/permission-definition')},
             if (_hasSubModuleAccess('sistem_ayarlari', 'uygulama_ayarlari')) {'title': 'Uygulama Ayarları', 'onTap': () => Navigator.pushNamed(context, '/app-settings').then((_) => _loadInitialData())},
             if (_hasSubModuleAccess('sistem_ayarlari', 'veri_yedekleme')) {'title': 'Veri Yedekleme', 'onTap': () {}},
+            if (_hasSubModuleAccess('sistem_ayarlari', 'sms_entegrasyonu')) {'title': 'SMS Entegrasyonu', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SmsIntegrationScreen()))},
           ],
-          onTap: () => Navigator.pushNamed(context, '/app-settings').then((_) => _loadInitialData()),
+          onTap: () => setState(() => _selectedCategory = 'Sistem'),
           buttonLabel: 'DÜZENLE',
         ),
       if (_hasModuleAccess('kisisel_islemler'))

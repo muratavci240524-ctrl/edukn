@@ -5,9 +5,9 @@ import 'combined_exam_results_screen.dart';
 import 'reinforcement/reinforcement_dashboard_screen.dart';
 import 'agm/screens/agm_dashboard_screen.dart';
 import '../guidance/guidance_study_program_screen.dart';
-import 'action_plan/assessment_action_plan_screen.dart';
 import 'action_plan/assessment_action_plan_list_screen.dart';
 import 'camp/screens/camp_dashboard_screen.dart';
+import 'parent_report/parent_report_dashboard.dart';
 
 class AssessmentReportsScreen extends StatelessWidget {
   final String institutionId;
@@ -184,6 +184,11 @@ class AssessmentReportsScreen extends StatelessWidget {
 
                 // Full-width Kamp Programı Card
                 _buildCampBanner(context),
+
+                const SizedBox(height: 24),
+
+                // Full-width Veli Bilgilendirme Raporu Card
+                _buildParentReportBanner(context),
               ],
             ),
           ),
@@ -565,4 +570,105 @@ class AssessmentReportsScreen extends StatelessWidget {
       ),
     );
   }
+
+  Widget _buildParentReportBanner(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.indigo.shade900, Colors.purple.shade900],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.indigo.withOpacity(0.2),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => ParentReportDashboard(
+                  institutionId: institutionId,
+                  schoolTypeId: schoolTypeId,
+                ),
+              ),
+            );
+          },
+          borderRadius: BorderRadius.circular(24),
+          child: Stack(
+            children: [
+              Positioned(
+                right: -20,
+                bottom: -20,
+                child: Opacity(
+                  opacity: 0.1,
+                  child: Icon(Icons.family_restroom_rounded, size: 180, color: Colors.white),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.family_restroom_rounded, color: Colors.white, size: 24),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          'Veli Bilgilendirme Raporları',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: MediaQuery.of(context).size.width < 360 ? 20 : 24,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Öğrencinin haftalık sınav sonuçlarını, AGM ve Kamp ders katılımlarını tek bir sayfada şık ve kurumsal PDF mektubu olarak derleyin.',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: MediaQuery.of(context).size.width < 360 ? 12 : 14,
+                        height: 1.5,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(30),
+                      ),
+                      child: Text(
+                        'Rapor Hazırla',
+                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo.shade900),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
+

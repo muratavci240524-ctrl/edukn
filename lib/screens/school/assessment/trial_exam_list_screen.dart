@@ -6,6 +6,7 @@ import '../../../../services/assessment_service.dart';
 import '../../../../services/user_permission_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'trial_exam_form.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 
 class TrialExamListScreen extends StatefulWidget {
@@ -127,45 +128,80 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
         final isMobile = constraints.maxWidth < 768;
 
         if (isMobile) {
-          return Scaffold(
-            appBar: AppBar(
-              title: const Text('Deneme Sınavları'),
-              backgroundColor: Colors.indigo,
-              foregroundColor: Colors.white,
-              elevation: 0,
+          return Theme(
+            data: Theme.of(context).copyWith(
+              appBarTheme: AppBarTheme(
+                backgroundColor: Colors.indigo,
+                elevation: 0,
+                iconTheme: const IconThemeData(color: Colors.white),
+                actionsIconTheme: const IconThemeData(color: Colors.white),
+                titleTextStyle: GoogleFonts.inter(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
+              ),
             ),
-            body: _isLoadingFilter 
-                ? const Center(child: CircularProgressIndicator())
-                : Column(
-              children: [
-
-                _buildLeftPanelHeader(isMobile: true),
-                const SizedBox(height: 16),
-                Expanded(child: _buildList(isMobile: true)),
-              ],
-            ),
-            floatingActionButton: FloatingActionButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => Scaffold(
-                      appBar: AppBar(
-                        title: const Text('Yeni Deneme Sınavı'),
-                        backgroundColor: Colors.indigo,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                      ),
-                      body: TrialExamForm(
-                        institutionId: widget.institutionId,
-                        schoolTypeId: widget.schoolTypeId,
-                        onSuccess: () => Navigator.pop(context),
+            child: Scaffold(
+              appBar: AppBar(
+                leading: const BackButton(color: Colors.white),
+                title: const Text('Deneme Sınavları'),
+                elevation: 0,
+              ),
+              body: _isLoadingFilter 
+                  ? const Center(child: CircularProgressIndicator())
+                  : Column(
+                children: [
+  
+                  _buildLeftPanelHeader(isMobile: true),
+                  const SizedBox(height: 16),
+                  Expanded(child: _buildList(isMobile: true)),
+                ],
+              ),
+              floatingActionButton: FloatingActionButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => Theme(
+                        data: Theme.of(context).copyWith(
+                          appBarTheme: AppBarTheme(
+                            backgroundColor: Colors.indigo,
+                            elevation: 0,
+                            iconTheme: const IconThemeData(color: Colors.white),
+                            actionsIconTheme: const IconThemeData(color: Colors.white),
+                            titleTextStyle: GoogleFonts.inter(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 18,
+                            ),
+                          ),
+                        ),
+                        child: Scaffold(
+                          appBar: AppBar(
+                            leading: const BackButton(color: Colors.white),
+                            title: const Text('Yeni Deneme Sınavı'),
+                            elevation: 0,
+                          ),
+                          body: TrialExamForm(
+                            institutionId: widget.institutionId,
+                            schoolTypeId: widget.schoolTypeId,
+                            onSuccess: () => Navigator.pop(context),
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                );
-              },
-              child: Icon(Icons.add),
+                  );
+                },
+                backgroundColor: Colors.indigo.shade600,
+                foregroundColor: Colors.white,
+                elevation: 4,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  side: BorderSide(color: Colors.white.withOpacity(0.2), width: 1.5),
+                ),
+                child: const Icon(Icons.add, color: Colors.white, size: 28),
+              ),
             ),
           );
         } else {
@@ -528,18 +564,32 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => Scaffold(
-                          appBar: AppBar(
-                            title: Text(exam.name),
-                            backgroundColor: Colors.indigo,
-                            foregroundColor: Colors.white,
-                            elevation: 0,
+                        builder: (context) => Theme(
+                          data: Theme.of(context).copyWith(
+                            appBarTheme: AppBarTheme(
+                              backgroundColor: Colors.indigo,
+                              elevation: 0,
+                              iconTheme: const IconThemeData(color: Colors.white),
+                              actionsIconTheme: const IconThemeData(color: Colors.white),
+                              titleTextStyle: GoogleFonts.inter(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 18,
+                              ),
+                            ),
                           ),
-                          body: TrialExamForm(
-                            institutionId: widget.institutionId,
-                            schoolTypeId: widget.schoolTypeId,
-                            trialExam: exam,
-                            onSuccess: () => Navigator.pop(context),
+                          child: Scaffold(
+                            appBar: AppBar(
+                              leading: const BackButton(color: Colors.white),
+                              title: Text(exam.name),
+                              elevation: 0,
+                            ),
+                            body: TrialExamForm(
+                              institutionId: widget.institutionId,
+                              schoolTypeId: widget.schoolTypeId,
+                              trialExam: exam,
+                              onSuccess: () => Navigator.pop(context),
+                            ),
                           ),
                         ),
                       ),

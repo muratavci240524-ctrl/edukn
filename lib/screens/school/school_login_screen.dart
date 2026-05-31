@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../widgets/edukn_logo.dart';
+import '../../widgets/web_image_renderer.dart';
 import '../teacher/teacher_main_screen.dart';
 import 'parent_student_selection_screen.dart';
 import '../../services/notification_service.dart';
@@ -26,6 +27,40 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
   bool _isLoading = false;
   bool _obscurePassword = true;
   bool _kvkkAccepted = false;
+  bool _checkingSession = true; // Oturum kontrol ediliyor mu?
+
+  @override
+  void initState() {
+    super.initState();
+    _checkExistingSession();
+  }
+
+  /// Mevcut Firebase Auth oturumunu kontrol et.
+  /// Kullanıcı daha önce giriş yaptıysa (ve çıkış yapmadıysa) direkt dashboard'a yönlendir.
+  Future<void> _checkExistingSession() async {
+    try {
+      // Firebase Auth oturumu var mı?
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        print('✅ Mevcut oturum bulundu: ${user.email}');
+        // Token'ı yenile (geçerliliği kontrol et)
+        await user.reload();
+        if (!mounted) return;
+        // Direkt dashboard'a git
+        Navigator.pushReplacementNamed(context, '/school-dashboard');
+        return;
+      }
+    } catch (e) {
+      // Token süresi dolmuş veya hesap silinmiş — giriş ekranını göster
+      print('⚠️ Oturum geçersiz, giriş ekranı gösteriliyor: $e');
+      try {
+        await FirebaseAuth.instance.signOut();
+      } catch (_) {}
+    }
+    if (mounted) {
+      setState(() => _checkingSession = false);
+    }
+  }
 
   // ─── LOGIN LOGIC ──────────────────────────────────────────────────────────
 
@@ -759,11 +794,23 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
-    final isWeb = size.width >= 900;
+    // Oturum kontrol edilirken splash ekranı göster
+    if (_checkingSession) {
+      return const Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(
+          child: CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF4C59BC)),
+          ),
+        ),
+      );
+    }
 
-    if (isWeb) return _buildWebLayout(size);
-    return _buildMobileLayout(size);
+    final size = MediaQuery.of(context).size;
+    
+    // Hem split-screen (>1150px) hem de tek sütunlu tam ekran (<1150px) modlarını
+    // en esnek ve estetik şekilde yöneten, duyarlı (responsive) _buildWebLayout metodunu kullanıyoruz.
+    return _buildWebLayout(size);
   }
 
   // ─── WEB: Split-screen ────────────────────────────────────────────────────
@@ -779,50 +826,90 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         + 32 + 16; // footer gap + footer text
     // ≈ 700px; if screen height < contentHeight + 80(vertical padding), scroll opens
 
+    // Ekran genişliği 1150px ve üzeri olduğunda sağ paneli (split-screen) gösteriyoruz.
+    final bool showRightPanel = size.width >= 1150;
+    
     return Scaffold(
-      backgroundColor: const Color(0xFFF0F4FF),
-      body: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      backgroundColor: Colors.white,
+      body: Stack(
         children: [
-          // ── LEFT PANEL ─────────────────────────────────────────────────────
-          SizedBox(
-            width: 440,
-            height: size.height,
-            child: SingleChildScrollView(
-              physics: const ClampingScrollPhysics(),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: size.height),
-                child: Container(
-                  color: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 40),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      // ── GROUP 1: Logo + Slogan ──
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Row(children: [
-                            const EduKnLogo(type: EduKnLogoType.iconOnly, iconSize: 36),
-                            const SizedBox(width: 10),
-                            GestureDetector(
-                              onLongPress: () => Navigator.pushNamed(context, '/admin-login'),
-                              child: Text('eduKN', style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.w900, color: const Color(0xFF1E2661))),
-                            ),
-                          ]),
-                          const SizedBox(height: 16),
-                          Row(children: [
-                            Expanded(child: Divider(color: Colors.grey.shade300)),
-                            Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 12),
-                              child: Text('Daha Planlı, Daha Hızlı', style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400, fontWeight: FontWeight.w500)),
-                            ),
-                            Expanded(child: Divider(color: Colors.grey.shade300)),
-                          ]),
-                        ],
-                      ),
+          // Tek ekran modundayken (width < 1150px) arka plandaki görselin tüm ekranı kaplamasını sağlıyoruz.
+          if (!showRightPanel) ...[
+            Positioned.fill(
+              child: Image.asset(
+                'assets/images/login_bg.png', 
+                fit: BoxFit.cover, 
+                filterQuality: FilterQuality.high,
+              ),
+            ),
+            Positioned.fill(
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.white.withOpacity(0.85),
+                      Colors.white.withOpacity(0.4),
+                      Colors.white.withOpacity(0.85),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ── LEFT PANEL ─────────────────────────────────────────────────────
+              Expanded(
+                flex: showRightPanel ? 0 : 1,
+                child: SizedBox(
+                  width: showRightPanel ? 440 : size.width,
+                  height: size.height,
+                  child: Container(
+                    color: showRightPanel ? Colors.white : Colors.transparent,
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 480),
+                        child: SingleChildScrollView(
+                          physics: const ClampingScrollPhysics(),
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(minHeight: size.height),
+                            child: Container(
+                              color: Colors.transparent,
+                              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                          // ── GROUP 1: Logo + Başlık (Hem web hem mobilde ortalanmış üst kısım) ──
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const SizedBox(width: double.infinity), // Yatayda Center etmek için
+                              GestureDetector(
+                                onLongPress: () => Navigator.pushNamed(context, '/admin-login'),
+                                child: buildWebImage(
+                                  'assets/images/google_auth_full_logo_light.png',
+                                  width: 280,
+                                  height: 80,
+                                  fit: BoxFit.contain,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                'Eğitim Yönetim Sistemine Hoş Geldiniz', 
+                                textAlign: TextAlign.center, 
+                                style: GoogleFonts.inter(
+                                  fontSize: 12, 
+                                  color: Colors.grey.shade600, 
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
 
                       // ── GROUP 2: Form ──
                       Form(
@@ -891,15 +978,19 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                       Center(child: Text('© 2026 eduKN. Tüm hakları saklıdır.', style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400))),
                     ],
                   ),
-
                 ),
               ),
             ),
           ),
+        ),
+      ),
+    ),
+  ),
 
           // ── RIGHT PANEL ────────────────────────────────────────────────────
-          Expanded(
-            child: SizedBox(
+          if (showRightPanel)
+            Expanded(
+              child: SizedBox(
               height: size.height, // Always full viewport height
               child: Stack(
                 fit: StackFit.expand,
@@ -968,6 +1059,8 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
           ),
         ],
       ),
+          ],
+        ),
     );
   }
 
@@ -1011,11 +1104,14 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const EduKnLogo(type: EduKnLogoType.iconOnly, iconSize: 70),
-                          const SizedBox(height: 12),
                           GestureDetector(
                             onLongPress: () => Navigator.pushNamed(context, '/admin-login'),
-                            child: Text('eduKN Giriş', style: GoogleFonts.inter(fontSize: 26, fontWeight: FontWeight.w800, color: const Color(0xFF1E2661), letterSpacing: -0.5)),
+                            child: buildWebImage(
+                              'assets/images/google_auth_full_logo_light.png',
+                              width: 280,
+                              height: 80,
+                              fit: BoxFit.contain,
+                            ),
                           ),
                           const SizedBox(height: 4),
                           Text('Eğitim Yönetim Sistemine Hoş Geldiniz', textAlign: TextAlign.center, style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w500)),

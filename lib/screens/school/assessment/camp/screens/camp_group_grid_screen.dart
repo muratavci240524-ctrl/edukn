@@ -8,6 +8,7 @@ import '../models/camp_group_model.dart';
 import '../models/camp_assignment_model.dart';
 import '../repository/camp_repository.dart';
 import '../services/camp_service.dart';
+import 'camp_cycle_setup_screen.dart';
 import '../services/camp_assignment_engine.dart';
 import 'camp_reports_screen.dart';
 import 'camp_student_timetable_screen.dart';
@@ -40,6 +41,7 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
   List<String> _unassignedStudents = [];
   List<String> _underAssignedStudents = [];
   List<Map<String, dynamic>> _absentStudents = [];
+  List<String> _excludedStudents = [];
   Map<String, List<String>> _unassignedReasons = {};
   
   final Set<String> _selectedStudentIds = {};
@@ -59,8 +61,13 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
     _loadData();
   }
 
+  String _loadingMessage = 'Kamp verileri hazırlanıyor...';
+
   Future<void> _loadData() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _loadingMessage = 'Kamp durumu ve gruplar getiriliyor...';
+    });
 
     final cycleDoc = await _db.collection('camp_cycles').doc(widget.cycle.id).get();
     CampCycle currentCycle = widget.cycle;
@@ -69,6 +76,8 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
     }
 
     final groups = await _repo.getGroupsByCycle(widget.cycle.id);
+    
+    if (mounted) setState(() => _loadingMessage = 'Öğrenci atamaları yükleniyor...');
     final snap = await _db.collection('camp_assignments').where('cycleId', isEqualTo: widget.cycle.id).get();
     final assignments = snap.docs.map((d) => CampAssignment.fromMap(d.data(), d.id)).toList();
 
@@ -83,10 +92,14 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
         _unassignedStudents = currentCycle.unassignedStudentIds;
         _underAssignedStudents = currentCycle.underAssignedStudentIds;
         _unassignedReasons = currentCycle.unassignedReasons;
-        _loading = false;
+        _excludedStudents = currentCycle.excludedStudentIds;
+        _loadingMessage = 'Şube ve öğrenci listeleri oluşturuluyor...';
       });
       await _loadBranchStudentsForCycle(currentCycle);
       _calculateAbsentStudents(currentCycle);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 
@@ -119,8 +132,11 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
         final classLevel = examData['classLevel']?.toString() ?? '';
 
         if (selectedBranches.isNotEmpty) {
-          for (final branch in selectedBranches) {
-            final snap = await _db.collection('students').where('institutionId', isEqualTo: cycle.institutionId).where('className', isEqualTo: branch).where('isActive', isEqualTo: true).get();
+          final futures = selectedBranches.map((branch) => 
+            _db.collection('students').where('institutionId', isEqualTo: cycle.institutionId).where('className', isEqualTo: branch).where('isActive', isEqualTo: true).get()
+          );
+          final snaps = await Future.wait(futures);
+          for (final snap in snaps) {
             for (final doc in snap.docs) {
               if (processedStudentIds.contains(doc.id)) continue;
               processedStudentIds.add(doc.id);
@@ -215,12 +231,12 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
               fit: BoxFit.scaleDown,
               child: Row(mainAxisSize: MainAxisSize.min, children: [
                 const Text('Yerleşemeyenler'),
-                if ((_unassignedStudents.length + _underAssignedStudents.length + _absentStudents.length) > 0) ...[
+                if ((_unassignedStudents.length + _underAssignedStudents.length + _absentStudents.length + _excludedStudents.length) > 0) ...[
                   const SizedBox(width: 4),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                     decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(8)),
-                    child: Text('${_unassignedStudents.length + _underAssignedStudents.length + _absentStudents.length}', 
+                    child: Text('${_unassignedStudents.length + _underAssignedStudents.length + _absentStudents.length + _excludedStudents.length}', 
                       style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
                   ),
                 ]
@@ -231,7 +247,46 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
         ),
       ),
       body: _loading 
-        ? const Center(child: CircularProgressIndicator())
+        ? Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    SizedBox(
+                      width: 70, height: 70,
+                      child: CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.orange.shade700),
+                        strokeWidth: 4,
+                        backgroundColor: Colors.orange.shade100,
+                      ),
+                    ),
+                    Icon(Icons.auto_awesome, color: Colors.orange.shade700, size: 28),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 300),
+                  child: Text(
+                    _loadingMessage,
+                    key: ValueKey<String>(_loadingMessage),
+                    style: TextStyle(
+                      fontSize: 15,
+                      color: Colors.grey.shade800,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Lütfen bekleyin, verileriniz hazırlanıyor...',
+                  style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+                ),
+              ],
+            ),
+          )
         : TabBarView(
             controller: _tabController,
             children: [
@@ -262,23 +317,56 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
              String filterName = 'Sınava Girmeyenleri';
              if (_yerlesmeyenFilterIndex == 1) filterName = 'Atanamayanları';
              if (_yerlesmeyenFilterIndex == 2) filterName = 'Eksik Atananları';
+             if (_yerlesmeyenFilterIndex == 3) filterName = 'Hariç Tutulanları';
 
              final isMobile = MediaQuery.of(context).size.width < 600;
 
              if (isMobile) {
-               return FloatingActionButton(
-                 onPressed: _loading ? null : _confirmAutoAssign,
-                 backgroundColor: Colors.teal,
-                 child: const Icon(Icons.bolt, color: Colors.white),
+               return Column(
+                 mainAxisSize: MainAxisSize.min,
+                 crossAxisAlignment: CrossAxisAlignment.end,
+                 children: [
+                   if (_yerlesmeyenFilterIndex == 3)
+                     FloatingActionButton(
+                       heroTag: 'edit_excludes_fab_mobile',
+                       onPressed: () => _goToSetupToEditExcludes(),
+                       backgroundColor: Colors.orange.shade700,
+                       child: const Icon(Icons.edit_note, color: Colors.white),
+                     )
+                   else
+                     FloatingActionButton(
+                       heroTag: 'auto_assign_fab_mobile',
+                       onPressed: _loading ? null : _confirmAutoAssign,
+                       backgroundColor: Colors.teal,
+                       child: const Icon(Icons.bolt, color: Colors.white),
+                     ),
+                 ],
                );
              }
 
-             return FloatingActionButton.extended(
-               onPressed: _loading ? null : _confirmAutoAssign,
-               label: Text('$filterName Otomatik Ata'),
-               icon: const Icon(Icons.bolt),
-               backgroundColor: Colors.teal,
-               foregroundColor: Colors.white,
+             return Column(
+               mainAxisSize: MainAxisSize.min,
+               crossAxisAlignment: CrossAxisAlignment.end,
+               children: [
+                 if (_yerlesmeyenFilterIndex == 3)
+                   FloatingActionButton.extended(
+                     heroTag: 'edit_excludes_fab',
+                     onPressed: () => _goToSetupToEditExcludes(),
+                     label: const Text('Hariç Listesini Düzenle'),
+                     icon: const Icon(Icons.edit_note),
+                     backgroundColor: Colors.orange.shade700,
+                     foregroundColor: Colors.white,
+                   )
+                 else
+                   FloatingActionButton.extended(
+                     heroTag: 'auto_assign_fab',
+                     onPressed: _loading ? null : _confirmAutoAssign,
+                     label: Text('$filterName Otomatik Ata'),
+                     icon: const Icon(Icons.bolt),
+                     backgroundColor: Colors.teal,
+                     foregroundColor: Colors.white,
+                   ),
+               ],
              );
           }
           return const SizedBox.shrink();
@@ -288,6 +376,424 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
   }
 
   // ─── MANUEL İŞLEMLER ──────────────────────────────────────────────────────
+
+  void _goToSetupToEditExcludes() {
+    _showStudentSelectionDialog();
+  }
+
+  void _showStudentSelectionDialog() {
+    final Set<String> tempExcluded = Set<String>.from(_excludedStudents);
+    final searchCtrl = TextEditingController();
+    String searchQuery = '';
+    String? filterClassLevel;
+    String? filterBranch;
+
+    final Set<String> classLevels = {};
+    final Set<String> branches = {};
+    for (final s in _allBranchStudents) {
+      final cl = (s['classLevel'] ?? s['sinifSeviyesi'] ?? '').toString();
+      final br = (s['className'] ?? s['sube'] ?? '').toString();
+      if (cl.isNotEmpty) classLevels.add(cl);
+      if (br.isNotEmpty) branches.add(br);
+    }
+    final sortedClassLevels = classLevels.toList()..sort();
+    final sortedBranches = branches.toList()..sort();
+
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black54,
+      transitionDuration: const Duration(milliseconds: 300),
+      transitionBuilder: (ctx, anim, _, child) => SlideTransition(
+        position: Tween<Offset>(begin: const Offset(0, 0.06), end: Offset.zero)
+            .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+        child: FadeTransition(opacity: anim, child: child),
+      ),
+      pageBuilder: (ctx, _, __) => StatefulBuilder(
+        builder: (ctx, setSt) {
+          final filtered = _allBranchStudents.where((s) {
+            final name = (s['fullName'] ?? s['name'] ?? '').toString().toLowerCase();
+            final cl = (s['classLevel'] ?? s['sinifSeviyesi'] ?? '').toString();
+            final br = (s['className'] ?? s['sube'] ?? '').toString();
+            if (searchQuery.isNotEmpty && !name.contains(searchQuery.toLowerCase())) return false;
+            if (filterClassLevel != null && cl != filterClassLevel) return false;
+            if (filterBranch != null && br != filterBranch) return false;
+            return true;
+          }).toList();
+
+          final activeCount = _allBranchStudents.length - tempExcluded.length;
+          final excludedInFiltered = filtered.where((s) => tempExcluded.contains(s['id'])).length;
+          final allFilteredSelected = filtered.isNotEmpty && excludedInFiltered == 0;
+
+          return Scaffold(
+            backgroundColor: const Color(0xFFF5F6FA),
+            body: Column(
+              children: [
+                // ── Premium Başlık ──
+                Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Colors.orange.shade800, Colors.orange.shade600],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    boxShadow: [
+                      BoxShadow(color: Colors.orange.shade900.withOpacity(0.3), blurRadius: 12, offset: const Offset(0, 4)),
+                    ],
+                  ),
+                  child: SafeArea(
+                    bottom: false,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 8, 16, 20),
+                      child: Row(
+                        children: [
+                          IconButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 20),
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Kapsanan Öğrenciler', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 0.3)),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '$activeCount / ${_allBranchStudents.length} öğrenci seçili',
+                                  style: TextStyle(color: Colors.white.withOpacity(0.85), fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (tempExcluded.isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(color: Colors.white.withOpacity(0.4)),
+                              ),
+                              child: Text(
+                                '${tempExcluded.length} hariç',
+                                style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+
+                // ── Arama & Filtreler ──
+                Container(
+                  color: Colors.white,
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                  child: Column(
+                    children: [
+                      Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF5F6FA),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: Colors.grey.shade200),
+                        ),
+                        child: TextField(
+                          controller: searchCtrl,
+                          onChanged: (v) => setSt(() => searchQuery = v),
+                          style: const TextStyle(fontSize: 14),
+                          decoration: InputDecoration(
+                            hintText: 'Öğrenci adı ara...',
+                            hintStyle: TextStyle(fontSize: 13, color: Colors.grey.shade400),
+                            prefixIcon: Icon(Icons.search, size: 20, color: Colors.grey.shade400),
+                            suffixIcon: searchQuery.isNotEmpty
+                                ? IconButton(
+                                    icon: Icon(Icons.close, size: 18, color: Colors.grey.shade400),
+                                    onPressed: () { searchCtrl.clear(); setSt(() => searchQuery = ''); },
+                                  )
+                                : null,
+                            border: InputBorder.none,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _premiumDropdown<String>(
+                              value: filterClassLevel,
+                              hint: 'Sınıf Seviyesi',
+                              icon: Icons.school_outlined,
+                              items: [
+                                const DropdownMenuItem(value: null, child: Text('Tüm Seviyeler', style: TextStyle(fontSize: 13))),
+                                ...sortedClassLevels.map((cl) => DropdownMenuItem(value: cl, child: Text('$cl. Sınıf', style: const TextStyle(fontSize: 13)))),
+                              ],
+                              onChanged: (v) => setSt(() { filterClassLevel = v; filterBranch = null; }),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _premiumDropdown<String>(
+                              value: filterBranch,
+                              hint: 'Şube',
+                              icon: Icons.door_front_door_outlined,
+                              items: [
+                                const DropdownMenuItem(value: null, child: Text('Tüm Şubeler', style: TextStyle(fontSize: 13))),
+                                ...sortedBranches
+                                  .where((br) => filterClassLevel == null || _allBranchStudents.any((s) =>
+                                      (s['className'] ?? s['sube'] ?? '') == br &&
+                                      (s['classLevel'] ?? s['sinifSeviyesi'] ?? '') == filterClassLevel))
+                                  .map((br) => DropdownMenuItem(value: br, child: Text(br, style: const TextStyle(fontSize: 13)))),
+                              ],
+                              onChanged: (v) => setSt(() => filterBranch = v),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                // ── Toplu İşlem Çubuğu ──
+                Container(
+                  color: Colors.white,
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                  child: Row(
+                    children: [
+                      InkWell(
+                        borderRadius: BorderRadius.circular(8),
+                        onTap: () => setSt(() {
+                          if (allFilteredSelected) {
+                            for (final s in filtered) tempExcluded.add(s['id']);
+                          } else {
+                            for (final s in filtered) tempExcluded.remove(s['id']);
+                          }
+                        }),
+                        child: Row(
+                          children: [
+                            AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              width: 22, height: 22,
+                              decoration: BoxDecoration(
+                                color: allFilteredSelected ? Colors.orange.shade700 : Colors.transparent,
+                                border: Border.all(color: allFilteredSelected ? Colors.orange.shade700 : Colors.grey.shade400, width: 2),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: allFilteredSelected
+                                  ? const Icon(Icons.check, size: 14, color: Colors.white)
+                                  : null,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              allFilteredSelected ? 'Tümünü Kaldır' : 'Tümünü Seç',
+                              style: TextStyle(fontSize: 13, color: Colors.grey.shade700, fontWeight: FontWeight.w500),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          '${filtered.length} öğrenci',
+                          style: TextStyle(fontSize: 11, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const Divider(height: 1, color: Color(0xFFEEEEEE)),
+
+                // ── Öğrenci Listesi ──
+                Expanded(
+                  child: filtered.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.search_off, size: 48, color: Colors.grey.shade300),
+                              const SizedBox(height: 12),
+                              Text('Öğrenci bulunamadı', style: TextStyle(color: Colors.grey.shade400, fontSize: 14)),
+                            ],
+                          ),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+                          itemCount: filtered.length,
+                          itemBuilder: (_, i) {
+                            final s = filtered[i];
+                            final id = s['id'] as String;
+                            final name = (s['fullName'] ?? s['name'] ?? 'İsimsiz').toString();
+                            final cl = (s['classLevel'] ?? s['sinifSeviyesi'] ?? '').toString();
+                            final br = (s['className'] ?? s['sube'] ?? '').toString();
+                            final isIncluded = !tempExcluded.contains(id);
+
+                            return AnimatedOpacity(
+                              opacity: isIncluded ? 1.0 : 0.5,
+                              duration: const Duration(milliseconds: 200),
+                              child: Container(
+                                margin: const EdgeInsets.only(bottom: 8),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(
+                                    color: isIncluded ? Colors.transparent : Colors.grey.shade200,
+                                    width: 1,
+                                  ),
+                                  boxShadow: isIncluded
+                                      ? [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 6, offset: const Offset(0, 2))]
+                                      : [],
+                                ),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(14),
+                                  onTap: () => setSt(() {
+                                    if (isIncluded) tempExcluded.add(id);
+                                    else tempExcluded.remove(id);
+                                  }),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          width: 40, height: 40,
+                                          decoration: BoxDecoration(
+                                            color: isIncluded ? Colors.orange.shade50 : Colors.grey.shade100,
+                                            borderRadius: BorderRadius.circular(12),
+                                          ),
+                                          child: Center(
+                                            child: Text(
+                                              name.isNotEmpty ? name[0].toUpperCase() : '?',
+                                              style: TextStyle(
+                                                fontSize: 16, fontWeight: FontWeight.bold,
+                                                color: isIncluded ? Colors.orange.shade700 : Colors.grey.shade400,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(name, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: isIncluded ? const Color(0xFF1A1A2E) : Colors.grey.shade400)),
+                                              const SizedBox(height: 3),
+                                              Row(
+                                                children: [
+                                                  Icon(Icons.class_outlined, size: 12, color: isIncluded ? Colors.orange.shade400 : Colors.grey.shade300),
+                                                  const SizedBox(width: 4),
+                                                  Text('$cl. Sınıf  •  $br', style: TextStyle(fontSize: 11, color: isIncluded ? Colors.grey.shade500 : Colors.grey.shade300)),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        AnimatedContainer(
+                                          duration: const Duration(milliseconds: 200),
+                                          width: 24, height: 24,
+                                          decoration: BoxDecoration(
+                                            color: isIncluded ? Colors.orange.shade700 : Colors.transparent,
+                                            border: Border.all(
+                                              color: isIncluded ? Colors.orange.shade700 : Colors.grey.shade300,
+                                              width: 2,
+                                            ),
+                                            borderRadius: BorderRadius.circular(8),
+                                          ),
+                                          child: isIncluded ? const Icon(Icons.check, size: 16, color: Colors.white) : null,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+                
+                // ── Kaydet Butonu ──
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -4))],
+                  ),
+                  child: SafeArea(
+                    top: false,
+                    child: SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton(
+                        onPressed: () async {
+                          Navigator.pop(ctx);
+                          setState(() => _loading = true);
+                          try {
+                            await _db.collection('camp_cycles').doc(widget.cycle.id).update({
+                              'excludedStudentIds': tempExcluded.toList(),
+                            });
+                            await _loadData();
+                          } catch (e) {
+                            debugPrint('Hariç listesini güncellerken hata: $e');
+                          } finally {
+                            if (mounted) setState(() => _loading = false);
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.orange.shade700,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          elevation: 0,
+                        ),
+                        child: const Text('Seçimleri Kaydet', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _premiumDropdown<T>({
+    required T? value,
+    required String hint,
+    required IconData icon,
+    required List<DropdownMenuItem<T>> items,
+    required ValueChanged<T?> onChanged,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5F6FA),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<T>(
+          value: value,
+          isExpanded: true,
+          icon: Icon(Icons.keyboard_arrow_down, size: 18, color: Colors.grey.shade500),
+          hint: Row(
+            children: [
+              Icon(icon, size: 14, color: Colors.grey.shade400),
+              const SizedBox(width: 6),
+              Text(hint, style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
+            ],
+          ),
+          items: items,
+          onChanged: onChanged,
+          menuMaxHeight: 300,
+          style: TextStyle(fontSize: 13, color: Colors.grey.shade800),
+        ),
+      ),
+    );
+  }
 
   void _confirmResetDraft() {
     showModalBottomSheet(
@@ -672,6 +1178,7 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                       _unassignedStudents.remove(studentId);
                       _underAssignedStudents.remove(studentId);
                       _absentStudents.removeWhere((s) => s['id'] == studentId);
+                      _excludedStudents.remove(studentId);
                     });
                     
                     await _loadData();
@@ -699,6 +1206,9 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
     } else if (_yerlesmeyenFilterIndex == 2) {
       count = _underAssignedStudents.length;
       filterName = 'eksik atanan';
+    } else if (_yerlesmeyenFilterIndex == 3) {
+      count = _excludedStudents.length;
+      filterName = 'hariç tutulan';
     }
 
     if (count == 0) {
@@ -734,18 +1244,12 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
       List<Map<String, dynamic>> targetStudents = [];
       if (_yerlesmeyenFilterIndex == 0) {
         targetStudents = _absentStudents;
-      } else if (_yerlesmeyenFilterIndex == 1) {
-        targetStudents = _unassignedStudents.map((id) {
-          final s = _allBranchStudents.firstWhere((s) => s['id'] == id, orElse: () => {'id': id, 'fullName': 'Yükleniyor...'});
-          return {
-            'id': id,
-            'name': (s['fullName'] ?? s['name'] ?? 'İsimsiz').toString(),
-            'branch': (s['className'] ?? s['branch'] ?? '').toString(),
-            'subeId': s['branchId'] ?? '',
-          };
-        }).toList();
-      } else if (_yerlesmeyenFilterIndex == 2) {
-         targetStudents = _underAssignedStudents.map((id) {
+      } else if (_yerlesmeyenFilterIndex == 1 || _yerlesmeyenFilterIndex == 2 || _yerlesmeyenFilterIndex == 3) {
+        List<String> ids = _unassignedStudents;
+        if (_yerlesmeyenFilterIndex == 2) ids = _underAssignedStudents;
+        if (_yerlesmeyenFilterIndex == 3) ids = _excludedStudents;
+
+        targetStudents = ids.map((id) {
           final s = _allBranchStudents.firstWhere((s) => s['id'] == id, orElse: () => {'id': id, 'fullName': 'Yükleniyor...'});
           return {
             'id': id,
@@ -867,6 +1371,7 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
             'unassignedStudentIds': FieldValue.arrayRemove([studentId]),
             'underAssignedStudentIds': FieldValue.arrayRemove([studentId]),
             'absentStudentIds': FieldValue.arrayRemove([studentId]),
+            'excludedStudentIds': FieldValue.arrayRemove([studentId]),
           });
         }
       }
@@ -879,6 +1384,7 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
         _absentStudents.removeWhere((s) => processedStudentIds.contains(s['id']));
         _unassignedStudents.removeWhere((id) => processedStudentIds.contains(id));
         _underAssignedStudents.removeWhere((id) => processedStudentIds.contains(id));
+        _excludedStudents.removeWhere((id) => processedStudentIds.contains(id));
       });
 
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$atamaYapilanSayisi yeni atama başarıyla tamamlandı.'), backgroundColor: Colors.green));
@@ -981,7 +1487,7 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
 
   Widget _buildCycleSummaryBar() {
     final totalAssignments = _assignmentsByGroup.values.fold(0, (sum, list) => sum + list.length);
-    final totalUnplaced = _unassignedStudents.length + _underAssignedStudents.length + _absentStudents.length;
+    final totalUnplaced = _unassignedStudents.length + _underAssignedStudents.length + _absentStudents.length + _excludedStudents.length;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
@@ -1444,7 +1950,22 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
   Widget _buildYerlesmeyenTab() {
     return Column(
       children: [
-        Container(padding: const EdgeInsets.all(12), color: Colors.white, child: Row(children: [_filterChip(0, 'Sınava Girmeyenler', _absentStudents.length), const SizedBox(width: 8), _filterChip(1, 'Atanamayanlar', _unassignedStudents.length), const SizedBox(width: 8), _filterChip(2, 'Eksik Atananlar', _underAssignedStudents.length)])),
+        Container(
+          padding: const EdgeInsets.all(12), 
+          color: Colors.white, 
+          width: double.infinity,
+          child: Row(
+            children: [
+              Expanded(child: _filterChip(0, 'Sınava Girmeyen', _absentStudents.length)), 
+              const SizedBox(width: 8), 
+              Expanded(child: _filterChip(1, 'Atanamayan', _unassignedStudents.length)), 
+              const SizedBox(width: 8), 
+              Expanded(child: _filterChip(2, 'Eksik Atanan', _underAssignedStudents.length)),
+              const SizedBox(width: 8), 
+              Expanded(child: _filterChip(3, 'Hariçler', _excludedStudents.length)),
+            ]
+          )
+        ),
         Expanded(child: _yerlesmeyenFilterIndex == 0 ? _buildStudentList(_absentStudents) : _buildStudentList(_getMappedStudents(_yerlesmeyenFilterIndex))),
       ],
     );
@@ -1452,17 +1973,19 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
 
   Widget _filterChip(int index, String label, int count) {
     final isSelected = _yerlesmeyenFilterIndex == index;
-    return Expanded(child: InkWell(onTap: () => setState(() => _yerlesmeyenFilterIndex = index), child: Container(padding: const EdgeInsets.symmetric(vertical: 8), decoration: BoxDecoration(color: isSelected ? Colors.orange.shade700 : Colors.grey.shade50, borderRadius: BorderRadius.circular(20), border: Border.all(color: isSelected ? Colors.orange.shade700 : Colors.grey.shade300)), child: Column(children: [Text('$count', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: isSelected ? Colors.white : Colors.orange.shade700)), Text(label, style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: isSelected ? Colors.white : Colors.grey.shade600), textAlign: TextAlign.center)]))));
+    return InkWell(onTap: () => setState(() => _yerlesmeyenFilterIndex = index), child: Container(padding: const EdgeInsets.symmetric(vertical: 8), decoration: BoxDecoration(color: isSelected ? Colors.orange.shade700 : Colors.grey.shade50, borderRadius: BorderRadius.circular(20), border: Border.all(color: isSelected ? Colors.orange.shade700 : Colors.grey.shade300)), child: Column(children: [Text('$count', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: isSelected ? Colors.white : Colors.orange.shade700)), Text(label, style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: isSelected ? Colors.white : Colors.grey.shade600), textAlign: TextAlign.center)])));
   }
 
   List<Map<String, dynamic>> _getMappedStudents(int filterIndex) {
-    final List<String> ids = filterIndex == 1 ? _unassignedStudents : _underAssignedStudents;
+    List<String> ids = _unassignedStudents;
+    if (filterIndex == 2) ids = _underAssignedStudents;
+    if (filterIndex == 3) ids = _excludedStudents;
     return _allBranchStudents.where((s) => ids.contains(s['id'])).map((s) => {'id': s['id'], 'name': (s['fullName'] ?? s['name'] ?? 'İsimsiz').toString(), 'branch': (s['className'] ?? s['branch'] ?? '').toString(), 'subeId': s['branchId'] ?? ''}).toList();
   }
 
   Widget _buildStudentList(List<Map<String, dynamic>> students) {
     if (students.isEmpty) return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.check_circle_outline, size: 56, color: Colors.green.shade300), const SizedBox(height: 12), const Text('Bu kategoride öğrenci yok.')]));
-    return ListView.builder(padding: const EdgeInsets.all(12), itemCount: students.length, itemBuilder: (context, i) {
+    return ListView.builder(padding: const EdgeInsets.only(left: 12, top: 12, right: 12, bottom: 160), itemCount: students.length, itemBuilder: (context, i) {
       final student = students[i];
       final name = student['name'] ?? 'İsimsiz';
       final branch = student['branch'] ?? '';
@@ -1500,7 +2023,23 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                 onPressed: () => _autoAssignSingleStudent(student),
                 child: const Text('Otomatik Ata', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.teal)),
               ),
-              const Icon(Icons.expand_more, size: 18),
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert, size: 18),
+                padding: EdgeInsets.zero,
+                onSelected: (val) {
+                  if (val == 'exclude') {
+                    _excludeStudent(studentId);
+                  } else if (val == 'include') {
+                    _includeStudent(studentId);
+                  }
+                },
+                itemBuilder: (ctx) => [
+                  if (_yerlesmeyenFilterIndex != 3)
+                    const PopupMenuItem(value: 'exclude', child: Text('Hariç Tut', style: TextStyle(fontSize: 12, color: Colors.red))),
+                  if (_yerlesmeyenFilterIndex == 3)
+                    const PopupMenuItem(value: 'include', child: Text('Kapsama Al', style: TextStyle(fontSize: 12, color: Colors.green))),
+                ],
+              ),
             ],
           ),
           children: [
@@ -1583,6 +2122,51 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
     });
   }
 
+  Future<void> _excludeStudent(String studentId) async {
+    // Tüm mevcut atamaları bul ve sil
+    final assigns = _assignmentsByGroup.values.expand((l) => l).where((a) => a.ogrenciId == studentId).toList();
+    if (assigns.isNotEmpty) {
+      await _service.removeAssignments(assigns);
+      for (var a in assigns) {
+        _assignmentsByGroup[a.groupId]?.removeWhere((x) => x.id == a.id);
+      }
+    }
+    
+    // Firestore'da ilgili listelerden çıkarıp excluded listesine ekle
+    final cycleRef = _db.collection('camp_cycles').doc(widget.cycle.id);
+    await cycleRef.update({
+      'unassignedStudentIds': FieldValue.arrayRemove([studentId]),
+      'underAssignedStudentIds': FieldValue.arrayRemove([studentId]),
+      'absentStudentIds': FieldValue.arrayRemove([studentId]),
+      'excludedStudentIds': FieldValue.arrayUnion([studentId]),
+    });
+
+    setState(() {
+      _unassignedStudents.remove(studentId);
+      _underAssignedStudents.remove(studentId);
+      _absentStudents.removeWhere((s) => s['id'] == studentId);
+      if (!_excludedStudents.contains(studentId)) _excludedStudents.add(studentId);
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Öğrenci hariç tutulanlar listesine eklendi ve mevcut atamaları silindi.'), backgroundColor: Colors.orange));
+  }
+
+  Future<void> _includeStudent(String studentId) async {
+    // Firestore'da excluded listesinden çıkar, sonra _loadData ile yeniden durumunu hesapla
+    final cycleRef = _db.collection('camp_cycles').doc(widget.cycle.id);
+    await cycleRef.update({
+      'excludedStudentIds': FieldValue.arrayRemove([studentId]),
+    });
+
+    setState(() {
+      _excludedStudents.remove(studentId);
+    });
+
+    // _loadData() çağırarak öğrencinin durumunu (unassigned, vs.) yeniden hesaplamasını sağlıyoruz
+    await _loadData();
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Öğrenci tekrar kapsama alındı.'), backgroundColor: Colors.green));
+  }
+
   Future<void> _autoAssignSingleStudent(Map<String, dynamic> student) async {
     setState(() => _loading = true);
     try {
@@ -1656,10 +2240,19 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
       }
 
       if (assignedCount > 0) {
+        // Eğer öğrenci hariçler listesindeyse ve atandıysa, onu excluded listesinden de çıkaralım
+        if (_excludedStudents.contains(studentId)) {
+          final cycleRef = _db.collection('camp_cycles').doc(widget.cycle.id);
+          await cycleRef.update({
+            'excludedStudentIds': FieldValue.arrayRemove([studentId]),
+          });
+        }
+        
         setState(() {
           _unassignedStudents.remove(studentId);
           _underAssignedStudents.remove(studentId);
           _absentStudents.removeWhere((s) => s['id'] == studentId);
+          _excludedStudents.remove(studentId);
         });
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Öğrenci $assignedCount seansa başarıyla atandı.'), backgroundColor: Colors.green));
       } else {
@@ -1778,6 +2371,8 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
     setState(() => _generating = true);
     try {
       final students = await _fetchStudentsForCycle();
+      students.removeWhere((s) => _excludedStudents.contains(s['id']));
+      
       final Set<String> allStudentsWhoEnteredExam = {};
       final profiles = await _createStudentNeedProfiles(students, (sid) => allStudentsWhoEnteredExam.add(sid));
       final List<Map<String, dynamic>> absent = students.where((s) => !allStudentsWhoEnteredExam.contains(s['id'])).map((s) => {'id': s['id'], 'name': (s['fullName'] ?? s['name'] ?? 'İsimsiz').toString(), 'branch': (s['className'] ?? s['branch'] ?? '').toString(), 'subeId': s['branchId'] ?? ''}).toList();

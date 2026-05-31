@@ -173,7 +173,7 @@ class _TeacherLessonsScreenState extends State<TeacherLessonsScreen> {
 
     if (schoolTypes.isEmpty) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Ders Programım'), backgroundColor: Colors.indigo),
+        appBar: AppBar(title: const Text('Derslerim'), backgroundColor: Colors.indigo),
         body: const Center(child: Text('Size tanımlı bir okul türü bulunamadı.')),
       );
     }

@@ -21,7 +21,9 @@ import 'screens/announcements/announcements_screen.dart';
 import 'screens/support_services/support_services_hub_screen.dart';
 import 'screens/school/settings/permission_definition_screen.dart';
 import 'screens/school/settings/app_settings_screen.dart';
+import 'screens/school/settings/sms_integration_screen.dart';
 import 'screens/school/kvkk_detail_screen.dart';
+import 'screens/public/external_exam_register_screen.dart';
 import 'screens/school/registration/pre_registration_screen.dart';
 import 'screens/school/accounting/accounting_dashboard_screen.dart';
 // --- 1. FIREBASE CORE PAKETLERİNİ IMPORT ET ---
@@ -207,6 +209,10 @@ class MyApp extends StatelessWidget {
         '/support-services': (context) => const SupportServicesHubScreen(),
         '/permission-definition': (context) => const PermissionDefinitionScreen(),
         '/app-settings': (context) => const AppSettingsScreen(),
+        '/sms-settings': (context) => const SmsIntegrationScreen(),
+        '/external-exam-register': (context) => ExternalExamRegisterScreen(
+              examId: Uri.base.queryParameters['examId'] ?? '',
+            ),
         '/kvkk-detail': (context) => const KvkkDetailScreen(),
         '/parent-student-selection': (context) => ParentStudentSelectionScreen(
               institutionId: '',
@@ -245,8 +251,24 @@ class __GlobalKeyboardUnfocusWrapperState extends State<_GlobalKeyboardUnfocusWr
       final dispatcher = WidgetsBinding.instance.platformDispatcher;
       final view = dispatcher.implicitView ?? (dispatcher.views.isNotEmpty ? dispatcher.views.first : null);
       if (view != null && view.viewInsets.bottom == 0.0) {
+        // Klavye kapandı: focus'u kaldır
         if (FocusManager.instance.primaryFocus != null && FocusManager.instance.primaryFocus!.hasFocus) {
           FocusManager.instance.primaryFocus?.unfocus();
+        }
+        // JS tarafına da sinyal gönder: viewport'u düzelt
+        if (kIsWeb) {
+          try {
+            js.context.callMethod('eval', [
+              'if(typeof fixFlutterViewport === "function") { fixFlutterViewport(); } '
+              'else if(window.visualViewport) { '
+              '  var h = window.visualViewport.height; '
+              '  document.documentElement.style.height = h + "px"; '
+              '  document.body.style.height = h + "px"; '
+              '  var el = document.querySelector("flt-glass-pane"); '
+              '  if(el) el.style.height = h + "px"; '
+              '}'
+            ]);
+          } catch (_) {}
         }
       }
     } catch (_) {}

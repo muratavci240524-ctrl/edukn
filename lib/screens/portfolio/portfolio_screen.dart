@@ -1277,6 +1277,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                 subjects: resultObj.subjects.keys.toList(),
                 outcomes: dummyExam.outcomes,
                 totalStudents: 0,
+                trialExamId: res['examId'],
               ),
             ),
           );

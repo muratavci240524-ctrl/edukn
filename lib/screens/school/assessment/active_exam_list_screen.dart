@@ -5,6 +5,7 @@ import '../../../../models/assessment/trial_exam_model.dart';
 import '../../../../services/assessment_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'trial_exam_form.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../../../services/user_permission_service.dart';
 
 
@@ -121,22 +122,36 @@ class _ActiveExamListScreenState extends State<ActiveExamListScreen> {
         final isMobile = constraints.maxWidth < 768;
 
         if (isMobile) {
-          return Scaffold(
-            appBar: AppBar(
-              title: const Text('Uygulanan Sınavlar'),
-              backgroundColor: Colors.green,
-              foregroundColor: Colors.white,
-              elevation: 0,
+          return Theme(
+            data: Theme.of(context).copyWith(
+              appBarTheme: AppBarTheme(
+                backgroundColor: Colors.green,
+                elevation: 0,
+                iconTheme: const IconThemeData(color: Colors.white),
+                actionsIconTheme: const IconThemeData(color: Colors.white),
+                titleTextStyle: GoogleFonts.inter(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
+              ),
             ),
-            body: _isLoadingFilter 
-                ? const Center(child: CircularProgressIndicator())
-                : Column(
-              children: [
-
-                _buildLeftPanelHeader(),
-                const SizedBox(height: 16),
-                Expanded(child: _buildList(isMobile: true)),
-              ],
+            child: Scaffold(
+              appBar: AppBar(
+                leading: const BackButton(color: Colors.white),
+                title: const Text('Uygulanan Sınavlar'),
+                elevation: 0,
+              ),
+              body: _isLoadingFilter 
+                  ? const Center(child: CircularProgressIndicator())
+                  : Column(
+                children: [
+  
+                  _buildLeftPanelHeader(),
+                  const SizedBox(height: 16),
+                  Expanded(child: _buildList(isMobile: true)),
+                ],
+              ),
             ),
           );
         } else {
@@ -444,19 +459,33 @@ class _ActiveExamListScreenState extends State<ActiveExamListScreen> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => Scaffold(
-                          appBar: AppBar(
-                            title: Text(exam.name),
-                            backgroundColor: Colors.green,
-                            foregroundColor: Colors.white,
-                            elevation: 0,
+                        builder: (context) => Theme(
+                          data: Theme.of(context).copyWith(
+                            appBarTheme: AppBarTheme(
+                              backgroundColor: Colors.green,
+                              elevation: 0,
+                              iconTheme: const IconThemeData(color: Colors.white),
+                              actionsIconTheme: const IconThemeData(color: Colors.white),
+                              titleTextStyle: GoogleFonts.inter(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 18,
+                              ),
+                            ),
                           ),
-                          body: TrialExamForm(
-                            institutionId: widget.institutionId,
-                            schoolTypeId: widget.schoolTypeId,
-                            trialExam: exam,
-                            onSuccess: () => Navigator.pop(context),
-                            isExamExecution: true,
+                          child: Scaffold(
+                            appBar: AppBar(
+                              leading: const BackButton(color: Colors.white),
+                              title: Text(exam.name),
+                              elevation: 0,
+                            ),
+                            body: TrialExamForm(
+                              institutionId: widget.institutionId,
+                              schoolTypeId: widget.schoolTypeId,
+                              trialExam: exam,
+                              onSuccess: () => Navigator.pop(context),
+                              isExamExecution: true,
+                            ),
                           ),
                         ),
                       ),

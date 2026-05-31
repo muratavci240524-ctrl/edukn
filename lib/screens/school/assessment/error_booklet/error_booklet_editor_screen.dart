@@ -75,6 +75,7 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
   // ─── Session & PDF data ───────────────────────────────────────────────────
   late List<TrialExamSession> _localSessions;
   int _sessionIdx = 0;
+  bool _showMobileSidebar = false;
 
   // Rendered page images per session
   // _pages[sessionIdx] = list of rendered Uint8List per page
@@ -881,18 +882,24 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
   // ═══════════════════════════════════════════════════════════════════════════
   @override
   Widget build(BuildContext context) {
+    final isMobile = MediaQuery.of(context).size.width < 1000;
+
     return Scaffold(
       backgroundColor: const Color(0xFFF1F5F9),
-      appBar: _appBar(),
-      body: Row(children: [
-        _sidebar(),
-        Expanded(child: Column(children: [_toolbar(), Expanded(child: _canvas())])),
-      ]),
+      appBar: _appBar(isMobile),
+      body: isMobile
+          ? (_showMobileSidebar 
+              ? _sidebar(isMobile: true) 
+              : Column(children: [_toolbar(), Expanded(child: _canvas())]))
+          : Row(children: [
+              _sidebar(isMobile: false),
+              Expanded(child: Column(children: [_toolbar(), Expanded(child: _canvas())])),
+            ]),
     );
   }
 
   // ─── AppBar ──────────────────────────────────────────────────────────────
-  AppBar _appBar() => AppBar(
+  AppBar _appBar(bool isMobile) => AppBar(
         toolbarHeight: 64,
         backgroundColor: Colors.white,
         foregroundColor: const Color(0xFF1E293B),
@@ -904,210 +911,295 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
               style: GoogleFonts.inter(fontSize: 11, color: Colors.indigo)),
         ]),
         actions: [
-          ...List.generate(_localSessions.length, (i) {
-            final active = i == _sessionIdx;
-            return Padding(
-              padding: const EdgeInsets.only(right: 8, top: 12, bottom: 12),
-              child: ActionChip(
-                label: Text('${i + 1}. Oturum'),
-                onPressed: () => _switchToSession(i),
-                backgroundColor: active ? Colors.indigo : Colors.grey.shade100,
-                labelStyle: TextStyle(
-                    color: active ? Colors.white : Colors.indigo, fontSize: 12),
-              ),
-            );
-          }),
-          const VerticalDivider(width: 24, indent: 14, endIndent: 14),
-          if (_localCrops.isNotEmpty)
+          if (isMobile)
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Center(
-                child: FilledButton.icon(
-                  onPressed: _isPublishing ? null : _publishAll,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Colors.green.shade600,
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  icon: _isPublishing
-                      ? const SizedBox(
-                          width: 16, height: 16,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white))
-                      : const Icon(Icons.cloud_upload_outlined, size: 20),
-                  label: Text(
-                    _isPublishing
-                        ? 'YÜKLENİYOR ($_publishCount/$_publishTotal)'
-                        : 'YÜKLE (${_localCrops.where((c) => c['bytes'] != null && c['imageUrl'] == null).length})',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  setState(() {
+                    _showMobileSidebar = !_showMobileSidebar;
+                  });
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _showMobileSidebar ? Colors.indigo : Colors.indigo.shade50,
+                  foregroundColor: _showMobileSidebar ? Colors.white : Colors.indigo,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                icon: Icon(_showMobileSidebar ? Icons.crop_free : Icons.layers_outlined, size: 16),
+                label: Text(_showMobileSidebar ? 'Kırpma Ekranı' : 'Soru Havuzu (${_localCrops.length})', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+              ),
+            ),
+          if (!isMobile) ...[
+            ...List.generate(_localSessions.length, (i) {
+              final active = i == _sessionIdx;
+              return Padding(
+                padding: const EdgeInsets.only(right: 8, top: 12, bottom: 12),
+                child: ActionChip(
+                  label: Text('${i + 1}. Oturum'),
+                  onPressed: () => _switchToSession(i),
+                  backgroundColor: active ? Colors.indigo : Colors.grey.shade100,
+                  labelStyle: TextStyle(
+                      color: active ? Colors.white : Colors.indigo, fontSize: 12),
+                ),
+              );
+            }),
+            if (widget.exam.bookletCount > 1)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.indigo.shade50,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.indigo.shade100),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.menu_book_outlined, size: 12, color: Colors.indigo),
+                        const SizedBox(width: 4),
+                        DropdownButton<String>(
+                          value: _selectedBooklet,
+                          isDense: true,
+                          underline: const SizedBox.shrink(),
+                          icon: const Icon(Icons.arrow_drop_down, color: Colors.indigo, size: 16),
+                          style: const TextStyle(fontSize: 12, color: Colors.indigo, fontWeight: FontWeight.bold),
+                          items: List.generate(widget.exam.bookletCount, (i) {
+                            final char = String.fromCharCode(65 + i);
+                            return DropdownMenuItem(value: char, child: Text('$char Kitapçığı'));
+                          }),
+                          onChanged: (v) {
+                            if (v != null) setState(() => _selectedBooklet = v);
+                          },
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          if (widget.exam.bookletCount > 1)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Center(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.indigo.shade50,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.indigo.shade100),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.menu_book_outlined, size: 14, color: Colors.indigo),
-                      const SizedBox(width: 6),
-                      const Text('PDF TÜRÜ:',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.indigo)),
-                      const SizedBox(width: 8),
-                      DropdownButton<String>(
-                        value: _selectedBooklet,
-                        isDense: true,
-                        underline: const SizedBox.shrink(),
-                        icon: const Icon(Icons.arrow_drop_down, color: Colors.indigo, size: 18),
-                        style: const TextStyle(fontSize: 13, color: Colors.indigo, fontWeight: FontWeight.bold),
-                        items: List.generate(widget.exam.bookletCount, (i) {
-                          final char = String.fromCharCode(65 + i);
-                          return DropdownMenuItem(value: char, child: Text('$char Kitapçığı'));
-                        }),
-                        onChanged: (v) {
-                          if (v != null) setState(() => _selectedBooklet = v);
-                        },
-                      ),
-                    ],
+          ],
+          if (!isMobile || _showMobileSidebar) ...[
+            if (_localCrops.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Center(
+                  child: FilledButton.icon(
+                    onPressed: _isPublishing ? null : _publishAll,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.green.shade600,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      minimumSize: Size.zero,
+                    ),
+                    icon: _isPublishing
+                        ? const SizedBox(
+                            width: 14, height: 14,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white))
+                        : const Icon(Icons.cloud_upload_outlined, size: 16),
+                    label: Text(
+                      _isPublishing
+                          ? '($_publishCount/$_publishTotal)'
+                          : 'YÜKLE (${_localCrops.where((c) => c['bytes'] != null && c['imageUrl'] == null).length})',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+                    ),
                   ),
                 ),
               ),
-            ),
+          ],
+          if (!isMobile)
+            const VerticalDivider(width: 24, indent: 14, endIndent: 14),
           const SizedBox(width: 8),
         ],
       );
 
   // ─── Toolbar ─────────────────────────────────────────────────────────────
-  Widget _toolbar() => Container(
+  Widget _toolbar() {
+    final isMobile = MediaQuery.of(context).size.width < 1000;
+
+    return Container(
         height: 54,
         color: Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Row(children: [
-          _modeBtn(Icons.pan_tool_alt_outlined, 'Gezinme', !_isSelectionMode,
-              () => setState(() => _isSelectionMode = false)),
-          const SizedBox(width: 4),
-          _modeBtn(Icons.crop, 'Seçim Yap', _isSelectionMode, () {
-            if (_pageImage != null) {
-              setState(() { _isSelectionMode = true; _startPt = null; _endPt = null; });
-            }
-          }),
-          const SizedBox(width: 16),
-          // ─ -5% button
-          IconButton(
-            tooltip: '-5%',
-            icon: const Icon(Icons.zoom_out, size: 18),
-            onPressed: () => _applyZoom(_zoom - 0.05),
-          ),
-          // ─ Slider (more compact)
-          SizedBox(
-            width: 120,
-            child: Slider(
-              value: _zoom.clamp(0.3, 8.0),
-              min: 0.3, max: 8.0, divisions: 77,
-              label: '${(_zoom * 100).round()}%',
-              onChanged: _applyZoom,
-            ),
-          ),
-          // ─ +5% button
-          IconButton(
-            tooltip: '+5%',
-            icon: const Icon(Icons.zoom_in, size: 18),
-            onPressed: () => _applyZoom(_zoom + 0.05),
-          ),
-          // ─ Clickable % label → manual entry
-          GestureDetector(
-            onTap: _showManualZoomDialog,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.grey.shade300),
-              ),
-              child: Text(
-                '${(_zoom * 100).round()}%',
-                style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF1E293B)),
-              ),
-            ),
-          ),
-          if (_isSelectionMode) ...[
-            const SizedBox(width: 12),
-            const VerticalDivider(indent: 10, endIndent: 10),
-            const SizedBox(width: 8),
-            DropdownButton<String>(
-              value: _selectedSubject,
-              isDense: true,
-              underline: const SizedBox.shrink(),
-              items: _subjects
-                  .map((s) => DropdownMenuItem(
-                      value: s, child: Text(s, style: const TextStyle(fontSize: 12))))
-                  .toList(),
-              onChanged: (v) => setState(() => _selectedSubject = v),
-            ),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(children: [
+            if (isMobile) ...[
+              ...List.generate(_localSessions.length, (i) {
+                final active = i == _sessionIdx;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: ActionChip(
+                    padding: EdgeInsets.zero,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    label: Text('${i + 1}. Oturum', style: const TextStyle(fontSize: 11)),
+                    onPressed: () => _switchToSession(i),
+                    backgroundColor: active ? Colors.indigo : Colors.grey.shade100,
+                    labelStyle: TextStyle(
+                        color: active ? Colors.white : Colors.indigo, fontSize: 11),
+                  ),
+                );
+              }),
+              if (widget.exam.bookletCount > 1) ...[
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.indigo.shade50,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.indigo.shade100),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.menu_book_outlined, size: 12, color: Colors.indigo),
+                        const SizedBox(width: 4),
+                        DropdownButton<String>(
+                          value: _selectedBooklet,
+                          isDense: true,
+                          underline: const SizedBox.shrink(),
+                          icon: const Icon(Icons.arrow_drop_down, color: Colors.indigo, size: 14),
+                          style: const TextStyle(fontSize: 11, color: Colors.indigo, fontWeight: FontWeight.bold),
+                          items: List.generate(widget.exam.bookletCount, (i) {
+                            final char = String.fromCharCode(65 + i);
+                            return DropdownMenuItem(value: char, child: Text('$char Kitapçığı'));
+                          }),
+                          onChanged: (v) {
+                            if (v != null) setState(() => _selectedBooklet = v);
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+              const VerticalDivider(indent: 12, endIndent: 12),
+              const SizedBox(width: 8),
+            ],
+
+            _modeBtn(Icons.pan_tool_alt_outlined, 'Gezinme', !_isSelectionMode,
+                () => setState(() => _isSelectionMode = false)),
             const SizedBox(width: 4),
+            _modeBtn(Icons.crop, 'Seçim Yap', _isSelectionMode, () {
+              if (_pageImage != null) {
+                setState(() { _isSelectionMode = true; _startPt = null; _endPt = null; });
+              }
+            }),
+            const SizedBox(width: 16),
+            // ─ -5% button
             IconButton(
-                icon: const Icon(Icons.remove_circle_outline, size: 16),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-                onPressed: () =>
-                    setState(() => _questionNo = (_questionNo - 1).clamp(1, 999))),
-            const SizedBox(width: 8),
+              tooltip: '-5%',
+              icon: const Icon(Icons.zoom_out, size: 18),
+              onPressed: () => _applyZoom(_zoom - 0.05),
+            ),
+            // ─ Slider (more compact)
+            SizedBox(
+              width: 120,
+              child: Slider(
+                value: _zoom.clamp(0.3, 8.0),
+                min: 0.3, max: 8.0, divisions: 77,
+                label: '${(_zoom * 100).round()}%',
+                onChanged: _applyZoom,
+              ),
+            ),
+            // ─ +5% button
+            IconButton(
+              tooltip: '+5%',
+              icon: const Icon(Icons.zoom_in, size: 18),
+              onPressed: () => _applyZoom(_zoom + 0.05),
+            ),
+            // ─ Clickable % label → manual entry
             GestureDetector(
-              onTap: _showManualQuestionNo,
-              child: MouseRegion(
-                cursor: SystemMouseCursors.click,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('$_selectedBooklet-$_questionNo. Soru',
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.indigo, decoration: TextDecoration.underline)),
-                    if (_selectedBooklet != 'A')
-                      Text(
-                        '➔ A-${_getMasterQuestionNo(_selectedBooklet, _selectedSubject ?? '', _questionNo)}',
-                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.orange.shade800),
-                      ),
-                  ],
+              onTap: _showManualZoomDialog,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                child: Text(
+                  '${(_zoom * 100).round()}%',
+                  style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF1E293B)),
                 ),
               ),
             ),
-            const SizedBox(width: 8),
-            IconButton(
-                icon: const Icon(Icons.add_circle_outline, size: 16),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-                onPressed: () => setState(() => _questionNo++)),
-          ],
-          const Spacer(),
-          if (_isSelectionMode && _startPt != null)
-            FilledButton.icon(
-              onPressed: _isRenderingPage ? null : _saveCrop,
-              icon: _isRenderingPage
-                  ? const SizedBox(
-                      width: 14, height: 14,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white))
-                  : const Icon(Icons.content_cut, size: 16),
-              label: const Text('KES & HAVUZA AT'),
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.indigo,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            if (_isSelectionMode) ...[
+              const SizedBox(width: 12),
+              const VerticalDivider(indent: 10, endIndent: 10),
+              const SizedBox(width: 8),
+              DropdownButton<String>(
+                value: _selectedSubject,
+                isDense: true,
+                underline: const SizedBox.shrink(),
+                items: _subjects
+                    .map((s) => DropdownMenuItem(
+                        value: s, child: Text(s, style: const TextStyle(fontSize: 12))))
+                    .toList(),
+                onChanged: (v) => setState(() => _selectedSubject = v),
               ),
-            ),
-        ]),
+              const SizedBox(width: 4),
+              IconButton(
+                  icon: const Icon(Icons.remove_circle_outline, size: 16),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: () =>
+                      setState(() => _questionNo = (_questionNo - 1).clamp(1, 999))),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: _showManualQuestionNo,
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('$_selectedBooklet-$_questionNo. Soru',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.indigo, decoration: TextDecoration.underline)),
+                      if (_selectedBooklet != 'A')
+                        Text(
+                          '➔ A-${_getMasterQuestionNo(_selectedBooklet, _selectedSubject ?? '', _questionNo)}',
+                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.orange.shade800),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                  icon: const Icon(Icons.add_circle_outline, size: 16),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: () => setState(() => _questionNo++)),
+            ],
+            if (_isSelectionMode && _startPt != null) ...[
+              const SizedBox(width: 16),
+              FilledButton.icon(
+                onPressed: _isRenderingPage ? null : _saveCrop,
+                icon: _isRenderingPage
+                    ? const SizedBox(
+                        width: 14, height: 14,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.content_cut, size: 16),
+                label: const Text('KES & HAVUZA AT'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.indigo,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ],
+          ]),
+        ),
       );
+  }
 
   Widget _modeBtn(IconData icon, String label, bool active, VoidCallback onTap) =>
       InkWell(
@@ -1324,7 +1416,7 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
   }
 
   // ─── Sidebar ──────────────────────────────────────────────────────────────
-  Widget _sidebar() {
+  Widget _sidebar({required bool isMobile}) {
     final criticalCount = _localCrops.where((c) => c['isCritical'] == true).length;
     final grouped = <String, List<Map<String, dynamic>>>{};
     for (final s in _subjects) {
@@ -1341,7 +1433,7 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
       });
 
     return Container(
-      width: 360,
+      width: isMobile ? double.infinity : 360,
       color: Colors.white,
       child: Column(children: [
         Container(
@@ -1382,7 +1474,7 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
                   onPressed: _pickPDF,
                   icon: const Icon(Icons.upload_file, size: 16),
                   label: const Text('PDF Yükle', style: TextStyle(fontSize: 12)))
-            else
+            else if (!isMobile)
               PopupMenuButton<String>(
                 icon: const Icon(Icons.more_vert, size: 20),
                 tooltip: 'PDF İşlemleri',
@@ -1471,100 +1563,154 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
     final qNo = c['questionNo'] as int;
     final otherMappings = _getAllBookletMappings(c['subject'], qNo);
 
-    return ListTile(
-      dense: true,
+    return InkWell(
       onTap: isLoading ? null : () => _showPreview(c),
-      leading: isLoading
-          ? _loadingPlaceholder()
-          : ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: hasLocal 
-                ? Image.memory(c['bytes'] as Uint8List, width: 44, height: 44, fit: BoxFit.cover)
-                : (c['base64Image'] != null 
-                   ? Image.memory(base64Decode(c['base64Image']), width: 44, height: 44, fit: BoxFit.cover)
-                   : (c['imageUrl'] != null ? Image.network(c['imageUrl'], width: 44, height: 44, fit: BoxFit.cover) : const Icon(Icons.image_not_supported))),
-            ),
-      title: Wrap(
-        crossAxisAlignment: WrapCrossAlignment.center,
-        spacing: 8,
-        children: [
-          Text('A-$qNo. Soru$otherMappings',
-              style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: isLoading ? Colors.grey : (hasRemote ? Colors.green.shade700 : null))),
-          if (c['difficulty'] != null)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: _getDifficultyColor((c['difficulty'] as num).toDouble()).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: _getDifficultyColor((c['difficulty'] as num).toDouble()).withOpacity(0.3)),
-              ),
-              child: Text(
-                _getDifficultyLabel((c['difficulty'] as num).toDouble()),
-                style: TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.bold,
-                  color: _getDifficultyColor((c['difficulty'] as num).toDouble()),
-                ),
-              ),
-            ),
-        ],
-      ),
-      subtitle: isLoading
-          ? const Text('Hazırlanıyor...', style: TextStyle(fontSize: 10, color: Colors.indigo))
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (c['outcome'] != null)
-                  Text(
-                    c['outcome'] as String,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 10, color: Colors.indigo.shade400, fontWeight: FontWeight.w500),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          border: Border(bottom: BorderSide(color: Colors.grey.shade100)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Left Image Section
+            isLoading
+                ? _loadingPlaceholder()
+                : ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: hasLocal 
+                      ? Image.memory(c['bytes'] as Uint8List, width: 64, height: 64, fit: BoxFit.cover)
+                      : (c['base64Image'] != null 
+                         ? Image.memory(base64Decode(c['base64Image']), width: 64, height: 64, fit: BoxFit.cover)
+                         : (c['imageUrl'] != null ? Image.network(c['imageUrl'], width: 64, height: 64, fit: BoxFit.cover) : const Icon(Icons.image_not_supported))),
                   ),
-                const SizedBox(height: 2),
-                Text(
-                  '${c['correctAnswer'] ?? '?'} | ${c['isWide'] ? '2 sütun' : '1 sütun'}${hasRemote ? ' (Yayında)' : ''}',
-                  style: const TextStyle(fontSize: 10)),
-              ],
+            const SizedBox(width: 16),
+            // Right Content Column
+            Expanded(
+              child: isLoading
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('A-$qNo. Soru$otherMappings', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                        const SizedBox(height: 4),
+                        const Text('Hazırlanıyor...', style: TextStyle(fontSize: 10, color: Colors.indigo)),
+                      ],
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Row 1: A-1. Soru (B-7)
+                        Text(
+                          'A-$qNo. Soru$otherMappings',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: hasRemote ? Colors.green.shade700 : Colors.indigo.shade900,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        
+                        // Row 2: Difficulty + Star + Expand + Delete Icons in one Row
+                        Row(
+                          children: [
+                            if (c['difficulty'] != null) ...[
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: _getDifficultyColor((c['difficulty'] as num).toDouble()).withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(color: _getDifficultyColor((c['difficulty'] as num).toDouble()).withOpacity(0.3)),
+                                ),
+                                child: Text(
+                                  _getDifficultyLabel((c['difficulty'] as num).toDouble()),
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold,
+                                    color: _getDifficultyColor((c['difficulty'] as num).toDouble()),
+                                  ),
+                                ),
+                              ),
+                            ],
+                            const Spacer(),
+                            // Actions Row
+                            IconButton(
+                              visualDensity: VisualDensity.compact,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              tooltip: c['isCritical'] == true ? 'Kritik Soru' : 'Kritik Olarak İşaretle',
+                              icon: Icon(
+                                c['isCritical'] == true ? Icons.star_rounded : Icons.star_outline_rounded,
+                                size: 18,
+                                color: c['isCritical'] == true ? Colors.amber.shade700 : Colors.grey,
+                              ),
+                              onPressed: () async {
+                                final newVal = !(c['isCritical'] == true);
+                                setState(() => c['isCritical'] = newVal);
+                                if (c['docId'] != null) {
+                                  await FirebaseFirestore.instance
+                                      .collection('trial_exams')
+                                      .doc(widget.exam.id)
+                                      .collection('questions_pool')
+                                      .doc(c['docId'] as String)
+                                      .update({'isCritical': newVal});
+                                }
+                              },
+                            ),
+                            const SizedBox(width: 14),
+                            IconButton(
+                              visualDensity: VisualDensity.compact,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              tooltip: c['isWide'] ? 'Daralt' : 'Genişlet',
+                              icon: Icon(
+                                c['isWide'] ? Icons.width_normal_rounded : Icons.width_full_rounded,
+                                size: 18,
+                                color: c['isWide'] ? Colors.orange : Colors.grey,
+                              ),
+                              onPressed: () => setState(() => c['isWide'] = !(c['isWide'] as bool)),
+                            ),
+                            const SizedBox(width: 14),
+                            IconButton(
+                              visualDensity: VisualDensity.compact,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              icon: const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
+                              onPressed: () => _deleteCrop(c),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+
+                        // Row 3: Kazanım (outcome) - Don't truncate too aggressively, allow multiple lines
+                        if (c['outcome'] != null) ...[
+                          Text(
+                            c['outcome'] as String,
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 10,
+                              height: 1.3,
+                              color: Colors.indigo.shade500,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                        ],
+
+                        // Row 4: Correct answer | wide status | remote publication status
+                        Text(
+                          '${c['correctAnswer'] ?? '?'} | ${c['isWide'] ? '2 sütun' : '1 sütun'}${hasRemote ? ' (Yayında)' : ''}',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.blueGrey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
             ),
-      trailing: isLoading
-          ? null
-          : Row(mainAxisSize: MainAxisSize.min, children: [
-              IconButton(
-                tooltip: c['isCritical'] == true ? 'Kritik Soru' : 'Kritik Olarak İşaretle',
-                icon: Icon(
-                    c['isCritical'] == true ? Icons.star_rounded : Icons.star_outline_rounded,
-                    size: 18,
-                    color: c['isCritical'] == true ? Colors.amber.shade700 : Colors.grey),
-                onPressed: () async {
-                  final newVal = !(c['isCritical'] == true);
-                  setState(() => c['isCritical'] = newVal);
-                  if (c['docId'] != null) {
-                    await FirebaseFirestore.instance
-                        .collection('trial_exams')
-                        .doc(widget.exam.id)
-                        .collection('questions_pool')
-                        .doc(c['docId'] as String)
-                        .update({'isCritical': newVal});
-                  }
-                },
-              ),
-              IconButton(
-                tooltip: c['isWide'] ? 'Daralt' : 'Genişlet',
-                icon: Icon(
-                    c['isWide'] ? Icons.width_normal_rounded : Icons.width_full_rounded,
-                    size: 18,
-                    color: c['isWide'] ? Colors.orange : Colors.grey),
-                onPressed: () => setState(() => c['isWide'] = !(c['isWide'] as bool)),
-              ),
-              IconButton(
-                icon: const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
-                onPressed: () => _deleteCrop(c),
-              ),
-            ]),
+          ],
+        ),
+      ),
     );
   }
 

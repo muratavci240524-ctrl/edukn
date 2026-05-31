@@ -155,16 +155,16 @@ class _ExamTypeFormState extends State<ExamTypeForm> {
   void _showAddSubjectDialog() {
     showModalBottomSheet(
       context: context,
-      shape: RoundedRectangleBorder(
+      shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (ctx) => Container(
-        padding: EdgeInsets.symmetric(vertical: 16),
+        padding: const EdgeInsets.symmetric(vertical: 16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(
+            const Padding(
+              padding: EdgeInsets.symmetric(
                 horizontal: 16.0,
                 vertical: 8,
               ),
@@ -173,7 +173,7 @@ class _ExamTypeFormState extends State<ExamTypeForm> {
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
             ),
-            Divider(),
+            const Divider(),
             Expanded(
               child: ListView.builder(
                 itemCount: _availableBranches.length,
@@ -183,7 +183,7 @@ class _ExamTypeFormState extends State<ExamTypeForm> {
                   return ListTile(
                     leading: Icon(
                       Icons.book,
-                      color: isAdded ? Colors.grey : Colors.indigo,
+                      color: isAdded ? Colors.grey : Colors.orange,
                     ),
                     title: Text(
                       branch,
@@ -192,8 +192,8 @@ class _ExamTypeFormState extends State<ExamTypeForm> {
                       ),
                     ),
                     trailing: isAdded
-                        ? Icon(Icons.check_circle, color: Colors.green)
-                        : Icon(Icons.add_circle_outline),
+                        ? const Icon(Icons.check_circle, color: Colors.green)
+                        : const Icon(Icons.add_circle_outline),
                     onTap: isAdded
                         ? null
                         : () {
@@ -213,39 +213,30 @@ class _ExamTypeFormState extends State<ExamTypeForm> {
   @override
   Widget build(BuildContext context) {
     return _isLoading
-        ? Center(child: CircularProgressIndicator())
+        ? const Center(child: CircularProgressIndicator())
         : Form(
             key: _formKey,
-            child: SingleChildScrollView(
-              padding: EdgeInsets.all(20),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      ElevatedButton.icon(
-                        onPressed: _save,
-                        icon: Icon(Icons.save),
-                        label: Text('KAYDET'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.indigo,
-                          foregroundColor: Colors.white,
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 24,
-                            vertical: 12,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: 16),
-                  _buildBasicInfoCard(),
-                  SizedBox(height: 16),
-                  _buildScoringCard(),
-                  SizedBox(height: 16),
-                  _buildSubjectsCard(),
-                  SizedBox(height: 40),
-                ],
+            child: Scaffold(
+              backgroundColor: Colors.transparent,
+              body: SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  children: [
+                    _buildBasicInfoCard(),
+                    const SizedBox(height: 16),
+                    _buildScoringCard(),
+                    const SizedBox(height: 16),
+                    _buildSubjectsCard(),
+                    const SizedBox(height: 80), // Prevent overlap with FAB
+                  ],
+                ),
+              ),
+              floatingActionButton: FloatingActionButton.extended(
+                onPressed: _save,
+                backgroundColor: Colors.orange,
+                foregroundColor: Colors.white,
+                icon: const Icon(Icons.save),
+                label: const Text('KAYDET', style: TextStyle(fontWeight: FontWeight.bold)),
               ),
             ),
           );
@@ -256,13 +247,13 @@ class _ExamTypeFormState extends State<ExamTypeForm> {
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
-        padding: EdgeInsets.all(20),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              children: [
-                Icon(Icons.info_outline, color: Colors.indigo),
+              children: const [
+                Icon(Icons.info_outline, color: Colors.orange),
                 SizedBox(width: 8),
                 Text(
                   'Temel Bilgiler',
@@ -493,10 +484,10 @@ class _ExamTypeFormState extends State<ExamTypeForm> {
                           children: [
                             Text(
                               subject.branchName,
-                              style: TextStyle(
+                              style: const TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 16,
-                                color: Colors.indigo,
+                                color: Colors.orange,
                               ),
                             ),
                             IconButton(

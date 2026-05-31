@@ -70,6 +70,7 @@ class AppModules {
         'sinavlar': 'Sınavlar',
         'hata_kitapcigi': 'Hata Kitapçığı',
         'soru_havuzu': 'Soru Havuzu',
+        'dis_katilimli_sinav': 'Dış Katılımlı Sınav',
       },
     ),
 
@@ -117,6 +118,7 @@ class AppModules {
         'yetki_tanimlama': 'Yetki Tanımlama',
         'uygulama_ayarlari': 'Uygulama Ayarları',
         'veri_yedekleme': 'Veri Yedekleme',
+        'sms_entegrasyonu': 'SMS Entegrasyonu',
       },
     ),
 

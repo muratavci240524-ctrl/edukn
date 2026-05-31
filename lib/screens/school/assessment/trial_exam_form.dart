@@ -621,7 +621,11 @@ class _TrialExamFormState extends State<TrialExamForm>
       final t = (data['tcNo'] ?? '').toString().trim();
       final n = (data['studentNo'] ?? '').toString().trim();
       if (t.isNotEmpty) sysByTc[t] = data;
-      if (n.isNotEmpty) sysByNo[n] = data;
+      if (n.isNotEmpty) {
+        final cleanN = n.replaceFirst(RegExp(r'^0+'), '');
+        if (cleanN.isNotEmpty) sysByNo[cleanN] = data;
+        sysByNo[n] = data;
+      }
     });
 
     // Bu oturumu işle (sonuçları kaydetme, sadece önizle)
@@ -2234,7 +2238,11 @@ class _TrialExamFormState extends State<TrialExamForm>
       String t = (data['tcNo'] ?? '').toString().trim();
       String n = (data['studentNo'] ?? '').toString().trim();
       if (t.isNotEmpty) sysByTc[t] = data;
-      if (n.isNotEmpty) sysByNo[n] = data;
+      if (n.isNotEmpty) {
+        String cleanN = n.replaceFirst(RegExp(r'^0+'), '');
+        if (cleanN.isNotEmpty) sysByNo[cleanN] = data;
+        sysByNo[n] = data;
+      }
     });
 
     Map<String, StudentResult> mergedStudents = {};
@@ -2552,7 +2560,7 @@ class _TrialExamFormState extends State<TrialExamForm>
           ? _answerKeys.keys.first
           : 'A';
       if (opticalForm.bookletType.length > 0) {
-        String bVal = _extract(line, opticalForm.bookletType);
+        String bVal = _extract(line, opticalForm.bookletType).trim().toUpperCase();
         if (bVal.isNotEmpty) booklet = bVal;
       }
       if (!_answerKeys.containsKey(booklet)) {
@@ -2577,7 +2585,7 @@ class _TrialExamFormState extends State<TrialExamForm>
         }
 
         if (answerKeyMap.containsKey(subjectName)) {
-          String sAns = _extract(line, field);
+          String sAns = _extract(line, field, trimResult: false);
           String cAns = answerKeyMap[subjectName]!;
 
           int correct = 0, wrong = 0, empty = 0;
@@ -2595,7 +2603,7 @@ class _TrialExamFormState extends State<TrialExamForm>
               empty++;
             } else if (c == 'X') {
               // İptal (Yok sayılır)
-            } else if (s == ' ' || s == '') {
+            } else if (s == ' ' || s == '' || s == '-' || s == '.') {
               empty++;
             } else if (s == c) {
               correct++;
@@ -2609,7 +2617,7 @@ class _TrialExamFormState extends State<TrialExamForm>
               String c = cAns[i].toUpperCase();
               if (c == 'S') {
                 correct++;
-              } else if (c == '#' || c == ' ') {
+              } else {
                 empty++;
               }
             }
@@ -2643,19 +2651,26 @@ class _TrialExamFormState extends State<TrialExamForm>
     return localResults;
   }
 
-  String _extract(String line, OpticalField field) {
+  String _extract(String line, OpticalField field, {bool trimResult = true}) {
     if (field.length <= 0) return '';
     // Convert 1-based start to 0-based index.
     // If user enters 1, it means column 1, which corresponds to index 0.
     int startIndex = field.start > 0 ? field.start - 1 : 0;
 
+    String result = '';
     if (line.length >= startIndex + field.length) {
-      return line.substring(startIndex, startIndex + field.length).trim();
+      result = line.substring(startIndex, startIndex + field.length);
+    } else if (line.length > startIndex) {
+      result = line.substring(startIndex);
+      if (!trimResult) {
+        result = result.padRight(field.length, ' ');
+      }
+    } else {
+      if (!trimResult) {
+        result = ''.padRight(field.length, ' ');
+      }
     }
-    if (line.length > startIndex) {
-      return line.substring(startIndex).trim();
-    }
-    return '';
+    return trimResult ? result.trim() : result;
   }
 
   void _viewSavedResults() {
@@ -2706,6 +2721,7 @@ class _TrialExamFormState extends State<TrialExamForm>
           outcomes: _outcomes,
           isRankingVisible:
               widget.trialExam?.sharingSettings['isRankingVisible'] ?? true,
+          trialExamId: widget.trialExam?.id,
         ),
       ),
     );
@@ -3111,6 +3127,7 @@ class ResultsTableDialog extends StatefulWidget {
   final String examName;
   final Map<String, Map<String, List<String>>> outcomes;
   final bool isRankingVisible;
+  final String? trialExamId;
 
   const ResultsTableDialog({
     Key? key,
@@ -3119,6 +3136,7 @@ class ResultsTableDialog extends StatefulWidget {
     this.examName = 'Sınav Sonucu',
     this.outcomes = const {},
     this.isRankingVisible = true,
+    this.trialExamId,
   }) : super(key: key);
 
   @override
@@ -3159,6 +3177,7 @@ class _ResultsTableDialogState extends State<ResultsTableDialog> {
           schoolStudents: schoolCount,
           branchStudents: branchCount,
           isRankingVisible: widget.isRankingVisible,
+          trialExamId: widget.trialExamId,
         ),
       ),
     );

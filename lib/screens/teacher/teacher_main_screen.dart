@@ -6,9 +6,7 @@ import '../../services/chat_service.dart';
 import '../../services/announcement_service.dart';
 import '../../services/user_permission_service.dart';
 import '../../widgets/stylish_bottom_nav.dart';
-import 'teacher_announcements_screen.dart';
-import 'teacher_social_media_screen.dart';
-import 'teacher_messages_screen.dart';
+import 'teacher_haberlesme_screen.dart';
 import 'teacher_operations_screen.dart';
 import 'teacher_dashboard_tab.dart';
 
@@ -23,9 +21,9 @@ class TeacherMainScreen extends StatefulWidget {
 }
 
 class _TeacherMainScreenState extends State<TeacherMainScreen> {
-  int _currentIndex = 0;
+  int _currentIndex = 1;
   late List<Widget> _pages;
-  final List<bool> _pageLoaded = [false, false, false, false, false];
+  final List<bool> _pageLoaded = [false, false, false];
 
   int _unreadAnnouncements = 0;
   int _unreadMessages = 0;
@@ -39,11 +37,9 @@ class _TeacherMainScreenState extends State<TeacherMainScreen> {
   void initState() {
     super.initState();
     _pages = [
-      TeacherAnnouncementsScreen(institutionId: widget.institutionId), // 0
-      TeacherSocialMediaScreen(institutionId: widget.institutionId),   // 1
-      TeacherDashboardTab(institutionId: widget.institutionId),       // 2
-      TeacherMessagesScreen(institutionId: widget.institutionId),      // 3
-      TeacherOperationsScreen(institutionId: widget.institutionId),    // 4
+      TeacherHaberlesmeScreen(institutionId: widget.institutionId), // 0
+      TeacherDashboardTab(institutionId: widget.institutionId),     // 1
+      TeacherOperationsScreen(institutionId: widget.institutionId),   // 2
     ];
     _pageLoaded[_currentIndex] = true; // İlk sayfayı yükle
     _startBadgeListeners();
@@ -211,15 +207,12 @@ class _TeacherMainScreenState extends State<TeacherMainScreen> {
       bottomNavigationBar: StylishBottomNav(
         currentIndex: _currentIndex,
         badgeCounts: {
-          0: _unreadAnnouncements,
-          1: _unreadSocial,
-          3: _unreadMessages,
+          0: _unreadAnnouncements + _unreadSocial + _unreadMessages,
         },
         onTap: (index) {
           setState(() {
             _currentIndex = index;
             _pageLoaded[index] = true;
-            if (index == 1) _unreadSocial = 0;
           });
         },
       ),

@@ -10,6 +10,8 @@ import 'teacher_social_media_screen.dart';
 import '../../models/school/homework_model.dart';
 import '../school/homework/homework_detail_screen.dart';
 import '../school/attendance_operations_screen.dart';
+import '../school/school_types/school_type_detail_screen.dart';
+import '../school/etut_process_screen.dart';
 
 class TeacherDashboardTab extends StatefulWidget {
   final String institutionId;
@@ -136,6 +138,7 @@ class _NotificationSectionState extends State<_NotificationSection> {
   final _snaps = <String, QuerySnapshot>{};
   bool _isLoading = true;
   List<Map<String, dynamic>> _allNotifications = [];
+  Timer? _timer;
  
   @override
   void initState() {
@@ -145,10 +148,21 @@ class _NotificationSectionState extends State<_NotificationSection> {
  
   @override
   void dispose() {
+    _timer?.cancel();
     for (var s in _streams.values) {
       s.cancel();
     }
     super.dispose();
+  }
+
+  DateTime? _parseDateTime(dynamic val) {
+    if (val == null) return null;
+    if (val is Timestamp) return val.toDate();
+    if (val is DateTime) return val;
+    if (val is String) {
+      return DateTime.tryParse(val);
+    }
+    return null;
   }
  
   Future<void> _loadInitialData() async {
@@ -182,6 +196,11 @@ class _NotificationSectionState extends State<_NotificationSection> {
 
       if (mounted) {
         _startListening();
+        _timer = Timer.periodic(const Duration(minutes: 1), (timer) {
+          if (mounted) {
+            _updateNotifications();
+          }
+        });
         setState(() => _isLoading = false);
       }
     } catch (e) {
@@ -195,7 +214,7 @@ class _NotificationSectionState extends State<_NotificationSection> {
     if (user == null) return;
  
     final currentUserId = user.uid;
-    final instId = widget.institutionId.toUpperCase();
+    final List<String> instIds = [widget.institutionId.toUpperCase(), widget.institutionId.toLowerCase()];
  
     _listenTo('announcements', FirebaseFirestore.instance
         .collection('schools')
@@ -206,25 +225,25 @@ class _NotificationSectionState extends State<_NotificationSection> {
  
     _listenTo('social', FirebaseFirestore.instance
         .collection('social_media_posts')
-        .where('institutionId', isEqualTo: instId)
+        .where('institutionId', whereIn: instIds)
         .snapshots());
  
     _listenTo('assignments', FirebaseFirestore.instance
         .collection('lessonAssignments')
-        .where('institutionId', isEqualTo: instId)
+        .where('institutionId', whereIn: instIds)
         .where('teacherIds', arrayContains: currentUserId)
         .where('isActive', isEqualTo: true)
         .snapshots());
  
     _listenTo('duty', FirebaseFirestore.instance
         .collection('dutyScheduleItems')
-        .where('institutionId', isEqualTo: instId)
+        .where('institutionId', whereIn: instIds)
         .where('teacherId', isEqualTo: currentUserId)
         .snapshots());
  
     _listenTo('schedules', FirebaseFirestore.instance
         .collection('classSchedules')
-        .where('institutionId', isEqualTo: instId)
+        .where('institutionId', whereIn: instIds)
         .where('teacherIds', arrayContains: currentUserId)
         .where('isActive', isEqualTo: true)
         .snapshots());
@@ -232,13 +251,19 @@ class _NotificationSectionState extends State<_NotificationSection> {
     final todayDateStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
     _listenTo('attendance', FirebaseFirestore.instance
         .collection('lessonAttendance')
-        .where('institutionId', isEqualTo: instId)
+        .where('institutionId', whereIn: instIds)
         .where('date', isEqualTo: todayDateStr)
         .snapshots());
-
+ 
     _listenTo('homeworks', FirebaseFirestore.instance
         .collection('homeworks')
-        .where('institutionId', isEqualTo: instId)
+        .where('institutionId', whereIn: instIds)
+        .where('teacherId', isEqualTo: currentUserId)
+        .snapshots());
+
+    _listenTo('etuts', FirebaseFirestore.instance
+        .collection('etut_requests')
+        .where('institutionId', whereIn: instIds)
         .where('teacherId', isEqualTo: currentUserId)
         .snapshots());
   }
@@ -253,7 +278,6 @@ class _NotificationSectionState extends State<_NotificationSection> {
       }, onError: (e) {
         debugPrint('--- Stream error ($type) ---');
         debugPrint(e.toString());
-        // If it's a missing index error, it's NOT a crash, but it needs an index.
         if (e.toString().contains('index')) {
           print('💡 İpucu: $type için Firestore indeksi eksik olabilir.');
         }
@@ -274,6 +298,7 @@ class _NotificationSectionState extends State<_NotificationSection> {
     final scheduleSnap = _snaps['schedules'];
     final attSnap = _snaps['attendance'];
     final hwSnap = _snaps['homeworks'];
+    final etutSnap = _snaps['etuts'];
  
     final List<Map<String, dynamic>> result = [];
     final user = FirebaseAuth.instance.currentUser;
@@ -281,7 +306,9 @@ class _NotificationSectionState extends State<_NotificationSection> {
     final currentUserEmail = user?.email;
     final schoolTypes = _userData?['schoolTypes'] as List<dynamic>? ?? [];
     final userSchoolTypeSet = schoolTypes.map((e) => e.toString()).toSet();
+    
     final now = DateTime.now();
+    final todayAt08 = DateTime(now.year, now.month, now.day, 8, 0);
     final currentDayName = _dayNameTr(now);
  
     final assignedClassIds = assignSnap?.docs
@@ -300,7 +327,7 @@ class _NotificationSectionState extends State<_NotificationSection> {
  
         final schoolTypeId = data['schoolTypeId']?.toString();
         final recipients = List<String>.from(data['recipients'] ?? []);
-        final publishDate = (data['publishDate'] as Timestamp?)?.toDate();
+        final publishDate = _parseDateTime(data['publishDate']);
  
         if (publishDate != null && publishDate.isAfter(now)) continue;
  
@@ -335,31 +362,85 @@ class _NotificationSectionState extends State<_NotificationSection> {
       }
     }
  
-    // 2. NÖBET
+    // 2. NÖBET (Anlık ve Günlük)
     if (dutySnap != null) {
       final monday = now.subtract(Duration(days: now.weekday - 1));
       final weekStart = DateTime(monday.year, monday.month, monday.day);
       for (var doc in dutySnap.docs) {
         final data = doc.data() as Map<String, dynamic>;
         final dDayOfWeek = data['dayOfWeek'] as int?;
-        final dWeekStart = (data['weekStart'] as Timestamp?)?.toDate();
-        if (dDayOfWeek == now.weekday && dWeekStart != null) {
+        final dWeekStart = _parseDateTime(data['weekStart']);
+        final createdAt = _parseDateTime(data['createdAt']);
+        final location = data['locationName'] ?? data['dutyLocation'] ?? 'Nöbet Yeri';
+
+        // A. Anlık Bildirim (Yazıldığı an - son 3 günde oluşturulmuşsa)
+        if (createdAt != null && now.difference(createdAt).inDays < 3) {
+          result.add({
+            'id': 'duty_scheduled_${doc.id}',
+            'title': 'Yeni Nöbet Yazıldı!',
+            'subtitle': '${_weekdayNameTr(dDayOfWeek)} günü nöbetiniz bulunmaktadır. Yer: $location',
+            'time': createdAt,
+            'type': 'duty_scheduled',
+            'data': data,
+          });
+        }
+
+        // B. Günlük Hatırlatıcı (Nöbet Günü - Sabah 08:00'de)
+        if (now.isAfter(todayAt08) && dDayOfWeek == now.weekday && dWeekStart != null) {
           if (dWeekStart.year == weekStart.year && dWeekStart.month == weekStart.month && dWeekStart.day == weekStart.day) {
             result.add({
-              'id': 'duty_${doc.id}',
+              'id': 'duty_today_${doc.id}',
               'title': 'Bugün Nöbetçisiniz!',
-              'subtitle': 'Nöbet yerinizi kontrol edin.',
-              'time': now,
-              'type': 'duty',
+              'subtitle': 'Bugün nöbet yeriniz: $location. Lütfen kontrol edin.',
+              'time': todayAt08,
+              'type': 'duty_today',
               'data': data,
             });
-            break;
           }
         }
       }
     }
+
+    // 3. ETÜT (Anlık ve Günlük)
+    if (etutSnap != null) {
+      for (var doc in etutSnap.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        final etutDate = _parseDateTime(data['startTime'] ?? data['date']);
+        final createdAt = _parseDateTime(data['createdAt']);
+        final lessonName = data['subject'] ?? data['lessonName'] ?? 'Etüt';
+
+        // A. Anlık Bildirim (Yazıldığı an - son 3 günde oluşturulmuşsa)
+        if (createdAt != null && now.difference(createdAt).inDays < 3) {
+          final dateStr = etutDate != null ? DateFormat('dd.MM.yyyy HH:mm').format(etutDate) : '';
+          result.add({
+            'id': 'etut_scheduled_${doc.id}',
+            'title': 'Yeni Etüt Yazıldı!',
+            'subtitle': '$dateStr saatinde etütünüz bulunmaktadır: $lessonName',
+            'time': createdAt,
+            'type': 'etut_scheduled',
+            'data': data,
+          });
+        }
+
+        // B. Günlük Hatırlatıcı (Etüt Günü - Sabah 08:00'de)
+        if (etutDate != null && 
+            etutDate.year == now.year && etutDate.month == now.month && etutDate.day == now.day &&
+            now.isAfter(todayAt08)) {
+          final timeStr = DateFormat('HH:mm').format(etutDate);
+          result.add({
+            'id': 'etut_today_${doc.id}',
+            'title': 'Bugün Etütünüz Var!',
+            'subtitle': 'Saat $timeStr\'da $lessonName etütünüz bulunmaktadır.',
+            'time': todayAt08,
+            'type': 'etut_today',
+            'data': data,
+          });
+        }
+      }
+    }
  
-        // 3. YOKLAMA UYARISI
+    // 4. YOKLAMA UYARISI (Dersler & Etütler)
+    // A. Ders Yoklama Uyarısı (Başlangıçtan 5 dakika geçince)
     if (scheduleSnap != null && attSnap != null) {
       try {
         final takenKeys = <String>{};
@@ -371,7 +452,7 @@ class _NotificationSectionState extends State<_NotificationSection> {
             takenKeys.add('${cId}_$lH');
           }
         }
-
+ 
         for (var doc in scheduleSnap.docs) {
           final data = doc.data() as Map<String, dynamic>;
           final sDay = data['day']?.toString() ?? '';
@@ -380,17 +461,23 @@ class _NotificationSectionState extends State<_NotificationSection> {
             final className = data['className']?.toString() ?? 'Sınıf';
             final hourIdx = data['hourIndex'] as int? ?? 0;
             final lessonHour = hourIdx + 1;
+            final subject = data['subjectName'] ?? data['lessonName'] ?? 'Ders';
             
-            final key = '${classId}_$lessonHour';
-            if (!takenKeys.contains(key)) {
-              result.add({
-                'id': 'att_${doc.id}',
-                'title': 'Yoklama Eksik: $className',
-                'subtitle': '$lessonHour. ders yoklaması henüz alınmadı.',
-                'time': now.subtract(const Duration(milliseconds: 100)),
-                'type': 'attendance_warning',
-                'data': data,
-              });
+            final lessonStart = DateTime(now.year, now.month, now.day, 9, 0).add(Duration(minutes: hourIdx * 45));
+            final warningTriggerTime = lessonStart.add(const Duration(minutes: 5));
+
+            if (now.isAfter(warningTriggerTime)) {
+              final key = '${classId}_$lessonHour';
+              if (!takenKeys.contains(key)) {
+                result.add({
+                  'id': 'att_${doc.id}',
+                  'title': 'Yoklama Eksik: $className',
+                  'subtitle': '$lessonHour. ders ($subject) yoklaması henüz alınmadı (5 dk geçti).',
+                  'time': warningTriggerTime,
+                  'type': 'attendance_warning',
+                  'data': data,
+                });
+              }
             }
           }
         }
@@ -398,17 +485,44 @@ class _NotificationSectionState extends State<_NotificationSection> {
         debugPrint('Attendance warning processing error: $e');
       }
     }
+
+    // B. Etüt Yoklama Uyarısı (Başlangıçtan 5 dakika geçince)
+    if (etutSnap != null) {
+      for (var doc in etutSnap.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        final etutDate = _parseDateTime(data['startTime'] ?? data['date']);
+        if (etutDate != null && 
+            etutDate.year == now.year && etutDate.month == now.month && etutDate.day == now.day) {
+          final warningTriggerTime = etutDate.add(const Duration(minutes: 5));
+          if (now.isAfter(warningTriggerTime)) {
+            final attendanceTaken = data['attendanceTaken'] ?? false;
+            if (!attendanceTaken) {
+              final timeStr = DateFormat('HH:mm').format(etutDate);
+              final lessonName = data['subject'] ?? data['lessonName'] ?? 'Etüt';
+              result.add({
+                'id': 'etut_att_${doc.id}',
+                'title': 'Etüt Yoklaması Eksik!',
+                'subtitle': 'Saat $timeStr\'daki $lessonName etüt yoklaması alınmadı (5 dk geçti).',
+                'time': warningTriggerTime,
+                'type': 'etut_attendance_warning',
+                'data': data,
+              });
+            }
+          }
+        }
+      }
+    }
  
-    // 4. SOSYAL
+    // 5. SOSYAL
     if (socSnap != null) {
       final threeDaysAgo = now.subtract(const Duration(days: 3));
       for (var doc in socSnap.docs) {
         final data = doc.data() as Map<String, dynamic>;
         final readBy = List<dynamic>.from(data['readBy'] ?? []);
-        final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
+        final createdAt = _parseDateTime(data['createdAt']);
         if (currentUserEmail != null && readBy.contains(currentUserEmail)) continue;
         if (createdAt != null && createdAt.isBefore(threeDaysAgo)) continue;
-
+ 
         final recipients = List<String>.from(data['recipients'] ?? []);
         bool isRecipient = (recipients.isEmpty || recipients.contains('ALL') || recipients.contains('TEACHER'));
         if (!isRecipient && currentUserId != null) {
@@ -419,7 +533,7 @@ class _NotificationSectionState extends State<_NotificationSection> {
             }
           }
         }
-
+ 
         if (isRecipient) {
           result.add({
             'id': doc.id,
@@ -432,17 +546,16 @@ class _NotificationSectionState extends State<_NotificationSection> {
         }
       }
     }
-
-    // 5. ÖDEV KONTROLÜ
+ 
+    // 6. ÖDEV KONTROLÜ (Sabah 08:00'de)
     if (hwSnap != null) {
       for (var doc in hwSnap.docs) {
         final data = doc.data() as Map<String, dynamic>;
-        final dueDate = (data['dueDate'] as Timestamp?)?.toDate();
+        final dueDate = _parseDateTime(data['dueDate']);
         if (dueDate != null) {
-          final isTodayOrPast = dueDate.isBefore(now) || 
-              (dueDate.year == now.year && dueDate.month == now.month && dueDate.day == now.day);
+          final isToday = dueDate.year == now.year && dueDate.month == now.month && dueDate.day == now.day;
           
-          if (isTodayOrPast) {
+          if (isToday && now.isAfter(todayAt08)) {
             final statuses = Map<String, dynamic>.from(data['studentStatuses'] ?? {});
             final targetIds = List<String>.from(data['targetStudentIds'] ?? []);
             
@@ -451,10 +564,10 @@ class _NotificationSectionState extends State<_NotificationSection> {
             
             if (needsCheck) {
               result.add({
-                'id': 'hw_${doc.id}',
-                'title': 'Ödev Kontrolü: ${data['title']}',
-                'subtitle': 'Kontrol edilmesi gereken ödev saati geldi.',
-                'time': dueDate,
+                'id': 'hw_today_${doc.id}',
+                'title': 'Bugün Ödev Kontrol Günü!',
+                'subtitle': '"${data['title']}" ödevinin son kontrol günü bugün. Kontrol etmeyi unutmayın.',
+                'time': todayAt08,
                 'type': 'homework_warning',
                 'data': {...data, 'id': doc.id},
               });
@@ -463,13 +576,21 @@ class _NotificationSectionState extends State<_NotificationSection> {
         }
       }
     }
-
+ 
     result.sort((a, b) => (b['time'] as DateTime).compareTo(a['time'] as DateTime));
     if (mounted) {
       setState(() => _allNotifications = result);
     }
   }
- 
+
+  String _weekdayNameTr(int? day) {
+    switch (day) {
+      case 1: return 'Pazartesi'; case 2: return 'Salı'; case 3: return 'Çarşamba';
+      case 4: return 'Perşembe'; case 5: return 'Cuma'; case 6: return 'Cumartesi';
+      case 7: return 'Pazar'; default: return '';
+    }
+  }
+
   String _dayNameTr(DateTime date) {
     switch (date.weekday) {
       case 1: return 'Pazartesi'; case 2: return 'Salı'; case 3: return 'Çarşamba';
@@ -537,10 +658,13 @@ class _NotificationSectionState extends State<_NotificationSection> {
     required DateTime time, required String type, required Map<String, dynamic> originalData,
   }) {
     IconData icon; Color color;
-    if (type == 'announcement') { icon = Icons.campaign_rounded; color = Colors.blue; }
-    else if (type == 'duty') { icon = Icons.security_rounded; color = Colors.orange; }
-    else if (type == 'attendance_warning') { icon = Icons.event_busy_rounded; color = Colors.red; }
-    else { icon = Icons.share_rounded; color = Colors.purple; }
+    if (type == 'announcement') { icon = Icons.campaign_rounded; color = Colors.blue.shade600; }
+    else if (type == 'social') { icon = Icons.share_rounded; color = Colors.purple.shade600; }
+    else if (type == 'duty_scheduled' || type == 'duty_today') { icon = Icons.security_rounded; color = Colors.orange.shade700; }
+    else if (type == 'etut_scheduled' || type == 'etut_today') { icon = Icons.school_rounded; color = Colors.teal.shade600; }
+    else if (type == 'attendance_warning' || type == 'etut_attendance_warning') { icon = Icons.event_busy_rounded; color = Colors.red.shade600; }
+    else if (type == 'homework_warning') { icon = Icons.assignment_turned_in_rounded; color = Colors.indigo.shade600; }
+    else { icon = Icons.notifications_none_rounded; color = Colors.grey.shade600; }
  
     final userEmail = FirebaseAuth.instance.currentUser?.email;
     final timeStr = DateFormat('HH:mm').format(time);
@@ -586,6 +710,26 @@ class _NotificationSectionState extends State<_NotificationSection> {
                 )
               );
             }
+          } else if (type == 'etut_scheduled' || type == 'etut_today' || type == 'etut_attendance_warning') {
+            if (mounted) {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => EtutProcessScreen(
+                    institutionId: widget.institutionId,
+                    schoolTypeId: _schoolTypeId ?? '',
+                    schoolTypeName: _schoolTypeName ?? 'Okul',
+                  )
+                )
+              );
+            }
+          } else if (type == 'duty_scheduled' || type == 'duty_today') {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Nöbet bilgilerinizi takvim sekmesinden de takip edebilirsiniz.'),
+                duration: Duration(seconds: 3),
+              ),
+            );
           }
         }
       },
@@ -633,7 +777,7 @@ class _NotificationSectionState extends State<_NotificationSection> {
     );
   }
 }
-
+ 
 class Rx {
   static Stream<T> combineLatest3<A, B, C, T>(
     Stream<A> streamA,
@@ -647,9 +791,9 @@ class Rx {
     bool hasA = false;
     bool hasB = false;
     bool hasC = false;
-
+ 
     final controller = StreamController<T>();
-
+ 
     void emitIfReady() {
       try {
         if (hasA && hasB && hasC) {
@@ -659,20 +803,20 @@ class Rx {
         debugPrint('CombineLatest3 Error: $e\n$s');
       }
     }
-
+ 
     final subA = streamA.listen((val) { lastA = val; hasA = true; emitIfReady(); }, onError: controller.addError);
     final subB = streamB.listen((val) { lastB = val; hasB = true; emitIfReady(); }, onError: controller.addError);
     final subC = streamC.listen((val) { lastC = val; hasC = true; emitIfReady(); }, onError: controller.addError);
-
+ 
     controller.onCancel = () {
       subA.cancel();
       subB.cancel();
       subC.cancel();
     };
-
+ 
     return controller.stream;
   }
-
+ 
   static Stream<T> combineLatest6<A, B, C, D, E, F, T>(
     Stream<A> streamA,
     Stream<B> streamB,
@@ -694,9 +838,9 @@ class Rx {
     bool hasD = false;
     bool hasE = false;
     bool hasF = false;
-
+ 
     final controller = StreamController<T>();
-
+ 
     void emitIfReady() {
       try {
         if (hasA && hasB && hasC && hasD && hasE && hasF) {
@@ -706,14 +850,14 @@ class Rx {
         debugPrint('CombineLatest Error: $e\n$s');
       }
     }
-
+ 
     final subA = streamA.listen((val) { lastA = val; hasA = true; emitIfReady(); }, onError: controller.addError);
     final subB = streamB.listen((val) { lastB = val; hasB = true; emitIfReady(); }, onError: controller.addError);
     final subC = streamC.listen((val) { lastC = val; hasC = true; emitIfReady(); }, onError: controller.addError);
     final subD = streamD.listen((val) { lastD = val; hasD = true; emitIfReady(); }, onError: controller.addError);
     final subE = streamE.listen((val) { lastE = val; hasE = true; emitIfReady(); }, onError: controller.addError);
     final subF = streamF.listen((val) { lastF = val; hasF = true; emitIfReady(); }, onError: controller.addError);
-
+ 
     controller.onCancel = () {
       subA.cancel();
       subB.cancel();
@@ -722,7 +866,7 @@ class Rx {
       subE.cancel();
       subF.cancel();
     };
-
+ 
     return controller.stream;
   }
 }
@@ -731,115 +875,53 @@ class _CalendarSection extends StatefulWidget {
   final String institutionId;
 
   const _CalendarSection({
+    Key? key,
     required this.institutionId,
-  });
+  }) : super(key: key);
 
   @override
   State<_CalendarSection> createState() => _CalendarSectionState();
 }
 
 class _CalendarSectionState extends State<_CalendarSection> {
-  DateTime _focusedDay = DateTime.now();
-  bool _isLoading = false;
-
-  final List<String> _months = [
-    'Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
-    'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık',
-  ];
+  Map<String, dynamic>? _userData;
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadTeacherEvents();
+    _loadUserData();
   }
 
-  Future<void> _loadTeacherEvents() async {
-    setState(() => _isLoading = true);
+  Future<void> _loadUserData() async {
     try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) {
-        setState(() => _isLoading = false);
-        return;
+      final data = await UserPermissionService.loadUserData();
+      if (mounted) {
+        setState(() {
+          _userData = data;
+          _isLoading = false;
+        });
       }
-      
-      // Teacher specific events (Dersler, Etütler, Nöbetler vb.)
-      // Bu örnekte mock etkinlikler yüklenebilir veya öğretmenin emailine/kullanıcı adına göre filtrelenebilir.
-      
-      setState(() {
-        _isLoading = false;
-      });
     } catch (e) {
-      print('Takvim yükleme hatası: $e');
-      setState(() => _isLoading = false);
+      debugPrint('Error loading user data for calendar: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    bool isWideScreen = MediaQuery.of(context).size.width > 900;
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
 
-    return Container(
-      margin: EdgeInsets.all(isWideScreen ? 24 : 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: isWideScreen
-            ? [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.03),
-                  spreadRadius: 5,
-                  blurRadius: 20,
-                  offset: Offset(0, 10),
-                ),
-              ]
-            : null,
-      ),
-      child: Column(
-        children: [
-          Padding(
-            padding: EdgeInsets.fromLTRB(24, 24, 24, 16),
-            child: Row(
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '${_months[_focusedDay.month - 1]} ${_focusedDay.year}',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey.shade900,
-                      ),
-                    ),
-                    if (_isLoading)
-                      Padding(
-                        padding: EdgeInsets.only(top: 4),
-                        child: SizedBox(
-                          width: 60,
-                          height: 2,
-                          child: LinearProgressIndicator(
-                            backgroundColor: Colors.blue.withOpacity(0.1),
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              Colors.blue,
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: Center(
-              child: Text(
-                'Takvim bileşeni ve size ait etkinlikler burada görünecek.',
-                style: TextStyle(color: Colors.grey),
-              ),
-            ),
-          ),
-        ],
-      ),
+    return SharedCalendarSection(
+      schoolTypeId: '',
+      institutionId: widget.institutionId,
+      userData: _userData,
     );
   }
 }

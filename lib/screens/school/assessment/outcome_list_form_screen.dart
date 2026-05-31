@@ -398,7 +398,7 @@ class _OutcomeListFormState extends State<OutcomeListForm> {
                   ElevatedButton.icon(
                     onPressed: _isLoading ? null : _save,
                     icon: _isLoading
-                        ? SizedBox(
+                        ? const SizedBox(
                             width: 16,
                             height: 16,
                             child: CircularProgressIndicator(
@@ -406,10 +406,10 @@ class _OutcomeListFormState extends State<OutcomeListForm> {
                               color: Colors.white,
                             ),
                           )
-                        : Icon(Icons.save),
+                        : const Icon(Icons.save),
                     label: Text(isMobile ? 'Kaydet' : 'Kaydet'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.indigo,
+                      backgroundColor: Colors.teal,
                       foregroundColor: Colors.white,
                       padding: EdgeInsets.symmetric(
                         horizontal: isMobile ? 12 : 24,
@@ -512,7 +512,7 @@ class _OutcomeListFormState extends State<OutcomeListForm> {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: Colors.indigo, width: 2),
+        borderSide: const BorderSide(color: Colors.teal, width: 2),
       ),
     );
   }
@@ -530,20 +530,20 @@ class _OutcomeListFormState extends State<OutcomeListForm> {
             Row(
               children: [
                 Container(
-                  padding: EdgeInsets.all(8),
+                  padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.indigo.withOpacity(0.1),
+                    color: Colors.teal.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Icon(Icons.info_outline, color: Colors.indigo),
+                  child: const Icon(Icons.info_outline, color: Colors.teal),
                 ),
-                SizedBox(width: 12),
-                Text(
+                const SizedBox(width: 12),
+                const Text(
                   'Genel Bilgiler',
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
-                    color: Colors.indigo,
+                    color: Colors.teal,
                   ),
                 ),
               ],
@@ -745,9 +745,9 @@ class _OutcomeListFormState extends State<OutcomeListForm> {
                       value: 'download',
                       child: Row(
                         children: [
-                          Icon(Icons.download, size: 20, color: Colors.indigo),
-                          SizedBox(width: 8),
-                          Text('Excel Olarak İndir'),
+                           const Icon(Icons.download, size: 20, color: Colors.teal),
+                          const SizedBox(width: 8),
+                          const Text('Excel Olarak İndir'),
                         ],
                       ),
                     ),

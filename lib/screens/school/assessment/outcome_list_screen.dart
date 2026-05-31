@@ -73,11 +73,14 @@ class _OutcomeListScreenState extends State<OutcomeListScreen> {
       MaterialPageRoute(
         builder: (context) => Scaffold(
           appBar: AppBar(
-            backgroundColor: Colors.indigo,
+            backgroundColor: Colors.teal,
             foregroundColor: Colors.white,
             elevation: 0,
+            iconTheme: const IconThemeData(color: Colors.white),
+            leading: const BackButton(color: Colors.white),
             title: Text(
               list == null ? 'Yeni Kazanım Listesi' : 'Listeyi Düzenle',
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
             ),
           ),
           body: OutcomeListForm(
@@ -106,16 +109,16 @@ class _OutcomeListScreenState extends State<OutcomeListScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Silme Onayı'),
-        content: Text('Bu kazanım listesini silmek istediğinize emin misiniz?'),
+        title: const Text('Silme Onayı'),
+        content: const Text('Bu kazanım listesini silmek istediğinize emin misiniz?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: Text('İptal'),
+            child: const Text('İptal'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: Text('Sil', style: TextStyle(color: Colors.red)),
+            child: const Text('Sil', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -128,7 +131,7 @@ class _OutcomeListScreenState extends State<OutcomeListScreen> {
       }
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Kazanım listesi silindi.')));
+      ).showSnackBar(const SnackBar(content: Text('Kazanım listesi silindi.')));
     }
   }
 
@@ -142,29 +145,31 @@ class _OutcomeListScreenState extends State<OutcomeListScreen> {
           // Mobile View: Only List
           return Scaffold(
             appBar: AppBar(
-              title: const Text('Kazanım Yönetimi'),
-              backgroundColor: Colors.indigo,
+              title: const Text('Kazanım Yönetimi', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              backgroundColor: Colors.teal,
               foregroundColor: Colors.white,
+              iconTheme: const IconThemeData(color: Colors.white),
+              leading: const BackButton(color: Colors.white),
               elevation: 0,
             ),
             body: Column(
               children: [
                 _buildLeftPanelHeader(),
-                SizedBox(height: 16),
+                const SizedBox(height: 16),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16.0),
                   child: ElevatedButton.icon(
                     onPressed: _createNew,
-                    icon: Icon(Icons.add),
-                    label: Text('Yeni Liste Oluştur'),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Yeni Liste Oluştur'),
                     style: ElevatedButton.styleFrom(
-                      minimumSize: Size(double.infinity, 45),
+                      minimumSize: const Size(double.infinity, 45),
                       backgroundColor: Colors.teal,
                       foregroundColor: Colors.white,
                     ),
                   ),
                 ),
-                SizedBox(height: 8),
+                const SizedBox(height: 8),
                 Expanded(child: _buildList()),
               ],
             ),
@@ -174,9 +179,11 @@ class _OutcomeListScreenState extends State<OutcomeListScreen> {
         // Desktop View: Split View
         return Scaffold(
           appBar: AppBar(
-            title: const Text('Kazanım Yönetimi'),
-            backgroundColor: Colors.indigo,
+            title: const Text('Kazanım Yönetimi', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            backgroundColor: Colors.teal,
             foregroundColor: Colors.white,
+            iconTheme: const IconThemeData(color: Colors.white),
+            leading: const BackButton(color: Colors.white),
             elevation: 0,
           ),
           body: Row(

@@ -6,7 +6,7 @@
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="edukn management system">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-visual">
   
   <!-- Google Sign-In Configuration -->
   <meta name="google-signin-client_id" content="158619513037-aofci9vverr1jblg3pnqer2rf3gn0i4h.apps.googleusercontent.com">
@@ -82,6 +82,84 @@
       });
     };
   </script>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       📱 MOBİL KLAVYE VIEWPORT FIX
+       Klavye kapandığında kalan boşluğu otomatik temizler.
+       iOS Safari + Android Chrome için evrensel çözüm.
+       ═══════════════════════════════════════════════════════════════════════ -->
+  <script>
+    (function() {
+      // Gerçek görünür alan yüksekliğini CSS değişkenine yaz
+      function setViewportHeight() {
+        const vh = window.visualViewport
+          ? window.visualViewport.height
+          : window.innerHeight;
+        document.documentElement.style.setProperty('--real-vh', vh + 'px');
+      }
+
+      // Flutter'ın ana konteynerini görünür alana sığdır
+      function fixFlutterViewport() {
+        const vvHeight = window.visualViewport
+          ? window.visualViewport.height
+          : window.innerHeight;
+        const vvWidth = window.visualViewport
+          ? window.visualViewport.width
+          : window.innerWidth;
+
+        // body ve html'i visual viewport'a kilitle
+        document.documentElement.style.height = vvHeight + 'px';
+        document.body.style.height = vvHeight + 'px';
+        document.body.style.width = vvWidth + 'px';
+
+        // Flutter'ın glass-pane elementini de düzelt
+        const flutterView = document.querySelector('flt-glass-pane');
+        if (flutterView) {
+          flutterView.style.height = vvHeight + 'px';
+          flutterView.style.width = vvWidth + 'px';
+        }
+
+        // Flutter'ın view container'ını da düzelt
+        const flutterViewport = document.querySelector('flutter-view');
+        if (flutterViewport) {
+          flutterViewport.style.height = vvHeight + 'px';
+        }
+      }
+
+      // visualViewport API var mı? (Modern iOS 13+ ve Android destekler)
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', function() {
+          fixFlutterViewport();
+          setViewportHeight();
+        });
+        window.visualViewport.addEventListener('scroll', function() {
+          fixFlutterViewport();
+        });
+        // Başlangıç değerini ayarla
+        setViewportHeight();
+      }
+
+      // Eski yöntem: window resize (Android Chrome fallback)
+      window.addEventListener('resize', function() {
+        setViewportHeight();
+        // Küçük bir gecikme ile çalıştır (klavye animasyonu bitmesini bekle)
+        setTimeout(fixFlutterViewport, 100);
+        setTimeout(fixFlutterViewport, 300); // iOS Safari için ekstra deneme
+      });
+
+      // Sayfa yüklendiğinde ve orientation değiştiğinde de çalıştır
+      window.addEventListener('orientationchange', function() {
+        setTimeout(fixFlutterViewport, 300);
+        setTimeout(fixFlutterViewport, 600);
+      });
+
+      // Flutter render tamamlandıktan sonra başlangıç değerini uygula
+      window.addEventListener('load', function() {
+        setTimeout(fixFlutterViewport, 500);
+        setTimeout(fixFlutterViewport, 1500);
+      });
+    })();
+  </script>
 </head>
 <body>
   <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
@@ -92,12 +170,40 @@
       cMapPacked: true,
     }
   </script>
-  <!-- Firebase Messaging Service Worker Kaydı (Web Push için) -->
+  <!-- Firebase Messaging Service Worker Kayıtı (Web Push için) -->
   <script>
     if ('serviceWorker' in navigator) {
+      let swRefreshing = false; // Sonsuz döngü koruması
+
       navigator.serviceWorker.register('/firebase-messaging-sw.js')
         .then(function(registration) {
           console.log('✅ FCM Service Worker kaydedildi:', registration.scope);
+
+          // ✨ Yeni bir SW update var mı kontrol et
+          registration.addEventListener('updatefound', function() {
+            const newWorker = registration.installing;
+            if (!newWorker) return;
+
+            newWorker.addEventListener('statechange', function() {
+              // Yeni SW "aktive oldu" ve eski bir controller vardı (ilk yükleme değil)
+              if (newWorker.state === 'activated' && navigator.serviceWorker.controller) {
+                if (!swRefreshing) {
+                  swRefreshing = true;
+                  console.log('🔄 Yeni uygulama sürümü bulundu, sayfa yenileniyor...');
+                  window.location.reload();
+                }
+              }
+            });
+          });
+
+          // Controller değiştiğinde de sayfayı yenile (skipWaiting aktive olunca)
+          navigator.serviceWorker.addEventListener('controllerchange', function() {
+            if (!swRefreshing) {
+              swRefreshing = true;
+              console.log('🔄 Service Worker güncellendi, sayfa yenileniyor...');
+              window.location.reload();
+            }
+          });
         })
         .catch(function(err) {
           console.log('❌ FCM Service Worker kayıt hatası:', err);

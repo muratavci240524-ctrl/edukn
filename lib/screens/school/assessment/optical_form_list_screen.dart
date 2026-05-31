@@ -85,15 +85,18 @@ class _OpticalFormListScreenState extends State<OpticalFormListScreen> {
               backgroundColor: Colors.indigo,
               foregroundColor: Colors.white,
               elevation: 0,
+              iconTheme: const IconThemeData(color: Colors.white),
+              leading: const BackButton(color: Colors.white),
               title: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: const [
-                  Text('Optik Formlar'),
+                  Text('Optik Formlar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                   Text(
                     'Tanımlar',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.normal,
+                      color: Colors.white70,
                     ),
                   ),
                 ],
@@ -113,9 +116,11 @@ class _OpticalFormListScreenState extends State<OpticalFormListScreen> {
                   MaterialPageRoute(
                     builder: (context) => Scaffold(
                       appBar: AppBar(
-                        title: const Text('Yeni Optik Form'),
+                        title: const Text('Yeni Optik Form', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                         backgroundColor: Colors.indigo,
                         foregroundColor: Colors.white,
+                        iconTheme: const IconThemeData(color: Colors.white),
+                        leading: const BackButton(color: Colors.white),
                         elevation: 0,
                       ),
                       body: OpticalFormDefinition(
@@ -126,15 +131,17 @@ class _OpticalFormListScreenState extends State<OpticalFormListScreen> {
                   ),
                 );
               },
-              child: Icon(Icons.add),
+              child: const Icon(Icons.add),
             ),
           );
         } else {
           return Scaffold(
             appBar: AppBar(
-              title: const Text('Optik Form Yönetimi'),
+              title: const Text('Optik Form Yönetimi', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
               backgroundColor: Colors.indigo,
               foregroundColor: Colors.white,
+              iconTheme: const IconThemeData(color: Colors.white),
+              leading: const BackButton(color: Colors.white),
               elevation: 0,
             ),
             body: Row(
@@ -433,9 +440,11 @@ class _OpticalFormListScreenState extends State<OpticalFormListScreen> {
                       MaterialPageRoute(
                         builder: (context) => Scaffold(
                           appBar: AppBar(
-                            title: Text(form.name),
+                            title: Text(form.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                             backgroundColor: Colors.indigo,
                             foregroundColor: Colors.white,
+                            iconTheme: const IconThemeData(color: Colors.white),
+                            leading: const BackButton(color: Colors.white),
                             elevation: 0,
                           ),
                           body: OpticalFormDefinition(

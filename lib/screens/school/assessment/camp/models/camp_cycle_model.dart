@@ -27,6 +27,9 @@ class CampCycle {
   final String? specialClassRoomId;
   final String? specialClassRoomName;
 
+  // Kapsam dışı öğrenciler (kullanıcı tarafından manuel olarak çıkarılanlar)
+  final List<String> excludedStudentIds;
+
   // Taslak istatistikleri
   final List<String> unassignedStudentIds;
   final List<String> absentStudentIds;
@@ -58,6 +61,7 @@ class CampCycle {
     this.specialClassCapacity,
     this.specialClassRoomId,
     this.specialClassRoomName,
+    this.excludedStudentIds = const [],
     this.unassignedStudentIds = const [],
     this.absentStudentIds = const [],
     this.underAssignedStudentIds = const [],
@@ -99,6 +103,7 @@ class CampCycle {
       'specialClassCapacity': specialClassCapacity,
       'specialClassRoomId': specialClassRoomId,
       'specialClassRoomName': specialClassRoomName,
+      'excludedStudentIds': excludedStudentIds,
       'unassignedStudentIds': unassignedStudentIds,
       'absentStudentIds': absentStudentIds,
       'underAssignedStudentIds': underAssignedStudentIds,
@@ -134,6 +139,7 @@ class CampCycle {
       specialClassCapacity: map['specialClassCapacity'],
       specialClassRoomId: map['specialClassRoomId'],
       specialClassRoomName: map['specialClassRoomName'],
+      excludedStudentIds: List<String>.from(map['excludedStudentIds'] ?? []),
       unassignedStudentIds: List<String>.from(map['unassignedStudentIds'] ?? []),
       absentStudentIds: List<String>.from(map['absentStudentIds'] ?? []),
       underAssignedStudentIds: List<String>.from(map['underAssignedStudentIds'] ?? []),
@@ -169,6 +175,7 @@ class CampCycle {
     int? specialClassCapacity,
     String? specialClassRoomId,
     String? specialClassRoomName,
+    List<String>? excludedStudentIds,
     List<String>? unassignedStudentIds,
     List<String>? absentStudentIds,
     List<String>? underAssignedStudentIds,
@@ -198,6 +205,7 @@ class CampCycle {
       specialClassCapacity: specialClassCapacity ?? this.specialClassCapacity,
       specialClassRoomId: specialClassRoomId ?? this.specialClassRoomId,
       specialClassRoomName: specialClassRoomName ?? this.specialClassRoomName,
+      excludedStudentIds: excludedStudentIds ?? this.excludedStudentIds,
       unassignedStudentIds: unassignedStudentIds ?? this.unassignedStudentIds,
       absentStudentIds: absentStudentIds ?? this.absentStudentIds,
       underAssignedStudentIds: underAssignedStudentIds ?? this.underAssignedStudentIds,

@@ -10,6 +10,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../../../services/leave_service.dart';
+import '../../../services/leave_conflict_service.dart';
 
 class LeaveManagementScreen extends StatefulWidget {
   final String? institutionId;
@@ -36,6 +37,7 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
   String _myRole = 'staff';
   bool _isLoading = true;
   DateTime _calendarMonth = DateTime.now();
+  Map<int, int> _weekdayLessonCounts = {1: 8, 2: 8, 3: 8, 4: 8, 5: 8, 6: 8, 7: 8};
 
   List<Map<String, dynamic>> _myRequests = [];
   List<Map<String, dynamic>> _allRequests = [];
@@ -91,7 +93,7 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
 
       if (mounted) {
         final bool isAdmin = _isAdminRole(_myRole);
-        _tabController = TabController(length: isAdmin ? 4 : 2, vsync: this);
+        _tabController = TabController(length: isAdmin ? 3 : 1, vsync: this);
         _tabController!.addListener(_onTabChanged);
       }
 
@@ -125,6 +127,28 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
 
       final requests = await _service.getLeaveRequests(institutionId: _myInstitutionId!);
       
+      try {
+        final periodsSnap = await FirebaseFirestore.instance
+            .collection('workPeriods')
+            .where('institutionId', isEqualTo: _myInstitutionId!)
+            .where('isActive', isEqualTo: true)
+            .get();
+        if (periodsSnap.docs.isNotEmpty) {
+          final lessonHours = periodsSnap.docs.first.data()['lessonHours'];
+          if (lessonHours != null && lessonHours['lessonTimes'] != null) {
+            const days = ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar'];
+            for (int i = 0; i < 7; i++) {
+              final times = lessonHours['lessonTimes'][days[i]] as List?;
+              if (times != null && times.isNotEmpty) {
+                _weekdayLessonCounts[i + 1] = times.length;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        print('Error loading workPeriods for lesson counts: $e');
+      }
+
       if (_allStaff.isEmpty) {
         final staffDocs = await FirebaseFirestore.instance.collection('users').where('institutionId', isEqualTo: _myInstitutionId!).get();
         _allStaff = staffDocs.docs.map((d) {
@@ -275,7 +299,7 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
           if (isAdmin) IconButton(onPressed: _exportToExcel, icon: const Icon(Icons.file_download_outlined, color: Colors.green)),
           IconButton(onPressed: _loadData, icon: const Icon(Icons.refresh_rounded)),
         ],
-        bottom: _tabController == null ? null : TabBar(
+        bottom: (_tabController == null || !_isAdminRole(_myRole)) ? null : TabBar(
           controller: _tabController,
           labelColor: const Color(0xFF6366F1),
           unselectedLabelColor: Colors.grey,
@@ -284,7 +308,6 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
           isScrollable: false,
           tabs: [
             const Tab(text: 'İzinlerim'),
-            const Tab(text: 'Bakiye'),
             if (isAdmin) const Tab(text: 'Talep Listesi'),
             if (isAdmin) const Tab(text: 'Takvim'),
           ],
@@ -293,15 +316,16 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
       body: _tabController == null ? const Center(child: CircularProgressIndicator()) : Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1400),
-          child: TabBarView(
-            controller: _tabController,
-            children: [
-              _buildMyRequestsTab(),
-              _buildBalanceTab(),
-              if (isAdmin) _buildApprovalTab(),
-              if (isAdmin) _buildCalendarTab(),
-            ],
-          ),
+          child: !_isAdminRole(_myRole)
+            ? _buildMyRequestsTab()
+            : TabBarView(
+                controller: _tabController,
+                children: [
+                  _buildMyRequestsTab(),
+                  if (isAdmin) _buildApprovalTab(),
+                  if (isAdmin) _buildCalendarTab(),
+                ],
+              ),
         ),
       ),
       floatingActionButton: _tabController?.index != 0 ? null : FloatingActionButton.extended(
@@ -880,6 +904,23 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
                 ),
               ],
             ),
+            if ((req['lessonConflicts'] ?? 0) > 0) ...[
+              const SizedBox(height: 14),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.red.shade100)),
+                child: Row(
+                  children: [
+                    const Icon(Icons.warning_amber_rounded, color: Colors.red, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text('DİKKAT: Bu izin talebi, öğretmenin ${req['lessonConflicts']} adet planlı dersi ile çakışmaktadır.', style: const TextStyle(color: Colors.red, fontSize: 12, fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             if (note.isNotEmpty) ...[
               const SizedBox(height: 14),
               Container(
@@ -1018,11 +1059,15 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
   }
 
   Future<void> _showRequestDialog() async {
-    String selectedType = 'Yıllık İzin';
+    String selectedType = 'Rapor';
     final isAdmin = _isAdminRole(_myRole);
     List<String> selectedStaffIds = isAdmin ? [] : [_myUserId!];
     DateTime start = DateTime.now();
     DateTime end = DateTime.now();
+    TimeOfDay? startTime;
+    TimeOfDay? endTime;
+    bool isFullDay = true;
+    bool isSubmitting = false;
     final noteController = TextEditingController();
 
     await showModalBottomSheet(
@@ -1073,33 +1118,106 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
                   const SizedBox(height: 20),
                 ],
 
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(isFullDay ? 'Tam Gün İzin' : 'Saatlik / Ders İzni', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF1E293B))),
+                    Switch(
+                      value: isFullDay,
+                      onChanged: (v) => setModalState(() {
+                        isFullDay = v;
+                        if (!v) end = start;
+                      }),
+                      activeColor: const Color(0xFF6366F1),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
                 const Text('İzin Detayları', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.grey)),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
                   value: selectedType,
                   decoration: InputDecoration(labelText: 'İzin Türü', filled: true, fillColor: Colors.grey.shade50, border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none)),
-                  items: ['Yıllık İzin', 'Hastalık İzni', 'Mazeret İzni', 'Ücretsiz İzin'].map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
+                  items: ['Rapor', 'Mazeret İzni', 'İdari İzin', 'Ücretsiz İzin', 'Yıllık İzin'].map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
                   onChanged: (v) => setModalState(() => selectedType = v!),
                 ),
                 const SizedBox(height: 16),
                 Row(children: [
-                  Expanded(child: InkWell(onTap: () async { final picked = await showDatePicker(context: ctx, initialDate: start, firstDate: DateTime.now().subtract(const Duration(days: 90)), lastDate: DateTime.now().add(const Duration(days: 365))); if (picked != null) setModalState(() { start = picked; if (end.isBefore(start)) end = start; }); }, child: InputDecorator(decoration: InputDecoration(labelText: 'Başlangıç', filled: true, fillColor: Colors.grey.shade50, border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none)), child: Text(DateFormat('dd MMMM yyyy', 'tr_TR').format(start), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13))))),
+                  Expanded(child: InkWell(onTap: () async { final picked = await showDatePicker(context: ctx, initialDate: start, firstDate: DateTime.now().subtract(const Duration(days: 90)), lastDate: DateTime.now().add(const Duration(days: 365))); if (picked != null) setModalState(() { start = picked; if (end.isBefore(start)) end = start; if (!isFullDay && start.difference(end).inDays != 0) isFullDay = true; }); }, child: InputDecorator(decoration: InputDecoration(labelText: 'Başlangıç', filled: true, fillColor: Colors.grey.shade50, border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none)), child: Text(DateFormat('dd MMMM yyyy', 'tr_TR').format(start), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13))))),
                   const SizedBox(width: 12),
-                  Expanded(child: InkWell(onTap: () async { final picked = await showDatePicker(context: ctx, initialDate: end, firstDate: start, lastDate: DateTime.now().add(const Duration(days: 365))); if (picked != null) setModalState(() => end = picked); }, child: InputDecorator(decoration: InputDecoration(labelText: 'Bitiş', filled: true, fillColor: Colors.grey.shade50, border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none)), child: Text(DateFormat('dd MMMM yyyy', 'tr_TR').format(end), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13))))),
+                  Expanded(child: InkWell(onTap: () async { final picked = await showDatePicker(context: ctx, initialDate: end, firstDate: start, lastDate: DateTime.now().add(const Duration(days: 365))); if (picked != null) setModalState(() { end = picked; if (!isFullDay && start.difference(end).inDays != 0) isFullDay = true; }); }, child: InputDecorator(decoration: InputDecoration(labelText: 'Bitiş', filled: true, fillColor: Colors.grey.shade50, border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none)), child: Text(DateFormat('dd MMMM yyyy', 'tr_TR').format(end), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13))))),
                 ]),
+                if (!isFullDay) ...[
+                  const SizedBox(height: 16),
+                  const Text('Saat Aralığı (Seçiniz)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.grey)),
+                  const SizedBox(height: 8),
+                  Row(children: [
+                    Expanded(child: InkWell(onTap: () async { final picked = await showTimePicker(context: ctx, initialTime: startTime ?? const TimeOfDay(hour: 8, minute: 30)); if (picked != null) setModalState(() => startTime = picked); }, child: InputDecorator(decoration: InputDecoration(labelText: 'Başlama Saati', filled: true, fillColor: Colors.grey.shade50, border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none)), child: Text(startTime?.format(ctx) ?? 'Seçiniz', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13))))),
+                    const SizedBox(width: 12),
+                    Expanded(child: InkWell(onTap: () async { final picked = await showTimePicker(context: ctx, initialTime: endTime ?? const TimeOfDay(hour: 17, minute: 00)); if (picked != null) setModalState(() => endTime = picked); }, child: InputDecorator(decoration: InputDecoration(labelText: 'Bitiş Saati', filled: true, fillColor: Colors.grey.shade50, border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none)), child: Text(endTime?.format(ctx) ?? 'Seçiniz', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13))))),
+                  ]),
+                ],
                 const SizedBox(height: 16),
                 TextField(controller: noteController, maxLines: 3, decoration: InputDecoration(labelText: 'Açıklama / Sebep', hintText: 'Durumu kısaca belirtiniz...', filled: true, fillColor: Colors.grey.shade50, border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none))),
                 const SizedBox(height: 32),
                 SizedBox(width: double.infinity, height: 60, child: ElevatedButton(
-                  onPressed: selectedStaffIds.isEmpty ? null : () async {
-                    for (var id in selectedStaffIds) {
-                      await _service.requestLeave(staffId: id, institutionId: _myInstitutionId!, leaveType: selectedType, startDate: start, endDate: end, note: noteController.text, role: _myRole);
+                  onPressed: (selectedStaffIds.isEmpty || isSubmitting) ? null : () async {
+                    setModalState(() => isSubmitting = true);
+                    try {
+                      String finalNote = noteController.text;
+                      if (!isFullDay) {
+                        if (startTime == null || endTime == null) {
+                          ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('Lütfen başlangıç ve bitiş saatlerini seçin.')));
+                          setModalState(() => isSubmitting = false);
+                          return;
+                        }
+                        final timeStr = '${startTime!.format(ctx)} - ${endTime!.format(ctx)}';
+                        finalNote = 'Saatlik İzin: $timeStr\n\n$finalNote';
+                      }
+                      for (var id in selectedStaffIds) {
+                        String? sTimeStr = isFullDay ? null : '${startTime!.hour.toString().padLeft(2, '0')}:${startTime!.minute.toString().padLeft(2, '0')}';
+                        String? eTimeStr = isFullDay ? null : '${endTime!.hour.toString().padLeft(2, '0')}:${endTime!.minute.toString().padLeft(2, '0')}';
+                        
+                        final conflicts = await LeaveConflictService().checkLessonConflicts(
+                          institutionId: _myInstitutionId!,
+                          teacherId: id,
+                          startDate: start,
+                          endDate: isFullDay ? end : start,
+                          isFullDay: isFullDay,
+                          startTime: sTimeStr,
+                          endTime: eTimeStr,
+                        );
+                        
+                        String conflictNote = '';
+                        if (conflicts.isNotEmpty) {
+                          final conflictNames = conflicts.map((c) => c['courseName'] ?? 'Ders').toList();
+                          conflictNote = '\n\n⚠️ Çakışan Dersler:\n${conflictNames.join(", ")}';
+                        }
+
+                        await _service.requestLeave(
+                          staffId: id, 
+                          institutionId: _myInstitutionId!, 
+                          leaveType: selectedType, 
+                          startDate: start, 
+                          endDate: isFullDay ? end : start, 
+                          note: (finalNote.trim() + conflictNote).trim(), 
+                          role: _myRole,
+                          isFullDay: isFullDay,
+                          startTime: sTimeStr,
+                          endTime: eTimeStr,
+                          lessonConflicts: conflicts.length,
+                        );
+                      }
+                      Navigator.pop(ctx);
+                      _loadData();
+                    } finally {
+                      if (mounted) setModalState(() => isSubmitting = false);
                     }
-                    Navigator.pop(ctx);
-                    _loadData();
                   },
                   style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF6366F1), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)), elevation: 0),
-                  child: Text(isAdmin ? 'PERSONEL İZNİNİ KAYDET' : 'TALEBİ GÖNDER', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 15, letterSpacing: 1)),
+                  child: isSubmitting 
+                    ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                    : Text(isAdmin ? 'PERSONEL İZNİNİ KAYDET' : 'TALEBİ GÖNDER', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 15, letterSpacing: 1)),
                 )),
                 const SizedBox(height: 40),
               ],

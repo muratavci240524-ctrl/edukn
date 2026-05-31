@@ -12,6 +12,7 @@ import '../guidance/guidance_test_catalog_screen.dart';
 import '../guidance/reports/development_report_management_screen.dart';
 import '../school/tasks/todo_list_screen.dart';
 import '../portfolio/portfolio_screen.dart';
+import '../../widgets/edukn_logo.dart';
 import '../school/work_calendar_screen.dart';
 import '../school/attendance_statistics_screen.dart';
 import '../school/homework/homework_operations_screen.dart';
@@ -144,32 +145,60 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     return Scaffold(
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: Colors.indigo,
+        backgroundColor: Colors.white.withOpacity(0.95),
         automaticallyImplyLeading: false,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        flexibleSpace: Stack(
           children: [
-            Text(
-              'Öğretmen İşlemleri',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            Text(
-              'Size Tanımlı Modüller',
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.8),
-                fontSize: 12,
+            Positioned(
+              left: 16,
+              top: 0,
+              bottom: 0,
+              child: Row(
+                children: [
+                  const EduKnLogo(iconSize: 28, type: EduKnLogoType.iconOnly),
+                  const SizedBox(width: 12),
+                  Text(
+                    'eduKN',
+                    style: TextStyle(
+                      color: Colors.indigo.shade900,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.5,
+                      fontSize: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Öğretmen İşlemleri',
+                        style: TextStyle(
+                          color: Colors.indigo.shade900,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        'Size Tanımlı Modüller',
+                        style: TextStyle(
+                          color: Colors.indigo.shade400,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
           ],
         ),
         actions: [
           PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert, color: Colors.white),
-            tooltip: 'İşlemler',
+            offset: const Offset(0, 48),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            elevation: 8,
+            shadowColor: Colors.black.withOpacity(0.12),
             onSelected: (value) {
               if (value == 'profile') {
                 Navigator.push(
@@ -190,233 +219,78 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
               }
             },
             itemBuilder: (BuildContext context) => [
-              const PopupMenuItem<String>(
+              PopupMenuItem<String>(
                 value: 'profile',
                 child: Row(
                   children: [
-                    Icon(Icons.person_outline, color: Colors.indigo),
-                    SizedBox(width: 8),
-                    Text('Profilim'),
+                    Container(padding: const EdgeInsets.all(7), decoration: BoxDecoration(color: Colors.indigo.shade50, borderRadius: BorderRadius.circular(8)), child: Icon(Icons.person_outline_rounded, color: Colors.indigo.shade700, size: 18)),
+                    const SizedBox(width: 12),
+                    const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text('Profilim', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                      Text('Profili Düzenle', style: TextStyle(fontSize: 11, color: Colors.blueGrey)),
+                    ]),
                   ],
                 ),
               ),
-              const PopupMenuItem<String>(
+              const PopupMenuDivider(),
+              PopupMenuItem<String>(
                 value: 'qr_scan',
                 child: Row(
                   children: [
-                    Icon(Icons.qr_code_scanner_rounded, color: Colors.indigo),
-                    SizedBox(width: 8),
-                    Text('Giriş/Çıkış (QR)'),
+                    Container(padding: const EdgeInsets.all(7), decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(8)), child: Icon(Icons.qr_code_scanner_rounded, color: Colors.orange.shade700, size: 18)),
+                    const SizedBox(width: 12),
+                    const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text('Giriş / Çıkış (QR)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                      Text('Kamera ile QR tarama', style: TextStyle(fontSize: 11, color: Colors.blueGrey)),
+                    ]),
                   ],
                 ),
               ),
-              const PopupMenuItem<String>(
+              const PopupMenuDivider(),
+              PopupMenuItem<String>(
                 value: 'logout',
                 child: Row(
                   children: [
-                    Icon(Icons.logout, color: Colors.red),
-                    SizedBox(width: 8),
-                    Text('Çıkış Yap', style: TextStyle(color: Colors.red)),
+                    Container(padding: const EdgeInsets.all(7), decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(8)), child: Icon(Icons.logout_rounded, color: Colors.red.shade600, size: 18)),
+                    const SizedBox(width: 12),
+                    Text('Çıkış Yap', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.red.shade700)),
                   ],
                 ),
               ),
             ],
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: CircleAvatar(
+                radius: 17,
+                backgroundColor: Colors.indigo.shade50,
+                child: const Icon(Icons.person, color: Colors.indigo, size: 18),
+              ),
+            ),
           ),
         ],
       ),
       body: Stack(
         children: [
-          Center(
-            child: Container(
-              constraints: BoxConstraints(maxWidth: 1200),
-              child: Column(
-                children: [
-                  _buildCategorySelector(),
-                  Expanded(
-                    child: ListView(
-                      padding: EdgeInsets.all(16),
-                      children: [
-                        // DERS PROGRAMIM KISMI - Tümü ekranında en üstte görünecek özel buton (Kullanıcının isteği)
-                        if (_selectedCategory == 'Tümü' || _selectedCategory == 'Derslerim')
-                          Card(
-                            elevation: 2,
-                            margin: EdgeInsets.only(bottom: 12),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(12),
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (ctx) => TeacherLessonsScreen(institutionId: widget.institutionId),
-                                  ),
-                                );
-                              },
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 16.0),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      padding: EdgeInsets.all(12),
-                                      decoration: BoxDecoration(
-                                        color: Colors.blue.withOpacity(0.1),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: Icon(Icons.calendar_month_rounded, color: Colors.blue, size: 28),
-                                    ),
-                                    SizedBox(width: 16),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            'Derslerim / Programım',
-                                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                                          ),
-                                          SizedBox(height: 4),
-                                          Text(
-                                            'Sadece kendi ders programınızı görüntüleyin',
-                                            style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        
-                        if (_selectedCategory == 'Tümü' || _selectedCategory == 'Öğrenci Yönetimi')
-                          _buildExpandableCategory(
-                            categoryId: 'ogrenciler',
-                            title: 'Öğrenci Yönetimi',
-                            icon: Icons.people_alt,
-                            color: Colors.green,
-                            children: [
-                              _buildModuleItem(
-                                Icons.list_alt,
-                                'Tanımlı Öğrencilerim',
-                                Colors.green,
-                                'Sadece size tanımlı olan öğrencileri listeleyin',
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (ctx) => TeacherStudentListScreen(institutionId: widget.institutionId),
-                                    ),
-                                  );
-                                },
-                              ),
-                              _buildModuleItem(
-                                Icons.folder_special, 
-                                'Öğrenci Portfolyoları', 
-                                Colors.green, 
-                                'Öğrencilerinizin durumunu inceleyin',
-                                onTap: _navigateToPortfolio,
-                              ),
-                            ],
-                          ),
-                        if (_selectedCategory == 'Tümü' || _selectedCategory == 'Öğrenci Yönetimi')
-                          SizedBox(height: 12),
-
-                        if (_selectedCategory == 'Tümü' || _selectedCategory == 'Eğitim')
-                          _buildExpandableCategory(
-                            categoryId: 'egitim',
-                            title: 'Eğitim İşlemleri',
-                            icon: Icons.school,
-                            color: Colors.orange,
-                            children: [
-                              _buildModuleItem(
-                                Icons.play_lesson, 
-                                'Ders İşleyiş Planı', 
-                                Colors.orange, 
-                                'Günlük ve yıllık planlarınızı yönetin',
-                                onTap: _navigateToWorkCalendar,
-                              ),
-                              _buildModuleItem(
-                                Icons.pie_chart_outline, 
-                                'Yoklama İstatistikleri', 
-                                Colors.orange, 
-                                'Yoklama verilerini analiz edin',
-                                onTap: _navigateToAttendanceStats,
-                              ),
-                                _buildModuleItem(
-                                  Icons.assignment_turned_in, 
-                                  'Ödev İstatistikleri', 
-                                  Colors.orange, 
-                                  'Ödev başarı ve risk analizlerini inceleyin',
-                                  onTap: _navigateToHomeworkStats,
-                                ),
-                                _buildModuleItem(
-                                  Icons.task, 
-                                  'Etüt İşlemleri', 
-                                  Colors.orange, 
-                                  'Tanımlı etütleri yönetin',
-                                  onTap: _navigateToEtutProcess,
-                                ),
-                                _buildModuleItem(
-                                  Icons.poll_outlined, 
-                                  'Anket İşlemleri', 
-                                  Colors.orange, 
-                                  'Anketlerinizi yönetin ve sonuçları inceleyin',
-                                  onTap: _navigateToSurvey,
-                                ),
-                                _buildModuleItem(
-                                  Icons.analytics_outlined, 
-                                  'Sınav Raporları', 
-                                  Colors.orange, 
-                                  'Detaylı analizleri inceleyin',
-                                  onTap: _navigateToAssessmentReports,
-                                ),
-                            ],
-                          ),
-                        if (_selectedCategory == 'Tümü' || _selectedCategory == 'Eğitim')
-                          SizedBox(height: 12),
-
-                        if (_selectedCategory == 'Tümü' || _selectedCategory == 'Rehberlik')
-                          _buildExpandableCategory(
-                            categoryId: 'rehberlik',
-                            title: 'Rehberlik İşlemleri',
-                            icon: Icons.folder_special,
-                            color: Colors.deepPurple,
-                            children: [
-                              _buildModuleItem(Icons.connect_without_contact, 'Görüşmeler', Colors.deepPurple, 'Geçmiş görüşmelerinizi inceleyin', onTap: _navigateToGuidanceInterview),
-                              _buildModuleItem(Icons.visibility, 'Gözlem ve Etkinlik İşlemleri', Colors.deepPurple, 'Gözlem ve etkinlikleri görüntüleyin', onTap: _navigateToGuidanceActivity),
-                              _buildModuleItem(Icons.edit_calendar, 'Ders Çalışma Programı', Colors.deepPurple, 'Kendi şubelerinizin programları', onTap: _navigateToSavedStudyPrograms),
-                              _buildModuleItem(Icons.assignment_turned_in, 'Rehberlik Envanterleri', Colors.deepPurple, 'Envanter işlemlerini gerçekleştirin', onTap: _navigateToGuidanceTestCatalog),
-                              _buildModuleItem(Icons.local_library, 'Rehberlik Kütüphanesi', Colors.deepPurple, 'Kütüphane dökümanları', onTap: _navigateToGuidanceLibrary),
-                              _buildModuleItem(Icons.analytics, '360 Gelişim Raporları', Colors.deepPurple, 'Size yönlendirilen raporları yorumlayın', onTap: _navigateToDevelopmentReports),
-                            ],
-                          ),
-                        if (_selectedCategory == 'Tümü' || _selectedCategory == 'Rehberlik')
-                          SizedBox(height: 12),
-
-                          
-                        if (_selectedCategory == 'Tümü' || _selectedCategory == 'Görev')
-                          _buildExpandableCategory(
-                            categoryId: 'gorev',
-                            title: 'Görevlendirme ve İzin',
-                            icon: Icons.assignment_ind,
-                            color: Colors.brown,
-                            children: [
-                              _buildModuleItem(Icons.security, 'Nöbetlerim', Colors.brown, 'Nöbet bilgilerinizi görün', onTap: _navigateToTeacherDuty),
-                              _buildModuleItem(Icons.time_to_leave, 'İzin İşlemleri', Colors.brown, 'İzin talep edin ve geçmişi görün', onTap: _navigateToLeaveManagement),
-                              _buildModuleItem(Icons.playlist_add_check, 'Yapılacaklar (To-Do)', Colors.brown, 'Görevlerinizi yönetin', onTap: _navigateToTodoList),
-                              _buildModuleItem(Icons.qr_code_scanner, 'Giriş-Çıkış (QR)', Colors.brown, 'QR kod okutarak mesai başlat/bitir', onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(builder: (_) => const TeacherQrScanScreen()),
-                                );
-                              }),
-                              _buildModuleItem(Icons.map_outlined, 'Gezi Görevlendirmeleri', Colors.brown, 'Gezi planlarını yönetin', onTap: _navigateToFieldTrip),
-                            ],
-                          ),
-                      ],
-                    ),
+          Positioned.fill(
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              child: Center(
+                child: Container(
+                  constraints: const BoxConstraints(maxWidth: 1400),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: MediaQuery.of(context).size.width < 768 ? 16 : 24, 
+                    vertical: MediaQuery.of(context).size.width < 768 ? 24 : 32
                   ),
-                ],
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildCategorySelector(),
+                      const SizedBox(height: 24),
+                      _buildGridSections(MediaQuery.of(context).size.width < 768),
+                      const SizedBox(height: 32),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
@@ -1495,119 +1369,123 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     );
   }
 
-  Widget _buildExpandableCategory({
-    required String categoryId,
-    required String title,
-    required IconData icon,
-    required Color color,
-    required List<Widget> children,
-  }) {
-    final isExpanded = _expandedCategory == categoryId || _selectedCategory == title;
+  Widget _buildGridSections(bool isMobile) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final contentWidth = screenWidth > 1400 ? 1400.0 : screenWidth;
+    final availableWidth = contentWidth - (isMobile ? 32 : 48);
 
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Column(
-        children: [
-          InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: () {
-              setState(() {
-                if (isExpanded) {
-                  _expandedCategory = null;
-                } else {
-                  _expandedCategory = categoryId;
-                }
-              });
-            },
-            child: Padding(
-              padding: EdgeInsets.all(16),
-              child: Row(
-                children: [
-                   Container(
-                    padding: EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: color.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(icon, color: color, size: 28),
-                  ),
-                  SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          '${children.length} İşlem Modülü',
-                          style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Icon(
-                    isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-                    color: Colors.grey.shade600,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (isExpanded)
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.grey.shade50,
-                borderRadius: BorderRadius.only(
-                  bottomLeft: Radius.circular(12),
-                  bottomRight: Radius.circular(12),
-                ),
-              ),
-              child: Column(
-                children: children,
-              ),
-            ),
+    final isFiltered = _selectedCategory != 'Tümü';
+    double cardWidth;
+    if (isFiltered) {
+      cardWidth = availableWidth;
+    } else if (availableWidth > 1000) {
+      cardWidth = (availableWidth - 48) / 3;
+    } else if (availableWidth > 700) {
+      cardWidth = (availableWidth - 24) / 2;
+    } else {
+      cardWidth = availableWidth;
+    }
+
+    final List<_ModuleCardWidget> allModules = [
+      _ModuleCardWidget(
+        title: 'DERSLERİM',
+        badge: 'Akademik',
+        icon: Icons.calendar_month_rounded,
+        color: Colors.blue,
+        cardWidth: cardWidth,
+        isMobile: isMobile,
+        category: 'Derslerim',
+        showAllItems: isFiltered,
+        items: [
+          {'title': 'Derslerim', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (ctx) => TeacherLessonsScreen(institutionId: widget.institutionId)))},
         ],
+        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (ctx) => TeacherLessonsScreen(institutionId: widget.institutionId))),
+        buttonLabel: 'DERSLERİ GÖR',
       ),
-    );
-  }
+      _ModuleCardWidget(
+        title: 'ÖĞRENCİ YÖNETİMİ',
+        badge: 'Öğrenci',
+        icon: Icons.people_alt,
+        color: Colors.green,
+        cardWidth: cardWidth,
+        isMobile: isMobile,
+        category: 'Öğrenci Yönetimi',
+        showAllItems: isFiltered,
+        items: [
+          {'title': 'Tanımlı Öğrencilerim', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (ctx) => TeacherStudentListScreen(institutionId: widget.institutionId)))},
+          {'title': 'Öğrenci Portfolyoları', 'onTap': _navigateToPortfolio},
+        ],
+        onTap: () => setState(() => _selectedCategory = 'Öğrenci Yönetimi'),
+      ),
+      _ModuleCardWidget(
+        title: 'EĞİTİM İŞLEMLERİ',
+        badge: 'Eğitim',
+        icon: Icons.school,
+        color: Colors.orange,
+        cardWidth: cardWidth,
+        isMobile: isMobile,
+        category: 'Eğitim',
+        showAllItems: isFiltered,
+        items: [
+          {'title': 'Ders İşleyiş Planı', 'onTap': _navigateToWorkCalendar},
+          {'title': 'Yoklama İstatistikleri', 'onTap': _navigateToAttendanceStats},
+          {'title': 'Ödev İstatistikleri', 'onTap': _navigateToHomeworkStats},
+          {'title': 'Etüt İşlemleri', 'onTap': _navigateToEtutProcess},
+          {'title': 'Anket İşlemleri', 'onTap': _navigateToSurvey},
+          {'title': 'Sınav Raporları', 'onTap': _navigateToAssessmentReports},
+        ],
+        onTap: () => setState(() => _selectedCategory = 'Eğitim'),
+      ),
+      _ModuleCardWidget(
+        title: 'REHBERLİK İŞLEMLERİ',
+        badge: 'Rehberlik',
+        icon: Icons.folder_special,
+        color: Colors.deepPurple,
+        cardWidth: cardWidth,
+        isMobile: isMobile,
+        category: 'Rehberlik',
+        showAllItems: isFiltered,
+        items: [
+          {'title': 'Görüşmeler', 'onTap': _navigateToGuidanceInterview},
+          {'title': 'Gözlem ve Etkinlik İşlemleri', 'onTap': _navigateToGuidanceActivity},
+          {'title': 'Ders Çalışma Programı', 'onTap': _navigateToSavedStudyPrograms},
+          {'title': 'Rehberlik Envanterleri', 'onTap': _navigateToGuidanceTestCatalog},
+          {'title': 'Rehberlik Kütüphanesi', 'onTap': _navigateToGuidanceLibrary},
+          {'title': '360 Gelişim Raporları', 'onTap': _navigateToDevelopmentReports},
+        ],
+        onTap: () => setState(() => _selectedCategory = 'Rehberlik'),
+      ),
+      _ModuleCardWidget(
+        title: 'GÖREVLENDİRME VE İZİN',
+        badge: 'Görev',
+        icon: Icons.assignment_ind,
+        color: Colors.brown,
+        cardWidth: cardWidth,
+        isMobile: isMobile,
+        category: 'Görev',
+        showAllItems: isFiltered,
+        items: [
+          {'title': 'Nöbetlerim', 'onTap': _navigateToTeacherDuty},
+          {'title': 'İzin İşlemleri', 'onTap': _navigateToLeaveManagement},
+          {'title': 'Yapılacaklar (To-Do)', 'onTap': _navigateToTodoList},
+          {'title': 'Giriş-Çıkış (QR)', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TeacherQrScanScreen()))},
+          {'title': 'Gezi Görevlendirmeleri', 'onTap': _navigateToFieldTrip},
+        ],
+        onTap: () => setState(() => _selectedCategory = 'Görev'),
+      ),
+    ];
 
-  Widget _buildModuleItem(IconData icon, String title, Color color, String subtitle, {VoidCallback? onTap}) {
-    return InkWell(
-      onTap: onTap ?? () {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$title Sayfası (Öğretmene Özel)')));
-      },
-      child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(
-          children: [
-            Icon(icon, color: color, size: 20),
-            SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey.shade800),
-                  ),
-                  if (subtitle.isNotEmpty) ...[
-                    SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-                    )
-                  ]
-                ],
-              ),
-            ),
-            Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey.shade400),
-          ],
-        ),
-      ),
+    final filteredModules = (_selectedCategory == 'Tümü' 
+        ? allModules 
+        : allModules.where((m) => m.category == _selectedCategory).toList())
+        .where((m) => m.items.isNotEmpty)
+        .toList();
+
+    return Wrap(
+      key: ValueKey('grid_${_selectedCategory}_$isMobile'),
+      spacing: 24,
+      runSpacing: 24,
+      children: filteredModules,
     );
   }
 
@@ -1647,4 +1525,187 @@ class _MouseDraggableScrollBehavior extends MaterialScrollBehavior {
         PointerDeviceKind.mouse,
         PointerDeviceKind.trackpad,
       };
+}
+
+class _ModuleCardWidget extends StatefulWidget {
+  final String title;
+  final String badge;
+  final IconData icon;
+  final Color color;
+  final List<Map<String, dynamic>> items;
+  final VoidCallback onTap;
+  final double cardWidth;
+  final bool isMobile;
+  final String? buttonLabel;
+  final String category;
+  final bool showAllItems;
+
+  const _ModuleCardWidget({
+    Key? key,
+    required this.title,
+    required this.badge,
+    required this.icon,
+    required this.color,
+    required this.items,
+    required this.onTap,
+    required this.cardWidth,
+    required this.isMobile,
+    this.buttonLabel,
+    required this.category,
+    this.showAllItems = false,
+  }) : super(key: key);
+  @override State<_ModuleCardWidget> createState() => _ModuleCardWidgetState();
+}
+
+class _ModuleCardWidgetState extends State<_ModuleCardWidget> {
+  bool isCardHovered = false; int? hoveredItemIndex;
+  @override Widget build(BuildContext context) {
+    final displayedItems = widget.showAllItems ? widget.items : widget.items.take(3).toList(); final remainingCount = widget.items.length - displayedItems.length; final String label = remainingCount > 0 ? '+$remainingCount işlem daha görüntüle' : (widget.buttonLabel ?? 'GÖRÜNTÜLE');
+    return MouseRegion(
+      onEnter: (_) => setState(() => isCardHovered = true),
+      onExit: (_) => setState(() => isCardHovered = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        width: widget.cardWidth,
+        height: (widget.isMobile || widget.showAllItems) ? null : 380,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(isCardHovered || widget.showAllItems ? 0.08 : 0.03),
+              blurRadius: isCardHovered || widget.showAllItems ? 30 : 20,
+              offset: const Offset(0, 10),
+            ),
+          ],
+          border: Border.all(
+            color: isCardHovered || widget.showAllItems ? widget.color.withOpacity(0.3) : Colors.indigo.withOpacity(0.05),
+            width: 1.5,
+          ),
+        ),
+        padding: EdgeInsets.all(widget.isMobile ? 20 : 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: widget.color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Icon(widget.icon, color: widget.color, size: 28),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: widget.color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    widget.badge,
+                    style: TextStyle(
+                      color: widget.color,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 28),
+            Text(
+              widget.title,
+              style: TextStyle(
+                fontSize: widget.isMobile ? 18 : 22,
+                fontWeight: FontWeight.w900,
+                color: const Color(0xFF1E293B),
+                letterSpacing: -0.5,
+              ),
+            ),
+            const SizedBox(height: 24),
+            ListView.builder(
+              shrinkWrap: true,
+              padding: EdgeInsets.zero,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: displayedItems.length,
+              itemBuilder: (context, index) {
+                final item = displayedItems[index];
+                final isHovered = hoveredItemIndex == index;
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12.0),
+                  child: MouseRegion(
+                    onEnter: (_) => setState(() => hoveredItemIndex = index),
+                    onExit: (_) => setState(() => hoveredItemIndex = null),
+                    child: InkWell(
+                      onTap: item['onTap'] as VoidCallback,
+                      borderRadius: BorderRadius.circular(8),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4.0),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: BoxDecoration(
+                                color: isHovered ? widget.color : Colors.blueGrey.shade200,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                item['title'] as String,
+                                style: TextStyle(
+                                  color: isHovered ? widget.color : Colors.blueGrey.shade600,
+                                  fontSize: 14,
+                                  fontWeight: isHovered ? FontWeight.w900 : FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            Icon(
+                              Icons.chevron_right_rounded,
+                              size: 16,
+                              color: isHovered ? widget.color : Colors.blueGrey.shade300,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+            if (!widget.isMobile && !widget.showAllItems) const Spacer(),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: widget.onTap,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: isCardHovered ? widget.color : const Color(0xFFF1F5F9),
+                  foregroundColor: isCardHovered ? Colors.white : Colors.blueGrey.shade700,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(vertical: 18),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                ),
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

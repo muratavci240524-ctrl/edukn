@@ -60,11 +60,11 @@ flutter:
     - assets/images/
 
 flutter_launcher_icons:
-  image_path: "assets/images/logo_icon_only.png"
+  image_path: "assets/images/google_auth_logo_light.png"
   android: "ic_launcher"
   ios: true
   web:
     generate: true
-    image_path: "assets/images/logo_icon_only.png"
+    image_path: "assets/images/google_auth_logo_light.png"
     background_color: "#ffffff"
     theme_color: "#ffffff"

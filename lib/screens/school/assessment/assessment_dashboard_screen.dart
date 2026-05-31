@@ -9,6 +9,7 @@ import '../../../models/assessment/trial_exam_model.dart';
 import '../../../models/assessment/outcome_list_model.dart';
 import 'error_booklet/error_booklet_dashboard_screen.dart';
 import 'question_pool/question_pool_screen.dart';
+import 'external_exam/external_exam_list_screen.dart';
 
 class AssessmentDashboardScreen extends StatefulWidget {
   final String institutionId;
@@ -51,8 +52,6 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header Removed (Title moved to AppBar)
-                
                 // Row 1: Tanımlar & Raporlar
                 LayoutBuilder(
                   builder: (context, constraints) {
@@ -78,7 +77,7 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
                     }
                   },
                 ),
-                
+
                 const SizedBox(height: 24),
 
                 // Row 2: Denemeler & Sınavlar
@@ -136,7 +135,7 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
                     }
                   },
                 ),
-                
+
                 const SizedBox(height: 24),
 
                 // Row 3: Hata Kitapçığı
@@ -180,6 +179,11 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
                   },
                   actions: ['Test', 'Deneme Sınavı', 'Ödev'],
                 ),
+
+                const SizedBox(height: 24),
+
+                // Row 5: Dış Katılımlı Sınav
+                _buildExternalExamCard(),
               ],
             ),
           ),
@@ -212,7 +216,7 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
             style: GoogleFonts.inter(fontSize: 14, color: Colors.grey.shade500, height: 1.5),
           ),
           const SizedBox(height: 32),
-          
+
           StreamBuilder<int>(
             stream: _assessmentService.getExamTypes(widget.institutionId).map((list) => list.length),
             builder: (context, typeSnapshot) {
@@ -222,7 +226,6 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
                   return StreamBuilder<List<dynamic>>(
                     stream: _assessmentService.getOutcomeLists(widget.institutionId),
                     builder: (context, outcomeSnapshot) {
-                      // Calculate total outcomes across all lists
                       int totalOutcomesCount = 0;
                       if (outcomeSnapshot.hasData && outcomeSnapshot.data != null) {
                         for (final list in outcomeSnapshot.data!) {
@@ -231,7 +234,7 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
                           }
                         }
                       }
-                      
+
                       return Wrap(
                         spacing: 16,
                         runSpacing: 16,
@@ -241,13 +244,13 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
                           _buildStatBox('KAZANIM', _formatDataCount(totalOutcomesCount)),
                         ],
                       );
-                    }
+                    },
                   );
-                }
+                },
               );
-            }
+            },
           ),
-          
+
           const SizedBox(height: 48),
           TextButton.icon(
             onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (ctx) => AssessmentDefinitionsScreen(institutionId: widget.institutionId))),
@@ -388,21 +391,141 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
                 builder: (context, snapshot) {
                   final activeCount = snapshot.data?.where((e) => e.isPublished).length ?? 0;
                   final launchedCount = snapshot.data?.where((e) => e.isLaunched).length ?? 0;
-                  
+
                   return Row(
                     children: [
-                       Container(
-                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                         decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(20)),
-                         child: Text('$activeCount AKTİF', style: const TextStyle(color: Colors.blue, fontSize: 10, fontWeight: FontWeight.bold)),
-                       ),
-                       const SizedBox(width: 12),
-                       Text('Şu an devam eden $launchedCount sınav var', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(20)),
+                        child: Text('$activeCount AKTİF', style: const TextStyle(color: Colors.blue, fontSize: 10, fontWeight: FontWeight.bold)),
+                      ),
+                      const SizedBox(width: 12),
+                      Text('Şu an devam eden $launchedCount sınav var', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
                     ],
                   );
-                }
+                },
               ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExternalExamCard() {
+    return InkWell(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (ctx) => ExternalExamListScreen(
+            institutionId: widget.institutionId,
+            schoolTypeId: widget.schoolTypeId,
+          ),
+        ),
+      ),
+      borderRadius: BorderRadius.circular(24),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          gradient: const LinearGradient(
+            colors: [Color(0xFFFF8F00), Color(0xFFF57C00)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.orange.withOpacity(0.3),
+              blurRadius: 20,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.all(28),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.emoji_events_rounded,
+                      color: Colors.white,
+                      size: 26,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    'Dış Katılımlı Sınav',
+                    style: GoogleFonts.inter(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Bursluluk, prova ve deneme sınavları için başvuru yönetimi, salon planlaması ve giriş belgesi oluşturun.',
+                    style: GoogleFonts.inter(
+                      fontSize: 13,
+                      color: Colors.white.withOpacity(0.85),
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _buildWhiteChip('Başvuru Yönetimi'),
+                      _buildWhiteChip('Salon Planı'),
+                      _buildWhiteChip('Giriş Belgesi'),
+                      _buildWhiteChip('SMS & E-posta'),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 20),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Text(
+                'Aç',
+                style: GoogleFonts.inter(
+                  color: const Color(0xFFF57C00),
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWhiteChip(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(0.3)),
+      ),
+      child: Text(
+        label,
+        style: GoogleFonts.inter(
+          fontSize: 11,
+          color: Colors.white,
+          fontWeight: FontWeight.w600,
         ),
       ),
     );

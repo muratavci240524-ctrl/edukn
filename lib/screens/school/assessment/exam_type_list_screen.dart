@@ -69,18 +69,21 @@ class _ExamTypeListScreenState extends State<ExamTypeListScreen> {
         if (isMobile) {
           return Scaffold(
             appBar: AppBar(
-              backgroundColor: Colors.indigo,
+              backgroundColor: Colors.orange,
               foregroundColor: Colors.white,
               elevation: 0,
+              iconTheme: const IconThemeData(color: Colors.white),
+              leading: const BackButton(color: Colors.white),
               title: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: const [
-                  Text('Sınav Türleri'),
+                  Text('Sınav Türleri', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                   Text(
                     'Tanımlar',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.normal,
+                      color: Colors.white70,
                     ),
                   ),
                 ],
@@ -100,9 +103,11 @@ class _ExamTypeListScreenState extends State<ExamTypeListScreen> {
                   MaterialPageRoute(
                     builder: (context) => Scaffold(
                       appBar: AppBar(
-                        title: const Text('Yeni Sınav Türü'),
-                        backgroundColor: Colors.indigo,
+                        title: const Text('Yeni Sınav Türü', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                        backgroundColor: Colors.orange,
                         foregroundColor: Colors.white,
+                        iconTheme: const IconThemeData(color: Colors.white),
+                        leading: const BackButton(color: Colors.white),
                         elevation: 0,
                       ),
                       body: ExamTypeForm(
@@ -113,15 +118,19 @@ class _ExamTypeListScreenState extends State<ExamTypeListScreen> {
                   ),
                 );
               },
-              child: Icon(Icons.add),
+              backgroundColor: Colors.orange,
+              foregroundColor: Colors.white,
+              child: const Icon(Icons.add),
             ),
           );
         } else {
           return Scaffold(
             appBar: AppBar(
-              title: const Text('Sınav Türleri Yönetimi'),
-              backgroundColor: Colors.indigo,
+              title: const Text('Sınav Türleri Yönetimi', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              backgroundColor: Colors.orange,
               foregroundColor: Colors.white,
+              iconTheme: const IconThemeData(color: Colors.white),
+              leading: const BackButton(color: Colors.white),
               elevation: 0,
             ),
             body: Row(
@@ -139,16 +148,16 @@ class _ExamTypeListScreenState extends State<ExamTypeListScreen> {
                   child: Column(
                     children: [
                       _buildLeftPanelHeader(isMobile: false),
-                      SizedBox(height: 8),
+                      const SizedBox(height: 8),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16.0),
                         child: ElevatedButton.icon(
                           onPressed: _onCreateNew,
-                          icon: Icon(Icons.add),
-                          label: Text('Yeni Sınav Türü Ekle'),
+                          icon: const Icon(Icons.add),
+                          label: const Text('Yeni Sınav Türü Ekle'),
                           style: ElevatedButton.styleFrom(
-                            minimumSize: Size(double.infinity, 45),
-                            backgroundColor: Colors.indigo,
+                            minimumSize: const Size(double.infinity, 45),
+                            backgroundColor: Colors.orange,
                             foregroundColor: Colors.white,
                           ),
                         ),
@@ -202,22 +211,22 @@ class _ExamTypeListScreenState extends State<ExamTypeListScreen> {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Colors.indigo.shade600, Colors.indigo.shade400],
+          colors: [Colors.orange.shade600, Colors.orange.shade400],
         ),
-        borderRadius: BorderRadius.only(
+        borderRadius: const BorderRadius.only(
           bottomLeft: Radius.circular(20),
           bottomRight: Radius.circular(20),
         ),
       ),
-      padding: EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.assignment, color: Colors.white, size: 20),
-              SizedBox(width: 8),
-              Text(
+              const Icon(Icons.assignment, color: Colors.white, size: 20),
+              const SizedBox(width: 8),
+              const Text(
                 'Sınav Türleri',
                 style: TextStyle(
                   color: Colors.white,
@@ -225,20 +234,20 @@ class _ExamTypeListScreenState extends State<ExamTypeListScreen> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              Spacer(),
+              const Spacer(),
               StreamBuilder<List<ExamType>>(
                 stream: _getStream(),
                 builder: (context, snapshot) {
                   final count = snapshot.hasData ? snapshot.data!.length : 0;
                   return Container(
-                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.3),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
                       '$count',
-                      style: TextStyle(
+                      style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
                       ),
@@ -248,28 +257,28 @@ class _ExamTypeListScreenState extends State<ExamTypeListScreen> {
               ),
             ],
           ),
-          SizedBox(height: 12),
+          const SizedBox(height: 12),
           TextField(
             controller: _searchController,
-            style: TextStyle(color: Colors.white),
+            style: const TextStyle(color: Colors.white),
             decoration: InputDecoration(
               isDense: true,
               hintText: 'Sınav türü ara...',
-              hintStyle: TextStyle(color: Colors.white70),
-              prefixIcon: Icon(Icons.search, size: 20, color: Colors.white70),
+              hintStyle: const TextStyle(color: Colors.white70),
+              prefixIcon: const Icon(Icons.search, size: 20, color: Colors.white70),
               filled: true,
               fillColor: Colors.white.withOpacity(0.2),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(25),
                 borderSide: BorderSide.none,
               ),
-              contentPadding: EdgeInsets.symmetric(
+              contentPadding: const EdgeInsets.symmetric(
                 horizontal: 16,
                 vertical: 12,
               ),
             ),
           ),
-          SizedBox(height: 12),
+          const SizedBox(height: 12),
           // Filter Chips (Placeholder to match look)
           Row(children: [_buildFilterChip('Tümü', true, () {})]),
         ],
@@ -281,7 +290,7 @@ class _ExamTypeListScreenState extends State<ExamTypeListScreen> {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           color: isSelected ? Colors.white : Colors.white.withOpacity(0.2),
           borderRadius: BorderRadius.circular(20),
@@ -290,7 +299,7 @@ class _ExamTypeListScreenState extends State<ExamTypeListScreen> {
           label,
           textAlign: TextAlign.center,
           style: TextStyle(
-            color: isSelected ? Colors.indigo : Colors.white,
+            color: isSelected ? Colors.orange : Colors.white,
             fontSize: 13,
             fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
           ),
@@ -304,12 +313,12 @@ class _ExamTypeListScreenState extends State<ExamTypeListScreen> {
       stream: _getStream(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return Center(child: CircularProgressIndicator());
+          return const Center(child: CircularProgressIndicator());
         }
         if (snapshot.hasError) {
           if (snapshot.error.toString().contains('permission-denied')) {
-            return Padding(
-              padding: const EdgeInsets.all(16.0),
+            return const Padding(
+              padding: EdgeInsets.all(16.0),
               child: Center(
                 child: Text(
                   'Yetki Hatası: Lütfen veritabanı kurallarını kontrol edin.',
@@ -318,7 +327,7 @@ class _ExamTypeListScreenState extends State<ExamTypeListScreen> {
               ),
             );
           }
-          return Center(child: Text('Hata oluştu.'));
+          return const Center(child: Text('Hata oluştu.'));
         }
 
         var types = snapshot.data ?? [];
@@ -334,54 +343,54 @@ class _ExamTypeListScreenState extends State<ExamTypeListScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Icon(Icons.search_off, size: 48, color: Colors.grey[300]),
-                SizedBox(height: 16),
-                Text('Kayıt bulunamadı.', style: TextStyle(color: Colors.grey)),
+                const SizedBox(height: 16),
+                const Text('Kayıt bulunamadı.', style: TextStyle(color: Colors.grey)),
               ],
             ),
           );
         }
 
         return ListView.builder(
-          padding: EdgeInsets.symmetric(horizontal: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
           itemCount: types.length,
           itemBuilder: (context, index) {
             final type = types[index];
             final isSelected = !isMobile && _selectedExamType?.id == type.id;
 
             return Card(
-              margin: EdgeInsets.only(bottom: 8),
+              margin: const EdgeInsets.only(bottom: 8),
               elevation: isSelected ? 2 : 1,
-              color: isSelected ? Colors.indigo[50] : Colors.white,
+              color: isSelected ? Colors.orange[50] : Colors.white,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
                 side: isSelected
-                    ? BorderSide(color: Colors.indigo, width: 1.5)
+                    ? const BorderSide(color: Colors.orange, width: 1.5)
                     : BorderSide.none,
               ),
               child: ListTile(
-                contentPadding: EdgeInsets.symmetric(
+                contentPadding: const EdgeInsets.symmetric(
                   horizontal: 16,
                   vertical: 4,
                 ),
                 leading: CircleAvatar(
                   backgroundColor: isSelected
-                      ? Colors.indigo
-                      : Colors.indigo[50],
+                      ? Colors.orange
+                      : Colors.orange[50],
                   child: Icon(
                     Icons.assignment,
-                    color: isSelected ? Colors.white : Colors.indigo,
+                    color: isSelected ? Colors.white : Colors.orange,
                   ),
                 ),
                 title: Text(
                   type.name,
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                 ),
                 subtitle: Text(
                   '${type.subjects.length} Ders • ${type.optionCount} Şık',
-                  style: TextStyle(fontSize: 12),
+                  style: const TextStyle(fontSize: 12),
                 ),
                 trailing: isSelected
-                    ? Icon(Icons.check_circle, color: Colors.indigo)
+                    ? const Icon(Icons.check_circle, color: Colors.orange)
                     : Icon(Icons.chevron_right, color: Colors.grey[300]),
                 onTap: () {
                   if (isMobile) {
@@ -390,9 +399,11 @@ class _ExamTypeListScreenState extends State<ExamTypeListScreen> {
                       MaterialPageRoute(
                         builder: (context) => Scaffold(
                           appBar: AppBar(
-                            title: Text(type.name),
-                            backgroundColor: Colors.indigo,
+                            title: Text(type.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                            backgroundColor: Colors.orange,
                             foregroundColor: Colors.white,
+                            iconTheme: const IconThemeData(color: Colors.white),
+                            leading: const BackButton(color: Colors.white),
                             elevation: 0,
                           ),
                           body: ExamTypeForm(
