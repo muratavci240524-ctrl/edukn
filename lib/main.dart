@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:google_fonts/google_fonts.dart'; // Modern fontlar için
 import 'package:intl/date_symbol_data_local.dart'; // For localized dates
+import 'package:flutter_web_plugins/url_strategy.dart';
 import 'screens/super_admin/admin_login_screen.dart';
 import 'screens/super_admin/admin_dashboard_screen.dart';
 import 'screens/school/school_login_screen.dart';
@@ -34,6 +35,7 @@ import 'services/notification_service.dart';
 
 // --- Firebase'i uygulama başlamadan önce başlat ---
 void main() async {
+  usePathUrlStrategy();
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('tr_TR', null);
 
@@ -193,7 +195,6 @@ class MyApp extends StatelessWidget {
       routes: {
         '/school-login': (context) => SchoolLoginScreen(),
         '/school-dashboard': (context) => SchoolDashboardV2Screen(), // Yeni sürüm (Deneme)
-        // '/school-dashboard': (context) => SchoolDashboardScreen(), // Eski sürüm (Yedek)
         '/profile-settings': (context) => ProfileSettingsScreen(),
         '/student-registration': (context) => StudentRegistrationScreen(),
         '/pre-registration': (context) => PreRegistrationScreen(),
@@ -210,15 +211,60 @@ class MyApp extends StatelessWidget {
         '/permission-definition': (context) => const PermissionDefinitionScreen(),
         '/app-settings': (context) => const AppSettingsScreen(),
         '/sms-settings': (context) => const SmsIntegrationScreen(),
-        '/external-exam-register': (context) => ExternalExamRegisterScreen(
-              examId: Uri.base.queryParameters['examId'] ?? '',
-            ),
+        '/sinav-basvuru': (context) => const ExternalExamRegisterScreen(),
         '/kvkk-detail': (context) => const KvkkDetailScreen(),
         '/parent-student-selection': (context) => ParentStudentSelectionScreen(
               institutionId: '',
               parentTcNo: '',
               students: [],
             ),
+      },
+      onGenerateRoute: (settings) {
+        final uri = Uri.parse(settings.name ?? '');
+        final path = uri.path;
+
+        // Extract routes map for query parameter handling
+        final Map<String, WidgetBuilder> appRoutes = {
+          '/school-login': (context) => SchoolLoginScreen(),
+          '/school-dashboard': (context) => SchoolDashboardV2Screen(),
+          '/profile-settings': (context) => ProfileSettingsScreen(),
+          '/student-registration': (context) => StudentRegistrationScreen(),
+          '/pre-registration': (context) => PreRegistrationScreen(),
+          '/accounting': (context) => AccountingDashboardScreen(),
+          '/terms': (context) => TermsScreen(),
+          '/school-types': (context) => SchoolTypesScreen(),
+          '/user-management': (context) => UserManagementScreen(),
+          '/school-type-stats': (context) => SchoolTypeStatsScreen(),
+          '/admin-login': (context) => AdminLoginScreen(),
+          '/admin-dashboard': (context) => AdminDashboardScreen(),
+          '/hr': (context) => const HrHomeScreen(),
+          '/announcements': (context) => const AnnouncementsScreen(),
+          '/support-services': (context) => const SupportServicesHubScreen(),
+          '/permission-definition': (context) => const PermissionDefinitionScreen(),
+          '/app-settings': (context) => const AppSettingsScreen(),
+          '/sms-settings': (context) => const SmsIntegrationScreen(),
+          '/sinav-basvuru': (context) => const ExternalExamRegisterScreen(),
+          '/kvkk-detail': (context) => const KvkkDetailScreen(),
+          '/parent-student-selection': (context) => ParentStudentSelectionScreen(
+                institutionId: '',
+                parentTcNo: '',
+                students: [],
+              ),
+        };
+
+        if (appRoutes.containsKey(path)) {
+          return MaterialPageRoute(
+            builder: (context) {
+              if (path == '/sinav-basvuru') {
+                final examId = uri.queryParameters['examId'];
+                return ExternalExamRegisterScreen(examId: examId);
+              }
+              return appRoutes[path]!(context);
+            },
+            settings: settings,
+          );
+        }
+        return null;
       },
     );
   }

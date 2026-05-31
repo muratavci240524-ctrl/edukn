@@ -269,7 +269,7 @@ class _LibraryScreenState extends State<LibraryScreen>
 
   Future<void> _uploadBooksExcel() async {
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['csv'],
         withData: true,
@@ -1106,3 +1106,4 @@ class _LibraryScreenState extends State<LibraryScreen>
     );
   }
 }
+

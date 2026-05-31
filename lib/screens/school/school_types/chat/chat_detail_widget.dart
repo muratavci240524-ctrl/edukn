@@ -306,7 +306,7 @@ class _ChatDetailWidgetState extends State<ChatDetailWidget> {
   Future<void> _pickFile() async {
     // on Web bytes is populated with pickFiles().
     // We explicitly request data to be safe cross-platform.
-    FilePickerResult? result = await FilePicker.platform.pickFiles(
+    FilePickerResult? result = await FilePicker.pickFiles(
       withData: true,
     );
 
@@ -1402,3 +1402,4 @@ class _ChatDetailWidgetState extends State<ChatDetailWidget> {
     );
   }
 }
+

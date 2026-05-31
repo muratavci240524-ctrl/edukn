@@ -223,7 +223,7 @@ class _ExternalExamEntryCardScreenState
                 const SizedBox(width: 8),
                 // Grade filter
                 _buildFilterChip(
-                  label: _selectedGrade != null ? 'Sınıf filtreli: $_selectedGrade' : 'Tüm Sınıflar',
+                  label: _selectedGrade != null ? (_selectedGrade == 'Mezun' ? 'Mezun filtreli' : 'Sınıf filtreli: $_selectedGrade') : 'Tüm Sınıflar',
                   value: _selectedGrade,
                   items: _grades,
                   onSelected: (val) => setState(() => _selectedGrade = val),
@@ -468,7 +468,7 @@ class _ExternalExamEntryCardScreenState
                       children: [
                         _buildCardInfoRow('Öğrenci:', reg.fullName, isBold: true),
                         _buildCardInfoRow('T.C. Kimlik:', reg.displayTcNo),
-                        _buildCardInfoRow('Sınıf Seviyesi:', '${reg.gradeLevel}. Sınıf'),
+                        _buildCardInfoRow('Sınıf Seviyesi:', reg.gradeLevel == 'Mezun' ? 'Mezun' : '${reg.gradeLevel}. Sınıf'),
                         _buildCardInfoRow('Mevcut Okul:', reg.currentSchool, maxLines: 1),
                       ],
                     ),
@@ -677,7 +677,7 @@ class _ExternalExamEntryCardScreenState
                     children: [
                       _buildPdfCardRow('Öğrenci Adı Soyadı:', reg.fullName, isBold: true),
                       _buildPdfCardRow('T.C. Kimlik No:', reg.displayTcNo),
-                      _buildPdfCardRow('Sınıf Seviyesi:', '${reg.gradeLevel}. Sınıf'),
+                      _buildPdfCardRow('Sınıf Seviyesi:', reg.gradeLevel == 'Mezun' ? 'Mezun' : '${reg.gradeLevel}. Sınıf'),
                       _buildPdfCardRow('Mevcut Okulu:', reg.currentSchool),
                     ],
                   ),
@@ -798,7 +798,7 @@ class _ExternalExamEntryCardScreenState
                             pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(s.examEntryCode ?? '', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9))),
                             pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(s.fullName, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9))),
                             pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(s.currentSchool, style: const pw.TextStyle(fontSize: 8))),
-                            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${s.gradeLevel}. Sınıf', style: const pw.TextStyle(fontSize: 9))),
+                            pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(s.gradeLevel == 'Mezun' ? 'Mezun' : '${s.gradeLevel}. Sınıf', style: const pw.TextStyle(fontSize: 9))),
                             pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('', style: const pw.TextStyle(fontSize: 9))),
                           ],
                         )),
@@ -885,7 +885,7 @@ class _ExternalExamEntryCardScreenState
                         pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('${idx + 1}', style: const pw.TextStyle(fontSize: 8))),
                         pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(s.fullName, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8.5))),
                         pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(s.examEntryCode ?? '', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8))),
-                        pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('${s.gradeLevel}. Sınıf', style: const pw.TextStyle(fontSize: 8.5))),
+                        pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(s.gradeLevel == 'Mezun' ? 'Mezun' : '${s.gradeLevel}. Sınıf', style: const pw.TextStyle(fontSize: 8.5))),
                         pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(s.assignedRoomName ?? 'Atanmadı', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8.5, color: PdfColors.orange900))),
                         pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(s.currentSchool, style: const pw.TextStyle(fontSize: 8))),
                         pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(s.seatNumber != null ? '${s.seatNumber}' : '-', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8.5))),

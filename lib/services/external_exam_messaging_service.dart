@@ -25,7 +25,8 @@ class ExternalExamMessagingService {
     required MessageType messageType,
     required MessageChannel channel,
     required List<String> gradeLevels,
-    required List<String> statusFilter,
+    required List<String> sessionIds,
+    required bool onlyScanned,
     required String sentBy,
   }) async {
     try {
@@ -33,7 +34,8 @@ class ExternalExamMessagingService {
       final recipients = await _getTargetRegistrations(
         examId: examId,
         gradeLevels: gradeLevels,
-        statusFilter: statusFilter,
+        sessionIds: sessionIds,
+        onlyScanned: onlyScanned,
       );
 
       if (recipients.isEmpty) {
@@ -96,7 +98,8 @@ class ExternalExamMessagingService {
         messageType: messageType,
         channel: channel,
         targetGradeLevels: gradeLevels,
-        targetStatus: statusFilter,
+        targetSessions: sessionIds,
+        onlyScanned: onlyScanned,
         recipientCount: recipients.length,
         emailCount: emailCount,
         smsCount: smsCount,
@@ -148,13 +151,15 @@ class ExternalExamMessagingService {
   Future<Map<String, int>> previewRecipientCount({
     required String examId,
     required List<String> gradeLevels,
-    required List<String> statusFilter,
+    required List<String> sessionIds,
+    required bool onlyScanned,
   }) async {
     try {
       final recipients = await _getTargetRegistrations(
         examId: examId,
         gradeLevels: gradeLevels,
-        statusFilter: statusFilter,
+        sessionIds: sessionIds,
+        onlyScanned: onlyScanned,
       );
 
       final withEmail = recipients
@@ -183,16 +188,17 @@ class ExternalExamMessagingService {
   Future<List<ExternalExamRegistration>> _getTargetRegistrations({
     required String examId,
     required List<String> gradeLevels,
-    required List<String> statusFilter,
+    required List<String> sessionIds,
+    required bool onlyScanned,
   }) async {
     try {
       var query = _firestore
           .collection(_registrationsCollection)
           .where('examId', isEqualTo: examId);
 
-      // Durum filtresi
-      if (statusFilter.isNotEmpty && statusFilter.length == 1) {
-        query = query.where('status', isEqualTo: statusFilter.first);
+      // Sadece 1 seans seçiliyse db bazlı filtrele
+      if (sessionIds.isNotEmpty && sessionIds.length == 1) {
+        query = query.where('sessionId', isEqualTo: sessionIds.first);
       }
 
       final snapshot = await query.get();
@@ -207,16 +213,16 @@ class ExternalExamMessagingService {
             .toList();
       }
 
-      // Çoklu durum filtresi (client-side)
-      if (statusFilter.isNotEmpty) {
+      // Çoklu seans filtresi (client-side)
+      if (sessionIds.isNotEmpty) {
         results = results
-            .where((r) => statusFilter.contains(
-                r.status == RegistrationStatus.confirmed
-                    ? 'confirmed'
-                    : r.status == RegistrationStatus.cancelled
-                        ? 'cancelled'
-                        : 'pending'))
+            .where((r) => sessionIds.contains(r.sessionId))
             .toList();
+      }
+      
+      // Yoklama alındı filtresi
+      if (onlyScanned) {
+        results = results.where((r) => r.isScanned == true).toList();
       }
 
       return results;

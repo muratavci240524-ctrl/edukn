@@ -193,7 +193,8 @@ class _ExternalExamVenueScreenState extends State<ExternalExamVenueScreen> {
                         children: session.gradeLevels.map((g) {
                           final quota = session.gradeLevelQuotas[g] ?? 0;
                           return Chip(
-                            label: Text('$g. Sınıf – $quota kota',
+                            label: Text(
+                                g == 'Mezun' ? 'Mezun – $quota kota' : '$g. Sınıf – $quota kota',
                                 style: const TextStyle(fontSize: 12)),
                             backgroundColor: Colors.blue.shade50,
                             side: BorderSide.none,
@@ -229,7 +230,7 @@ class _ExternalExamVenueScreenState extends State<ExternalExamVenueScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '${assignment.gradeLevel}. Sınıf – '
+                          '${assignment.gradeLevel == 'Mezun' ? 'Mezun' : '${assignment.gradeLevel}. Sınıf'} – '
                           '${assignment.totalCapacity} kişilik kapasite',
                           style: GoogleFonts.inter(
                               fontWeight: FontWeight.bold, fontSize: 14),

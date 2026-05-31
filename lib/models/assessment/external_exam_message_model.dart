@@ -13,7 +13,8 @@ class ExternalExamMessage {
   final MessageType messageType;
   final MessageChannel channel;
   final List<String> targetGradeLevels; // empty = all grades
-  final List<String> targetStatus;     // empty = all, ['confirmed'] etc.
+  final List<String> targetSessions;    // empty = all sessions
+  final bool onlyScanned;               // whether it was filtered by scanned only
   final int recipientCount;
   final int emailCount;
   final int smsCount;
@@ -29,7 +30,8 @@ class ExternalExamMessage {
     required this.messageType,
     required this.channel,
     required this.targetGradeLevels,
-    required this.targetStatus,
+    required this.targetSessions,
+    required this.onlyScanned,
     required this.recipientCount,
     required this.emailCount,
     required this.smsCount,
@@ -135,7 +137,8 @@ class ExternalExamMessage {
         'messageType': _typeToString(messageType),
         'channel': _channelToString(channel),
         'targetGradeLevels': targetGradeLevels,
-        'targetStatus': targetStatus,
+        'targetSessions': targetSessions,
+        'onlyScanned': onlyScanned,
         'recipientCount': recipientCount,
         'emailCount': emailCount,
         'smsCount': smsCount,
@@ -157,7 +160,8 @@ class ExternalExamMessage {
         channel: _channelFromString(map['channel']),
         targetGradeLevels:
             List<String>.from(map['targetGradeLevels'] ?? []),
-        targetStatus: List<String>.from(map['targetStatus'] ?? []),
+        targetSessions: List<String>.from(map['targetSessions'] ?? []),
+        onlyScanned: map['onlyScanned'] ?? false,
         recipientCount: map['recipientCount'] ?? 0,
         emailCount: map['emailCount'] ?? 0,
         smsCount: map['smsCount'] ?? 0,

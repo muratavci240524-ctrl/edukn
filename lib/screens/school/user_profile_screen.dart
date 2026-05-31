@@ -97,7 +97,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
   Future<void> _pickAndUploadPhoto() async {
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         type: FileType.image,
         allowMultiple: false,
         withData: true,
@@ -574,3 +574,4 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     );
   }
 }
+

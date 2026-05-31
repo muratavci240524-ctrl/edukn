@@ -424,7 +424,7 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
 
   Future<void> _uploadExcel() async {
     try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
+      FilePickerResult? result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['xlsx'],
         withData: true,
@@ -1470,3 +1470,4 @@ class UpperCaseTextFormatter extends TextInputFormatter {
     );
   }
 }
+

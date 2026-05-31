@@ -1,5 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+DateTime? _parseDateTime(dynamic val) {
+  if (val == null) return null;
+  if (val is Timestamp) return val.toDate();
+  if (val is String) return DateTime.tryParse(val);
+  return null;
+}
+
 // ─────────────── ENUMS ───────────────────────────────────────────────────────
 
 enum ExamType { bursluluk, provaDeneme, diger }
@@ -26,9 +33,9 @@ class ScholarshipTier {
       };
 
   factory ScholarshipTier.fromMap(Map<String, dynamic> map) => ScholarshipTier(
-        minRank: map['minRank'] ?? 1,
-        maxRank: map['maxRank'] ?? 1,
-        rate: map['rate'] ?? 0,
+        minRank: (map['minRank'] as num?)?.toInt() ?? 1,
+        maxRank: (map['maxRank'] as num?)?.toInt() ?? 1,
+        rate: (map['rate'] as num?)?.toInt() ?? 0,
       );
 
   String get displayText => '$minRank – $maxRank. arası: %$rate Burs';
@@ -68,8 +75,8 @@ class RoomSlot {
         classroomId: map['classroomId'] ?? '',
         classroomName: map['classroomName'] ?? '',
         classroomCode: map['classroomCode'] ?? '',
-        originalCapacity: map['originalCapacity'] ?? 0,
-        overrideCapacity: map['overrideCapacity'],
+        originalCapacity: (map['originalCapacity'] as num?)?.toInt() ?? 0,
+        overrideCapacity: (map['overrideCapacity'] as num?)?.toInt(),
         building: map['building'],
       );
 
@@ -102,9 +109,10 @@ class GradeClassroomAssignment {
   factory GradeClassroomAssignment.fromMap(Map<String, dynamic> map) =>
       GradeClassroomAssignment(
         gradeLevel: map['gradeLevel'] ?? '',
-        rooms: (map['rooms'] as List<dynamic>? ?? [])
-            .map((r) => RoomSlot.fromMap(r as Map<String, dynamic>))
-            .toList(),
+        rooms: (map['rooms'] as List?)
+                ?.map((r) => RoomSlot.fromMap(Map<String, dynamic>.from(r as Map)))
+                .toList() ??
+            [],
       );
 }
 
@@ -150,12 +158,12 @@ class VenueConfig {
 
   factory VenueConfig.fromMap(Map<String, dynamic> map) => VenueConfig(
         seatingMode: _modeFromString(map['seatingMode']),
-        schoolTypeIds: List<String>.from(map['schoolTypeIds'] ?? []),
+        schoolTypeIds: (map['schoolTypeIds'] as List?)?.map((e) => e.toString()).toList() ?? [],
         classroomAssignments:
-            (map['classroomAssignments'] as List<dynamic>? ?? [])
-                .map((a) =>
-                    GradeClassroomAssignment.fromMap(a as Map<String, dynamic>))
-                .toList(),
+            (map['classroomAssignments'] as List?)
+                ?.map((a) =>
+                    GradeClassroomAssignment.fromMap(Map<String, dynamic>.from(a as Map)))
+                .toList() ?? [],
       );
 
   VenueConfig get empty => const VenueConfig(
@@ -174,6 +182,8 @@ class ApplicationSession {
   final String endTime;
   final List<String> gradeLevels;
   final Map<String, int> gradeLevelQuotas; // gradeLevel -> quota count
+  final Map<String, String> gradeLevelStartTimes; // gradeLevel -> startTime
+  final Map<String, String> gradeLevelEndTimes; // gradeLevel -> endTime
 
   const ApplicationSession({
     required this.id,
@@ -182,11 +192,17 @@ class ApplicationSession {
     required this.endTime,
     required this.gradeLevels,
     required this.gradeLevelQuotas,
+    this.gradeLevelStartTimes = const {},
+    this.gradeLevelEndTimes = const {},
   });
 
   String get displayTime => '$startTime – $endTime';
 
   int quotaForGrade(String grade) => gradeLevelQuotas[grade] ?? 0;
+
+  String startTimeForGrade(String grade) => gradeLevelStartTimes[grade] ?? (startTime.isEmpty ? '09:00' : startTime);
+
+  String endTimeForGrade(String grade) => gradeLevelEndTimes[grade] ?? (endTime.isEmpty ? '11:30' : endTime);
 
   Map<String, dynamic> toMap() => {
         'id': id,
@@ -195,20 +211,26 @@ class ApplicationSession {
         'endTime': endTime,
         'gradeLevels': gradeLevels,
         'gradeLevelQuotas': gradeLevelQuotas,
+        'gradeLevelStartTimes': gradeLevelStartTimes,
+        'gradeLevelEndTimes': gradeLevelEndTimes,
       };
 
   factory ApplicationSession.fromMap(Map<String, dynamic> map) =>
       ApplicationSession(
         id: map['id'] ?? '',
-        sessionDate:
-            (map['sessionDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
+        sessionDate: _parseDateTime(map['sessionDate']) ?? DateTime.now(),
         startTime: map['startTime'] ?? '',
         endTime: map['endTime'] ?? '',
-        gradeLevels: List<String>.from(map['gradeLevels'] ?? []),
-        gradeLevelQuotas: Map<String, int>.from(
-          (map['gradeLevelQuotas'] as Map<String, dynamic>? ?? {})
-              .map((k, v) => MapEntry(k, (v as num).toInt())),
-        ),
+        gradeLevels: (map['gradeLevels'] as List?)?.map((e) => e.toString()).toList() ?? [],
+        gradeLevelQuotas: (map['gradeLevelQuotas'] as Map?)?.map(
+              (k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0),
+            ) ?? {},
+        gradeLevelStartTimes: (map['gradeLevelStartTimes'] as Map?)?.map(
+              (k, v) => MapEntry(k.toString(), v.toString()),
+            ) ?? {},
+        gradeLevelEndTimes: (map['gradeLevelEndTimes'] as Map?)?.map(
+              (k, v) => MapEntry(k.toString(), v.toString()),
+            ) ?? {},
       );
 }
 
@@ -231,6 +253,13 @@ class ExternalExam {
   final bool isActive;
   final DateTime createdAt;
   final DateTime? updatedAt;
+  
+  // Dynamic Web Portal Visibility Toggles
+  final bool showRegister;
+  final bool showEdit;
+  final bool showTicket;
+  final bool showResults;
+  final bool showRegulation;
 
   const ExternalExam({
     this.id,
@@ -249,6 +278,11 @@ class ExternalExam {
     required this.isActive,
     required this.createdAt,
     this.updatedAt,
+    this.showRegister = true,
+    this.showEdit = true,
+    this.showTicket = true,
+    this.showResults = true,
+    this.showRegulation = true,
   });
 
   String get examTypeName {
@@ -309,18 +343,24 @@ class ExternalExam {
       'isActive': isActive,
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': FieldValue.serverTimestamp(),
+      'showRegister': showRegister,
+      'showEdit': showEdit,
+      'showTicket': showTicket,
+      'showResults': showResults,
+      'showRegulation': showRegulation,
     };
   }
 
   factory ExternalExam.fromMap(Map<String, dynamic> map, String id) {
-    // Parse scholarshipConfig
-    final rawScholarship =
-        map['scholarshipConfig'] as Map<String, dynamic>? ?? {};
+    // Parse scholarshipConfig safely
+    final rawScholarship = map['scholarshipConfig'] as Map? ?? {};
     final scholarshipConfig = <String, List<ScholarshipTier>>{};
     rawScholarship.forEach((grade, tiers) {
-      scholarshipConfig[grade] = (tiers as List<dynamic>)
-          .map((t) => ScholarshipTier.fromMap(t as Map<String, dynamic>))
-          .toList();
+      if (tiers is List) {
+        scholarshipConfig[grade.toString()] = tiers
+            .map((t) => ScholarshipTier.fromMap(Map<String, dynamic>.from(t as Map)))
+            .toList();
+      }
     });
 
     return ExternalExam(
@@ -329,15 +369,15 @@ class ExternalExam {
       schoolId: map['schoolId'] ?? '',
       title: map['title'] ?? '',
       examType: _typeFromString(map['examType']),
-      gradeLevels: List<String>.from(map['gradeLevels'] ?? []),
-      trialExamIds: Map<String, String>.from(map['trialExamIds'] ?? {}),
+      gradeLevels: (map['gradeLevels'] as List?)?.map((e) => e.toString()).toList() ?? [],
+      trialExamIds: (map['trialExamIds'] as Map?)?.map((k, v) => MapEntry(k.toString(), v.toString())) ?? {},
       applicationSessions:
-          (map['applicationSessions'] as List<dynamic>? ?? [])
-              .map((s) =>
-                  ApplicationSession.fromMap(s as Map<String, dynamic>))
-              .toList(),
+          (map['applicationSessions'] as List?)
+              ?.map((s) =>
+                  ApplicationSession.fromMap(Map<String, dynamic>.from(s as Map)))
+              .toList() ?? [],
       venueConfig: map['venueConfig'] != null
-          ? VenueConfig.fromMap(map['venueConfig'] as Map<String, dynamic>)
+          ? VenueConfig.fromMap(Map<String, dynamic>.from(map['venueConfig'] as Map))
           : const VenueConfig(
               seatingMode: SeatingMode.noSeating,
               schoolTypeIds: [],
@@ -346,12 +386,15 @@ class ExternalExam {
       scholarshipEnabled: map['scholarshipEnabled'] ?? false,
       scholarshipConfig: scholarshipConfig,
       regulationUrl: map['regulationUrl'],
-      regulationPublishDate:
-          (map['regulationPublishDate'] as Timestamp?)?.toDate(),
+      regulationPublishDate: _parseDateTime(map['regulationPublishDate']),
       isActive: map['isActive'] ?? true,
-      createdAt:
-          (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
-      updatedAt: (map['updatedAt'] as Timestamp?)?.toDate(),
+      createdAt: _parseDateTime(map['createdAt']) ?? DateTime.now(),
+      updatedAt: _parseDateTime(map['updatedAt']),
+      showRegister: map['showRegister'] ?? true,
+      showEdit: map['showEdit'] ?? true,
+      showTicket: map['showTicket'] ?? true,
+      showResults: map['showResults'] ?? true,
+      showRegulation: map['showRegulation'] ?? true,
     );
   }
 }

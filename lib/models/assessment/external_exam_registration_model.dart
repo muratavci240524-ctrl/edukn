@@ -1,5 +1,13 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+DateTime? _parseDateTime(dynamic val) {
+  if (val == null) return null;
+  if (val is Timestamp) return val.toDate();
+  if (val is String) return DateTime.tryParse(val);
+  return null;
+}
+
+
 enum RegistrationSource { online, manualExcel }
 
 enum RegistrationStatus { pending, confirmed, cancelled }
@@ -42,6 +50,7 @@ class ExternalExamRegistration {
   final String? assignedRoomCode;
   final int? seatNumber;
   final String? examEntryCode;
+  final bool isScanned;
 
   final DateTime createdAt;
 
@@ -71,6 +80,7 @@ class ExternalExamRegistration {
     this.assignedRoomCode,
     this.seatNumber,
     this.examEntryCode,
+    this.isScanned = false,
     required this.createdAt,
   });
 
@@ -172,6 +182,7 @@ class ExternalExamRegistration {
         'assignedRoomCode': assignedRoomCode,
         'seatNumber': seatNumber,
         'examEntryCode': examEntryCode,
+        'isScanned': isScanned,
         'createdAt': Timestamp.fromDate(createdAt),
       };
 
@@ -203,10 +214,10 @@ class ExternalExamRegistration {
         assignedRoomId: map['assignedRoomId'],
         assignedRoomName: map['assignedRoomName'],
         assignedRoomCode: map['assignedRoomCode'],
-        seatNumber: map['seatNumber'],
+        seatNumber: (map['seatNumber'] as num?)?.toInt(),
         examEntryCode: map['examEntryCode'],
-        createdAt:
-            (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+        isScanned: map['isScanned'] ?? false,
+        createdAt: _parseDateTime(map['createdAt']) ?? DateTime.now(),
       );
 
   ExternalExamRegistration copyWith({
@@ -216,25 +227,32 @@ class ExternalExamRegistration {
     String? assignedRoomCode,
     int? seatNumber,
     String? examEntryCode,
+    bool? isScanned,
+    String? studentName,
+    String? studentSurname,
+    String? studentTcNo,
+    String? phone,
+    String? gradeLevel,
+    String? currentSchool,
   }) =>
       ExternalExamRegistration(
         id: id,
         examId: examId,
         institutionId: institutionId,
         sessionId: sessionId,
-        studentName: studentName,
-        studentSurname: studentSurname,
-        studentTcNo: studentTcNo,
+        studentName: studentName ?? this.studentName,
+        studentSurname: studentSurname ?? this.studentSurname,
+        studentTcNo: studentTcNo ?? this.studentTcNo,
         studentNumber: studentNumber,
-        gradeLevel: gradeLevel,
+        gradeLevel: gradeLevel ?? this.gradeLevel,
         parentName: parentName,
         parentSurname: parentSurname,
         parentPhone: parentPhone,
         parentEmail: parentEmail,
         city: city,
         district: district,
-        currentSchool: currentSchool,
-        phone: phone,
+        currentSchool: currentSchool ?? this.currentSchool,
+        phone: phone ?? this.phone,
         email: email,
         registrationSource: registrationSource,
         status: status ?? this.status,
@@ -243,6 +261,7 @@ class ExternalExamRegistration {
         assignedRoomCode: assignedRoomCode ?? this.assignedRoomCode,
         seatNumber: seatNumber ?? this.seatNumber,
         examEntryCode: examEntryCode ?? this.examEntryCode,
+        isScanned: isScanned ?? this.isScanned,
         createdAt: createdAt,
       );
 }

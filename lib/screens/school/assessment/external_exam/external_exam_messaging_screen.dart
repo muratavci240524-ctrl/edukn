@@ -33,7 +33,8 @@ class _ExternalExamMessagingScreenState
   MessageType _messageType = MessageType.duyuru;
   MessageChannel _channel = MessageChannel.both;
   final Set<String> _targetGrades = {};
-  final Set<String> _targetStatus = {'confirmed'};
+  final Set<String> _targetSessions = {};
+  bool _onlyScanned = false;
   bool _isSending = false;
   Map<String, int>? _previewCounts;
 
@@ -203,6 +204,23 @@ class _ExternalExamMessagingScreenState
 
               const SizedBox(height: 24),
 
+              // Sadece Sınava Girenlere Checkbox
+              CheckboxListTile(
+                value: _onlyScanned,
+                onChanged: (val) {
+                  setState(() => _onlyScanned = val ?? false);
+                  _updatePreview();
+                },
+                title: Text('Sadece Sınava Girenlere (Yoklaması Alınanlara) Mesaj Gönder',
+                    style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13, color: _primaryColor)),
+                controlAffinity: ListTileControlAffinity.leading,
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                activeColor: _primaryColor,
+              ),
+
+              const SizedBox(height: 16),
+
               // Target filters
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -263,24 +281,20 @@ class _ExternalExamMessagingScreenState
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Başvuru Durumu', style: _labelStyle()),
+                        Text('Seans', style: _labelStyle()),
                         const SizedBox(height: 4),
                         Text('Boş = Tümü',
                             style: GoogleFonts.inter(
                                 fontSize: 11, color: Colors.grey.shade400)),
                         const SizedBox(height: 8),
-                        ...{
-                          'confirmed': 'Onaylı',
-                          'pending': 'Bekleyen',
-                          'cancelled': 'İptal',
-                        }.entries.map((e) {
-                          final sel = _targetStatus.contains(e.key);
+                        ..._getAvailableSessions().map((s) {
+                          final sel = _targetSessions.contains(s.id);
                           return GestureDetector(
                             onTap: () => setState(() {
                               if (sel) {
-                                _targetStatus.remove(e.key);
+                                _targetSessions.remove(s.id);
                               } else {
-                                _targetStatus.add(e.key);
+                                _targetSessions.add(s.id);
                               }
                               _updatePreview();
                             }),
@@ -299,29 +313,19 @@ class _ExternalExamMessagingScreenState
                                       : Colors.transparent,
                                 ),
                               ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  if (sel)
-                                    Icon(Icons.check_rounded,
-                                        size: 12,
-                                        color: Colors.green.shade600),
-                                  if (sel) const SizedBox(width: 4),
-                                  Text(
-                                    e.value,
-                                    style: GoogleFonts.inter(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: sel
-                                          ? Colors.green.shade700
-                                          : Colors.grey.shade600,
-                                    ),
-                                  ),
-                                ],
+                              child: Text(
+                                '${s.displayTime}',
+                                style: GoogleFonts.inter(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: sel
+                                      ? Colors.green.shade700
+                                      : Colors.grey.shade600,
+                                ),
                               ),
                             ),
                           );
-                        }),
+                        }).toList(),
                       ],
                     ),
                   ),
@@ -543,13 +547,21 @@ class _ExternalExamMessagingScreenState
     );
   }
 
+  List<ApplicationSession> _getAvailableSessions() {
+    if (_targetGrades.isEmpty) return widget.exam.applicationSessions;
+    return widget.exam.applicationSessions.where((s) {
+      return s.gradeLevels.any((g) => _targetGrades.contains(g));
+    }).toList();
+  }
+
   void _updatePreview() async {
     if (widget.exam.id == null) return;
     try {
       final counts = await _messagingService.previewRecipientCount(
         examId: widget.exam.id!,
         gradeLevels: _targetGrades.toList(),
-        statusFilter: _targetStatus.toList(),
+        sessionIds: _targetSessions.toList(),
+        onlyScanned: _onlyScanned,
       );
       if (mounted) setState(() => _previewCounts = counts);
     } catch (e) {
@@ -582,7 +594,8 @@ class _ExternalExamMessagingScreenState
         messageType: _messageType,
         channel: _channel,
         gradeLevels: _targetGrades.toList(),
-        statusFilter: _targetStatus.toList(),
+        sessionIds: _targetSessions.toList(),
+        onlyScanned: _onlyScanned,
         sentBy: user?.email ?? '',
       );
 

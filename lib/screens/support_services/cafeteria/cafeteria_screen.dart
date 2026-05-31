@@ -1,4 +1,4 @@
-ï»¿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -83,7 +83,7 @@ class _CafeteriaScreenState extends State<CafeteriaScreen> {
                   d.data()['schoolTypeName'] ??
                   d.data()['typeName'] ??
                   d.data()['schoolType'] ??
-                  'Ä°simsiz',
+                  'Ýsimsiz',
               ...d.data(),
             },
           )
@@ -142,7 +142,7 @@ class _CafeteriaScreenState extends State<CafeteriaScreen> {
       builder: (ctx) => StatefulBuilder(
         builder: (context, setState) {
           return AlertDialog(
-            title: Text('Yeni Ã–ÄŸÃ¼n Ekle'),
+            title: Text('Yeni Öðün Ekle'),
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -150,7 +150,7 @@ class _CafeteriaScreenState extends State<CafeteriaScreen> {
                   TextField(
                     controller: nameCtrl,
                     decoration: InputDecoration(
-                      labelText: 'Ã–ÄŸÃ¼n AdÄ± (Sabah vb.)',
+                      labelText: 'Öðün Adý (Sabah vb.)',
                     ),
                   ),
                   SizedBox(height: 8),
@@ -160,7 +160,7 @@ class _CafeteriaScreenState extends State<CafeteriaScreen> {
                         child: TextField(
                           controller: startCtrl,
                           decoration: InputDecoration(
-                            labelText: 'BaÅŸlangÄ±Ã§',
+                            labelText: 'Baþlangýç',
                             suffixIcon: Icon(Icons.access_time),
                           ),
                           readOnly: true,
@@ -172,7 +172,7 @@ class _CafeteriaScreenState extends State<CafeteriaScreen> {
                         child: TextField(
                           controller: endCtrl,
                           decoration: InputDecoration(
-                            labelText: 'BitiÅŸ',
+                            labelText: 'Bitiþ',
                             suffixIcon: Icon(Icons.access_time),
                           ),
                           readOnly: true,
@@ -184,7 +184,7 @@ class _CafeteriaScreenState extends State<CafeteriaScreen> {
                   SizedBox(height: 16),
                   if (widget.fixedSchoolTypeId == null) ...[
                     Text(
-                      'GeÃ§erli Okul TÃ¼rleri',
+                      'Geçerli Okul Türleri',
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                     Divider(),
@@ -211,7 +211,7 @@ class _CafeteriaScreenState extends State<CafeteriaScreen> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx),
-                child: Text('Ä°ptal'),
+                child: Text('Ýptal'),
               ),
               ElevatedButton(
                 onPressed: () async {
@@ -248,11 +248,11 @@ class _CafeteriaScreenState extends State<CafeteriaScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text('Sil: $name'),
-        content: Text('Bu Ã¶ÄŸÃ¼nÃ¼ silmek istediÄŸinize emin misiniz?'),
+        content: Text('Bu öðünü silmek istediðinize emin misiniz?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: Text('Ä°ptal'),
+            child: Text('Ýptal'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -294,12 +294,12 @@ class _CafeteriaScreenState extends State<CafeteriaScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Yemekhane Ä°ÅŸlemleri'),
+        title: Text('Yemekhane Ýþlemleri'),
         elevation: 1,
         actions: [
           IconButton(
             icon: Icon(Icons.bar_chart, color: Colors.orange),
-            tooltip: 'Ä°statistikler',
+            tooltip: 'Ýstatistikler',
             onPressed: () {
               if (_institutionId != null) {
                 Navigator.push(
@@ -324,7 +324,7 @@ class _CafeteriaScreenState extends State<CafeteriaScreen> {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _addMealPeriod,
         icon: Icon(Icons.add),
-        label: Text('Ã–ÄŸÃ¼n Ekle'),
+        label: Text('Öðün Ekle'),
         backgroundColor: Colors.orange,
         foregroundColor: Colors.white,
       ),
@@ -352,7 +352,7 @@ class _CafeteriaScreenState extends State<CafeteriaScreen> {
         child: Row(
           children: [
             _buildTabItem(
-              label: 'TÃ¼mÃ¼',
+              label: 'Tümü',
               id: null,
               isSelected: _selectedFilterSchoolTypeId == null,
             ),
@@ -422,7 +422,7 @@ class _CafeteriaScreenState extends State<CafeteriaScreen> {
             Icon(Icons.restaurant_menu, size: 64, color: Colors.grey.shade400),
             SizedBox(height: 16),
             Text(
-              'HenÃ¼z Ã¶ÄŸÃ¼n tanÄ±mlanmamÄ±ÅŸ',
+              'Henüz öðün tanýmlanmamýþ',
               style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
             ),
           ],
@@ -462,7 +462,7 @@ class _CafeteriaScreenState extends State<CafeteriaScreen> {
                     .join(', ');
 
                 return Text(
-                  typeIds.isEmpty ? 'TÃ¼m Okul TÃ¼rleri' : typeNames,
+                  typeIds.isEmpty ? 'Tüm Okul Türleri' : typeNames,
                   style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -568,7 +568,7 @@ class _MenuManagementScreenState extends State<_MenuManagementScreen> {
     final result = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Yeni MenÃ¼ Ekle'),
+        title: Text('Yeni Menü Ekle'),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -583,7 +583,7 @@ class _MenuManagementScreenState extends State<_MenuManagementScreen> {
               TextField(
                 controller: foodNameCtrl,
                 decoration: InputDecoration(
-                  labelText: 'Yemek AdÄ± *',
+                  labelText: 'Yemek Adý *',
                   prefixIcon: Icon(Icons.fastfood),
                 ),
                 textCapitalization: TextCapitalization.words,
@@ -594,9 +594,9 @@ class _MenuManagementScreenState extends State<_MenuManagementScreen> {
               TextField(
                 controller: calorieCtrl,
                 decoration: InputDecoration(
-                  labelText: 'Kalori (isteÄŸe baÄŸlÄ±)',
+                  labelText: 'Kalori (isteðe baðlý)',
                   prefixIcon: Icon(Icons.local_fire_department),
-                  hintText: 'Ã–rn: 450',
+                  hintText: 'Örn: 450',
                 ),
                 keyboardType: TextInputType.number,
               ),
@@ -606,7 +606,7 @@ class _MenuManagementScreenState extends State<_MenuManagementScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: Text('Ä°ptal'),
+            child: Text('Ýptal'),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -621,7 +621,7 @@ class _MenuManagementScreenState extends State<_MenuManagementScreen> {
     if (foodNameCtrl.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Yemek adÄ± zorunludur!'),
+          content: Text('Yemek adý zorunludur!'),
           backgroundColor: Colors.red,
         ),
       );
@@ -647,7 +647,7 @@ class _MenuManagementScreenState extends State<_MenuManagementScreen> {
 
     _loadMenus();
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('âœ“ MenÃ¼ eklendi'), backgroundColor: Colors.green),
+      SnackBar(content: Text('? Menü eklendi'), backgroundColor: Colors.green),
     );
   }
 
@@ -666,7 +666,7 @@ class _MenuManagementScreenState extends State<_MenuManagementScreen> {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('âœ“ MenÃ¼ silindi'),
+          content: Text('? Menü silindi'),
           backgroundColor: Colors.green,
         ),
       );
@@ -689,7 +689,7 @@ class _MenuManagementScreenState extends State<_MenuManagementScreen> {
       'Tarih (GG.AA.YYYY)',
     );
     sheet.cell(CellIndex.indexByString('B1')).value = TextCellValue(
-      'Yemek AdÄ±',
+      'Yemek Adý',
     );
     sheet.cell(CellIndex.indexByString('C1')).value = TextCellValue('Kalori');
 
@@ -699,7 +699,7 @@ class _MenuManagementScreenState extends State<_MenuManagementScreen> {
 
     sheet.cell(CellIndex.indexByString('A2')).value = TextCellValue(dateStr);
     sheet.cell(CellIndex.indexByString('B2')).value = TextCellValue(
-      'Mercimek Ã‡orbasÄ±',
+      'Mercimek Çorbasý',
     );
     sheet.cell(CellIndex.indexByString('C2')).value = IntCellValue(150);
 
@@ -721,7 +721,7 @@ class _MenuManagementScreenState extends State<_MenuManagementScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Åžablon indirildi: $fileName'),
+            content: Text('Þablon indirildi: $fileName'),
             backgroundColor: Colors.green,
           ),
         );
@@ -731,7 +731,7 @@ class _MenuManagementScreenState extends State<_MenuManagementScreen> {
 
   Future<void> _importFromExcel() async {
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['xlsx', 'xls'],
         withData: true,
@@ -828,7 +828,7 @@ class _MenuManagementScreenState extends State<_MenuManagementScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('$importedCount menÃ¼ baÅŸarÄ±yla yÃ¼klendi.'),
+            content: Text('$importedCount menü baþarýyla yüklendi.'),
             backgroundColor: Colors.green,
           ),
         );
@@ -838,7 +838,7 @@ class _MenuManagementScreenState extends State<_MenuManagementScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('YÃ¼kleme hatasÄ±: $e'),
+            content: Text('Yükleme hatasý: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -852,7 +852,7 @@ class _MenuManagementScreenState extends State<_MenuManagementScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('${widget.periodName} MenÃ¼leri'),
+        title: Text('${widget.periodName} Menüleri'),
         actions: [
           PopupMenuButton<String>(
             onSelected: (value) {
@@ -869,7 +869,7 @@ class _MenuManagementScreenState extends State<_MenuManagementScreen> {
                   children: [
                     Icon(Icons.download, color: Colors.grey),
                     SizedBox(width: 8),
-                    Text('Åžablon Ä°ndir'),
+                    Text('Þablon Ýndir'),
                   ],
                 ),
               ),
@@ -879,7 +879,7 @@ class _MenuManagementScreenState extends State<_MenuManagementScreen> {
                   children: [
                     Icon(Icons.upload_file, color: Colors.orange),
                     SizedBox(width: 8),
-                    Text('Excel\'den YÃ¼kle'),
+                    Text('Excel\'den Yükle'),
                   ],
                 ),
               ),
@@ -898,7 +898,7 @@ class _MenuManagementScreenState extends State<_MenuManagementScreen> {
                 IconButton(
                   onPressed: () => _changeDate(-1),
                   icon: Icon(Icons.chevron_left),
-                  tooltip: 'Ã–nceki GÃ¼n',
+                  tooltip: 'Önceki Gün',
                 ),
                 GestureDetector(
                   onTap: () async {
@@ -938,7 +938,7 @@ class _MenuManagementScreenState extends State<_MenuManagementScreen> {
                 IconButton(
                   onPressed: () => _changeDate(1),
                   icon: Icon(Icons.chevron_right),
-                  tooltip: 'Sonraki GÃ¼n',
+                  tooltip: 'Sonraki Gün',
                 ),
               ],
             ),
@@ -961,7 +961,7 @@ class _MenuManagementScreenState extends State<_MenuManagementScreen> {
                         ),
                         SizedBox(height: 16),
                         Text(
-                          'Bu tarihte menÃ¼ bulunamadÄ±',
+                          'Bu tarihte menü bulunamadý',
                           style: TextStyle(color: Colors.grey.shade600),
                         ),
                       ],
@@ -1086,7 +1086,7 @@ class _CafeteriaStatisticsScreenState
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ä°statistik yÃ¼klenirken hata: $e')),
+          SnackBar(content: Text('Ýstatistik yüklenirken hata: $e')),
         );
         setState(() => _isLoading = false);
       }
@@ -1098,7 +1098,7 @@ class _CafeteriaStatisticsScreenState
     final topFoods = _foodCounts.entries.take(20).toList();
 
     return Scaffold(
-      appBar: AppBar(title: Text('En Ã‡ok Ã‡Ä±kan Yemekler')),
+      appBar: AppBar(title: Text('En Çok Çýkan Yemekler')),
       body: _isLoading
           ? Center(child: CircularProgressIndicator())
           : _totalMenus == 0
@@ -1108,7 +1108,7 @@ class _CafeteriaStatisticsScreenState
                 children: [
                   Icon(Icons.bar_chart, size: 64, color: Colors.grey.shade300),
                   SizedBox(height: 16),
-                  Text('HenÃ¼z veri yok.', style: TextStyle(color: Colors.grey)),
+                  Text('Henüz veri yok.', style: TextStyle(color: Colors.grey)),
                 ],
               ),
             )
@@ -1154,3 +1154,4 @@ class _CafeteriaStatisticsScreenState
     );
   }
 }
+

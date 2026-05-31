@@ -4425,7 +4425,7 @@ class _FilesTabState extends State<_FilesTab> {
   Future<void> _uploadFile(String category, String key) async {
     try {
       print('Dosya seçimi başlatılıyor...');
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf'],
       );
@@ -5566,3 +5566,4 @@ class _StatusTabState extends State<_StatusTab> {
     );
   }
 }
+

@@ -1953,7 +1953,7 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
 
   Future<void> _pickPDF() async {
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf'],
         withData: true,
@@ -2201,3 +2201,4 @@ class _SelectionPainter extends CustomPainter {
   bool shouldRepaint(covariant _SelectionPainter old) =>
       old.start != start || old.end != end;
 }
+

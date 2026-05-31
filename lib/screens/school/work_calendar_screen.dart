@@ -2233,7 +2233,7 @@ class _PlanDetailScreenState extends State<_PlanDetailScreen> {
   // Excel yükle ve ayrıştır
   Future<void> _importExcel() async {
     try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
+      FilePickerResult? result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['xlsx'],
         withData: true,
@@ -2791,3 +2791,4 @@ class _PlanDetailScreenState extends State<_PlanDetailScreen> {
     );
   }
 }
+

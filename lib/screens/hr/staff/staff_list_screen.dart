@@ -245,7 +245,7 @@ class _StaffListScreenState extends State<StaffListScreen>
   }
 
   Future<void> _uploadExcel() async {
-    final result = await FilePicker.platform.pickFiles(
+    final result = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['xlsx'],
     );
@@ -912,3 +912,4 @@ class _StaffListScreenState extends State<StaffListScreen>
     );
   }
 }
+

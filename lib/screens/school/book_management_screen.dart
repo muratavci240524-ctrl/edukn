@@ -589,7 +589,7 @@ class _BookManagementScreenState extends State<BookManagementScreen>
   }
 
   Future<void> _importExcelData() async {
-    FilePickerResult? result = await FilePicker.platform.pickFiles(
+    FilePickerResult? result = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['xlsx'],
       withData: true,
@@ -2508,3 +2508,4 @@ class _SubtopicEditorItemState extends State<_SubtopicEditorItem> {
     );
   }
 }
+

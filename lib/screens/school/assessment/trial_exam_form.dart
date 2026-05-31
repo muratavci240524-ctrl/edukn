@@ -534,7 +534,7 @@ class _TrialExamFormState extends State<TrialExamForm>
 
   Future<void> _pickSessionFile(int index) async {
     try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
+      FilePickerResult? result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['txt', 'dat'],
         withData: true,
@@ -3769,3 +3769,4 @@ class _ResultsTableDialogState extends State<ResultsTableDialog> {
     );
   }
 }
+

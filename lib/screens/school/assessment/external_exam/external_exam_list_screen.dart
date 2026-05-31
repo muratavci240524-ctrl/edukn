@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../../models/assessment/external_exam_model.dart';
 import '../../../../services/external_exam_service.dart';
@@ -77,7 +78,22 @@ class _ExternalExamListScreenState extends State<ExternalExamListScreen> {
                   const SizedBox(height: 12),
                   Text(
                     'Veriler yüklenemedi.',
-                    style: GoogleFonts.inter(color: Colors.grey.shade600),
+                    style: GoogleFonts.inter(
+                      color: Colors.grey.shade600,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Text(
+                      'Hata Detayı: ${snapshot.error}',
+                      style: GoogleFonts.inter(
+                        color: Colors.red.shade600,
+                        fontSize: 12,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
                   ),
                 ],
               ),
@@ -168,7 +184,13 @@ class _ExternalExamListScreenState extends State<ExternalExamListScreen> {
 
   Widget _buildExamCard(BuildContext context, ExternalExam exam) {
     final sessionCount = exam.applicationSessions.length;
-    final gradeText = exam.gradeLevels.join(', ');
+    final String gradeText;
+    if (exam.gradeLevels.contains('Mezun')) {
+      final gradesOnly = exam.gradeLevels.where((g) => g != 'Mezun').join(', ');
+      gradeText = gradesOnly.isEmpty ? 'Mezun' : '$gradesOnly. Sınıflar & Mezun';
+    } else {
+      gradeText = '${exam.gradeLevels.join(', ')}. Sınıflar';
+    }
 
     return InkWell(
       onTap: () => _openDetail(context, exam),
@@ -273,7 +295,7 @@ class _ExternalExamListScreenState extends State<ExternalExamListScreen> {
                     children: [
                       _buildInfoChip(
                         Icons.school_rounded,
-                        '$gradeText. Sınıflar',
+                        gradeText,
                         Colors.blue.shade50,
                         Colors.blue.shade700,
                       ),
@@ -311,6 +333,29 @@ class _ExternalExamListScreenState extends State<ExternalExamListScreen> {
                         style: TextButton.styleFrom(padding: EdgeInsets.zero),
                       ),
                       const Spacer(),
+                      TextButton.icon(
+                        onPressed: () {
+                          final String baseUrl = "${Uri.base.scheme}://${Uri.base.host}${Uri.base.hasPort ? ':${Uri.base.port}' : ''}";
+                          final String regUrl = "$baseUrl/sinav-basvuru?examId=${exam.id}";
+                          Clipboard.setData(ClipboardData(text: regUrl));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Başvuru linki panoya kopyalandı!'),
+                              backgroundColor: Colors.green,
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.link_rounded, size: 16, color: Colors.blue),
+                        label: Text(
+                          'Başvuru Linki',
+                          style: GoogleFonts.inter(
+                              fontSize: 13,
+                              color: Colors.blue,
+                              fontWeight: FontWeight.bold),
+                        ),
+                        style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                      ),
+                      const SizedBox(width: 16),
                       TextButton.icon(
                         onPressed: () => _openDetail(context, exam),
                         icon: const Icon(Icons.open_in_full_rounded,

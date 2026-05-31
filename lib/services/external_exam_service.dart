@@ -165,6 +165,19 @@ class ExternalExamService {
     }
   }
 
+  Future<void> markAsScanned(String regId, bool scanned) async {
+    try {
+      await _firestore
+          .collection(_registrationsCollection)
+          .doc(regId)
+          .update({'isScanned': scanned});
+      debugPrint('✅ Başvuru QR ile okutuldu: $regId ($scanned)');
+    } catch (e) {
+      debugPrint('QR okutma işaretleme hatası: $e');
+      rethrow;
+    }
+  }
+
   /// Aynı TC ile aynı sınava başvuru var mı kontrolü
   Future<bool> checkDuplicateRegistration(
     String examId,
@@ -175,13 +188,74 @@ class ExternalExamService {
           .collection(_registrationsCollection)
           .where('examId', isEqualTo: examId)
           .where('studentTcNo', isEqualTo: tcNo)
-          .where('status', isNotEqualTo: 'cancelled')
-          .limit(1)
           .get();
-      return snapshot.docs.isNotEmpty;
+          
+      // Check if any of the registrations are active (not cancelled)
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        if (data['status'] != 'cancelled') {
+          return true; // Found an active duplicate
+        }
+      }
+      return false;
     } catch (e) {
       debugPrint('Duplicate kontrol hatası: $e');
       return false;
+    }
+  }
+
+  /// TC no ve sınav id'sine göre başvuruyu çeker
+  Future<ExternalExamRegistration?> getRegistrationByTc(
+    String examId,
+    String tcNo,
+  ) async {
+    try {
+      final snapshot = await _firestore
+          .collection(_registrationsCollection)
+          .where('examId', isEqualTo: examId)
+          .where('studentTcNo', isEqualTo: tcNo.trim())
+          .get();
+      
+      if (snapshot.docs.isEmpty) return null;
+      
+      // Filter out cancelled registrations in Dart to avoid missing composite index errors
+      final validDocs = snapshot.docs.where((doc) => doc.data()['status'] != 'cancelled').toList();
+      
+      if (validDocs.isEmpty) return null;
+      
+      final doc = validDocs.first;
+      return ExternalExamRegistration.fromMap(doc.data(), doc.id);
+    } catch (e) {
+      debugPrint('TC bazlı başvuru bulma hatası: $e');
+      return null;
+    }
+  }
+
+  /// Başvuruyu günceller
+  Future<void> updateRegistration(
+    String regId,
+    ExternalExamRegistration reg,
+  ) async {
+    try {
+      await _firestore
+          .collection(_registrationsCollection)
+          .doc(regId)
+          .update(reg.toMap());
+      debugPrint('✅ Başvuru güncellendi: $regId');
+    } catch (e) {
+      debugPrint('Başvuru güncelleme hatası: $e');
+      rethrow;
+    }
+  }
+
+  /// Başvuruyu siler
+  Future<void> deleteRegistration(String regId) async {
+    try {
+      await _firestore.collection(_registrationsCollection).doc(regId).delete();
+      debugPrint('🗑️ Başvuru silindi: $regId');
+    } catch (e) {
+      debugPrint('Başvuru silme hatası: $e');
+      rethrow;
     }
   }
 
@@ -339,5 +413,33 @@ class ExternalExamService {
       }
     }
     return null;
+  }
+  // ─────────────── SCHOOL AUTOCOMPLETE ──────────────────────────────────────
+
+  Future<List<String>> getExternalSchools() async {
+    try {
+      final doc = await _firestore.collection('settings').doc('external_schools').get();
+      if (doc.exists && doc.data() != null) {
+        final List<dynamic> schoolsList = doc.data()!['schools'] ?? [];
+        return schoolsList.map((e) => e.toString()).toList();
+      }
+      return [];
+    } catch (e) {
+      debugPrint('Okul listesi getirme hatası: $e');
+      return [];
+    }
+  }
+
+  Future<void> addExternalSchool(String schoolName) async {
+    if (schoolName.trim().isEmpty) return;
+    try {
+      final String upperName = schoolName.trim().toUpperCase();
+      final docRef = _firestore.collection('settings').doc('external_schools');
+      await docRef.set({
+        'schools': FieldValue.arrayUnion([upperName])
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('Yeni okul ekleme hatası: $e');
+    }
   }
 }

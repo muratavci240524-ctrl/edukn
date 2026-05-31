@@ -1882,7 +1882,7 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
   }
 
   Future<void> _pickFile() async {
-    FilePickerResult? result = await FilePicker.platform.pickFiles();
+    FilePickerResult? result = await FilePicker.pickFiles();
     if (result != null) {
       setState(() {
         _attachedFile = result.files.first;
@@ -2222,3 +2222,4 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
     }
   }
 } // End of _GuidanceInterviewScreenState
+

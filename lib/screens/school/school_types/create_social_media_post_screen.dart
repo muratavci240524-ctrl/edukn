@@ -51,7 +51,7 @@ class _CreateSocialMediaPostScreenState
 
   Future<void> _pickImages() async {
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         type: FileType.image,
         allowMultiple: true,
         withData: true,
@@ -545,3 +545,4 @@ class _CreateSocialMediaPostScreenState
     );
   }
 }
+

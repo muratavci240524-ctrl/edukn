@@ -257,7 +257,7 @@ class _StudentBulkUploadDialogState extends State<StudentBulkUploadDialog> {
     setState(() => _isProcessing = true);
 
     try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
+      FilePickerResult? result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['xlsx', 'xls'],
         withData: true,
@@ -1129,3 +1129,4 @@ class _StudentBulkUploadDialogState extends State<StudentBulkUploadDialog> {
     );
   }
 }
+

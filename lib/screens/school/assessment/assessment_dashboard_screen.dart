@@ -490,22 +490,6 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
                 ],
               ),
             ),
-            const SizedBox(width: 20),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Text(
-                'Aç',
-                style: GoogleFonts.inter(
-                  color: const Color(0xFFF57C00),
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                ),
-              ),
-            ),
           ],
         ),
       ),

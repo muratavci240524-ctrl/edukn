@@ -211,7 +211,7 @@ class _ClassLessonPlanEntryDialogState
 
   Future<void> _pickFile() async {
     try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles();
+      FilePickerResult? result = await FilePicker.pickFiles();
 
       if (result != null) {
         final file = result.files.first;
@@ -829,3 +829,4 @@ class _ClassLessonPlanEntryDialogState
     );
   }
 }
+
