@@ -20,7 +20,8 @@ class AnnouncementService {
     if (user == null) return null;
 
     try {
-      _cachedInstitutionId = await UserPermissionService.resolveInstitutionId(user.email ?? '');
+      final userData = await UserPermissionService.loadUserData();
+      _cachedInstitutionId = await UserPermissionService.resolveInstitutionId(user.email ?? '', userData: userData);
       return _cachedInstitutionId;
     } catch (e) {
       print('Correction error for Institution ID: $e');
@@ -52,6 +53,16 @@ class AnnouncementService {
   // Okul bilgilerini al
   Future<void> _getSchoolInfo() async {
     if (_schoolId != null) return;
+
+    try {
+      final userData = await UserPermissionService.loadUserData();
+      if (userData != null && userData['schoolId'] != null && userData['schoolId'].toString().isNotEmpty) {
+        _schoolId = userData['schoolId'].toString();
+        return;
+      }
+    } catch (e) {
+      print('Error getting schoolId from userData: $e');
+    }
 
     final instId = await _getInstitutionId();
     if (instId != null) {

@@ -168,18 +168,128 @@ class _PreRegistrationSettingsScreenState extends State<PreRegistrationSettingsS
 
   Future<void> _saveSettings() async {
     try {
+      // Firestore'a göndermeden önce veriyi temizle
+      // TIP GÜVENLİ: Map.from() kullan, as Map<dynamic,dynamic> cast YAPMA
+      final Map<String, dynamic> cleanPrices = {};
+      final rawPricesObj = _settings['prices'];
+      if (rawPricesObj is Map) {
+        rawPricesObj.forEach((key, value) {
+          if (value is Map) {
+            final Map<String, dynamic> cleanEntry = {};
+            value.forEach((k, v) {
+              final double parsed = (v is num)
+                  ? v.toDouble()
+                  : (double.tryParse(v?.toString().replaceAll(',', '.') ?? '0') ?? 0.0);
+              cleanEntry[k.toString()] = parsed;
+            });
+            cleanPrices[key.toString()] = cleanEntry;
+          }
+        });
+      }
+
+      // discounts listesini temizle
+      final List<Map<String, dynamic>> cleanDiscounts = [];
+      final rawDiscounts = _settings['discounts'];
+      if (rawDiscounts is List) {
+        for (var d in rawDiscounts) {
+          if (d is Map) {
+            final applyToRaw = d['applyTo'];
+            final List<String> applyTo = (applyToRaw is List)
+                ? applyToRaw.map((e) => e.toString()).toList()
+                : [];
+            cleanDiscounts.add({
+              'id': d['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(),
+              'name': d['name']?.toString() ?? '',
+              'percentage': (d['percentage'] is num) ? (d['percentage'] as num).toInt() : null,
+              'enabled': d['enabled'] is bool ? d['enabled'] as bool : true,
+              'applyTo': applyTo,
+            });
+          }
+        }
+      }
+
+      // paymentMethods listesini temizle
+      final List<Map<String, dynamic>> cleanPaymentMethods = [];
+      final rawMethods = _settings['paymentMethods'];
+      if (rawMethods is List) {
+        for (var m in rawMethods) {
+          if (m is Map) {
+            cleanPaymentMethods.add({
+              'id': m['id']?.toString() ?? '',
+              'name': m['name']?.toString() ?? '',
+              'discount': (m['discount'] is num) ? (m['discount'] as num).toInt() : 0,
+            });
+          }
+        }
+      }
+
+      // priceTypes temizle
+      final List<String> cleanPriceTypes = [];
+      final rawPriceTypes = _settings['priceTypes'];
+      if (rawPriceTypes is List) {
+        for (var pt in rawPriceTypes) {
+          if (pt != null) cleanPriceTypes.add(pt.toString());
+        }
+      }
+      if (cleanPriceTypes.isEmpty) cleanPriceTypes.addAll(['Eğitim', 'Yemek']);
+
+      // FieldValue.serverTimestamp() yerine DateTime kullan — nested map içinde güvenli
+      final Map<String, dynamic> cleanSettings = {
+        'priceTypes': cleanPriceTypes,
+        'prices': cleanPrices,
+        'discounts': cleanDiscounts,
+        'paymentMethods': cleanPaymentMethods,
+      };
+
+      // Önce ana dokümanı set et
       await FirebaseFirestore.instance
           .collection('preRegistrationSettings')
           .doc(widget.institutionId)
-          .set(_settings);
+          .set(cleanSettings);
+
+      // Sonra updatedAt'i ayrıca update et (serverTimestamp nested map içinde sorun çıkarabilir)
+      await FirebaseFirestore.instance
+          .collection('preRegistrationSettings')
+          .doc(widget.institutionId)
+          .update({'updatedAt': FieldValue.serverTimestamp()});
       
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✅ Ayarlar kaydedildi'), backgroundColor: Colors.green),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('❌ Hata: $e'), backgroundColor: Colors.red),
-      );
+      // Yerel state'i de güncelle (temizlenmiş versiyonla)
+      if (mounted) {
+        setState(() {
+          _settings['prices'] = cleanPrices;
+          _settings['discounts'] = cleanDiscounts;
+          _settings['paymentMethods'] = cleanPaymentMethods;
+          _settings['priceTypes'] = cleanPriceTypes;
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+                SizedBox(width: 12),
+                Text('Ayarlar başarıyla kaydedildi'),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e, stack) {
+      debugPrint('Settings save error: $e');
+      debugPrint('Stack: $stack');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Kayıt hatası: ${e.toString().split(']').last.trim()}'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
     }
   }
 

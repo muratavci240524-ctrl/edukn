@@ -7,6 +7,7 @@ class StudentNeedProfile {
   final String ogrenciAdi;
   final String subeId;
   final String subeAdi;
+  final double examScore;
 
   /// dersId -> ihtiyaçlar (kazanımlar), azalan sıralı
   final Map<String, double> dersIhtiyaclari;
@@ -24,6 +25,7 @@ class StudentNeedProfile {
     required this.ogrenciAdi,
     required this.subeId,
     required this.subeAdi,
+    this.examScore = 0.0,
     required this.dersIhtiyaclari,
     this.kazanimIhtiyaclari = const {},
     this.dersBasariOranlari = const {},
@@ -77,6 +79,7 @@ class AgmAssignmentEngine {
   bool isSpecialClassEnabled = false;
   int? specialClassCapacity;
   String? specialClassRoomId;
+  String specialClassCriteria = 'success_rate';
 
   AgmAssignmentEngine({
     required this.cycleId,
@@ -179,11 +182,15 @@ class AgmAssignmentEngine {
     // ── Özel Sınıf Hazırlığı ──
     final Set<String> specialStudentIds = {};
     if (isSpecialClassEnabled && specialClassCapacity != null && specialClassCapacity! > 0) {
-      // Başarı ortalamasına göre sırala (Azalan)
+      // Kriterine göre sırala (Azalan)
       final sortedBySuccess = List<StudentNeedProfile>.from(ogrenciProfiller)..sort((a, b) {
-        final avgA = a.dersBasariOranlari.isEmpty ? 0.0 : a.dersBasariOranlari.values.reduce((a, b) => a + b) / a.dersBasariOranlari.length;
-        final avgB = b.dersBasariOranlari.isEmpty ? 0.0 : b.dersBasariOranlari.values.reduce((a, b) => a + b) / b.dersBasariOranlari.length;
-        return avgB.compareTo(avgA);
+        if (specialClassCriteria == 'exam_score') {
+          return b.examScore.compareTo(a.examScore);
+        } else {
+          final avgA = a.dersBasariOranlari.isEmpty ? 0.0 : a.dersBasariOranlari.values.reduce((a, b) => a + b) / a.dersBasariOranlari.length;
+          final avgB = b.dersBasariOranlari.isEmpty ? 0.0 : b.dersBasariOranlari.values.reduce((a, b) => a + b) / b.dersBasariOranlari.length;
+          return avgB.compareTo(avgA);
+        }
       });
       specialStudentIds.addAll(sortedBySuccess.take(specialClassCapacity!).map((p) => p.ogrenciId));
     }

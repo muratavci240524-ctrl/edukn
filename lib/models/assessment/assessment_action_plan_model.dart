@@ -20,6 +20,11 @@ class AssessmentActionPlan {
   /// Map<String, dynamic> containing problemSource, actionPlan, status
   final Map<String, dynamic> branchActionPlans;
   
+  // Student specific action plan tracking
+  final Map<String, dynamic> studentTasks;
+  final Map<String, dynamic> parentNotified;
+  final Map<String, dynamic> studentStatus;
+  
   final bool isActive;
   final bool isRealized;
   final String realizationNotes;
@@ -39,6 +44,9 @@ class AssessmentActionPlan {
     required this.subjectThresholds,
     required this.outcomeStats,
     required this.branchActionPlans,
+    this.studentTasks = const {},
+    this.parentNotified = const {},
+    this.studentStatus = const {},
     this.isActive = true,
     this.isRealized = false,
     this.realizationNotes = '',
@@ -60,6 +68,9 @@ class AssessmentActionPlan {
       'subjectThresholds': subjectThresholds,
       'outcomeStats': outcomeStats,
       'branchActionPlans': branchActionPlans,
+      'studentTasks': studentTasks,
+      'parentNotified': parentNotified,
+      'studentStatus': studentStatus,
       'isActive': isActive,
       'isRealized': isRealized,
       'realizationNotes': realizationNotes,
@@ -82,6 +93,9 @@ class AssessmentActionPlan {
       subjectThresholds: Map<String, double>.from(map['subjectThresholds'] ?? {}),
       outcomeStats: Map<String, dynamic>.from(map['outcomeStats'] ?? {}),
       branchActionPlans: Map<String, dynamic>.from(map['branchActionPlans'] ?? {}),
+      studentTasks: Map<String, dynamic>.from(map['studentTasks'] ?? {}),
+      parentNotified: Map<String, dynamic>.from(map['parentNotified'] ?? {}),
+      studentStatus: Map<String, dynamic>.from(map['studentStatus'] ?? {}),
       isActive: map['isActive'] ?? true,
       isRealized: map['isRealized'] ?? false,
       realizationNotes: map['realizationNotes'] ?? '',
@@ -89,3 +103,4 @@ class AssessmentActionPlan {
     );
   }
 }
+

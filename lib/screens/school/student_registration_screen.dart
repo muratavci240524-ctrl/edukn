@@ -10,6 +10,7 @@ import 'dart:typed_data';
 import '../../services/user_permission_service.dart';
 import '../../services/term_service.dart';
 import 'student_bulk_upload_dialog.dart';
+import '../../services/crypto_service.dart';
 
 // Helper metodlar - Her iki class da kullanabilir
 
@@ -608,7 +609,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
         _students = studentsQuery.docs.map((doc) {
           final data = doc.data();
           data['id'] = doc.id;
-          return data;
+          return CryptoService.decryptMap(data, institutionId: institutionId);
         }).toList();
 
         _filteredStudents = List.from(_students);
@@ -5198,15 +5199,15 @@ class __StudentRegistrationFormScreenState
   void _loadExistingStudentData(Map<String, dynamic> student) {
     _studentNoController.text =
         student['studentNo'] ?? student['studentNumber'] ?? '';
-    _tcController.text = student['tcNo'] ?? '';
+    _tcController.text = CryptoService.decrypt(student['tcNo']?.toString(), institutionId: _institutionId);
     _selectedRegistrationType = student['registrationType'];
     _selectedEntryType = student['entryType'];
     _nameController.text = student['name'] ?? '';
     _surnameController.text = student['surname'] ?? '';
-    _phoneController.text = student['phone'] ?? '';
+    _phoneController.text = CryptoService.decrypt(student['phone']?.toString(), institutionId: _institutionId);
     _usernameController.text = student['username'] ?? '';
     _passwordController.text = student['password'] ?? '';
-    _birthDateController.text = student['birthDate'] ?? '';
+    _birthDateController.text = CryptoService.decrypt(student['birthDate']?.toString(), institutionId: _institutionId);
     _registrationDateController.text = student['registrationDate'] ?? '';
     _registrationDateController.text = student['registrationDate'] ?? '';
     _previousSchoolController.text = student['previousSchool'] ?? '';
@@ -5225,10 +5226,85 @@ class __StudentRegistrationFormScreenState
 
     // Velileri yükle
     if (student['parents'] != null) {
-      _parents = List<Map<String, dynamic>>.from(student['parents']);
+      _parents = (student['parents'] as List).map((p) {
+        final newP = Map<String, dynamic>.from(p as Map);
+        if (newP.containsKey('tcNo') && newP['tcNo'] is String) {
+          newP['tcNo'] = CryptoService.decrypt(newP['tcNo'] as String, institutionId: _institutionId);
+        }
+        if (newP.containsKey('phone') && newP['phone'] is String) {
+          newP['phone'] = CryptoService.decrypt(newP['phone'] as String, institutionId: _institutionId);
+        }
+        return newP;
+      }).toList();
     }
 
     print('✅ Öğrenci verileri forma yüklendi: ${student['fullName']}');
+  }
+
+  Future<void> _checkDuplicateAndPullData(String tc) async {
+    if (tc.length != 11 || _institutionId == null) return;
+
+    try {
+      final encryptedTc = CryptoService.encrypt(tc, institutionId: _institutionId);
+
+      // Check in 'students'
+      final studentQuery = await FirebaseFirestore.instance
+          .collection('students')
+          .where('institutionId', isEqualTo: _institutionId)
+          .where('tcNo', isEqualTo: encryptedTc)
+          .limit(1)
+          .get();
+
+      if (studentQuery.docs.isNotEmpty) {
+        final existingStudent = studentQuery.docs.first.data();
+        
+        setState(() {
+          _studentNoController.text = existingStudent['studentNo'] ?? existingStudent['studentNumber'] ?? '';
+          _nameController.text = existingStudent['name'] ?? '';
+          _surnameController.text = existingStudent['surname'] ?? '';
+          _phoneController.text = existingStudent['phone'] ?? '';
+          _usernameController.text = existingStudent['username'] ?? '';
+          _birthDateController.text = existingStudent['birthDate'] ?? '';
+          _registrationDateController.text = existingStudent['registrationDate'] ?? '';
+          _previousSchoolController.text = existingStudent['previousSchool'] ?? '';
+          _selectedGender = existingStudent['gender'];
+          _emailController.text = existingStudent['email'] ?? '';
+          _selectedHearSource = existingStudent['hearSource'];
+          _selectedEducationType = existingStudent['educationType'];
+          _selectedForeignLanguage = existingStudent['foreignLanguage'];
+          _referenceController.text = existingStudent['reference'] ?? '';
+          _selectedSchoolTypeId = existingStudent['schoolTypeId'];
+          _selectedClassLevel = existingStudent['classLevel'];
+          _selectedClassId = existingStudent['classId'];
+          _selectedClassName = existingStudent['className'];
+          _selectedSubTermId = existingStudent['subTermId'];
+          _isStudentSelfGuardian = existingStudent['isSelfGuardian'] ?? false;
+          _selectedRegistrationType = existingStudent['registrationType'];
+          _selectedEntryType = existingStudent['entryType'];
+
+          if (existingStudent['parents'] != null) {
+            _parents = (existingStudent['parents'] as List).map((p) {
+              final newP = Map<String, dynamic>.from(p as Map);
+              if (newP.containsKey('tcNo') && newP['tcNo'] is String) {
+                newP['tcNo'] = CryptoService.decrypt(newP['tcNo'] as String, institutionId: _institutionId);
+              }
+              return newP;
+            }).toList();
+          }
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('ℹ️ Bu TC numarasına ait mevcut öğrenci bulundu ve bilgileri otomatik dolduruldu.'),
+              backgroundColor: Colors.indigo,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('TC lookup error: $e');
+    }
   }
 
   @override
@@ -5369,10 +5445,11 @@ class __StudentRegistrationFormScreenState
                 if (!await _isQuotaAvailable()) return;
 
                 // TC tekrar kontrolü
+                final encryptedTc = CryptoService.encrypt(_tcController.text, institutionId: _institutionId);
                 final tcExists = await FirebaseFirestore.instance
                     .collection('students')
                     .where('institutionId', isEqualTo: _institutionId)
-                    .where('tcNo', isEqualTo: _tcController.text)
+                    .where('tcNo', isEqualTo: encryptedTc)
                     .limit(1)
                     .get();
 
@@ -5406,13 +5483,23 @@ class __StudentRegistrationFormScreenState
                   return;
                 }
 
-                // Veli listesi hazırla
-                List<Map<String, dynamic>> parentsToSave = List.from(_parents);
+                // Veli listesi hazırla (TC ve Telefonları şifrele)
+                List<Map<String, dynamic>> parentsToSave = _parents.map((p) {
+                  final newP = Map<String, dynamic>.from(p);
+                  if (newP.containsKey('tcNo') && newP['tcNo'] is String && (newP['tcNo'] as String).isNotEmpty) {
+                    newP['tcNo'] = CryptoService.encrypt(newP['tcNo'] as String, institutionId: _institutionId);
+                  }
+                  if (newP.containsKey('phone') && newP['phone'] is String && (newP['phone'] as String).isNotEmpty) {
+                    newP['phone'] = CryptoService.encrypt(newP['phone'] as String, institutionId: _institutionId);
+                  }
+                  return newP;
+                }).toList();
+
                 if (_isStudentSelfGuardian) {
                   parentsToSave.add({
                     'name': 'Öğrencinin Kendisi',
-                    'tcNo': _tcController.text,
-                    'phone': _phoneController.text,
+                    'tcNo': CryptoService.encrypt(_tcController.text, institutionId: _institutionId),
+                    'phone': CryptoService.encrypt(_phoneController.text, institutionId: _institutionId),
                     'relation': 'Kendisi',
                     'isSelf': true,
                   });
@@ -5441,11 +5528,11 @@ class __StudentRegistrationFormScreenState
                     'className': _selectedClassName,
                     'termId': activeTermId,
                     'subTermId': _selectedSubTermId,
-                    'tcNo': _tcController.text,
-                    'phone': _phoneController.text,
+                    'tcNo': CryptoService.encrypt(_tcController.text, institutionId: _institutionId),
+                    'phone': CryptoService.encrypt(_phoneController.text, institutionId: _institutionId),
                     'username': _usernameController.text,
                     'password': _passwordController.text, // TODO: Hash yapılmalı
-                    'birthDate': _birthDateController.text,
+                    'birthDate': CryptoService.encrypt(_birthDateController.text, institutionId: _institutionId),
                     'registrationDate': _registrationDateController.text,
                     'previousSchool': _previousSchoolController.text,
                     'isSelfGuardian': _isStudentSelfGuardian,
@@ -5736,7 +5823,12 @@ class __StudentRegistrationFormScreenState
                             ),
                         keyboardType: TextInputType.number,
                         maxLength: 11,
-                        onChanged: (value) => setState(() {}),
+                        onChanged: (value) {
+                          setState(() {});
+                          if (value.length == 11) {
+                            _checkDuplicateAndPullData(value);
+                          }
+                        },
                         validator: (value) {
                           if (value == null || value.isEmpty)
                             return 'TC zorunlu';
@@ -5787,7 +5879,12 @@ class __StudentRegistrationFormScreenState
                           ),
                       keyboardType: TextInputType.number,
                       maxLength: 11,
-                      onChanged: (value) => setState(() {}),
+                      onChanged: (value) {
+                        setState(() {});
+                        if (value.length == 11) {
+                          _checkDuplicateAndPullData(value);
+                        }
+                      },
                       validator: (value) {
                         if (value == null || value.isEmpty) return 'TC zorunlu';
                         if (value.length != 11) return '11 haneli olmalı';

@@ -1,4 +1,5 @@
 import 'dart:js' as js;
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -19,12 +20,13 @@ import 'screens/school/parent_student_selection_screen.dart';
 import 'screens/school/terms_screen.dart';
 import 'screens/hr/hr_home_screen.dart';
 import 'screens/announcements/announcements_screen.dart';
-import 'screens/support_services/support_services_hub_screen.dart';
+import 'package:edukn/screens/support_services/support_services_hub_screen.dart';
 import 'screens/school/settings/permission_definition_screen.dart';
 import 'screens/school/settings/app_settings_screen.dart';
 import 'screens/school/settings/sms_integration_screen.dart';
 import 'screens/school/kvkk_detail_screen.dart';
 import 'screens/public/external_exam_register_screen.dart';
+import 'screens/public/external_exam_attendance_screen.dart';
 import 'screens/school/registration/pre_registration_screen.dart';
 import 'screens/school/accounting/accounting_dashboard_screen.dart';
 // --- 1. FIREBASE CORE PAKETLERİNİ IMPORT ET ---
@@ -78,6 +80,19 @@ void main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
     print('✅ Firebase başarıyla başlatıldı!');
+
+    // 🔐 Firebase App Check — Bot ve yetkisiz erişime karşı koruma
+    // TODO: Firebase Console → App Check → Web'i reCAPTCHA v3 ile kaydet
+    // ve aşağıdaki 'debug' yerine gerçek site key'i ekle:
+    // webProvider: ReCaptchaV3Provider('YOUR_RECAPTCHA_V3_SITE_KEY')
+    await FirebaseAppCheck.instance.activate(
+      webProvider: ReCaptchaV3Provider(
+        '6Levx0gtAAAAALvp-sRrS-PFzvHMtAZ1TMdL6cvq',
+      ),
+      androidProvider: AndroidProvider.debug,
+      appleProvider: AppleProvider.debug,
+    );
+    print('✅ App Check aktif!');
   } catch (e) {
     print('❌ Firebase başlatma hatası: $e');
     if (!e.toString().toLowerCase().contains('duplicate')) {
@@ -97,7 +112,8 @@ class MyApp extends StatelessWidget {
   static const Color cardBackgroundColor = Colors.white;
 
   // Global Navigator Key
-  static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+  static final GlobalKey<NavigatorState> navigatorKey =
+      GlobalKey<NavigatorState>();
 
   @override
   Widget build(BuildContext context) {
@@ -191,10 +207,11 @@ class MyApp extends StatelessWidget {
           ),
         ),
       ),
-      initialRoute: '/school-login', // Varsayılan olarak okul giriş ekranı
       routes: {
+        '/': (context) => SchoolLoginScreen(),
         '/school-login': (context) => SchoolLoginScreen(),
-        '/school-dashboard': (context) => SchoolDashboardV2Screen(), // Yeni sürüm (Deneme)
+        '/school-dashboard': (context) =>
+            SchoolDashboardV2Screen(), // Yeni sürüm (Deneme)
         '/profile-settings': (context) => ProfileSettingsScreen(),
         '/student-registration': (context) => StudentRegistrationScreen(),
         '/pre-registration': (context) => PreRegistrationScreen(),
@@ -208,16 +225,18 @@ class MyApp extends StatelessWidget {
         '/hr': (context) => const HrHomeScreen(),
         '/announcements': (context) => const AnnouncementsScreen(),
         '/support-services': (context) => const SupportServicesHubScreen(),
-        '/permission-definition': (context) => const PermissionDefinitionScreen(),
+        '/permission-definition': (context) =>
+            const PermissionDefinitionScreen(),
         '/app-settings': (context) => const AppSettingsScreen(),
         '/sms-settings': (context) => const SmsIntegrationScreen(),
         '/sinav-basvuru': (context) => const ExternalExamRegisterScreen(),
         '/kvkk-detail': (context) => const KvkkDetailScreen(),
+        // Not: /yoklama-al-{examId} dinamik rotası onGenerateRoute'da handle edilir
         '/parent-student-selection': (context) => ParentStudentSelectionScreen(
-              institutionId: '',
-              parentTcNo: '',
-              students: [],
-            ),
+          institutionId: '',
+          parentTcNo: '',
+          students: [],
+        ),
       },
       onGenerateRoute: (settings) {
         final uri = Uri.parse(settings.name ?? '');
@@ -225,6 +244,7 @@ class MyApp extends StatelessWidget {
 
         // Extract routes map for query parameter handling
         final Map<String, WidgetBuilder> appRoutes = {
+          '/': (context) => SchoolLoginScreen(),
           '/school-login': (context) => SchoolLoginScreen(),
           '/school-dashboard': (context) => SchoolDashboardV2Screen(),
           '/profile-settings': (context) => ProfileSettingsScreen(),
@@ -240,17 +260,28 @@ class MyApp extends StatelessWidget {
           '/hr': (context) => const HrHomeScreen(),
           '/announcements': (context) => const AnnouncementsScreen(),
           '/support-services': (context) => const SupportServicesHubScreen(),
-          '/permission-definition': (context) => const PermissionDefinitionScreen(),
+          '/permission-definition': (context) =>
+              const PermissionDefinitionScreen(),
           '/app-settings': (context) => const AppSettingsScreen(),
           '/sms-settings': (context) => const SmsIntegrationScreen(),
           '/sinav-basvuru': (context) => const ExternalExamRegisterScreen(),
           '/kvkk-detail': (context) => const KvkkDetailScreen(),
-          '/parent-student-selection': (context) => ParentStudentSelectionScreen(
+          '/parent-student-selection': (context) =>
+              ParentStudentSelectionScreen(
                 institutionId: '',
                 parentTcNo: '',
                 students: [],
               ),
         };
+
+        // Yoklama sayfası: /yoklama-al-{examId}
+        if (path.startsWith('/yoklama-al-')) {
+          final examId = path.replaceFirst('/yoklama-al-', '');
+          return MaterialPageRoute(
+            builder: (_) => ExternalExamAttendanceScreen(examId: examId),
+            settings: settings,
+          );
+        }
 
         if (appRoutes.containsKey(path)) {
           return MaterialPageRoute(
@@ -274,10 +305,13 @@ class _GlobalKeyboardUnfocusWrapper extends StatefulWidget {
   final Widget child;
   const _GlobalKeyboardUnfocusWrapper({required this.child});
   @override
-  State<_GlobalKeyboardUnfocusWrapper> createState() => __GlobalKeyboardUnfocusWrapperState();
+  State<_GlobalKeyboardUnfocusWrapper> createState() =>
+      __GlobalKeyboardUnfocusWrapperState();
 }
 
-class __GlobalKeyboardUnfocusWrapperState extends State<_GlobalKeyboardUnfocusWrapper> with WidgetsBindingObserver {
+class __GlobalKeyboardUnfocusWrapperState
+    extends State<_GlobalKeyboardUnfocusWrapper>
+    with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
@@ -295,10 +329,13 @@ class __GlobalKeyboardUnfocusWrapperState extends State<_GlobalKeyboardUnfocusWr
     super.didChangeMetrics();
     try {
       final dispatcher = WidgetsBinding.instance.platformDispatcher;
-      final view = dispatcher.implicitView ?? (dispatcher.views.isNotEmpty ? dispatcher.views.first : null);
+      final view =
+          dispatcher.implicitView ??
+          (dispatcher.views.isNotEmpty ? dispatcher.views.first : null);
       if (view != null && view.viewInsets.bottom == 0.0) {
         // Klavye kapandı: focus'u kaldır
-        if (FocusManager.instance.primaryFocus != null && FocusManager.instance.primaryFocus!.hasFocus) {
+        if (FocusManager.instance.primaryFocus != null &&
+            FocusManager.instance.primaryFocus!.hasFocus) {
           FocusManager.instance.primaryFocus?.unfocus();
         }
         // JS tarafına da sinyal gönder: viewport'u düzelt
@@ -306,13 +343,13 @@ class __GlobalKeyboardUnfocusWrapperState extends State<_GlobalKeyboardUnfocusWr
           try {
             js.context.callMethod('eval', [
               'if(typeof fixFlutterViewport === "function") { fixFlutterViewport(); } '
-              'else if(window.visualViewport) { '
-              '  var h = window.visualViewport.height; '
-              '  document.documentElement.style.height = h + "px"; '
-              '  document.body.style.height = h + "px"; '
-              '  var el = document.querySelector("flt-glass-pane"); '
-              '  if(el) el.style.height = h + "px"; '
-              '}'
+                  'else if(window.visualViewport) { '
+                  '  var h = window.visualViewport.height; '
+                  '  document.documentElement.style.height = h + "px"; '
+                  '  document.body.style.height = h + "px"; '
+                  '  var el = document.querySelector("flt-glass-pane"); '
+                  '  if(el) el.style.height = h + "px"; '
+                  '}',
             ]);
           } catch (_) {}
         }

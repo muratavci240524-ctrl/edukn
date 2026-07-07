@@ -35,6 +35,7 @@ Uint8List _encodeZipIsolate(Map<String, Uint8List> files) {
 class GuidanceStudyProgramScreen extends StatefulWidget {
   final String institutionId;
   final String schoolTypeId;
+  final List<String>? allowedStudentIds;
 
   final String? initialStudentId;
   final String? initialExamName;
@@ -44,6 +45,7 @@ class GuidanceStudyProgramScreen extends StatefulWidget {
     Key? key,
     required this.institutionId,
     required this.schoolTypeId,
+    this.allowedStudentIds,
     this.initialStudentId,
     this.initialExamName,
     this.initialThresholds,
@@ -140,6 +142,9 @@ class _GuidanceStudyProgramScreenState
       Set<String> classes = {};
 
       for (var doc in query.docs) {
+        if (widget.allowedStudentIds != null && !widget.allowedStudentIds!.contains(doc.id)) {
+          continue;
+        }
         final data = doc.data();
         final name =
             data['fullName'] ??
@@ -2159,7 +2164,7 @@ class _GuidanceStudyProgramScreenState
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Ders Çalışma Programı',
+          'Mentör Çalışmaları',
           style: TextStyle(color: Colors.white),
         ),
         backgroundColor: Colors.indigo,
@@ -3615,17 +3620,6 @@ class _GuidanceStudyProgramScreenState
     });
 
     try {
-      // 1. Always try to load the stored key first
-      final prefs = await SharedPreferences.getInstance();
-      String? storedKey = prefs.getString('gemini_api_key');
-
-      // If we have a stored key, use it!
-      if (storedKey != null &&
-          storedKey.isNotEmpty &&
-          storedKey != "YOUR_API_KEY_HERE") {
-        _geminiService = GeminiService.withKey(storedKey);
-      }
-
       final safeAnalysis = analysis
           .map((e) => e as Map<String, dynamic>)
           .toList();
@@ -3642,118 +3636,22 @@ class _GuidanceStudyProgramScreenState
         });
       }
     } catch (e) {
-      print("Gemini First Attempt Error: $e");
+      print("Gemini Analysis Error: $e");
 
       if (mounted) {
-        // Stop loading
         setState(() {
           _isGeminiLoading = false;
         });
 
-        // Show Dialog to ask for key
-        await _showApiKeyDialog(studentName, analysis);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Yapay Zeka Analiz Hatası: $e'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 5),
+          ),
+        );
       }
     }
-  }
-
-  Future<void> _showApiKeyDialog(
-    String studentName,
-    List<dynamic> analysis,
-  ) async {
-    final TextEditingController keyController = TextEditingController();
-
-    await showDialog(
-      context: context,
-      builder: (dialogContext) {
-        // Renamed for clarity and to avoid shadowing
-        return AlertDialog(
-          title: Text('Gemini API Anahtarı Gerekli'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Yapay zeka analizi için geçerli bir API anahtarı giriniz.'),
-              SizedBox(height: 10),
-              TextField(
-                controller: keyController,
-                decoration: InputDecoration(
-                  labelText: 'API Key (AIzaSy...)',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              SizedBox(height: 10),
-              InkWell(
-                onTap: () async {
-                  // Open URL logic
-                },
-                child: Text(
-                  'Anahtar al: aistudio.google.com',
-                  style: TextStyle(
-                    color: Colors.blue,
-                    decoration: TextDecoration.underline,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: Text('İptal'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                final key = keyController.text.trim();
-                if (key.isNotEmpty) {
-                  Navigator.pop(dialogContext);
-
-                  // Save key
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.setString('gemini_api_key', key);
-
-                  // Update service
-                  setState(() {
-                    _geminiService = GeminiService.withKey(key);
-                    _isGeminiLoading = true;
-                  });
-
-                  // Retry
-                  try {
-                    final safeAnalysis = analysis
-                        .map((e) => e as Map<String, dynamic>)
-                        .toList();
-                    final result = await _geminiService
-                        .analyzeStudentPerformance(
-                          studentName: studentName,
-                          topicAnalysis: safeAnalysis,
-                        );
-
-                    if (mounted) {
-                      setState(() {
-                        _geminiAnalysis = result;
-                        _isGeminiLoading = false;
-                      });
-                    }
-                  } catch (e2) {
-                    if (mounted) {
-                      setState(() => _isGeminiLoading = false);
-                      // Now using 'context' (Screen's context), not 'dialogContext'
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Hata: $e2'),
-                          backgroundColor: Colors.red,
-                          duration: Duration(seconds: 5),
-                        ),
-                      );
-                    }
-                  }
-                }
-              },
-              child: Text('Kaydet ve Dene'),
-            ),
-          ],
-        );
-      },
-    );
   }
 
   /// AI Yorum Kartı Widget'ı

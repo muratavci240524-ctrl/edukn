@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'dart:async';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/user_permission_service.dart';
 import '../../services/announcement_service.dart';
 import '../announcements/announcement_detail_screen.dart';
@@ -11,7 +12,6 @@ import '../../models/school/homework_model.dart';
 import '../school/homework/homework_detail_screen.dart';
 import '../school/attendance_operations_screen.dart';
 import '../school/school_types/school_type_detail_screen.dart';
-import '../school/etut_process_screen.dart';
 
 class TeacherDashboardTab extends StatefulWidget {
   final String institutionId;
@@ -140,10 +140,41 @@ class _NotificationSectionState extends State<_NotificationSection> {
   List<Map<String, dynamic>> _allNotifications = [];
   Timer? _timer;
  
+  Set<String> _dismissedIds = {};
+
   @override
   void initState() {
     super.initState();
-    _loadInitialData();
+    _loadDismissedIds().then((_) {
+      _loadInitialData();
+    });
+  }
+
+  Future<void> _loadDismissedIds() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final list = prefs.getStringList('dismissed_notification_ids') ?? [];
+      if (mounted) {
+        setState(() {
+          _dismissedIds = list.toSet();
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading dismissed ids: $e');
+    }
+  }
+
+  Future<void> _dismissNotification(String notifId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _dismissedIds.add(notifId);
+      });
+      await prefs.setStringList('dismissed_notification_ids', _dismissedIds.toList());
+      _updateNotifications();
+    } catch (e) {
+      debugPrint('Error dismissing notification: $e');
+    }
   }
  
   @override
@@ -160,7 +191,22 @@ class _NotificationSectionState extends State<_NotificationSection> {
     if (val is Timestamp) return val.toDate();
     if (val is DateTime) return val;
     if (val is String) {
-      return DateTime.tryParse(val);
+      final clean = val.trim();
+      final isoParsed = DateTime.tryParse(clean);
+      if (isoParsed != null) return isoParsed;
+
+      try {
+        final regex = RegExp(r'(\d{2})\.(\d{2})\.(\d{4})(?:\s+(\d{2}):(\d{2}))?');
+        final match = regex.firstMatch(clean);
+        if (match != null) {
+          final day = int.parse(match.group(1)!);
+          final month = int.parse(match.group(2)!);
+          final year = int.parse(match.group(3)!);
+          final hour = match.group(4) != null ? int.parse(match.group(4)!) : 0;
+          final minute = match.group(5) != null ? int.parse(match.group(5)!) : 0;
+          return DateTime(year, month, day, hour, minute);
+        }
+      } catch (_) {}
     }
     return null;
   }
@@ -405,6 +451,8 @@ class _NotificationSectionState extends State<_NotificationSection> {
     if (etutSnap != null) {
       for (var doc in etutSnap.docs) {
         final data = doc.data() as Map<String, dynamic>;
+        final attendanceTaken = data['attendanceTaken'] ?? false;
+        if (attendanceTaken) continue;
         final etutDate = _parseDateTime(data['startTime'] ?? data['date']);
         final createdAt = _parseDateTime(data['createdAt']);
         final lessonName = data['subject'] ?? data['lessonName'] ?? 'Etüt';
@@ -577,9 +625,10 @@ class _NotificationSectionState extends State<_NotificationSection> {
       }
     }
  
-    result.sort((a, b) => (b['time'] as DateTime).compareTo(a['time'] as DateTime));
+    final filteredResult = result.where((item) => !_dismissedIds.contains(item['id'])).toList();
+    filteredResult.sort((a, b) => (b['time'] as DateTime).compareTo(a['time'] as DateTime));
     if (mounted) {
-      setState(() => _allNotifications = result);
+      setState(() => _allNotifications = filteredResult);
     }
   }
 
@@ -669,110 +718,602 @@ class _NotificationSectionState extends State<_NotificationSection> {
     final userEmail = FirebaseAuth.instance.currentUser?.email;
     final timeStr = DateFormat('HH:mm').format(time);
  
-    return InkWell(
-      onTap: () async {
-        if (userEmail != null) {
-          if (type == 'announcement') {
-            await FirebaseFirestore.instance.collection('schools').doc(_schoolId).collection('announcements').doc(id).update({
-              'readBy': FieldValue.arrayUnion([userEmail])
-            });
-            if (mounted) {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => AnnouncementDetailScreen(announcementId: id, schoolId: _schoolId!)));
-            }
-          } else if (type == 'social') {
-            await FirebaseFirestore.instance.collection('social_media_posts').doc(id).update({
-              'readBy': FieldValue.arrayUnion([userEmail])
-            });
-            if (mounted) {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => TeacherSocialMediaScreen(institutionId: widget.institutionId)));
-            }
-          } else if (type == 'homework_warning') {
-            if (mounted) {
-              Navigator.push(
-                context, 
-                MaterialPageRoute(
-                  builder: (_) => HomeworkDetailScreen(
-                    homework: Homework.fromMap(originalData),
-                  )
-                )
-              );
-            }
-          } else if (type == 'attendance_warning') {
-            if (mounted) {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => AttendanceOperationsScreen(
-                    institutionId: widget.institutionId,
-                    schoolTypeId: _schoolTypeId ?? '',
-                    schoolTypeName: _schoolTypeName ?? 'Okul',
-                  )
-                )
-              );
-            }
-          } else if (type == 'etut_scheduled' || type == 'etut_today' || type == 'etut_attendance_warning') {
-            if (mounted) {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => EtutProcessScreen(
-                    institutionId: widget.institutionId,
-                    schoolTypeId: _schoolTypeId ?? '',
-                    schoolTypeName: _schoolTypeName ?? 'Okul',
-                  )
-                )
-              );
-            }
-          } else if (type == 'duty_scheduled' || type == 'duty_today') {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Nöbet bilgilerinizi takvim sekmesinden de takip edebilirsiniz.'),
-                duration: Duration(seconds: 3),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white, borderRadius: BorderRadius.circular(16),
+        boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.05), spreadRadius: 2, blurRadius: 10, offset: const Offset(0, 4))],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: () async {
+              if (userEmail != null) {
+                if (type == 'announcement') {
+                  await FirebaseFirestore.instance.collection('schools').doc(_schoolId).collection('announcements').doc(id).update({
+                    'readBy': FieldValue.arrayUnion([userEmail])
+                  });
+                  if (mounted) {
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => AnnouncementDetailScreen(announcementId: id, schoolId: _schoolId!)));
+                  }
+                } else if (type == 'social') {
+                  await FirebaseFirestore.instance.collection('social_media_posts').doc(id).update({
+                    'readBy': FieldValue.arrayUnion([userEmail])
+                  });
+                  if (mounted) {
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => TeacherSocialMediaScreen(institutionId: widget.institutionId)));
+                  }
+                } else if (type == 'homework_warning') {
+                  if (mounted) {
+                    Navigator.push(
+                      context, 
+                      MaterialPageRoute(
+                        builder: (_) => HomeworkDetailScreen(
+                          homework: Homework.fromMap(originalData),
+                        )
+                      )
+                    );
+                  }
+                } else if (type == 'attendance_warning') {
+                  if (mounted) {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => AttendanceOperationsScreen(
+                          institutionId: widget.institutionId,
+                          schoolTypeId: _schoolTypeId ?? '',
+                          schoolTypeName: _schoolTypeName ?? 'Okul',
+                        )
+                      )
+                    );
+                  }
+                } else if (type == 'etut_scheduled' || type == 'etut_today' || type == 'etut_attendance_warning') {
+                  if (mounted) {
+                    // Extract real etut ID by removing prefixed string
+                    String realEtutId = id;
+                    if (id.startsWith('etut_scheduled_')) {
+                      realEtutId = id.replaceFirst('etut_scheduled_', '');
+                    } else if (id.startsWith('etut_today_')) {
+                      realEtutId = id.replaceFirst('etut_today_', '');
+                    } else if (id.startsWith('etut_att_')) {
+                      realEtutId = id.replaceFirst('etut_att_', '');
+                    }
+
+                    final mappedEtutData = Map<String, dynamic>.from(originalData);
+                    mappedEtutData['id'] = realEtutId;
+                    _showEtutAttendanceSheet(mappedEtutData);
+                  }
+                } else if (type == 'duty_scheduled' || type == 'duty_today') {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Nöbet bilgilerinizi takvim sekmesinden de takip edebilirsiniz.'),
+                      duration: Duration(seconds: 3),
+                    ),
+                  );
+                }
+              }
+            },
+            child: IntrinsicHeight(
+              child: Row(
+                children: [
+                  Container(width: 6, color: color),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
+                            child: Icon(icon, color: color, size: 20),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                              Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                              Text(timeStr, style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                            ]),
+                            const SizedBox(height: 4),
+                            Text(subtitle, style: TextStyle(color: Colors.grey.shade600, fontSize: 12, height: 1.4), maxLines: 2, overflow: TextOverflow.ellipsis),
+                          ])),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            icon: const Icon(Icons.close, size: 16, color: Colors.grey),
+                            constraints: const BoxConstraints(),
+                            padding: const EdgeInsets.all(4),
+                            onPressed: () {
+                              _dismissNotification(id);
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            );
-          }
-        }
-      },
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        decoration: BoxDecoration(
-          color: Colors.white, borderRadius: BorderRadius.circular(16),
-          boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.05), spreadRadius: 2, blurRadius: 10, offset: const Offset(0, 4))],
+            ),
+          ),
         ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(16),
-          child: IntrinsicHeight(
-            child: Row(
+      ),
+    );
+  }
+
+  Future<void> _showEtutAttendanceSheet(Map<String, dynamic> etutData) async {
+    final etutId = etutData['id'] ?? '';
+    if (etutId.isEmpty) return;
+
+    // Show a loading indicator dialog or sheet while fetching student names
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        height: 200,
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: const Center(child: CircularProgressIndicator()),
+      ),
+    );
+
+    final navigator = Navigator.of(context);
+
+    // Resolve topic dynamically if empty or 'Belirtilmemiş'
+    final String topic = (etutData['topic'] ?? '').toString().trim();
+    String resolvedTopic = topic;
+    if (topic.isEmpty ||
+        topic.toLowerCase() == 'belirtilmemis' ||
+        topic.toLowerCase() == 'belirtilmemiş' ||
+        topic.toLowerCase() == 'konu belirtilmemis' ||
+        topic.toLowerCase() == 'konu belirtilmemiş' ||
+        topic == '-' ||
+        topic == 'null') {
+      final campGroupId = etutData['campGroupId']?.toString();
+      final agmGroupId = etutData['agmGroupId']?.toString();
+      
+      if (campGroupId != null && campGroupId.isNotEmpty) {
+        try {
+          final groupDoc = await FirebaseFirestore.instance
+              .collection('camp_groups')
+              .doc(campGroupId)
+              .get();
+          if (groupDoc.exists) {
+            final list = List<dynamic>.from(groupDoc.data()?['kazanimlar'] ?? []);
+            if (list.isNotEmpty) {
+              resolvedTopic = list.join(', ');
+            }
+          }
+        } catch (e) {
+          debugPrint('Error fetching camp group kazanimlar: $e');
+        }
+      } else if (agmGroupId != null && agmGroupId.isNotEmpty) {
+        try {
+          final groupDoc = await FirebaseFirestore.instance
+              .collection('agm_groups')
+              .doc(agmGroupId)
+              .get();
+          if (groupDoc.exists) {
+            final list = List<dynamic>.from(groupDoc.data()?['kazanimlar'] ?? []);
+            if (list.isNotEmpty) {
+              resolvedTopic = list.join(', ');
+            }
+          }
+        } catch (e) {
+          debugPrint('Error fetching agm group kazanimlar: $e');
+        }
+      }
+    }
+
+    List<String> studentIds = [];
+    if (etutData['studentIds'] is List) {
+      studentIds = List<String>.from(etutData['studentIds']);
+    }
+
+    final Map<String, String> studentNameMap = {};
+    if (studentIds.isNotEmpty) {
+      try {
+        final instId = widget.institutionId.toUpperCase();
+        var studentSnap = await FirebaseFirestore.instance
+            .collection('students')
+            .where('institutionId', isEqualTo: instId)
+            .where(FieldPath.documentId, whereIn: studentIds)
+            .get();
+
+        if (studentSnap.docs.isEmpty) {
+          studentSnap = await FirebaseFirestore.instance
+              .collection('students')
+              .where('institutionId', isEqualTo: instId.toLowerCase())
+              .where(FieldPath.documentId, whereIn: studentIds)
+              .get();
+        }
+
+        for (var doc in studentSnap.docs) {
+          final data = doc.data();
+          studentNameMap[doc.id] = (data['fullName'] ?? data['name'] ?? '').toString();
+        }
+      } catch (e) {
+        debugPrint('Error loading students for sheet: $e');
+      }
+    }
+
+    // Dismiss the loading sheet
+    navigator.pop();
+
+    // Map student names
+    final List<String> studentNames = [];
+    for (var id in studentIds) {
+      studentNames.add(studentNameMap[id] ?? 'Öğrenci ($id)');
+    }
+
+    final Map<String, dynamic> attendanceData = etutData['attendance'] ?? {};
+    final Map<String, bool> localAttendance = {};
+    for (var id in studentIds) {
+      localAttendance[id] = attendanceData[id] ?? true;
+    }
+    final notesController = TextEditingController(
+      text: etutData['teacherNotes'] ?? '',
+    );
+
+    if (!mounted) return;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return Container(
+            height: MediaQuery.of(context).size.height * 0.92,
+            decoration: BoxDecoration(
+              color: Colors.grey.shade50,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(
               children: [
-                Container(width: 6, color: color),
+                Center(
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(vertical: 12),
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 8, 16, 20),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.indigo.shade50,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(Icons.assignment_rounded, color: Colors.indigo.shade700),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Etüt Yoklama Al',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.indigo.shade900,
+                              ),
+                            ),
+                            Text(
+                              'Yoklama durumunu ve notlarınızı güncelleyin',
+                              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.close, color: Colors.grey),
+                        style: IconButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          elevation: 0,
+                          side: BorderSide(color: Colors.grey.shade200),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
                 Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Row(
+                  child: SingleChildScrollView(
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
-                          child: Icon(icon, color: color, size: 20),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.02),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              children: [
+                                _buildInfoRowForDialog(Icons.topic, 'Konu', resolvedTopic.isNotEmpty ? resolvedTopic : 'Belirtilmemiş'),
+                                if ((etutData['action'] ?? '').toString().isNotEmpty) ...[
+                                  const Divider(height: 24),
+                                  _buildInfoRowForDialog(Icons.category, 'Kategori', etutData['action'], isOrange: true),
+                                ],
+                              ],
+                            ),
+                          ),
                         ),
-                        const SizedBox(width: 16),
-                        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                            Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                            Text(timeStr, style: const TextStyle(color: Colors.grey, fontSize: 11)),
-                          ]),
-                          const SizedBox(height: 4),
-                          Text(subtitle, style: TextStyle(color: Colors.grey.shade600, fontSize: 12, height: 1.4), maxLines: 2, overflow: TextOverflow.ellipsis),
-                        ])),
+                        const SizedBox(height: 32),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Row(
+                            children: [
+                              Text(
+                                'YOKLAMA LİSTESİ',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                  color: Colors.indigo.shade800,
+                                  letterSpacing: 0.8,
+                                ),
+                              ),
+                              const Spacer(),
+                              Text(
+                                '${studentIds.length} Öğrenci',
+                                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        if (studentIds.isEmpty)
+                          _buildEmptyStateForDialog('Öğrenci bulunamadı')
+                        else
+                          Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              border: Border.symmetric(
+                                horizontal: BorderSide(color: Colors.grey.shade200, width: 0.5),
+                              ),
+                            ),
+                            child: ListView.separated(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: studentIds.length,
+                              separatorBuilder: (context, index) =>
+                                  Divider(height: 1, color: Colors.grey.shade100, indent: 24),
+                              itemBuilder: (context, index) {
+                                final sId = studentIds[index];
+                                final sName = studentNames[index];
+                                final isPresent = localAttendance[sId] ?? true;
+
+                                return ListTile(
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
+                                  title: Text(sName,
+                                      style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 15)),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      _buildPresenceButtonForDialog(
+                                        icon: Icons.check_circle_rounded,
+                                        label: 'VAR',
+                                        isSelected: isPresent,
+                                        activeColor: Colors.green,
+                                        onTap: () => setDialogState(() => localAttendance[sId] = true),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      _buildPresenceButtonForDialog(
+                                        icon: Icons.cancel_rounded,
+                                        label: 'YOK',
+                                        isSelected: !isPresent,
+                                        activeColor: Colors.red,
+                                        onTap: () => setDialogState(() => localAttendance[sId] = false),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        const SizedBox(height: 32),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'ÖĞRETMEN NOTLARI',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                  color: Colors.indigo.shade800,
+                                  letterSpacing: 0.8,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              TextField(
+                                controller: notesController,
+                                maxLines: 4,
+                                style: const TextStyle(fontSize: 14),
+                                decoration: InputDecoration(
+                                  hintText: 'Etüt ile ilgili gözlemlerinizi buraya yazabilirsiniz...',
+                                  hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+                                  filled: true,
+                                  fillColor: Colors.white,
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                    borderSide: BorderSide(color: Colors.grey.shade200),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                    borderSide: BorderSide(color: Colors.grey.shade200),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                    borderSide: BorderSide(color: Colors.indigo.shade300, width: 1.5),
+                                  ),
+                                  contentPadding: const EdgeInsets.all(16),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 40),
+                        SizedBox(height: MediaQuery.of(context).viewInsets.bottom),
                       ],
                     ),
                   ),
                 ),
+                Container(
+                  padding: EdgeInsets.fromLTRB(24, 16, 24, 16 + MediaQuery.of(context).padding.bottom),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, -5),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          child: Text(
+                            'İPTAL',
+                            style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        flex: 2,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.indigo.shade600,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          onPressed: () async {
+                            final scaffoldMessenger = ScaffoldMessenger.of(context);
+                            final notes = notesController.text;
+                            Navigator.pop(context);
+                            
+                            // Save attendance
+                            try {
+                              await FirebaseFirestore.instance
+                                  .collection('etut_requests')
+                                  .doc(etutId)
+                                  .update({
+                                    'attendance': localAttendance,
+                                    'attendanceTaken': true,
+                                    'attendanceTakenAt': FieldValue.serverTimestamp(),
+                                    'teacherNotes': notes,
+                                  });
+                              scaffoldMessenger.showSnackBar(
+                                const SnackBar(content: Text('Yoklama kaydedildi.'))
+                              );
+                            } catch (e) {
+                              scaffoldMessenger.showSnackBar(
+                                SnackBar(content: Text('Hata: $e'))
+                              );
+                            }
+                          },
+                          child: const Text('KAYDET', style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildInfoRowForDialog(IconData icon, String label, String value, {bool isOrange = false}) {
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: Colors.indigo.shade300),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label,
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade500, fontWeight: FontWeight.bold)),
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: isOrange ? Colors.orange.shade800 : Colors.indigo.shade900,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
           ),
         ),
+      ],
+    );
+  }
+
+  Widget _buildPresenceButtonForDialog({
+    required IconData icon,
+    required String label,
+    required bool isSelected,
+    required Color activeColor,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: isSelected ? activeColor : Colors.grey.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: isSelected ? activeColor : Colors.grey.shade200),
+        ),
+        child: Icon(icon, size: 20, color: isSelected ? Colors.white : Colors.grey.shade400),
+      ),
+    );
+  }
+
+  Widget _buildEmptyStateForDialog(String message) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Text(message, style: TextStyle(color: Colors.grey.shade400, fontSize: 13)),
       ),
     );
   }

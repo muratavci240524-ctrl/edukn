@@ -12,6 +12,8 @@ class TeacherScheduleViewScreen extends StatefulWidget {
   final String schoolTypeName;
   final String institutionId;
   final bool isTeacherView;
+  final String? initialEtutId;
+  final DateTime? initialEtutDate;
 
   const TeacherScheduleViewScreen({
     Key? key,
@@ -19,6 +21,8 @@ class TeacherScheduleViewScreen extends StatefulWidget {
     required this.schoolTypeName,
     required this.institutionId,
     this.isTeacherView = false,
+    this.initialEtutId,
+    this.initialEtutDate,
   }) : super(key: key);
 
   @override
@@ -39,6 +43,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
   DateTime _weekStart = DateTime.now();
   int _currentTabIndex = 0; // 0: Program, 1: Etütler
   List<Map<String, dynamic>> _weeklyEtuts = [];
+  String? _resolvedSchoolTypeName;
 
   // Öğretmen ders sayıları
   Map<String, int> _teacherLessonCounts = {};
@@ -51,10 +56,21 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
 
+  bool _hasAutoOpenedEtut = false;
+
   @override
   void initState() {
     super.initState();
-    _weekStart = _startOfWeek(DateTime.now());
+    if (widget.initialEtutDate != null || widget.initialEtutId != null) {
+      if (widget.initialEtutDate != null) {
+        _weekStart = _startOfWeek(widget.initialEtutDate!);
+      } else {
+        _weekStart = _startOfWeek(DateTime.now());
+      }
+      _currentTabIndex = 1; // "Etütler" tab
+    } else {
+      _weekStart = _startOfWeek(DateTime.now());
+    }
     _loadData();
   }
 
@@ -142,8 +158,53 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
 
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
+    
+    if (widget.initialEtutId != null) {
+      try {
+        final etutDoc = await FirebaseFirestore.instance
+            .collection('etut_requests')
+            .doc(widget.initialEtutId)
+            .get();
+        if (etutDoc.exists) {
+          final etutData = etutDoc.data();
+          if (etutData != null && etutData['date'] != null) {
+            final dateVal = etutData['date'];
+            DateTime? etutDate;
+            if (dateVal is Timestamp) {
+              etutDate = dateVal.toDate();
+            } else if (dateVal is String) {
+              etutDate = DateTime.tryParse(dateVal);
+            }
+            if (etutDate != null) {
+              _weekStart = _startOfWeek(etutDate);
+              _currentTabIndex = 1;
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('Error fetching initial etut for date routing: $e');
+      }
+    }
+
     final instId = widget.institutionId.toUpperCase();
     final schoolTypeId = widget.schoolTypeId;
+
+    String schoolTypeName = widget.schoolTypeName;
+    if (schoolTypeName == 'Okul' || schoolTypeName.isEmpty) {
+      try {
+        final typeDoc = await FirebaseFirestore.instance
+            .collection('schoolTypes')
+            .doc(schoolTypeId)
+            .get();
+        if (typeDoc.exists) {
+          final data = typeDoc.data();
+          schoolTypeName = data?['schoolTypeName'] ?? data?['typeName'] ?? data?['name'] ?? 'Okul';
+        }
+      } catch (e) {
+        debugPrint('Error loading schoolTypeName: $e');
+      }
+    }
+    _resolvedSchoolTypeName = schoolTypeName;
 
     try {
       // 1. Yayınlanmış aktif dönemi bul (Case-insensitive institutionId)
@@ -166,74 +227,72 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
             .get();
       }
 
-      if (periodsSnapshot.docs.isEmpty) {
-        debugPrint('❌ Aktif veya yayınlanmış dönem bulunamadı. Inst: $instId, Type: $schoolTypeId');
-        setState(() => _isLoading = false);
-        return;
-      }
+      if (periodsSnapshot.docs.isNotEmpty) {
+        final periodDoc = periodsSnapshot.docs.first;
+        _activePeriodId = periodDoc.id;
+        final periodData = periodDoc.data();
 
-      final periodDoc = periodsSnapshot.docs.first;
-      _activePeriodId = periodDoc.id;
-      final periodData = periodDoc.data();
+        // Ders saatlerini yükle
+        final lessonHoursData =
+            periodData['lessonHours'] as Map<String, dynamic>?;
+        if (lessonHoursData != null) {
+          _days = List<String>.from(lessonHoursData['selectedDays'] ?? []);
 
-      // Ders saatlerini yükle
-      final lessonHoursData =
-          periodData['lessonHours'] as Map<String, dynamic>?;
-      if (lessonHoursData != null) {
-        _days = List<String>.from(lessonHoursData['selectedDays'] ?? []);
+          final dailyCountsRaw =
+              lessonHoursData['dailyLessonCounts'] as Map<String, dynamic>?;
+          if (dailyCountsRaw != null) {
+            _dailyLessonCounts = dailyCountsRaw.map(
+              (k, v) =>
+                  MapEntry(k, v is int ? v : int.tryParse(v.toString()) ?? 0),
+            );
+          }
 
-        final dailyCountsRaw =
-            lessonHoursData['dailyLessonCounts'] as Map<String, dynamic>?;
-        if (dailyCountsRaw != null) {
-          _dailyLessonCounts = dailyCountsRaw.map(
-            (k, v) =>
-                MapEntry(k, v is int ? v : int.tryParse(v.toString()) ?? 0),
-          );
-        }
+          // Ders saatlerini parse et
+          final lessonTimesRaw = lessonHoursData['lessonTimes'];
+          if (lessonTimesRaw != null && lessonTimesRaw is Map) {
+            final lessonTimesMap = Map<String, dynamic>.from(lessonTimesRaw);
+            final firstKey = lessonTimesMap.keys.first;
+            final isNumericKey = int.tryParse(firstKey) != null;
 
-        // Ders saatlerini parse et
-        final lessonTimesRaw = lessonHoursData['lessonTimes'];
-        if (lessonTimesRaw != null && lessonTimesRaw is Map) {
-          final lessonTimesMap = Map<String, dynamic>.from(lessonTimesRaw);
-          final firstKey = lessonTimesMap.keys.first;
-          final isNumericKey = int.tryParse(firstKey) != null;
+            if (isNumericKey) {
+              final sortedKeys = lessonTimesMap.keys.toList()
+                ..sort((a, b) => int.parse(a).compareTo(int.parse(b)));
 
-          if (isNumericKey) {
-            final sortedKeys = lessonTimesMap.keys.toList()
-              ..sort((a, b) => int.parse(a).compareTo(int.parse(b)));
+              final hours = sortedKeys.map((key) {
+                final time = Map<String, dynamic>.from(lessonTimesMap[key]);
+                return {
+                  'hourNumber': int.parse(key) + 1,
+                  'startTime':
+                      '${(time['startHour'] ?? 0).toString().padLeft(2, '0')}:${(time['startMinute'] ?? 0).toString().padLeft(2, '0')}',
+                  'endTime':
+                      '${(time['endHour'] ?? 0).toString().padLeft(2, '0')}:${(time['endMinute'] ?? 0).toString().padLeft(2, '0')}',
+                };
+              }).toList();
 
-            final hours = sortedKeys.map((key) {
-              final time = Map<String, dynamic>.from(lessonTimesMap[key]);
-              return {
-                'hourNumber': int.parse(key) + 1,
-                'startTime':
-                    '${(time['startHour'] ?? 0).toString().padLeft(2, '0')}:${(time['startMinute'] ?? 0).toString().padLeft(2, '0')}',
-                'endTime':
-                    '${(time['endHour'] ?? 0).toString().padLeft(2, '0')}:${(time['endMinute'] ?? 0).toString().padLeft(2, '0')}',
-              };
-            }).toList();
-
-            for (var day in _days) {
-              _dayLessonTimes[day] = List.from(hours);
-            }
-          } else {
-            for (var day in _days) {
-              final dayData = lessonTimesMap[day];
-              if (dayData != null && dayData is List) {
-                _dayLessonTimes[day] = dayData.asMap().entries.map((entry) {
-                  final time = Map<String, dynamic>.from(entry.value);
-                  return {
-                    'hourNumber': entry.key + 1,
-                    'startTime':
-                        '${(time['startHour'] ?? 0).toString().padLeft(2, '0')}:${(time['startMinute'] ?? 0).toString().padLeft(2, '0')}',
-                    'endTime':
-                        '${(time['endHour'] ?? 0).toString().padLeft(2, '0')}:${(time['endMinute'] ?? 0).toString().padLeft(2, '0')}',
-                  };
-                }).toList();
+              for (var day in _days) {
+                _dayLessonTimes[day] = List.from(hours);
+              }
+            } else {
+              for (var day in _days) {
+                final dayData = lessonTimesMap[day];
+                if (dayData != null && dayData is List) {
+                  _dayLessonTimes[day] = dayData.asMap().entries.map((entry) {
+                    final time = Map<String, dynamic>.from(entry.value);
+                    return {
+                      'hourNumber': entry.key + 1,
+                      'startTime':
+                          '${(time['startHour'] ?? 0).toString().padLeft(2, '0')}:${(time['startMinute'] ?? 0).toString().padLeft(2, '0')}',
+                      'endTime':
+                          '${(time['endHour'] ?? 0).toString().padLeft(2, '0')}:${(time['endMinute'] ?? 0).toString().padLeft(2, '0')}',
+                    };
+                  }).toList();
+                }
               }
             }
           }
         }
+      } else {
+        debugPrint('❌ Aktif veya yayınlanmış dönem bulunamadı. Inst: $instId, Type: $schoolTypeId');
       }
 
       // 2. Öğretmenleri Yükle (Case-insensitive institutionId)
@@ -304,10 +363,10 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
             final dynamic workLocation = t['workLocation'];
             if (workLocations is List) {
               final locations = workLocations.map((e) => e.toString().toUpperCase()).toList();
-              return locations.contains(widget.schoolTypeName.toUpperCase());
+              return locations.contains((_resolvedSchoolTypeName ?? widget.schoolTypeName).toUpperCase());
             }
             if (workLocation != null && workLocation.toString().isNotEmpty) {
-              return workLocation.toString().toUpperCase() == widget.schoolTypeName.toUpperCase();
+              return workLocation.toString().toUpperCase() == (_resolvedSchoolTypeName ?? widget.schoolTypeName).toUpperCase();
             }
             return true;
           })
@@ -429,8 +488,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
 
   Future<void> _loadTeacherSchedule(String teacherId) async {
     if (_activePeriodId == null) {
-      debugPrint('⚠️ Ders programı yüklenemedi: Aktif dönem ID bulunamadı.');
-      return;
+      debugPrint('⚠️ Aktif dönem ID bulunamadı, ders programı atlanıyor ama diğer veriler (etüt vb.) yüklenecek.');
     }
 
     final instId = widget.institutionId.toUpperCase();
@@ -516,40 +574,42 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
       // Bu öğretmenin ders verdiği şubelerin programını batch + paralel çek
       final List<Future<QuerySnapshot<Map<String, dynamic>>>> scheduleFetches = [];
       
-      // 1. Sınıf bazlı aramalar
-      if (classIdList.isNotEmpty) {
-        for (int i = 0; i < classIdList.length; i += 10) {
-          final batch = classIdList.skip(i).take(10).toList();
-          scheduleFetches.add(
-            FirebaseFirestore.instance
-                .collection('classSchedules')
-                .where('periodId', isEqualTo: _activePeriodId)
-                .where('classId', whereIn: batch)
-                .where('isActive', isEqualTo: true)
-                .get(),
-          );
+      if (_activePeriodId != null) {
+        // 1. Sınıf bazlı aramalar
+        if (classIdList.isNotEmpty) {
+          for (int i = 0; i < classIdList.length; i += 10) {
+            final batch = classIdList.skip(i).take(10).toList();
+            scheduleFetches.add(
+              FirebaseFirestore.instance
+                  .collection('classSchedules')
+                  .where('periodId', isEqualTo: _activePeriodId)
+                  .where('classId', whereIn: batch)
+                  .where('isActive', isEqualTo: true)
+                  .get(),
+            );
+          }
         }
-      }
 
-      // 2. Doğrudan öğretmen bazlı arama (Failsafe)
-      scheduleFetches.add(
-        FirebaseFirestore.instance
-            .collection('classSchedules')
-            .where('institutionId', isEqualTo: instId)
-            .where('periodId', isEqualTo: _activePeriodId)
-            .where('teacherIds', arrayContains: teacherId)
-            .where('isActive', isEqualTo: true)
-            .get(),
-      );
-      scheduleFetches.add(
-        FirebaseFirestore.instance
-            .collection('classSchedules')
-            .where('institutionId', isEqualTo: instId.toLowerCase())
-            .where('periodId', isEqualTo: _activePeriodId)
-            .where('teacherIds', arrayContains: teacherId)
-            .where('isActive', isEqualTo: true)
-            .get(),
-      );
+        // 2. Doğrudan öğretmen bazlı arama (Failsafe)
+        scheduleFetches.add(
+          FirebaseFirestore.instance
+              .collection('classSchedules')
+              .where('institutionId', isEqualTo: instId)
+              .where('periodId', isEqualTo: _activePeriodId)
+              .where('teacherIds', arrayContains: teacherId)
+              .where('isActive', isEqualTo: true)
+              .get(),
+        );
+        scheduleFetches.add(
+          FirebaseFirestore.instance
+              .collection('classSchedules')
+              .where('institutionId', isEqualTo: instId.toLowerCase())
+              .where('periodId', isEqualTo: _activePeriodId)
+              .where('teacherIds', arrayContains: teacherId)
+              .where('isActive', isEqualTo: true)
+              .get(),
+        );
+      }
 
       final classSnapshots = await Future.wait(classFetches);
       final scheduleSnapshots = await Future.wait(scheduleFetches);
@@ -728,25 +788,17 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
           );
           final endMidnight = startMidnight.add(const Duration(days: 7));
 
-          final etutSnapQueries = [
-            FirebaseFirestore.instance.collection('etut_requests')
-                .where('institutionId', isEqualTo: instId)
-                .where('teacherId', isEqualTo: teacherId)
-                .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(startMidnight))
-                .where('date', isLessThan: Timestamp.fromDate(endMidnight))
-                .get(),
-            FirebaseFirestore.instance.collection('etut_requests')
-                .where('institutionId', isEqualTo: instId.toLowerCase())
-                .where('teacherId', isEqualTo: teacherId)
-                .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(startMidnight))
-                .where('date', isLessThan: Timestamp.fromDate(endMidnight))
-                .get(),
-          ];
-          final etutSnaps = await Future.wait(etutSnapQueries);
+          final etutSnap = await FirebaseFirestore.instance
+              .collection('etut_requests')
+              .where('teacherId', isEqualTo: teacherId)
+              .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(startMidnight))
+              .where('date', isLessThan: Timestamp.fromDate(endMidnight))
+              .get();
           
-          for (var snap in etutSnaps) {
-            for (var doc in snap.docs) {
-              final data = doc.data();
+          for (var doc in etutSnap.docs) {
+            final data = doc.data();
+            final docInstId = (data['institutionId'] ?? '').toString().toUpperCase();
+            if (docInstId == instId || docInstId == instId.toLowerCase()) {
               data['id'] = doc.id;
               weeklyEtuts.add(data);
             }
@@ -829,6 +881,24 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
             _scheduleData = updatedSchedule;
             _weeklyEtuts = weeklyEtuts;
           });
+
+          // Otomatik Yoklama Açma Mantığı (Bildirimden Yönlendirilince)
+          if (widget.initialEtutId != null && !_hasAutoOpenedEtut) {
+            try {
+              final matchedEtut = _weeklyEtuts.firstWhere(
+                (etut) => etut['id'] == widget.initialEtutId,
+                orElse: () => {},
+              );
+              if (matchedEtut.isNotEmpty) {
+                _hasAutoOpenedEtut = true;
+                Future.microtask(() {
+                  _showAttendanceDialog(matchedEtut);
+                });
+              }
+            } catch (e) {
+              debugPrint('Otomatik etut yoklamasi acilamadi: $e');
+            }
+          }
         }
       } catch (e) {
         print('Geçici atama yükleme hatası: $e');
@@ -876,7 +946,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
               ),
             ),
             Text(
-              widget.schoolTypeName,
+              _resolvedSchoolTypeName ?? widget.schoolTypeName,
               style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
             ),
           ],
@@ -884,8 +954,6 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
       ),
       body: _isLoading
           ? Center(child: CircularProgressIndicator())
-          : _activePeriodId == null
-          ? _buildNoPublishedSchedule()
           : _buildMainContent(),
     );
   }
@@ -1308,10 +1376,6 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
   }
 
   Widget _buildScheduleView() {
-    if (_days.isEmpty) {
-      return Center(child: Text('Ders saati tanımlanmamış'));
-    }
-
     final maxHours = _dailyLessonCounts.values.isNotEmpty
         ? _dailyLessonCounts.values.reduce((a, b) => a > b ? a : b)
         : 8;
@@ -1322,9 +1386,13 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
         _buildDateSelectorRow(),
         Expanded(
           child: _currentTabIndex == 0
-              ? (_showTableViewWide
-                    ? _buildTableScheduleWide(maxHours)
-                    : _buildCardScheduleWide())
+              ? (_activePeriodId == null
+                  ? _buildNoPublishedSchedule()
+                  : (_days.isEmpty
+                      ? Center(child: const Text('Ders saati tanımlanmamış'))
+                      : (_showTableViewWide
+                          ? _buildTableScheduleWide(maxHours)
+                          : _buildCardScheduleWide())))
               : _buildEtutListView(),
         ),
       ],
@@ -1638,14 +1706,20 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                           overflow: TextOverflow.ellipsis,
                         ),
                         SizedBox(height: 4),
-                        Text(
-                          topic,
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey.shade700,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        FutureBuilder<String>(
+                          future: _resolveEtutTopic(etut),
+                          builder: (context, snapshot) {
+                            final topicVal = snapshot.data ?? topic;
+                            return Text(
+                              topicVal,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey.shade700,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            );
+                          },
                         ),
                         if (action.isNotEmpty) ...[
                           SizedBox(height: 8),
@@ -1715,6 +1789,54 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
         );
       },
     );
+  }
+
+  Future<String> _resolveEtutTopic(Map<String, dynamic> etut) async {
+    final String topic = (etut['topic'] ?? '').toString().trim();
+    String resolvedTopic = topic;
+    if (topic.isEmpty ||
+        topic.toLowerCase() == 'belirtilmemis' ||
+        topic.toLowerCase() == 'belirtilmemiş' ||
+        topic.toLowerCase() == 'konu belirtilmemis' ||
+        topic.toLowerCase() == 'konu belirtilmemiş' ||
+        topic == '-' ||
+        topic == 'null') {
+      final campGroupId = etut['campGroupId']?.toString();
+      final agmGroupId = etut['agmGroupId']?.toString();
+      
+      if (campGroupId != null && campGroupId.isNotEmpty) {
+        try {
+          final groupDoc = await FirebaseFirestore.instance
+              .collection('camp_groups')
+              .doc(campGroupId)
+              .get();
+          if (groupDoc.exists) {
+            final list = List<dynamic>.from(groupDoc.data()?['kazanimlar'] ?? []);
+            if (list.isNotEmpty) {
+              return list.join(', ');
+            }
+          }
+        } catch (e) {
+          debugPrint('Error fetching camp group kazanimlar: $e');
+        }
+      } else if (agmGroupId != null && agmGroupId.isNotEmpty) {
+        try {
+          final groupDoc = await FirebaseFirestore.instance
+              .collection('agm_groups')
+              .doc(agmGroupId)
+              .get();
+          if (groupDoc.exists) {
+            final list = List<dynamic>.from(groupDoc.data()?['kazanimlar'] ?? []);
+            if (list.isNotEmpty) {
+              return list.join(', ');
+            }
+          }
+        } catch (e) {
+          debugPrint('Error fetching agm group kazanimlar: $e');
+        }
+      }
+    }
+    return resolvedTopic.isNotEmpty ? resolvedTopic : 'Belirtilmemiş';
   }
 
   void _showAttendanceDialog(Map<String, dynamic> etut) {
@@ -1825,7 +1947,13 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                             ),
                             child: Column(
                               children: [
-                                _buildInfoRow(Icons.topic, 'Konu', etut['topic'] ?? 'Belirtilmemiş'),
+                                FutureBuilder<String>(
+                                  future: _resolveEtutTopic(etut),
+                                  builder: (context, snapshot) {
+                                    final topicVal = snapshot.data ?? etut['topic'] ?? 'Yükleniyor...';
+                                    return _buildInfoRow(Icons.topic, 'Konu', topicVal);
+                                  },
+                                ),
                                 if ((etut['action'] ?? '').toString().isNotEmpty) ...[
                                   const Divider(height: 24),
                                   _buildInfoRow(Icons.category, 'Kategori', etut['action'], isOrange: true),
@@ -3579,14 +3707,20 @@ class _TeacherScheduleDetailViewState
                           overflow: TextOverflow.ellipsis,
                         ),
                         SizedBox(height: 2),
-                        Text(
-                          topic,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade700,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        FutureBuilder<String>(
+                          future: _resolveEtutTopic(etut),
+                          builder: (context, snapshot) {
+                            final topicVal = snapshot.data ?? topic;
+                            return Text(
+                              topicVal,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade700,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            );
+                          },
                         ),
                         if (action.isNotEmpty) ...[
                           SizedBox(height: 4),
@@ -3644,6 +3778,54 @@ class _TeacherScheduleDetailViewState
         );
       },
     );
+  }
+
+  Future<String> _resolveEtutTopic(Map<String, dynamic> etut) async {
+    final String topic = (etut['topic'] ?? '').toString().trim();
+    String resolvedTopic = topic;
+    if (topic.isEmpty ||
+        topic.toLowerCase() == 'belirtilmemis' ||
+        topic.toLowerCase() == 'belirtilmemiş' ||
+        topic.toLowerCase() == 'konu belirtilmemis' ||
+        topic.toLowerCase() == 'konu belirtilmemiş' ||
+        topic == '-' ||
+        topic == 'null') {
+      final campGroupId = etut['campGroupId']?.toString();
+      final agmGroupId = etut['agmGroupId']?.toString();
+      
+      if (campGroupId != null && campGroupId.isNotEmpty) {
+        try {
+          final groupDoc = await FirebaseFirestore.instance
+              .collection('camp_groups')
+              .doc(campGroupId)
+              .get();
+          if (groupDoc.exists) {
+            final list = List<dynamic>.from(groupDoc.data()?['kazanimlar'] ?? []);
+            if (list.isNotEmpty) {
+              return list.join(', ');
+            }
+          }
+        } catch (e) {
+          debugPrint('Error fetching camp group kazanimlar: $e');
+        }
+      } else if (agmGroupId != null && agmGroupId.isNotEmpty) {
+        try {
+          final groupDoc = await FirebaseFirestore.instance
+              .collection('agm_groups')
+              .doc(agmGroupId)
+              .get();
+          if (groupDoc.exists) {
+            final list = List<dynamic>.from(groupDoc.data()?['kazanimlar'] ?? []);
+            if (list.isNotEmpty) {
+              return list.join(', ');
+            }
+          }
+        } catch (e) {
+          debugPrint('Error fetching agm group kazanimlar: $e');
+        }
+      }
+    }
+    return resolvedTopic.isNotEmpty ? resolvedTopic : 'Belirtilmemiş';
   }
 
   void _showEtutDetailSheet(Map<String, dynamic> etut) {
@@ -3758,7 +3940,13 @@ class _TeacherScheduleDetailViewState
                             ),
                             child: Column(
                               children: [
-                                _buildInfoRow(Icons.topic, 'Konu', etut['topic'] ?? 'Belirtilmemiş'),
+                                FutureBuilder<String>(
+                                  future: _resolveEtutTopic(etut),
+                                  builder: (context, snapshot) {
+                                    final topicVal = snapshot.data ?? etut['topic'] ?? 'Yükleniyor...';
+                                    return _buildInfoRow(Icons.topic, 'Konu', topicVal);
+                                  },
+                                ),
                                 if ((etut['action'] ?? '').toString().isNotEmpty) ...[
                                   const Divider(height: 24),
                                   _buildInfoRow(Icons.category, 'Kategori', etut['action'], isOrange: true),

@@ -26,6 +26,8 @@ class CampCycle {
   final int? specialClassCapacity;
   final String? specialClassRoomId;
   final String? specialClassRoomName;
+  final String specialClassCriteria; // 'success_rate' veya 'exam_score'
+  final bool specialClassGenerated;
 
   // Kapsam dışı öğrenciler (kullanıcı tarafından manuel olarak çıkarılanlar)
   final List<String> excludedStudentIds;
@@ -39,6 +41,10 @@ class CampCycle {
   final double draftThreshold;
   final bool draftOnlyLowSuccess;
   final Map<String, double> draftSubjectThresholds;
+
+  // Başarılı Sınıflar Soru Çözüm Ayarı
+  final bool highSuccessSoruCozumActive;
+  final double highSuccessSoruCozumThreshold;
 
   CampCycle({
     required this.id,
@@ -61,6 +67,8 @@ class CampCycle {
     this.specialClassCapacity,
     this.specialClassRoomId,
     this.specialClassRoomName,
+    this.specialClassCriteria = 'success_rate',
+    this.specialClassGenerated = false,
     this.excludedStudentIds = const [],
     this.unassignedStudentIds = const [],
     this.absentStudentIds = const [],
@@ -69,6 +77,8 @@ class CampCycle {
     this.draftThreshold = 0.6,
     this.draftOnlyLowSuccess = true,
     this.draftSubjectThresholds = const {},
+    this.highSuccessSoruCozumActive = true,
+    this.highSuccessSoruCozumThreshold = 0.95,
   });
 
   String get statusLabel {
@@ -103,6 +113,8 @@ class CampCycle {
       'specialClassCapacity': specialClassCapacity,
       'specialClassRoomId': specialClassRoomId,
       'specialClassRoomName': specialClassRoomName,
+      'specialClassCriteria': specialClassCriteria,
+      'specialClassGenerated': specialClassGenerated,
       'excludedStudentIds': excludedStudentIds,
       'unassignedStudentIds': unassignedStudentIds,
       'absentStudentIds': absentStudentIds,
@@ -111,6 +123,8 @@ class CampCycle {
       'draftThreshold': draftThreshold,
       'draftOnlyLowSuccess': draftOnlyLowSuccess,
       'draftSubjectThresholds': draftSubjectThresholds,
+      'highSuccessSoruCozumActive': highSuccessSoruCozumActive,
+      'highSuccessSoruCozumThreshold': highSuccessSoruCozumThreshold,
     };
   }
 
@@ -137,9 +151,11 @@ class CampCycle {
       minimumGrupOgrenciSayisi: map['minimumGrupOgrenciSayisi'],
       isSpecialClassActive: map['isSpecialClassActive'] ?? false,
       specialClassCapacity: map['specialClassCapacity'],
-      specialClassRoomId: map['specialClassRoomId'],
-      specialClassRoomName: map['specialClassRoomName'],
-      excludedStudentIds: List<String>.from(map['excludedStudentIds'] ?? []),
+      specialClassRoomId: map['specialClassRoomId'] as String?,
+      specialClassRoomName: map['specialClassRoomName'] as String?,
+      specialClassCriteria: map['specialClassCriteria'] ?? 'success_rate',
+      specialClassGenerated: map['specialClassGenerated'] ?? false,
+      excludedStudentIds: (map['excludedStudentIds'] as List<dynamic>? ?? []).map((e) => e.toString()).toList(),
       unassignedStudentIds: List<String>.from(map['unassignedStudentIds'] ?? []),
       absentStudentIds: List<String>.from(map['absentStudentIds'] ?? []),
       underAssignedStudentIds: List<String>.from(map['underAssignedStudentIds'] ?? []),
@@ -151,6 +167,8 @@ class CampCycle {
       draftSubjectThresholds: (map['draftSubjectThresholds'] as Map<String, dynamic>?)?.map(
             (k, v) => MapEntry(k, (v as num).toDouble()),
           ) ?? {},
+      highSuccessSoruCozumActive: map['highSuccessSoruCozumActive'] ?? true,
+      highSuccessSoruCozumThreshold: (map['highSuccessSoruCozumThreshold'] as num?)?.toDouble() ?? 0.95,
     );
   }
 
@@ -175,6 +193,8 @@ class CampCycle {
     int? specialClassCapacity,
     String? specialClassRoomId,
     String? specialClassRoomName,
+    String? specialClassCriteria,
+    bool? specialClassGenerated,
     List<String>? excludedStudentIds,
     List<String>? unassignedStudentIds,
     List<String>? absentStudentIds,
@@ -183,6 +203,8 @@ class CampCycle {
     double? draftThreshold,
     bool? draftOnlyLowSuccess,
     Map<String, double>? draftSubjectThresholds,
+    bool? highSuccessSoruCozumActive,
+    double? highSuccessSoruCozumThreshold,
   }) {
     return CampCycle(
       id: id ?? this.id,
@@ -205,6 +227,8 @@ class CampCycle {
       specialClassCapacity: specialClassCapacity ?? this.specialClassCapacity,
       specialClassRoomId: specialClassRoomId ?? this.specialClassRoomId,
       specialClassRoomName: specialClassRoomName ?? this.specialClassRoomName,
+      specialClassCriteria: specialClassCriteria ?? this.specialClassCriteria,
+      specialClassGenerated: specialClassGenerated ?? this.specialClassGenerated,
       excludedStudentIds: excludedStudentIds ?? this.excludedStudentIds,
       unassignedStudentIds: unassignedStudentIds ?? this.unassignedStudentIds,
       absentStudentIds: absentStudentIds ?? this.absentStudentIds,
@@ -213,6 +237,8 @@ class CampCycle {
       draftThreshold: draftThreshold ?? this.draftThreshold,
       draftOnlyLowSuccess: draftOnlyLowSuccess ?? this.draftOnlyLowSuccess,
       draftSubjectThresholds: draftSubjectThresholds ?? this.draftSubjectThresholds,
+      highSuccessSoruCozumActive: highSuccessSoruCozumActive ?? this.highSuccessSoruCozumActive,
+      highSuccessSoruCozumThreshold: highSuccessSoruCozumThreshold ?? this.highSuccessSoruCozumThreshold,
     );
   }
 }

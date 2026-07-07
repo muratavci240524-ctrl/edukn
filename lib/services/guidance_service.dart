@@ -259,4 +259,116 @@ class GuidanceService {
         .doc(programId)
         .update({'executionStatus': executionStatus});
   }
+
+  Future<void> updateStudyProgramEvaluation(
+    String institutionId,
+    String programId, {
+    String? mentorEvaluation,
+    String? mentorEvaluationBy,
+    String? weeklyTarget,
+    Map<String, dynamic>? priorityTasks,
+  }) async {
+    final Map<String, dynamic> updates = {};
+    if (mentorEvaluation != null) {
+      updates['mentorEvaluation'] = mentorEvaluation;
+      updates['mentorEvaluationBy'] = mentorEvaluationBy ?? 'Mentör';
+      updates['mentorEvaluationDate'] = FieldValue.serverTimestamp();
+    }
+    if (weeklyTarget != null) {
+      updates['weeklyTarget'] = weeklyTarget;
+    }
+    if (priorityTasks != null) {
+      updates['priorityTasks'] = priorityTasks;
+    }
+
+    if (updates.isNotEmpty) {
+      await _firestore
+          .collection('institutions')
+          .doc(institutionId)
+          .collection('study_programs')
+          .doc(programId)
+          .update(updates);
+    }
+  }
+
+  Future<void> rolloverUncompletedTasks(
+    String institutionId,
+    Map<String, dynamic> currentProgram,
+    List<String> uncompletedTasks,
+  ) async {
+    final nextProgram = Map<String, dynamic>.from(currentProgram);
+    nextProgram.remove('id');
+    nextProgram.remove('createdAt');
+    nextProgram['createdAt'] = FieldValue.serverTimestamp();
+    nextProgram.remove('mentorEvaluation');
+    nextProgram.remove('mentorEvaluationBy');
+    nextProgram.remove('mentorEvaluationDate');
+
+    // Dates rollover: add 7 days
+    DateTime? currentStart;
+    final startVal = currentProgram['startDate'] ?? currentProgram['createdAt'];
+    if (startVal is Timestamp) currentStart = startVal.toDate();
+    if (startVal is DateTime) currentStart = startVal;
+    
+    if (currentStart != null) {
+      nextProgram['startDate'] = Timestamp.fromDate(currentStart.add(const Duration(days: 7)));
+      if (currentProgram['endDate'] != null) {
+        DateTime? currentEnd;
+        if (currentProgram['endDate'] is Timestamp) currentEnd = currentProgram['endDate'].toDate();
+        if (currentProgram['endDate'] is DateTime) currentEnd = currentProgram['endDate'];
+        if (currentEnd != null) {
+          nextProgram['endDate'] = Timestamp.fromDate(currentEnd.add(const Duration(days: 7)));
+        }
+      }
+    }
+
+    // Clear executionStatus and append uncompleted tasks to Monday
+    final newExecutionStatus = <String, List<int>>{};
+    final schedule = Map<String, dynamic>.from(currentProgram['schedule'] ?? {});
+
+    if (schedule.containsKey('Pazartesi')) {
+      final mondayLessons = List<String>.from(schedule['Pazartesi']);
+      for (var task in uncompletedTasks) {
+        if (!mondayLessons.contains(task)) {
+          mondayLessons.add("$task\n⚠️ (Önceki Haftadan Devreden)");
+        }
+      }
+      schedule['Pazartesi'] = mondayLessons;
+    }
+
+    schedule.forEach((day, lessons) {
+      newExecutionStatus[day] = List.filled((lessons as List).length, 0);
+    });
+
+    nextProgram['schedule'] = schedule;
+    nextProgram['executionStatus'] = newExecutionStatus;
+    
+    // Copy priority tasks (but adjust indexes if we appended to Monday)
+    final priorityTasks = Map<String, dynamic>.from(currentProgram['priorityTasks'] ?? {});
+    final newPriorityTasks = <String, dynamic>{};
+    priorityTasks.forEach((key, val) {
+      if (!key.startsWith('Pazartesi_')) {
+        newPriorityTasks[key] = val;
+      }
+    });
+    // Mark rollover tasks on Monday as priority
+    if (schedule.containsKey('Pazartesi')) {
+      final mondayLessons = List<String>.from(schedule['Pazartesi']);
+      for (int i = mondayLessons.length - uncompletedTasks.length; i < mondayLessons.length; i++) {
+        if (i >= 0) {
+          newPriorityTasks['Pazartesi_$i'] = true;
+        }
+      }
+    }
+    nextProgram['priorityTasks'] = newPriorityTasks;
+
+    nextProgram['title'] = "${currentProgram['studentName']} - Mentör Çalışması (Yeni Hafta)";
+    nextProgram['examName'] = "Önceki Haftadan Devredenler";
+
+    await _firestore
+        .collection('institutions')
+        .doc(institutionId)
+        .collection('study_programs')
+        .add(nextProgram);
+  }
 }

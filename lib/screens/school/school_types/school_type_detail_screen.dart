@@ -52,6 +52,7 @@ import '../hr/school_type_leave_management_screen.dart';
 import '../../../../widgets/stylish_bottom_nav.dart';
 import '../guidance/guidance_interview_screen.dart';
 import '../guidance/guidance_study_program_screen.dart';
+import '../guidance/mentor_studies_hub_screen.dart';
 import '../../guidance/guidance_test_catalog_screen.dart';
 import '../../support_services/cafeteria/cafeteria_screen.dart';
 import '../../support_services/transportation/transportation_screen.dart';
@@ -94,6 +95,28 @@ class _SchoolTypeDetailScreenState extends State<SchoolTypeDetailScreen> {
 
   Future<void> _loadInitialData() async {
     final data = await UserPermissionService.loadUserData();
+    
+    if (data != null) {
+      final role = (data['role'] as String?)?.toLowerCase();
+      if (role != 'admin' && role != 'genel_mudur') {
+        final schoolTypes = data['schoolTypes'] as List<dynamic>?;
+        if (schoolTypes != null && schoolTypes.isNotEmpty) {
+          if (!schoolTypes.contains(widget.schoolTypeId)) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Bu okul türüne erişim yetkiniz bulunmamaktadır.'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+              Navigator.of(context).pushReplacementNamed('/school-dashboard');
+            }
+            return;
+          }
+        }
+      }
+    }
+
     if (mounted) {
       setState(() {
         _userData = data;
@@ -1319,6 +1342,8 @@ class _OperationsTabState extends State<_OperationsTab> {
       ),
     );
     if (confirm == true) {
+      UserPermissionService.clearCache();
+      TermService().clearCache();
       await FirebaseAuth.instance.signOut();
       if (mounted) Navigator.pushReplacementNamed(context, '/school-login');
     }
@@ -1346,10 +1371,13 @@ class _OperationsTabState extends State<_OperationsTab> {
                 if (_isMobileSearchActive) ...[
                   Expanded(child: _buildMobileSearchInput()),
                 ] else ...[
-                  IconButton(
-                    icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.indigo),
-                    onPressed: () => Navigator.pop(context),
-                  ),
+                  if (userData == null || 
+                      UserPermissionService.hasAnyMainModuleAccess(userData) || 
+                      (userData!['schoolTypes'] as List<dynamic>? ?? []).length > 1)
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.indigo),
+                      onPressed: () => Navigator.pop(context),
+                    ),
                   const SizedBox(width: 8),
                   // Logo on left (Premium branding)
                   const EduKnLogo(iconSize: 28, type: EduKnLogoType.iconOnly),
@@ -1572,7 +1600,7 @@ class _OperationsTabState extends State<_OperationsTab> {
             if (_hasSubModuleAccess('rehberlik', 'gorusme_kayitlari'))
               {'title': 'Görüşmeler', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => GuidanceInterviewScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
             {'title': 'Toplu Gözlem Girişi', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ActivityListScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
-            {'title': 'Çalışma Programı', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => GuidanceStudyProgramScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
+            {'title': 'Mentör Çalışmaları', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => MentorStudiesHubScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
             {'title': 'Rehberlik Ajandası', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => PersonalNotesScreen()))},
             if (_hasSubModuleAccess('rehberlik', 'rehberlik_testleri'))
               {'title': 'Envanterler', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => GuidanceTestCatalogScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
@@ -2304,8 +2332,14 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
 
       final List<String> instIds = [widget.institutionId.toUpperCase(), widget.institutionId.toLowerCase()];
       final role = (widget.userData?['role'] as String?)?.toLowerCase() ?? '';
-      final isTeacher = role.contains('ogretmen') || role.contains('öğretmen') || role.contains('teacher');
-      final isStudent = role.contains('ogrenci') || role.contains('öğrenci') || role.contains('student');
+      final title = (widget.userData?['title'] as String?)?.toLowerCase() ?? '';
+      final type = (widget.userData?['type'] as String?)?.toLowerCase() ?? '';
+      final isTeacher = role.contains('ogretmen') || role.contains('öğretmen') || role.contains('teacher') ||
+                        title.contains('ogretmen') || title.contains('öğretmen') || title.contains('teacher') ||
+                        type == 'staff';
+      final isStudent = role.contains('ogrenci') || role.contains('öğrenci') || role.contains('student') ||
+                        title.contains('ogrenci') || title.contains('öğrenci') || title.contains('student') ||
+                        type == 'student';
       final myId = widget.userData?['id'];
 
       // Öğretmen sınıflarını alalım

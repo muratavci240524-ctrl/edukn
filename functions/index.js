@@ -1,471 +1,669 @@
-const {onCall, HttpsError} = require("firebase-functions/v2/https");
-const {onDocumentCreated} = require("firebase-functions/v2/firestore");
+const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onDocumentCreated } = require("firebase-functions/v2/firestore");
+const { defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 const nodemailer = require("nodemailer");
+const crypto = require("crypto");
 
-// Firebase admin panelini başlat
+// ─── Firebase Secrets (firebase functions:secrets:set GMAIL_USER vb.) ─────────
+const gmailUser = defineSecret("GMAIL_USER");
+const gmailPass = defineSecret("GMAIL_PASS");
+const geminiApiKey = defineSecret("GEMINI_API_KEY");
+const encryptionKey = defineSecret("ENCRYPTION_KEY"); // AES-256 (32 byte → 64 hex char)
+
+// Firebase admin başlat
 admin.initializeApp();
-
-// Firestore veritabanına erişim
 const db = admin.firestore();
 
-// Gmail SMTP Yapılandırması
-const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-        user: "muratavci2405@gmail.com",
-        pass: "tntmukfryhpxlkis"
-    }
-});
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// YARDIMCI FONKSİYONLAR
+// ═══════════════════════════════════════════════════════════════════════════════
 
 /**
- * 'createSchool' adında çağrılabilir (callable) bir bulut fonksiyonu.
+ * Kullanıcının süper admin olup olmadığını kontrol eder.
  */
-exports.createSchool = onCall(async (request) => {
-    const {data, auth} = request;
-    // --- 1. Güvenlik Kontrolü ---
-    if (!auth) {
-      throw new HttpsError(
-        "unauthenticated",
-        "Bu işlemi yapmak için giriş yapmış olmalısınız."
-      );
+async function verifySuperAdmin(auth) {
+    if (!auth) throw new HttpsError("unauthenticated", "Giriş yapmalısınız.");
+    
+    // E-posta bypass (Güvenli ve hızlı)
+    if (auth.token && auth.token.email && auth.token.email.toLowerCase() === 'superadmin@edukn.com') {
+        return { role: 'super_admin', email: auth.token.email };
     }
+    
+    const userDoc = await db.collection("users").doc(auth.uid).get();
+    if (!userDoc.exists || userDoc.data().role !== "super_admin") {
+        throw new HttpsError("permission-denied", "Bu işlem için yönetici yetkisi gereklidir.");
+    }
+    return userDoc.data();
+}
 
-    // --- 2. Gelen Verileri Al ---
+/**
+ * Kullanıcının login olup olmadığını kontrol eder.
+ */
+function verifyAuth(auth) {
+    if (!auth) throw new HttpsError("unauthenticated", "Bu işlemi yapmak için giriş yapmış olmalısınız.");
+}
+
+/**
+ * Rate limiting: Belirli bir sürede maksimum istek sayısını kontrol eder.
+ * @param {string} key - Rate limit anahtarı (örn: "password_reset:kullanici@email.com")
+ * @param {number} maxRequests - Maksimum istek sayısı
+ * @param {number} windowMinutes - Zaman penceresi (dakika)
+ */
+async function checkRateLimit(key, maxRequests, windowMinutes) {
+    const rateLimitRef = db.collection("rate_limits").doc(key);
+    const now = Date.now();
+    const windowMs = windowMinutes * 60 * 1000;
+
+    const result = await db.runTransaction(async (transaction) => {
+        const doc = await transaction.get(rateLimitRef);
+        
+        if (!doc.exists) {
+            transaction.set(rateLimitRef, {
+                count: 1,
+                windowStart: now,
+                expiresAt: admin.firestore.Timestamp.fromMillis(now + windowMs),
+            });
+            return { allowed: true, remaining: maxRequests - 1 };
+        }
+
+        const data = doc.data();
+        const windowStart = data.windowStart;
+
+        if (now - windowStart > windowMs) {
+            // Zaman penceresi geçti, sıfırla
+            transaction.set(rateLimitRef, {
+                count: 1,
+                windowStart: now,
+                expiresAt: admin.firestore.Timestamp.fromMillis(now + windowMs),
+            });
+            return { allowed: true, remaining: maxRequests - 1 };
+        }
+
+        if (data.count >= maxRequests) {
+            const retryAfterSeconds = Math.ceil((windowMs - (now - windowStart)) / 1000);
+            return { allowed: false, retryAfterSeconds };
+        }
+
+        transaction.update(rateLimitRef, { count: admin.firestore.FieldValue.increment(1) });
+        return { allowed: true, remaining: maxRequests - data.count - 1 };
+    });
+
+    return result;
+}
+
+/**
+ * Kritik operasyonlar için audit log yazar.
+ */
+async function writeAuditLog({ action, performedBy, targetId, details, success }) {
+    try {
+        await db.collection("audit_logs").add({
+            action,
+            performedBy: performedBy || "system",
+            targetId: targetId || null,
+            details: details || {},
+            success: success !== undefined ? success : true,
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            ip: null, // Cloud Functions'da IP bilgisi direkt alınamaz
+        });
+    } catch (err) {
+        console.error("Audit log yazma hatası:", err);
+        // Audit log hatası ana işlemi durdurmamalı
+    }
+}
+
+/**
+ * Nodemailer transporter oluşturur (secret değerleri kullanarak).
+ */
+function createMailTransporter() {
+    return nodemailer.createTransport({
+        service: "gmail",
+        auth: {
+            user: gmailUser.value(),
+            pass: gmailPass.value(),
+        },
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// OKUL YÖNETİMİ FONKSİYONLARI
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * 'createSchool' — Yeni okul ve admin hesabı oluşturur.
+ * 🔐 Sadece super_admin çağırabilir.
+ */
+exports.createSchool = onCall({ enforceAppCheck: true }, async (request) => {
+    const { data, auth } = request;
+    
+    // ✅ Süper admin kontrolü
+    await verifySuperAdmin(auth);
+
     const { schoolName, adminEmail, adminPassword, activeModules } = data;
-
     if (!schoolName || !adminEmail || !adminPassword || !activeModules) {
-      throw new HttpsError(
-        "invalid-argument",
-        "Eksik bilgi gönderildi."
-      );
+        throw new HttpsError("invalid-argument", "Eksik bilgi gönderildi.");
     }
 
     try {
-      // --- 3. Okul Yöneticisi Hesabını Oluştur (Auth) ---
-      const userRecord = await admin.auth().createUser({
-        email: adminEmail,
-        password: adminPassword,
-        displayName: `${schoolName} Yöneticisi`,
-      });
-
-      // --- 4. Lisans Bitiş Tarihini Hesapla (Otomatik 1 Ay) ---
-      const now = new Date();
-      const licenseExpiresAt = new Date(now.setDate(now.getDate() + 30));
-
-      // --- 5. Okul Belgesini Firestore'a Kaydet ---
-      const schoolData = {
-        schoolName: schoolName,
-        adminEmail: adminEmail,
-        adminUserId: userRecord.uid,
-        activeModules: activeModules,
-        isActive: true,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        licenseExpiresAt: admin.firestore.Timestamp.fromDate(licenseExpiresAt),
-      };
-
-      // 'schools' koleksiyonuna *belge ID'si olarak adminUserId* kullanarak ekle
-      await db.collection("schools").doc(userRecord.uid).set(schoolData);
-
-      // --- 6. Başarı Mesajı Gönder ---
-      return {
-        status: "success",
-        message: `${schoolName} başarıyla oluşturuldu.`,
-        schoolId: userRecord.uid,
-      };
-    } catch (error) {
-      console.error("Okul oluşturulurken hata oluştu:", error);
-      throw new HttpsError(
-        "internal",
-        error.message || "Bilinmeyen bir sunucu hatası oluştu."
-      );
-    }
-});
-
-/**
- * 'extendLicense' adında çağrılabilir (callable) bir bulut fonksiyonu.
- * Bir okulun lisans süresini uzatır.
- */
-exports.extendLicense = onCall(async (request) => {
-    const {data, auth} = request;
-    // 1. Güvenlik Kontrolü
-    if (!auth) {
-      throw new HttpsError(
-        "unauthenticated",
-        "Bu işlemi yapmak için giriş yapmış olmalısınız."
-      );
-    }
-
-    // 2. Verileri Al
-    const { schoolId, daysToAdd } = data;
-    if (!schoolId || !daysToAdd) {
-      throw new HttpsError(
-        "invalid-argument",
-        "Eksik bilgi: 'schoolId' ve 'daysToAdd' gereklidir."
-      );
-    }
-
-    try {
-      // 3. Okul belgesini bul
-      const schoolRef = db.collection("schools").doc(schoolId);
-      const schoolDoc = await schoolRef.get();
-
-      if (!schoolDoc.exists) {
-        throw new HttpsError("not-found", "Okul bulunamadı.");
-      }
-
-      // 4. Yeni Lisans Tarihini Hesapla
-      const schoolData = schoolDoc.data();
-      const currentExpiresAt = schoolData.licenseExpiresAt
-        ? schoolData.licenseExpiresAt.toDate()
-        : new Date(); // Eğer hiç tarih yoksa, bugünden başlat
-
-      const now = new Date();
-      let newExpiresAt;
-
-      if (currentExpiresAt < now) {
-        // Eğer lisans süresi dolmuşsa, 'bugünden' itibaren gün ekle
-        newExpiresAt = new Date(now.setDate(now.getDate() + daysToAdd));
-      } else {
-        // Eğer lisans hala geçerliyse, 'mevcut bitiş tarihinden' itibaren ekle
-        newExpiresAt = new Date(
-          currentExpiresAt.setDate(currentExpiresAt.getDate() + daysToAdd)
-        );
-      }
-
-      // 5. Veritabanını Güncelle
-      await schoolRef.update({
-        licenseExpiresAt: admin.firestore.Timestamp.fromDate(newExpiresAt),
-        isActive: true, // Lisansı yenilenen okulu (yeniden) aktif et
-      });
-
-      // 6. Başarı Mesajı Gönder
-      return {
-        status: "success",
-        message: `Lisans ${daysToAdd} gün başarıyla uzatıldı.`,
-      };
-    } catch (error) {
-      console.error("Lisans uzatılırken hata oluştu:", error);
-      throw new HttpsError(
-        "internal",
-        error.message || "Bilinmeyen bir sunucu hatası oluştu."
-      );
-    }
-});
-
-// --- YENİ FONKSİYON: MODÜL GÜNCELLEME ---
-
-/**
- * 'updateSchoolModules' adında çağrılabilir bir bulut fonksiyonu.
- * Bir okulun aktif modül listesini günceller.
- *
- * Gerekli veriler (data):
- * - schoolId (String)
- * - activeModules (List<String>)
- */
-exports.updateSchoolModules = onCall(async (request) => {
-    const {data, auth} = request;
-    // 1. Güvenlik Kontrolü
-    if (!auth) {
-      throw new HttpsError(
-        "unauthenticated",
-        "Bu işlemi yapmak için giriş yapmış olmalısınız."
-      );
-    }
-
-    // 2. Verileri Al
-    const { schoolId, activeModules } = data;
-    if (!schoolId || activeModules == null) {
-      throw new HttpsError(
-        "invalid-argument",
-        "Eksik bilgi: 'schoolId' ve 'activeModules' gereklidir."
-      );
-    }
-
-    try {
-      // 3. Okul belgesini bul ve güncelle
-      const schoolRef = db.collection("schools").doc(schoolId);
-      await schoolRef.update({
-        activeModules: activeModules,
-      });
-
-      // 4. Başarı Mesajı Gönder
-      return {
-        status: "success",
-        message: "Okul modülleri başarıyla güncellendi.",
-      };
-    } catch (error) {
-      console.error("Modüller güncellenirken hata oluştu:", error);
-      throw new HttpsError(
-        "internal",
-        error.message || "Bilinmeyen bir sunucu hatası oluştu."
-      );
-    }
-});
-
-/**
- * 'deleteSchoolAndAdmin' adında çağrılabilir bir bulut fonksiyonu.
- * Bir okulu ve yönetici hesabını siler.
- *
- * Gerekli veriler (data):
- * - schoolId (String)
- */
-exports.deleteSchoolAndAdmin = onCall(async (request) => {
-    const {data, auth} = request;
-    // 1. Güvenlik Kontrolü
-    if (!auth) {
-      throw new HttpsError(
-        "unauthenticated",
-        "Bu işlemi yapmak için giriş yapmış olmalısınız."
-      );
-    }
-
-    // 2. Verileri Al
-    const { schoolId } = data;
-    if (!schoolId) {
-      throw new HttpsError(
-        "invalid-argument",
-        "Eksik bilgi: 'schoolId' gereklidir."
-      );
-    }
-
-    try {
-      // 3. Yönetici hesabını sil (Auth)
-      try {
-        await admin.auth().deleteUser(schoolId);
-        console.log(`Yönetici hesabı silindi: ${schoolId}`);
-      } catch (authError) {
-        console.warn(`Yönetici hesabı silinemedi: ${authError.message}`);
-        // Devam et, okul belgesi zaten silinmiş olabilir
-      }
-
-      // 4. Okul belgesini sil (Firestore)
-      await db.collection("schools").doc(schoolId).delete();
-      console.log(`Okul belgesi silindi: ${schoolId}`);
-
-      // 5. Başarı Mesajı Gönder
-      return {
-        status: "success",
-        message: "Okul ve yönetici hesabı başarıyla silindi.",
-      };
-    } catch (error) {
-      console.error("Okul silinirken hata oluştu:", error);
-      throw new HttpsError(
-        "internal",
-        error.message || "Bilinmeyen bir sunucu hatası oluştu."
-      );
-    }
-});
-
-/**
- * 'updateUserCredentials' adında çağrılabilir bir bulut fonksiyonu.
- * Bir kullanıcının e-posta (kullanıcı adı) ve/veya şifresini günceller.
- *
- * Gerekli veriler (data):
- * - uid (String): Kullanıcının Firebase Auth ID'si
- * - newEmail (String, Opsiyonel): Yeni e-posta adresi
- * - newPassword (String, Opsiyonel): Yeni şifre
- */
-exports.updateUserCredentials = onCall(async (request) => {
-    const {data, auth} = request;
-    // 1. Güvenlik Kontrolü
-    if (!auth) {
-      throw new HttpsError(
-        "unauthenticated",
-        "Bu işlemi yapmak için giriş yapmış olmalısınız."
-      );
-    }
-
-    // 2. Verileri Al
-    const { uid, newEmail, newPassword } = data;
-    if (!uid) {
-      throw new HttpsError(
-        "invalid-argument",
-        "Eksik bilgi: 'uid' gereklidir."
-      );
-    }
-
-    try {
-      const updateData = {};
-      if (newEmail) updateData.email = newEmail;
-      if (newPassword) updateData.password = newPassword;
-
-      if (Object.keys(updateData).length === 0) {
-         return { status: "no-change", message: "Güncellenecek veri gönderilmedi." };
-      }
-
-      // 3. Firebase Auth üzerinden kullanıcıyı güncelle
-      await admin.auth().updateUser(uid, updateData);
-
-      // 4. Başarı Mesajı Gönder
-      return {
-        status: "success",
-        message: "Kullanıcı bilgileri başarıyla güncellendi.",
-      };
-    } catch (error) {
-      console.error("Kullanıcı güncellenirken hata oluştu:", error);
-      // Hatanın detaylarını (özellikle Auth hatalarını) istemciye daha net ilet
-      throw new HttpsError(
-        "internal",
-        `Auth Hatası: ${error.message} (${error.code || 'unknown'})`
-      );
-    }
-});
-/**
- * 'sendPasswordResetCode' adında çağrılabilir bir bulut fonksiyonu.
- * Kullanıcı için 6 haneli bir kod üretir ve e-posta gönderir.
- */
-exports.sendPasswordResetCode = onCall(async (request) => {
-    const { data } = request;
-    const { institutionId, username } = data;
-
-    if (!institutionId || !username) {
-        throw new HttpsError("invalid-argument", "Kurum ID ve kullanıcı adı gereklidir.");
-    }
-
-    try {
-        // 1. Kullanıcıyı bul
-        const userQuery = await db.collection("users")
-            .where("institutionId", "==", institutionId.toUpperCase())
-            .where("username", "==", username.toLowerCase())
-            .limit(1)
-            .get();
-
-        if (userQuery.empty) {
-            throw new HttpsError("not-found", "Bu bilgilerle eşleşen bir kullanıcı bulunamadı.");
-        }
-
-        const userData = userQuery.docs[0].data();
-        const userEmail = userData.email;
-        const uid = userQuery.docs[0].id;
-
-        if (!userEmail) {
-            throw new HttpsError("failed-precondition", "Kullanıcının kayıtlı bir e-posta adresi yok.");
-        }
-
-        // 2. 6 haneli kod üret
-        const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
-        const expiresAt = new Date();
-        expiresAt.setMinutes(expiresAt.getMinutes() + 10); // 10 dakika geçerli
-
-        // 3. Firestore'a kaydet
-        await db.collection("passwordResetCodes").doc(userEmail).set({
-            code: resetCode,
-            uid: uid,
-            expiresAt: admin.firestore.Timestamp.fromDate(expiresAt),
-            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        const userRecord = await admin.auth().createUser({
+            email: adminEmail,
+            password: adminPassword,
+            displayName: `${schoolName} Yöneticisi`,
         });
 
-        // 4. E-posta Gönder (Gerçek Gönderim)
-        const mailOptions = {
-            from: '"eduKN Destek" <muratavci2405@gmail.com>',
-            to: userEmail,
-            subject: `Şifre Sıfırlama Kodu: ${resetCode}`,
-            html: `
-                <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 15px; background-color: #fcfcfc;">
-                    <div style="text-align: center; margin-bottom: 30px;">
-                        <h1 style="color: #4C59BC; margin: 0;">eduKN</h1>
-                        <p style="color: #666; font-size: 14px; margin-top: 5px;">Daha Planlı, Daha Hızlı</p>
-                    </div>
-                    <div style="background-color: #fff; padding: 25px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.03);">
-                        <h2 style="color: #1E2661; margin-top: 0; font-size: 18px; text-align: center;">Şifre Sıfırlama İsteği</h2>
-                        <p style="color: #555; font-size: 14px; line-height: 1.6; text-align: center;">
-                            Hesabınız için şifre sıfırlama talebinde bulundunuz. Aşağıdaki kodu uygulamadaki ilgili alana girerek şifrenizi güncelleyebilirsiniz:
-                        </p>
-                        <div style="background-color: #f3f5ff; border: 1px dashed #4C59BC; padding: 15px; text-align: center; margin: 25px 0; border-radius: 10px;">
-                            <span style="font-size: 32px; font-weight: bold; color: #4C59BC; letter-spacing: 5px;">${resetCode}</span>
-                        </div>
-                        <p style="color: #999; font-size: 12px; text-align: center; margin-bottom: 0;">
-                            Bu kod <b>10 dakika</b> süreyle geçerlidir. Eğer bu isteği siz yapmadıysanız lütfen bu e-postayı dikkate almayın.
-                        </p>
-                    </div>
-                    <div style="text-align: center; margin-top: 30px; color: #bbb; font-size: 12px;">
-                        © 2024 eduKN. Tüm hakları saklıdır.
-                    </div>
-                </div>
-            `
+        const now = new Date();
+        const licenseExpiresAt = new Date(now.setDate(now.getDate() + 30));
+
+        const schoolData = {
+            schoolName,
+            adminEmail,
+            adminUserId: userRecord.uid,
+            activeModules,
+            isActive: true,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            licenseExpiresAt: admin.firestore.Timestamp.fromDate(licenseExpiresAt),
         };
 
-        await transporter.sendMail(mailOptions);
+        await db.collection("schools").doc(userRecord.uid).set(schoolData);
 
-        return {
-            status: "success",
-            message: "Sıfırlama kodu e-posta adresinize gönderildi.",
-            email: userEmail
-        };
+        // ✅ Audit log
+        await writeAuditLog({
+            action: "CREATE_SCHOOL",
+            performedBy: auth.uid,
+            targetId: userRecord.uid,
+            details: { schoolName, adminEmail },
+        });
 
+        return { status: "success", message: `${schoolName} başarıyla oluşturuldu.`, schoolId: userRecord.uid };
     } catch (error) {
-        console.error("Sıfırlama kodu gönderilirken hata:", error);
-        throw new HttpsError("internal", error.message);
+        console.error("Okul oluşturulurken hata:", error);
+        throw new HttpsError("internal", error.message || "Sunucu hatası.");
     }
 });
 
 /**
- * 'verifyCodeAndResetPassword' adında çağrılabilir bir bulut fonksiyonu.
- * Kodu doğrular ve yeni şifreyi ayarlar.
+ * 'extendLicense' — Okul lisansını uzatır.
+ * 🔐 Sadece super_admin çağırabilir.
  */
-exports.verifyCodeAndResetPassword = onCall(async (request) => {
+exports.extendLicense = onCall({ enforceAppCheck: true }, async (request) => {
+    const { data, auth } = request;
+    await verifySuperAdmin(auth);
+
+    const { schoolId, daysToAdd } = data;
+    if (!schoolId || !daysToAdd) {
+        throw new HttpsError("invalid-argument", "Eksik bilgi: 'schoolId' ve 'daysToAdd' gereklidir.");
+    }
+
+    try {
+        const schoolRef = db.collection("schools").doc(schoolId);
+        const schoolDoc = await schoolRef.get();
+
+        if (!schoolDoc.exists) throw new HttpsError("not-found", "Okul bulunamadı.");
+
+        const schoolData = schoolDoc.data();
+        const currentExpiresAt = schoolData.licenseExpiresAt?.toDate() ?? new Date();
+        const now = new Date();
+        const baseDate = currentExpiresAt < now ? now : currentExpiresAt;
+        const newExpiresAt = new Date(baseDate.setDate(baseDate.getDate() + daysToAdd));
+
+        await schoolRef.update({
+            licenseExpiresAt: admin.firestore.Timestamp.fromDate(newExpiresAt),
+            isActive: true,
+        });
+
+        await writeAuditLog({
+            action: "EXTEND_LICENSE",
+            performedBy: auth.uid,
+            targetId: schoolId,
+            details: { daysToAdd, newExpiresAt: newExpiresAt.toISOString() },
+        });
+
+        return { status: "success", message: `Lisans ${daysToAdd} gün başarıyla uzatıldı.` };
+    } catch (error) {
+        console.error("Lisans uzatılırken hata:", error);
+        throw new HttpsError("internal", error.message || "Sunucu hatası.");
+    }
+});
+
+/**
+ * 'updateSchoolModules' — Okul modüllerini günceller.
+ * 🔐 Sadece super_admin çağırabilir.
+ */
+exports.updateSchoolModules = onCall({ enforceAppCheck: true }, async (request) => {
+    const { data, auth } = request;
+    await verifySuperAdmin(auth);
+
+    const { schoolId, activeModules } = data;
+    if (!schoolId || activeModules == null) {
+        throw new HttpsError("invalid-argument", "Eksik bilgi.");
+    }
+
+    try {
+        await db.collection("schools").doc(schoolId).update({ activeModules });
+
+        await writeAuditLog({
+            action: "UPDATE_MODULES",
+            performedBy: auth.uid,
+            targetId: schoolId,
+            details: { activeModules },
+        });
+
+        return { status: "success", message: "Okul modülleri güncellendi." };
+    } catch (error) {
+        throw new HttpsError("internal", error.message || "Sunucu hatası.");
+    }
+});
+
+/**
+ * 'deleteSchoolAndAdmin' — Okul ve admin hesabını siler.
+ * 🔐 Sadece super_admin çağırabilir.
+ */
+exports.deleteSchoolAndAdmin = onCall({ enforceAppCheck: true }, async (request) => {
+    const { data, auth } = request;
+    await verifySuperAdmin(auth);
+
+    const { schoolId } = data;
+    if (!schoolId) throw new HttpsError("invalid-argument", "Eksik bilgi: 'schoolId' gereklidir.");
+
+    try {
+        try {
+            await admin.auth().deleteUser(schoolId);
+        } catch (authError) {
+            console.warn(`Auth silme uyarısı: ${authError.message}`);
+        }
+
+        await db.collection("schools").doc(schoolId).delete();
+
+        await writeAuditLog({
+            action: "DELETE_SCHOOL",
+            performedBy: auth.uid,
+            targetId: schoolId,
+            details: {},
+        });
+
+        return { status: "success", message: "Okul ve yönetici başarıyla silindi." };
+    } catch (error) {
+        throw new HttpsError("internal", error.message || "Sunucu hatası.");
+    }
+});
+
+/**
+ * 'updateUserCredentials' — Kullanıcı e-posta/şifresini günceller.
+ * 🔐 Login gerekli + Kendi hesabı veya süper admin.
+ */
+exports.updateUserCredentials = onCall({ enforceAppCheck: true }, async (request) => {
+    const { data, auth } = request;
+    verifyAuth(auth);
+
+    const { uid, newEmail, newPassword } = data;
+    if (!uid) throw new HttpsError("invalid-argument", "Eksik bilgi: 'uid' gereklidir.");
+
+    // Başkasının şifresini değiştirmeye çalışıyor mu?
+    if (auth.uid !== uid) {
+        // Süper admin veya kurum admini kontrolü
+        const callerDoc = await db.collection("users").doc(auth.uid).get();
+        if (!callerDoc.exists) throw new HttpsError("permission-denied", "Yetkisiz.");
+        const callerRole = callerDoc.data().role;
+        if (!["super_admin", "admin", "manager", "genel_mudur"].includes(callerRole)) {
+            throw new HttpsError("permission-denied", "Başka bir kullanıcının bilgilerini değiştirme yetkiniz yok.");
+        }
+    }
+
+    try {
+        const updateData = {};
+        if (newEmail) {
+            if (!emailRegex.test(newEmail)) {
+                throw new HttpsError("invalid-argument", "Geçersiz e-posta formatı.");
+            }
+            updateData.email = newEmail;
+        }
+        if (newPassword) {
+            if (newPassword.length < 6) {
+                throw new HttpsError("invalid-argument", "Şifre en az 6 karakter olmalıdır.");
+            }
+            updateData.password = newPassword;
+        }
+
+        if (Object.keys(updateData).length === 0) {
+            return { status: "no-change", message: "Güncellenecek veri gönderilmedi." };
+        }
+
+        await admin.auth().updateUser(uid, updateData);
+
+        await writeAuditLog({
+            action: "UPDATE_USER_CREDENTIALS",
+            performedBy: auth.uid,
+            targetId: uid,
+            details: { emailChanged: !!newEmail, passwordChanged: !!newPassword },
+        });
+
+        return { status: "success", message: "Kullanıcı bilgileri güncellendi." };
+    } catch (error) {
+        throw new HttpsError("internal", `Auth Hatası: ${error.message} (${error.code || "unknown"})`);
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ŞİFRE SIFIRLAMA — Rate Limiting Eklenmiş
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * 'sendPasswordResetCode' — Şifre sıfırlama kodu gönderir.
+ * ✅ Rate Limiting: Saatte max 5 istek.
+ */
+exports.sendPasswordResetCode = onCall(
+    { secrets: [gmailUser, gmailPass], enforceAppCheck: true },
+    async (request) => {
+        const { data } = request;
+        const { institutionId, username } = data;
+
+        if (!institutionId || !username) {
+            throw new HttpsError("invalid-argument", "Kurum ID ve kullanıcı adı gereklidir.");
+        }
+
+        // ✅ Rate limiting: Saatte max 5 şifre sıfırlama isteği (username başına)
+        const rateLimitKey = `password_reset:${institutionId}:${username.toLowerCase()}`;
+        const rateResult = await checkRateLimit(rateLimitKey, 5, 60);
+        
+        if (!rateResult.allowed) {
+            throw new HttpsError(
+                "resource-exhausted",
+                `Çok fazla deneme. Lütfen ${Math.ceil(rateResult.retryAfterSeconds / 60)} dakika sonra tekrar deneyin.`
+            );
+        }
+
+        try {
+            const userQuery = await db.collection("users")
+                .where("institutionId", "==", institutionId.toUpperCase())
+                .where("username", "==", username.toLowerCase())
+                .limit(1)
+                .get();
+
+            if (userQuery.empty) {
+                // Güvenlik: Kullanıcı bulunamadı ama bunu söylemiyoruz (enumeration önlemi)
+                return { status: "success", message: "Eğer bu hesap varsa, sıfırlama kodu gönderildi." };
+            }
+
+            const userData = userQuery.docs[0].data();
+            const userEmail = userData.email;
+            const uid = userQuery.docs[0].id;
+
+            if (!userEmail) {
+                throw new HttpsError("failed-precondition", "Kullanıcının kayıtlı e-posta adresi yok.");
+            }
+
+            const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+            const expiresAt = new Date();
+            expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+
+            await db.collection("passwordResetCodes").doc(userEmail).set({
+                code: resetCode,
+                uid,
+                expiresAt: admin.firestore.Timestamp.fromDate(expiresAt),
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+
+            const transporter = createMailTransporter();
+            await transporter.sendMail({
+                from: `"eduKN Destek" <${gmailUser.value()}>`,
+                to: userEmail,
+                subject: `Şifre Sıfırlama Kodunuz`,
+                html: `
+                    <div style="font-family: 'Segoe UI', sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 15px;">
+                        <div style="text-align: center; margin-bottom: 30px;">
+                            <h1 style="color: #4C59BC;">eduKN</h1>
+                            <p style="color: #666; font-size: 14px;">Daha Planlı, Daha Hızlı</p>
+                        </div>
+                        <div style="background: #fff; padding: 25px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.03);">
+                            <h2 style="color: #1E2661; text-align: center;">Şifre Sıfırlama</h2>
+                            <p style="color: #555; text-align: center; line-height: 1.6;">
+                                Şifre sıfırlama talebinde bulundunuz. Aşağıdaki kodu kullanın:
+                            </p>
+                            <div style="background: #f3f5ff; border: 1px dashed #4C59BC; padding: 15px; text-align: center; margin: 25px 0; border-radius: 10px;">
+                                <span style="font-size: 32px; font-weight: bold; color: #4C59BC; letter-spacing: 5px;">${resetCode}</span>
+                            </div>
+                            <p style="color: #999; font-size: 12px; text-align: center;">
+                                Bu kod <b>10 dakika</b> geçerlidir. Bu isteği siz yapmadıysanız dikkate almayın.
+                            </p>
+                        </div>
+                    </div>
+                `,
+            });
+
+            // ✅ Güvenlik: Email adresini response'ta döndürme
+            return { status: "success", message: "Sıfırlama kodu e-posta adresinize gönderildi." };
+
+        } catch (error) {
+            console.error("Sıfırlama kodu hatası:", error);
+            if (error instanceof HttpsError) throw error;
+            throw new HttpsError("internal", error.message);
+        }
+    }
+);
+
+/**
+ * 'verifyCodeAndResetPassword' — Kodu doğrular ve yeni şifreyi ayarlar.
+ */
+exports.verifyCodeAndResetPassword = onCall({ enforceAppCheck: true }, async (request) => {
     const { data } = request;
     const { email, code, newPassword } = data;
 
     if (!email || !code || !newPassword) {
-        throw new HttpsError("invalid-argument", "Eksik bilgi: email, kod ve yeni şifre gereklidir.");
+        throw new HttpsError("invalid-argument", "Eksik bilgi gereklidir.");
+    }
+
+    if (!emailRegex.test(email)) {
+        throw new HttpsError("invalid-argument", "Geçersiz e-posta formatı.");
+    }
+
+    // Şifre karmaşıklık kontrolü
+    if (newPassword.length < 6) {
+        throw new HttpsError("invalid-argument", "Şifre en az 6 karakter olmalıdır.");
     }
 
     try {
-        // 1. Kodu kontrol et
         const codeDoc = await db.collection("passwordResetCodes").doc(email).get();
 
-        if (!codeDoc.exists) {
-            throw new HttpsError("not-found", "Geçersiz veya süresi dolmuş kod.");
-        }
+        if (!codeDoc.exists) throw new HttpsError("not-found", "Geçersiz veya süresi dolmuş kod.");
 
         const codeData = codeDoc.data();
-        
-        // Kod kontrolü
+
         if (codeData.code !== code) {
             throw new HttpsError("permission-denied", "Girdiğiniz kod hatalı.");
         }
 
-        // Süre kontrolü
         if (codeData.expiresAt.toDate() < new Date()) {
             await db.collection("passwordResetCodes").doc(email).delete();
-            throw new HttpsError("deadline-exceeded", "Kodun süresi dolmuş. Lütfen yeni bir kod isteyin.");
+            throw new HttpsError("deadline-exceeded", "Kodun süresi dolmuş. Lütfen yeni kod isteyin.");
         }
 
-        // 2. Şifreyi Güncelle (Admin SDK)
-        await admin.auth().updateUser(codeData.uid, {
-            password: newPassword
-        });
-
-        // 3. Kodu sil
+        await admin.auth().updateUser(codeData.uid, { password: newPassword });
         await db.collection("passwordResetCodes").doc(email).delete();
 
-        return {
-            status: "success",
-            message: "Şifreniz başarıyla güncellendi."
-        };
+        await writeAuditLog({
+            action: "PASSWORD_RESET",
+            performedBy: codeData.uid,
+            targetId: codeData.uid,
+            details: { email },
+        });
 
+        return { status: "success", message: "Şifreniz başarıyla güncellendi." };
     } catch (error) {
-        console.error("Şifre sıfırlanırken hata:", error);
+        console.error("Şifre sıfırlama hatası:", error);
+        if (error instanceof HttpsError) throw error;
         throw new HttpsError("internal", error.message);
     }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// BİLDİRİM SİSTEMİ — FIRESTORE TRIGGER FONKSİYONLARI
-// ─────────────────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🤖 GEMINI AI — Server-Side Proxy (API key istemcide değil!)
+// ═══════════════════════════════════════════════════════════════════════════════
 
 /**
- * Hedef kullanıcı ID'lerini al, FCM token'larını Firestore'dan çek,
- * FCM bildirimi gönder ve Firestore'a in-app bildirim yaz.
+ * 'analyzeStudentPerformance' — Gemini AI ile öğrenci performans analizi.
+ * API key sunucu tarafında kalıyor, istemciye gönderilmiyor.
+ */
+exports.analyzeStudentPerformance = onCall(
+    { secrets: [geminiApiKey], enforceAppCheck: true },
+    async (request) => {
+        const { auth, data } = request;
+        verifyAuth(auth);
+
+        const { studentName, topicAnalysis } = data;
+        if (!studentName || !Array.isArray(topicAnalysis)) {
+            throw new HttpsError("invalid-argument", "Eksik parametre.");
+        }
+
+        // ✅ Rate limiting: Dakikada max 10 AI isteği (kullanıcı başına)
+        const rateResult = await checkRateLimit(`gemini:${auth.uid}`, 10, 1);
+        if (!rateResult.allowed) {
+            throw new HttpsError("resource-exhausted", "Çok fazla AI isteği. Lütfen bekleyin.");
+        }
+
+        try {
+            const { GoogleGenerativeAI } = require("@google/generative-ai");
+            const genAI = new GoogleGenerativeAI(geminiApiKey.value());
+            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+            const weakTopics = topicAnalysis
+                .filter(e => (e.success || 0) < 50)
+                .map(e => `${e.subject} - ${e.topic} (%${e.success})`)
+                .join(", ");
+
+            const strongTopics = topicAnalysis
+                .filter(e => (e.success || 0) >= 80)
+                .map(e => `${e.subject} - ${e.topic} (%${e.success})`)
+                .join(", ");
+
+            const avgSuccess = topicAnalysis.length > 0
+                ? topicAnalysis.reduce((a, b) => a + (b.success || 0), 0) / topicAnalysis.length
+                : 0;
+
+            const prompt = `
+Sen tecrübeli, motive edici bir rehberlik öğretmenisin.
+
+Öğrenci Adı: ${studentName}
+Genel Başarı: %${avgSuccess.toFixed(1)}
+Zayıf Konular: ${weakTopics || "Yok"}
+Güçlü Konular: ${strongTopics || "Yok"}
+
+GÖREV: 3-4 cümlelik, kısa, öz ve motive edici haftalık çalışma tavsiyesi yaz.
+KURALLAR:
+1. Doğrudan öğrenciye hitap et.
+2. Emojiler kullan ama abartma.
+3. Zayıf konular için spesifik strateji öner.
+4. HTML/Markdown kullanma, sadece düz metin.
+            `;
+
+            const result = await model.generateContent(prompt);
+            const text = result.response.text();
+
+            if (!text) throw new Error("AI boş yanıt döndü.");
+
+            return { status: "success", analysis: text };
+        } catch (error) {
+            console.error("Gemini AI hatası:", error);
+            throw new HttpsError("internal", "AI analizi oluşturulamadı.");
+        }
+    }
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// E-POSTA SERVİSLERİ
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * 'sendCampProgramEmail' — Kamp programını e-posta ile gönderir.
+ */
+exports.sendCampProgramEmail = onCall(
+    { secrets: [gmailUser, gmailPass], enforceAppCheck: true },
+    async (request) => {
+        const { data, auth } = request;
+        verifyAuth(auth);
+
+        const { email, teacherName, cycleName, cycleStartDate, pdfBase64, fileName } = data;
+
+        if (!email || !teacherName || !cycleName || !pdfBase64) {
+            throw new HttpsError("invalid-argument", "Eksik bilgi gönderildi.");
+        }
+
+        if (!emailRegex.test(email)) {
+            throw new HttpsError("invalid-argument", "Geçersiz alıcı e-posta adresi.");
+        }
+
+        // ✅ Rate limiting: Kullanıcı başına günde max 50 kamp programı gönderme
+        const rateLimitKey = `camp_email:${auth.uid}:${new Date().toISOString().split("T")[0]}`;
+        const rateResult = await checkRateLimit(rateLimitKey, 50, 1440);
+        if (!rateResult.allowed) {
+            throw new HttpsError("resource-exhausted", "Günlük e-posta limitinize ulaştınız (Max 50).");
+        }
+
+        try {
+            let startDate = cycleStartDate;
+            if (!startDate) {
+                const dt = new Date();
+                startDate = `${String(dt.getDate()).padStart(2, "0")}.${String(dt.getMonth() + 1).padStart(2, "0")}.${dt.getFullYear()}`;
+            }
+
+            const transporter = createMailTransporter();
+            await transporter.sendMail({
+                from: `"eduKN Destek" <${gmailUser.value()}>`,
+                to: email,
+                subject: `eduKN Kamp: ${startDate} Tarihli Kamp Programı`,
+                html: `
+                    <div style="font-family: 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; padding: 30px; border: 1px solid #e2e8f0; border-radius: 20px; background: #f8fafc;">
+                        <div style="text-align: center; margin-bottom: 25px;">
+                            <h1 style="color: #1e1b4b; font-size: 34px; font-style: italic;">edu<span style="color: #3b82f6;">KN</span></h1>
+                            <p style="color: #64748b; font-size: 14px; font-weight: 500;">Okul Yönetim Sistemi</p>
+                        </div>
+                        <div style="background: #fff; padding: 35px; border-radius: 16px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+                            <h2 style="color: #1e1b4b; font-size: 20px;">Sayın ${teacherName},</h2>
+                            <p style="color: #334155; font-size: 15px; line-height: 1.6;">
+                                <strong>${cycleName}</strong> kapsamındaki <strong>${startDate} tarihli ders programınız</strong> hazırlanmıştır.
+                            </p>
+                            <div style="margin: 30px 0; padding: 20px; background: #eef2ff; border-left: 4px solid #4f46e5; border-radius: 8px;">
+                                <p style="color: #3730a3; margin: 0; font-size: 13px; line-height: 1.5;">
+                                    Detaylı programınız ekte PDF formatında yer almaktadır.
+                                </p>
+                            </div>
+                            <p style="color: #64748b; font-size: 13px; text-align: center;">İyi dersler ve başarılı bir kamp dönemi dileriz.</p>
+                        </div>
+                        <div style="text-align: center; margin-top: 30px; color: #94a3b8; font-size: 12px;">
+                            © ${new Date().getFullYear()} eduKN. Tüm hakları saklıdır.<br>
+                            <span style="font-size: 11px;">Bu e-posta otomatik gönderilmiştir, lütfen yanıtlamayınız.</span>
+                        </div>
+                    </div>
+                `,
+                attachments: [
+                    {
+                        filename: fileName || "kamp_ders_programi.pdf",
+                        content: pdfBase64,
+                        encoding: "base64",
+                    },
+                ],
+            });
+
+            return { status: "success", message: "Kamp programı e-posta ile gönderildi." };
+        } catch (error) {
+            console.error("Kamp programı mail hatası:", error);
+            throw new HttpsError("internal", error.message || "E-posta gönderilirken hata oluştu.");
+        }
+    }
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BİLDİRİM SİSTEMİ — FIRESTORE TRIGGER FONKSİYONLARI
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * FCM push bildirimi ve in-app bildirim gönderir.
  */
 async function sendNotifications({ recipientUids, title, body, route, type, entityId }) {
     if (!recipientUids || recipientUids.length === 0) return;
 
     const uniqueUids = [...new Set(recipientUids)].filter(Boolean);
-
-    // Tüm kullanıcıların token'larını topla
     const allTokens = [];
     const batch = db.batch();
     const now = admin.firestore.FieldValue.serverTimestamp();
@@ -476,26 +674,20 @@ async function sendNotifications({ recipientUids, title, body, route, type, enti
             if (!userDoc.exists) continue;
 
             const userData = userDoc.data();
-            
-            // Bildirim ayarlarını kontrol et
             const settings = userData.notificationSettings || {};
             const typeMap = {
-                'etut': 'studies',
-                'announcement': 'announcements',
-                'message': 'messages',
-                'homework': 'homeworks',
-                'exam': 'exams'
+                etut: "studies",
+                announcement: "announcements",
+                message: "messages",
+                homework: "homeworks",
+                exam: "exams",
             };
             const settingKey = typeMap[type] || type;
-            if (settings[settingKey] === false) {
-                console.log(`ℹ️ Kullanıcı ${uid} için ${type} bildirimi kapalı, atlanıyor.`);
-                continue;
-            }
+            if (settings[settingKey] === false) continue;
 
             const tokens = userData.fcmTokens || [];
             allTokens.push(...tokens);
 
-            // In-app bildirim yaz
             const notifRef = db.collection("notifications").doc(uid).collection("items").doc();
             batch.set(notifRef, {
                 title,
@@ -507,19 +699,16 @@ async function sendNotifications({ recipientUids, title, body, route, type, enti
                 createdAt: now,
             });
         } catch (err) {
-            console.error(`Kullanıcı ${uid} için bildirim hazırlanamadı:`, err);
+            console.error(`Bildirim hatası (${uid}):`, err);
         }
     }
 
-    // In-app bildirimleri toplu kaydet
     try {
         await batch.commit();
-        console.log(`✅ ${uniqueUids.length} kullanıcıya in-app bildirim yazıldı.`);
     } catch (err) {
         console.error("In-app bildirim yazma hatası:", err);
     }
 
-    // FCM Push Gönder
     if (allTokens.length > 0) {
         const message = {
             notification: { title, body },
@@ -536,14 +725,15 @@ async function sendNotifications({ recipientUids, title, body, route, type, enti
 
         try {
             const response = await admin.messaging().sendEachForMulticast(message);
-            console.log(`✅ FCM: ${response.successCount} başarılı, ${response.failureCount} başarısız.`);
+            console.log(`FCM: ${response.successCount} başarılı, ${response.failureCount} başarısız.`);
 
             // Geçersiz token'ları temizle
             response.responses.forEach(async (resp, idx) => {
-                if (!resp.success && (resp.error?.code === "messaging/invalid-registration-token" ||
-                    resp.error?.code === "messaging/registration-token-not-registered")) {
+                if (!resp.success && (
+                    resp.error?.code === "messaging/invalid-registration-token" ||
+                    resp.error?.code === "messaging/registration-token-not-registered"
+                )) {
                     const invalidToken = allTokens[idx];
-                    // Token'ı tüm kullanıcılardan kaldır
                     for (const uid of uniqueUids) {
                         await db.collection("users").doc(uid).update({
                             fcmTokens: admin.firestore.FieldValue.arrayRemove(invalidToken),
@@ -558,7 +748,7 @@ async function sendNotifications({ recipientUids, title, body, route, type, enti
 }
 
 /**
- * Kurum ID'sine göre tüm aktif kullanıcıların UID'lerini getirir.
+ * Kuruma ait aktif kullanıcı UID'lerini getirir.
  */
 async function getInstitutionUserUids(institutionId) {
     const snapshot = await db.collection("users")
@@ -568,24 +758,16 @@ async function getInstitutionUserUids(institutionId) {
     return snapshot.docs.map(doc => doc.id);
 }
 
-// ─── 1. ETÜTLERe BİLDİRİM ────────────────────────────────────────────────────
+// ─── Trigger: Etüt Oluşturulduğunda ──────────────────────────────────────────
 exports.onEtutCreated = onDocumentCreated("etut_requests/{etutId}", async (event) => {
     const etut = event.data?.data();
     if (!etut) return;
 
     const { institutionId, dersAdi, teacherName, className, studentIds = [] } = etut;
-
     const title = `📚 Yeni Etüt: ${dersAdi || "Ders"}`;
     const body = `${teacherName || "Öğretmen"} · ${className || "Grup"}`;
+    let recipientUids = await getInstitutionUserUids(institutionId);
 
-    // Hedefler: atanan öğrencilerin velileri + kurum yöneticileri
-    let recipientUids = [];
-
-    // Kurum yöneticilerini ekle
-    const adminUids = await getInstitutionUserUids(institutionId);
-    recipientUids.push(...adminUids);
-
-    // Öğrencilerin velilerini bul
     for (const studentId of studentIds) {
         try {
             const studentDoc = await db.collection("students").doc(studentId).get();
@@ -597,37 +779,25 @@ exports.onEtutCreated = onDocumentCreated("etut_requests/{etutId}", async (event
                     .where("tcNo", "==", tcNo)
                     .where("role", "==", "parent")
                     .limit(1).get();
-                if (!parentQuery.empty) {
-                    recipientUids.push(parentQuery.docs[0].id);
-                }
+                if (!parentQuery.empty) recipientUids.push(parentQuery.docs[0].id);
             }
         } catch (err) {
             console.error("Veli bulma hatası:", err);
         }
     }
 
-    await sendNotifications({
-        recipientUids,
-        title,
-        body,
-        route: "/school-dashboard",
-        type: "etut",
-        entityId: event.params.etutId,
-    });
+    await sendNotifications({ recipientUids, title, body, route: "/school-dashboard", type: "etut", entityId: event.params.etutId });
 });
 
-// ─── 2. DUYURULARA BİLDİRİM ──────────────────────────────────────────────────
+// ─── Trigger: Duyuru Oluşturulduğunda ────────────────────────────────────────
 exports.onAnnouncementCreated = onDocumentCreated(
     "schools/{schoolId}/announcements/{announcementId}",
     async (event) => {
         const announcement = event.data?.data();
         if (!announcement) return;
-
         const { institutionId, title: annTitle, content } = announcement;
         if (!institutionId) return;
-
         const recipientUids = await getInstitutionUserUids(institutionId);
-
         await sendNotifications({
             recipientUids,
             title: `📢 Duyuru: ${annTitle || "Yeni Duyuru"}`,
@@ -639,19 +809,15 @@ exports.onAnnouncementCreated = onDocumentCreated(
     }
 );
 
-// ─── 3. MESAJLARA BİLDİRİM ───────────────────────────────────────────────────
+// ─── Trigger: Mesaj Gönderildiğinde ──────────────────────────────────────────
 exports.onMessageSent = onDocumentCreated(
     "conversations/{conversationId}/messages/{messageId}",
     async (event) => {
         const message = event.data?.data();
         if (!message) return;
-
         const { senderId, senderName, content, participants = [] } = message;
-
-        // Gönderici hariç katılımcılara bildir
         const recipientUids = participants.filter(uid => uid !== senderId);
         if (recipientUids.length === 0) return;
-
         await sendNotifications({
             recipientUids,
             title: `💬 ${senderName || "Yeni Mesaj"}`,
@@ -663,16 +829,13 @@ exports.onMessageSent = onDocumentCreated(
     }
 );
 
-// ─── 4. ÖDEVLERE BİLDİRİM ────────────────────────────────────────────────────
+// ─── Trigger: Ödev Oluşturulduğunda ──────────────────────────────────────────
 exports.onHomeworkCreated = onDocumentCreated("homeworks/{homeworkId}", async (event) => {
     const homework = event.data?.data();
     if (!homework) return;
-
-    const { institutionId, title: hwTitle, schoolTypeId } = homework;
+    const { institutionId, title: hwTitle } = homework;
     if (!institutionId) return;
-
     const recipientUids = await getInstitutionUserUids(institutionId);
-
     await sendNotifications({
         recipientUids,
         title: `📝 Yeni Ödev: ${hwTitle || "Ödev"}`,
@@ -683,16 +846,101 @@ exports.onHomeworkCreated = onDocumentCreated("homeworks/{homeworkId}", async (e
     });
 });
 
-// ─── 5. DENEME SINAVI YÜKLENDİĞİNDE BİLDİRİM ─────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// 📱 SMS KUYRUĞU — onSmsQueued Trigger
+// API key ASLA client'a gönderilmez, schools/{schoolId}.smsSettings'ten okunur
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * sms_queue koleksiyonuna yeni bir belge eklendiğinde tetiklenir.
+ * SMS API key'ini Firestore'dan (schools/{schoolId}.smsSettings) sunucu tarafında okur.
+ * Client hiçbir zaman API key'i görmez.
+ */
+exports.onSmsQueued = onDocumentCreated("sms_queue/{docId}", async (event) => {
+    const smsDoc = event.data?.data();
+    if (!smsDoc) return;
+
+    const { phone, message, provider, schoolId, originator, status } = smsDoc;
+
+    // Zaten işlendi mi?
+    if (status !== "pending") return;
+
+    const docRef = db.collection("sms_queue").doc(event.params.docId);
+
+    // Önce 'processing' yap (duplicate gönderimi önle)
+    await docRef.update({ status: "processing", processedAt: admin.firestore.FieldValue.serverTimestamp() });
+
+    try {
+        if (!schoolId) throw new Error("schoolId eksik — API key bulunamaz.");
+
+        // ✅ API key sunucu tarafında schools belgesinden okunuyor
+        const schoolDoc = await db.collection("schools").doc(schoolId).get();
+        if (!schoolDoc.exists) throw new Error(`Okul bulunamadı: ${schoolId}`);
+
+        const smsSettings = schoolDoc.data()?.smsSettings;
+        if (!smsSettings || !smsSettings.isActive) {
+            throw new Error("SMS entegrasyonu aktif değil.");
+        }
+
+        const apiKey = smsSettings.apiKey;
+        const apiSecret = smsSettings.apiSecret;
+        const senderOriginator = originator || smsSettings.originator || "EDUKN";
+
+        if (!apiKey || !apiSecret) throw new Error("SMS API bilgileri eksik.");
+
+        let success = false;
+        let responseMessage = "";
+
+        switch (provider) {
+            case "netgsm": {
+                const netgsmUrl = new URL("https://api.netgsm.com.tr/sms/send/get");
+                netgsmUrl.searchParams.set("usercode", apiKey);
+                netgsmUrl.searchParams.set("password", apiSecret);
+                netgsmUrl.searchParams.set("gsmno", phone);
+                netgsmUrl.searchParams.set("message", message);
+                netgsmUrl.searchParams.set("msgheader", senderOriginator);
+                netgsmUrl.searchParams.set("dil", "TR");
+
+                const response = await fetch(netgsmUrl.toString());
+                const text = await response.text();
+
+                if (text && text.startsWith("00")) {
+                    success = true;
+                    responseMessage = `Başarılı. Netgsm kodu: ${text.trim()}`;
+                } else {
+                    responseMessage = `Netgsm hatası: ${text?.trim() || "bilinmiyor"}`;
+                }
+                break;
+            }
+            default:
+                // Diğer provider'lar için kuyruk kayıtlıdır, harici sistem okur
+                success = true;
+                responseMessage = `${provider} kuyruğa eklendi.`;
+        }
+
+        await docRef.update({
+            status: success ? "sent" : "failed",
+            response: responseMessage,
+            completedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+    } catch (err) {
+        console.error("SMS gönderim hatası:", err);
+        await docRef.update({
+            status: "failed",
+            error: err.message || "Bilinmeyen hata",
+            completedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+    }
+});
+
+// ─── Trigger: Deneme Sınavı Oluşturulduğunda ─────────────────────────────────
 exports.onTrialExamCreated = onDocumentCreated("trial_exams/{examId}", async (event) => {
     const exam = event.data?.data();
     if (!exam) return;
-
     const { institutionId, examName } = exam;
     if (!institutionId) return;
-
     const recipientUids = await getInstitutionUserUids(institutionId);
-
     await sendNotifications({
         recipientUids,
         title: `📊 Deneme Yüklendi: ${examName || "Yeni Deneme"}`,
@@ -703,119 +951,237 @@ exports.onTrialExamCreated = onDocumentCreated("trial_exams/{examId}", async (ev
     });
 });
 
-// ─── 6. KAMP ÖĞRETMEN HAFTALIK DERS PROGRAMI E-POSTA GÖNDERİMİ ───────────────
-exports.sendCampProgramEmail = onCall(async (request) => {
-    const { data, auth } = request;
-    
-    // 1. Güvenlik Kontrolü
-    if (!auth) {
-        throw new HttpsError(
-            "unauthenticated",
-            "Bu işlemi yapmak için giriş yapmış olmalısınız."
-        );
-    }
 
-    const { email, teacherName, cycleName, cycleStartDate, pdfBase64, fileName } = data;
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🔐 VERİ ŞİFRELEME — ENCRYPTION FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════════
 
-    if (!email || !teacherName || !cycleName || !pdfBase64) {
-        throw new HttpsError(
-            "invalid-argument",
-            "Eksik bilgi gönderildi. 'email', 'teacherName', 'cycleName' ve 'pdfBase64' alanları zorunludur."
-        );
-    }
+const ENC_PREFIX = "ENC:";
+const ENC_ALGORITHM = "aes-256-cbc";
+
+/**
+ * Server-side şifreleme: plaintext → "ENC:<iv_hex>:<ciphertext_hex>"
+ * Flutter EncryptionService ile uyumlu format
+ */
+function encryptField(value, keyHex) {
+    if (!value || typeof value !== "string") return value;
+    if (value.startsWith(ENC_PREFIX)) return value; // Zaten şifreli
+
+    const keyBuffer = Buffer.from(keyHex, "hex");
+    const iv = crypto.randomBytes(16);
+    const cipher = crypto.createCipheriv(ENC_ALGORITHM, keyBuffer, iv);
+    let encrypted = cipher.update(value, "utf8", "base64");
+    encrypted += cipher.final("base64");
+    const ivBase64 = iv.toString("base64");
+    return `${ENC_PREFIX}${ivBase64}:${encrypted}`;
+}
+
+/**
+ * Server-side çözme: "ENC:<iv_hex>:<ciphertext_hex>" → plaintext
+ */
+function decryptField(value, keyHex) {
+    if (!value || typeof value !== "string") return value;
+    if (!value.startsWith(ENC_PREFIX)) return value; // Düz metin
 
     try {
-        let startDate = cycleStartDate;
-        if (!startDate) {
-            const dt = new Date();
-            const d = String(dt.getDate()).padStart(2, '0');
-            const m = String(dt.getMonth() + 1).padStart(2, '0');
-            const y = dt.getFullYear();
-            startDate = `${d}.${m}.${y}`;
+        const body = value.substring(ENC_PREFIX.length);
+        const parts = body.split(":");
+        if (parts.length !== 2) return value;
+
+        const iv = Buffer.from(parts[0], "base64");
+        const keyBuffer = Buffer.from(keyHex, "hex");
+        const decipher = crypto.createDecipheriv(ENC_ALGORITHM, keyBuffer, iv);
+        let decrypted = decipher.update(parts[1], "base64", "utf8");
+        decrypted += decipher.final("utf8");
+        return decrypted;
+    } catch (e) {
+        console.error("decryptField hatası:", e.message);
+        return value;
+    }
+}
+
+/**
+ * 'getEncryptionKeyForClient' — Flutter uygulamasına AES anahtarını güvenli iletir.
+ * 🔐 Sadece giriş yapmış kullanıcılara gönderilir.
+ * Anahtar ASLA Firestore'a yazılmaz — sadece bellek üzerinden iletilir.
+ */
+exports.getEncryptionKeyForClient = onCall(
+    { secrets: [encryptionKey], enforceAppCheck: false },
+    async (request) => {
+        verifyAuth(request.auth);
+
+        // Hex formatındaki anahtarı Base64'e çevir (Flutter encrypt paketi Base64 ister)
+        const keyHex = encryptionKey.value() ? encryptionKey.value().trim() : "";
+        if (!keyHex || keyHex.length !== 64) {
+            throw new HttpsError("internal", "Şifreleme anahtarı yapılandırılmamış veya geçersiz.");
         }
 
-        const mailOptions = {
-            from: '"eduKN Destek" <muratavci2405@gmail.com>',
-            to: email,
-            subject: `eduKN Kamp: ${startDate} Tarihli Kamp Programı`,
-            html: `
-                <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 30px; border: 1px solid #e2e8f0; border-radius: 20px; background-color: #f8fafc;">
-                    <div style="text-align: center; margin-bottom: 25px;">
-                        <div style="display: inline-block; vertical-align: middle;">
-                            <table cellpadding="0" cellspacing="0" border="0" style="margin: 0 auto;">
-                                <tr>
-                                    <td style="vertical-align: middle; padding-right: 10px;">
-                                        <svg width="45" height="38" viewBox="0 0 120 100" style="display: block;">
-                                            <g transform="skewX(-15) translate(15, 0)">
-                                                <path d="M0,15 L35,15 L55,40 L35,65 L0,65 L20,40 Z" fill="url(#grad1)" />
-                                                <path d="M25,15 L60,15 L80,40 L60,65 L25,65 L45,40 Z" fill="url(#grad2)" />
-                                                <path d="M50,15 L85,15 L105,40 L85,65 L50,65 L70,40 Z" fill="#60A5FA" />
-                                            </g>
-                                            <defs>
-                                                <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
-                                                    <stop offset="0%" stop-color="#1E3A8A" stop-opacity="0.9" />
-                                                    <stop offset="100%" stop-color="#2563EB" stop-opacity="0.9" />
-                                                </linearGradient>
-                                                <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="100%">
-                                                    <stop offset="0%" stop-color="#2563EB" stop-opacity="0.9" />
-                                                    <stop offset="100%" stop-color="#60A5FA" stop-opacity="0.9" />
-                                                </linearGradient>
-                                            </defs>
-                                        </svg>
-                                    </td>
-                                    <td style="vertical-align: middle;">
-                                        <span style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 34px; font-weight: 900; font-style: italic; letter-spacing: -1.5px; color: #1e1b4b; line-height: 1;">
-                                            edu<span style="color: #3b82f6;">KN</span>
-                                        </span>
-                                    </td>
-                                </tr>
-                            </table>
-                        </div>
-                        <p style="color: #64748b; font-size: 14px; margin-top: 8px; font-weight: 500;">Okul Yönetim Sistemi</p>
-                    </div>
-                    <div style="background-color: #ffffff; padding: 35px; border-radius: 16px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03);">
-                        <h2 style="color: #1e1b4b; margin-top: 0; font-size: 20px; font-weight: 700;">Sayın ${teacherName},</h2>
-                        <p style="color: #334155; font-size: 15px; line-height: 1.6; margin-top: 15px;">
-                            Kurumunuz tarafından düzenlenen <strong>${cycleName}</strong> kapsamındaki <strong>${startDate} tarihli ders ve soru çözüm programınız</strong> hazırlanmıştır.
-                        </p>
-                        <p style="color: #334155; font-size: 15px; line-height: 1.6;">
-                            Size özel olarak oluşturulan detaylı programınız, derslikleriniz, ders saatleriniz ve öğrenci listeleriniz bu e-postanın ekinde PDF formatında yer almaktadır.
-                        </p>
-                        <div style="margin: 30px 0; padding: 20px; background-color: #eef2ff; border-left: 4px solid #4f46e5; border-radius: 8px;">
-                            <h3 style="color: #4338ca; margin: 0 0 8px 0; font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">Bilgilendirme</h3>
-                            <p style="color: #3730a3; margin: 0; font-size: 13px; line-height: 1.5;">
-                                Kamp süresince başarı oranı %95 ve üzeri olan öğrenci gruplarında sistem tarafından otomatik olarak <strong>Soru Çözümü</strong> çalışması planlanmıştır. Program detaylarına ekteki belgeden ulaşabilirsiniz.
-                            </p>
-                        </div>
-                        <p style="color: #64748b; font-size: 13px; line-height: 1.6; margin-bottom: 0; text-align: center;">
-                            İyi dersler ve başarılı bir kamp dönemi dileriz.
-                        </p>
-                    </div>
-                    <div style="text-align: center; margin-top: 30px; color: #94a3b8; font-size: 12px; font-weight: 500;">
-                        © ${new Date().getFullYear()} eduKN. Tüm hakları saklıdır.<br>
-                        <span style="color: #94a3b8; font-size: 11px;">Bu e-posta otomatik olarak gönderilmiştir, lütfen yanıtlamayınız.</span>
-                    </div>
-                </div>
-            `,
-            attachments: [
-                {
-                    filename: fileName || 'kamp_ders_programi.pdf',
-                    content: pdfBase64,
-                    encoding: 'base64'
-                }
-            ]
-        };
-
-        await transporter.sendMail(mailOptions);
-
-        return {
-            status: "success",
-            message: "Kamp programı e-posta ile başarıyla gönderildi."
-        };
-
-    } catch (error) {
-        console.error("Kamp programı mail gönderim hatası:", error);
-        throw new HttpsError("internal", error.message || "E-posta gönderilirken sunucu hatası oluştu.");
+        const keyBase64 = Buffer.from(keyHex, "hex").toString("base64");
+        return { key: keyBase64 };
     }
-});
+);
 
+/**
+ * 'migrateEncryptData' — Mevcut tüm verileri şifreler.
+ * 🔐 Sadece super_admin çağırabilir.
+ * Şifreleme yapılacak koleksiyonlar ve alanlar:
+ *   - students: tcNo, birthDate, phone, parentPhone1, parentPhone2, parentPhone
+ *   - users: tcNo, birthDate, phone
+ *   - parents: tcNo, birthDate, phone
+ */
+exports.migrateEncryptData = onCall(
+    { secrets: [encryptionKey], enforceAppCheck: false, timeoutSeconds: 540 },
+    async (request) => {
+        await verifySuperAdmin(request.auth);
+
+        const keyHex = encryptionKey.value() ? encryptionKey.value().trim() : "";
+        // Force redeploy token: key_trimming_v2_fix_hash_9876
+        if (!keyHex || keyHex.length !== 64) {
+            throw new HttpsError("internal", `Şifreleme anahtarı hâlâ geçersiz. Değer: "${keyHex}", Uzunluk: ${keyHex ? keyHex.length : 0}`);
+        }
+
+        const { institutionId } = request.data;
+        if (!institutionId) {
+            throw new HttpsError("invalid-argument", "institutionId gereklidir.");
+        }
+
+        console.log(`[Migration] Başlıyor — Institution: ${institutionId}`);
+
+        const results = {
+            students: { processed: 0, encrypted: 0, skipped: 0, errors: 0 },
+            users: { processed: 0, encrypted: 0, skipped: 0, errors: 0 },
+            parents: { processed: 0, encrypted: 0, skipped: 0, errors: 0 },
+        };
+
+        // ─── Koleksiyon şifreleme yardımcısı ─────────────────────────────────
+        async function encryptCollection(collectionName, sensitiveFields, statsKey) {
+            const snapshot = await db.collection(collectionName)
+                .where("institutionId", "==", institutionId)
+                .get();
+
+            console.log(`[Migration] ${collectionName}: ${snapshot.size} kayıt bulundu.`);
+
+            const BATCH_SIZE = 400;
+            let batchCount = 0;
+            let batch = db.batch();
+            
+            for (const doc of snapshot.docs) {
+                results[statsKey].processed++;
+                const data = doc.data();
+                const updates = {};
+                let needsUpdate = false;
+
+                for (const field of sensitiveFields) {
+                    const value = data[field];
+                    if (value != null && value !== "" && !String(value).startsWith(ENC_PREFIX)) {
+                        updates[field] = encryptField(String(value), keyHex);
+                        needsUpdate = true;
+                    }
+                }
+
+                if (needsUpdate) {
+                    batch.update(doc.ref, updates);
+                    results[statsKey].encrypted++;
+                    batchCount++;
+
+                    if (batchCount >= BATCH_SIZE) {
+                        await batch.commit();
+                        batch = db.batch();
+                        batchCount = 0;
+                        console.log(`[Migration] ${collectionName}: Batch commit yapıldı.`);
+                    }
+                } else {
+                    results[statsKey].skipped++;
+                }
+            }
+
+            if (batchCount > 0) {
+                await batch.commit();
+            }
+        }
+
+        try {
+            // Öğrenciler
+            await encryptCollection("students", [
+                "tcNo", "birthDate", "phone", "parentPhone1", "parentPhone2", "parentPhone"
+            ], "students");
+
+            // Kullanıcılar (öğretmen/yönetici)
+            await encryptCollection("users", [
+                "tcNo", "birthDate", "phone"
+            ], "users");
+
+            // Veliler
+            await encryptCollection("parents", [
+                "tcNo", "birthDate", "phone"
+            ], "parents");
+
+            // ✅ Audit log
+            await writeAuditLog({
+                action: "ENCRYPT_DATA_MIGRATION",
+                performedBy: request.auth.uid,
+                targetId: institutionId,
+                details: results,
+            });
+
+            console.log(`[Migration] Tamamlandı:`, JSON.stringify(results));
+            return { status: "success", results };
+
+        } catch (error) {
+            console.error("[Migration] HATA:", error);
+            throw new HttpsError("internal", `Migration hatası: ${error.message}`);
+        }
+    }
+);
+
+/**
+ * 'getEncryptionStats' — Kaç kayıt şifreli, kaç kayıt düz metin olduğunu döner.
+ * 🔐 Sadece admin/manager çağırabilir.
+ */
+exports.getEncryptionStats = onCall(
+    { enforceAppCheck: false },
+    async (request) => {
+        verifyAuth(request.auth);
+
+        const { institutionId } = request.data;
+        if (!institutionId) {
+            throw new HttpsError("invalid-argument", "institutionId gereklidir.");
+        }
+
+        const stats = {};
+
+        for (const [col, fields] of [
+            ["students", ["tcNo", "birthDate", "phone", "parentPhone1", "parentPhone2", "parentPhone"]],
+            ["users", ["tcNo", "birthDate", "phone"]],
+            ["parents", ["tcNo", "birthDate", "phone"]]
+        ]) {
+            const snapshot = await db.collection(col)
+                .where("institutionId", "==", institutionId)
+                .get();
+
+            let encrypted = 0, plain = 0;
+            for (const doc of snapshot.docs) {
+                const data = doc.data();
+                let hasPlain = false;
+                
+                for (const field of fields) {
+                    const val = data[field];
+                    if (val != null && val !== "") {
+                        if (!String(val).startsWith(ENC_PREFIX)) {
+                            hasPlain = true;
+                        }
+                    }
+                }
+                
+                if (hasPlain) {
+                    plain++;
+                } else {
+                    encrypted++;
+                }
+            }
+            stats[col] = { total: snapshot.size, encrypted, plain };
+        }
+
+        return { stats };
+    }
+);

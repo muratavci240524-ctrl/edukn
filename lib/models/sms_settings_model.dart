@@ -13,6 +13,7 @@ class SmsSettings {
   final String? lastTestResult;
   final DateTime? updatedAt;
   final String? updatedBy;
+  final String? schoolId;
 
   const SmsSettings({
     required this.provider,
@@ -25,6 +26,7 @@ class SmsSettings {
     this.lastTestResult,
     this.updatedAt,
     this.updatedBy,
+    this.schoolId,
   });
 
   String get providerName {
@@ -93,6 +95,7 @@ class SmsSettings {
       'lastTestResult': lastTestResult,
       'updatedAt': FieldValue.serverTimestamp(),
       'updatedBy': updatedBy,
+      'schoolId': schoolId,
     };
   }
 
@@ -108,6 +111,7 @@ class SmsSettings {
       lastTestResult: map['lastTestResult'],
       updatedAt: (map['updatedAt'] as Timestamp?)?.toDate(),
       updatedBy: map['updatedBy'],
+      schoolId: map['schoolId'],
     );
   }
 
@@ -121,6 +125,7 @@ class SmsSettings {
     DateTime? lastTestedAt,
     String? lastTestResult,
     String? updatedBy,
+    String? schoolId,
   }) {
     return SmsSettings(
       provider: provider ?? this.provider,
@@ -133,6 +138,7 @@ class SmsSettings {
       lastTestResult: lastTestResult ?? this.lastTestResult,
       updatedAt: updatedAt,
       updatedBy: updatedBy ?? this.updatedBy,
+      schoolId: schoolId ?? this.schoolId,
     );
   }
 }

@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../../../firebase_options.dart';
+import '../../../services/crypto_service.dart';
 
 class _UpperCaseTextFormatter extends TextInputFormatter {
   @override
@@ -128,7 +129,8 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
   }
 
   void _populateForm(Map<String, dynamic> data) {
-    _tcController.text = data['tc'] ?? '';
+    final instId = data['institutionId'] as String?;
+    _tcController.text = CryptoService.decrypt(data['tcKimlik'] ?? data['tc'] ?? '', institutionId: instId);
     _fullNameController.text = data['fullName'] ?? '';
     _birthDateController.text = data['birthDate'] ?? '';
     _birthPlaceController.text = data['birthPlace'] ?? '';
@@ -166,6 +168,60 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
     });
     // Institution ID yüklendikten sonra branşları yükle
     _loadBranches();
+  }
+
+  Future<void> _checkDuplicateAndPullData(String tc) async {
+    if (tc.length != 11 || _institutionId == null) return;
+
+    try {
+      final encryptedTc = CryptoService.encrypt(tc, institutionId: _institutionId);
+
+      // Check in 'users'
+      final userQuery = await FirebaseFirestore.instance
+          .collection('users')
+          .where('institutionId', isEqualTo: _institutionId)
+          .where('tcKimlik', isEqualTo: encryptedTc)
+          .limit(1)
+          .get();
+
+      if (userQuery.docs.isNotEmpty) {
+        final existingUser = userQuery.docs.first.data();
+        
+        setState(() {
+          _fullNameController.text = existingUser['fullName'] ?? '';
+          _birthDateController.text = existingUser['birthDate'] ?? '';
+          _birthPlaceController.text = existingUser['birthPlace'] ?? '';
+          _gender = existingUser['gender'];
+          _maritalStatus = existingUser['maritalStatus'];
+          _nationalityController.text = existingUser['nationality'] ?? '';
+          _bloodGroup = existingUser['bloodGroup'];
+          _corporateEmailController.text = existingUser['corporateEmail'] ?? '';
+          _personalEmailController.text = existingUser['personalEmail'] ?? '';
+          _mobilePhoneController.text = existingUser['mobilePhone'] ?? '';
+          _homePhoneController.text = existingUser['homePhone'] ?? '';
+          _cityController.text = existingUser['city'] ?? '';
+          _districtController.text = existingUser['district'] ?? '';
+          _addressController.text = existingUser['address'] ?? '';
+          _emergencyNameController.text = existingUser['emergencyContactName'] ?? '';
+          _emergencyPhoneController.text = existingUser['emergencyContactPhone'] ?? '';
+          _photoUrlController.text = existingUser['photoUrl'] ?? '';
+          _usernameController.text = existingUser['username'] ?? '';
+          _title = existingUser['title'];
+          _branch = existingUser['branch'];
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('ℹ️ Bu TC numarasına ait mevcut personel bulundu ve bilgileri otomatik dolduruldu.'),
+              backgroundColor: Colors.indigo,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('TC lookup error: $e');
+    }
   }
 
   @override
@@ -233,6 +289,29 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
     setState(() => _isSaving = true);
 
     try {
+      final isEdit = widget.staffId != null;
+
+      // TC Kimlik format kontrolü ve Mükerrer Kontrolü
+      if (_tcController.text.trim().isNotEmpty) {
+        final tcVal = _tcController.text.trim();
+        if (tcVal.length != 11) {
+          throw 'TC Kimlik numarası 11 haneli olmalıdır.';
+        }
+        final encryptedTc = CryptoService.encrypt(tcVal, institutionId: _institutionId);
+        final tcCheck = await FirebaseFirestore.instance
+            .collection('users')
+            .where('institutionId', isEqualTo: _institutionId)
+            .where('tcKimlik', isEqualTo: encryptedTc)
+            .limit(1)
+            .get();
+        if (tcCheck.docs.isNotEmpty) {
+          final foundDoc = tcCheck.docs.first;
+          if (!isEdit || foundDoc.id != widget.staffId) {
+            throw 'Bu TC Kimlik numarasıyla kayıtlı başka bir personel zaten var.';
+          }
+        }
+      }
+
       final username = _usernameController.text.trim().toLowerCase();
       final authEmail = _corporateEmailController.text.trim().isNotEmpty
           ? _corporateEmailController.text.trim()
@@ -241,7 +320,7 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
 
       final data = <String, dynamic>{
         'institutionId': _institutionId,
-        'tc': _tcController.text.trim(),
+        'tc': CryptoService.encrypt(_tcController.text.trim(), institutionId: _institutionId),
         'fullName': _fullNameController.text.trim(),
         'birthDate': _birthDateController.text.trim(),
         'birthPlace': _birthPlaceController.text.trim(),
@@ -269,7 +348,7 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
         'isActive': true,
         'updatedAt': FieldValue.serverTimestamp(),
         'type': 'staff',
-        'tcKimlik': _tcController.text.trim(),
+        'tcKimlik': CryptoService.encrypt(_tcController.text.trim(), institutionId: _institutionId),
         'phone': _mobilePhoneController.text.trim(),
         'schoolTypes': widget.fixedSchoolTypeId != null ? [widget.fixedSchoolTypeId] : (widget.fixedSchoolTypeName != null ? [widget.fixedSchoolTypeName] : []),
         'modulePermissions': {
@@ -523,7 +602,12 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
                         ),
                         keyboardType: TextInputType.number,
                         maxLength: 11,
-                        onChanged: (_) => setState(() {}),
+                        onChanged: (val) {
+                          setState(() {});
+                          if (val.length == 11) {
+                            _checkDuplicateAndPullData(val);
+                          }
+                        },
                         validator: (value) {
                           if (value == null || value.isEmpty) return 'TC zorunlu';
                           if (value.length != 11) return '11 haneli olmalı';

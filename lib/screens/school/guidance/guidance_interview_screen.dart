@@ -14,6 +14,7 @@ import 'dart:io';
 
 import 'package:intl/intl.dart';
 import 'package:edukn/screens/school/guidance/guidance_statistics_screen.dart';
+import '../../../services/crypto_service.dart';
 
 class GuidanceInterviewScreen extends StatefulWidget {
   final String institutionId;
@@ -538,7 +539,7 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
             'category': _selectedTab,
             'type': _interviewType,
             'title': title,
-            'notes': _notesController.text,
+            'notes': CryptoService.encrypt(_notesController.text, institutionId: widget.institutionId),
             'isPrivate': _isPrivate,
             'createdAt': FieldValue.serverTimestamp(),
             'isBatchCreated': true,
@@ -584,7 +585,7 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
           'category': _selectedTab,
           'type': _interviewType,
           'title': title,
-          'notes': _notesController.text,
+          'notes': CryptoService.encrypt(_notesController.text, institutionId: widget.institutionId),
           'isPrivate': _isPrivate,
           'createdAt': FieldValue.serverTimestamp(),
           'isBatchCreated': false,
@@ -1769,7 +1770,7 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
           ),
           child: canViewContent
               ? Text(
-                  data['notes'] ?? 'Not girilmemiş.',
+                  CryptoService.decrypt(data['notes']?.toString(), institutionId: widget.institutionId) ?? 'Not girilmemiş.',
                   style: TextStyle(
                     fontSize: 15,
                     height: 1.5,
@@ -2108,7 +2109,7 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
 
                 final interviewer =
                     data['interviewerName'] ?? data['interviewerEmail'] ?? '-';
-                final notes = data['notes'] ?? '';
+                final notes = CryptoService.decrypt(data['notes']?.toString(), institutionId: widget.institutionId) ?? '';
                 final title = data['title'] ?? '';
                 final category = data['category'] ?? ''; // ogrenci, veli etc.
 
@@ -2168,7 +2169,7 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
 
         final interviewer =
             data['interviewerName'] ?? data['interviewerEmail'] ?? '-';
-        final notes = data['notes'] ?? '';
+        final notes = CryptoService.decrypt(data['notes']?.toString(), institutionId: widget.institutionId) ?? '';
         final title = data['title'] ?? '';
         final category = data['category'] ?? ''; // ogrenci, veli etc.
 

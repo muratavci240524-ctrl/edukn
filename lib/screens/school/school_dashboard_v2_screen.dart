@@ -22,6 +22,7 @@ import 'assessment/error_booklet/error_booklet_dashboard_screen.dart';
 import 'assessment/question_pool/question_pool_screen.dart';
 import 'assessment/external_exam/external_exam_list_screen.dart';
 import '../teacher/teacher_qr_scan_screen.dart';
+import '../teacher/teacher_main_screen.dart';
 import 'student_registration_screen.dart';
 import '../../main.dart';
 import 'profile_settings_screen.dart';
@@ -47,6 +48,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
   int _currentIndex = 1;
   Map<String, dynamic>? schoolData;
   Map<String, dynamic>? userData; 
+  bool _hasParentPortal = false;
   Map<String, dynamic>? activeTerm; 
   Map<String, dynamic>? selectedTerm; 
   List<Map<String, dynamic>> allTerms = [];
@@ -370,11 +372,29 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
 
   Future<void> _loadSchoolData() async {
     try {
-      final user = FirebaseAuth.instance.currentUser; if (user == null) { Navigator.pushReplacementNamed(context, '/school-login'); return; }
+      User? user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        // Web'de Firebase Auth'un IndexedDB'den yüklenmesi biraz zaman alabilir
+        await Future.delayed(const Duration(milliseconds: 1000));
+        user = FirebaseAuth.instance.currentUser;
+        if (user == null) {
+          if (mounted) Navigator.pushReplacementNamed(context, '/school-login');
+          return;
+        }
+      }
       
       // Önce kullanıcı verilerini yükle (institutionId buradan gelecek)
       final profileData = await UserPermissionService.loadUserData();
       final email = user.email ?? '';
+      
+      // Süper Admin yönlendirmesi
+      if (email.toLowerCase() == 'superadmin@edukn.com' || (profileData != null && profileData['role'] == 'super_admin')) {
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/admin-dashboard');
+          return;
+        }
+      }
+
       final institutionId = await UserPermissionService.resolveInstitutionId(email, userData: profileData);
       
       if (institutionId == null) {
@@ -394,10 +414,32 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
         final prefs = await SharedPreferences.getInstance(); final isImpersonating = prefs.getBool('is_impersonating') ?? false; final impersonatedEmail = prefs.getString('impersonated_user_email');
         Map<String, dynamic>? currentUserData;
         if (isImpersonating && impersonatedEmail != null) { final impUserQuery = await FirebaseFirestore.instance.collection('users').where('email', isEqualTo: impersonatedEmail).limit(1).get(); if (impUserQuery.docs.isNotEmpty) currentUserData = impUserQuery.docs.first.data(); } else { final username = email.split('@')[0]; final userQuery = await FirebaseFirestore.instance.collection('users').where('institutionId', isEqualTo: data['institutionId']).where('username', isEqualTo: username).limit(1).get(); if (userQuery.docs.isNotEmpty) currentUserData = userQuery.docs.first.data(); }
+        currentUserData ??= profileData;
+
+        bool hasParent = false;
+        if (currentUserData != null) {
+          final tcNo = currentUserData['tcNo'] ?? currentUserData['tcKimlik'] ?? '';
+          if (tcNo.toString().isNotEmpty) {
+            try {
+              final studentsQuery = await FirebaseFirestore.instance
+                  .collection('students')
+                  .where('institutionId', isEqualTo: data['institutionId'])
+                  .where('parentTcNos', arrayContains: tcNo.toString())
+                  .get();
+              if (studentsQuery.docs.isNotEmpty) {
+                hasParent = true;
+              }
+            } catch (e) {
+              print('Error checking parent role on dashboard: $e');
+            }
+          }
+        }
+
         if (mounted) {
           setState(() {
             schoolData = data;
             userData = currentUserData;
+            _hasParentPortal = hasParent;
             allTerms = termsList;
             activeTerm = activeTermData;
             selectedTerm = currentViewingTerm;
@@ -425,10 +467,73 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
           }
           print('--------------------------------------------------');
 
-          // Otomatik Yönlendirme: Eğer ana modüllerde hiç yetki yoksa doğrudan Okul Türleri sayfasına git
+          // Otomatik Yönlendirme: Öğretmen ise doğrudan Öğretmen Ana Sayfasına git
+          final role = currentUserData?['role']?.toString().toLowerCase() ?? '';
+          final prefs = await SharedPreferences.getInstance();
+          final activePortal = prefs.getString('active_portal') ?? '';
+
+          bool isTeacher = (role.contains('ogretmen') || role.contains('teacher') || role.contains('öğretmen')) &&
+              !(role.contains('genel_mudur') ||
+                role.contains('genel müdür') ||
+                role.contains('genel mudur') ||
+                role.contains('mudur') ||
+                role.contains('müdür') ||
+                role.contains('admin') ||
+                role.contains('hr') ||
+                role.contains('muhasebe') ||
+                role.contains('satin_alma') ||
+                role.contains('depo') ||
+                role.contains('destek_hizmetleri') ||
+                role.contains('personel') ||
+                role.contains('staff') ||
+                role.contains('kurucu') ||
+                role.contains('yönetici') ||
+                role.contains('yonetici'));
+
+          if (isTeacher || (activePortal == 'teacher' && (role.contains('ogretmen') || role.contains('teacher') || role.contains('öğretmen')))) {
+            debugPrint('eduKN: Öğretmen portalı algılandı, Öğretmen Ana Sayfasına yönlendiriliyor...');
+            final instId = (currentUserData?['institutionId'] ?? data['institutionId'] ?? '').toString();
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => TeacherMainScreen(institutionId: instId)),
+            );
+            return;
+          }
+
+          // Otomatik Yönlendirme: Eğer ana modüllerde hiç yetki yoksa yönlendir
           if (currentUserData != null && !UserPermissionService.hasAnyMainModuleAccess(currentUserData)) {
-            debugPrint('eduKN: Ana modül yetkisi yok, Okul Türleri sayfasına yönlendiriliyor...');
-            Navigator.pushReplacementNamed(context, '/school-types');
+            debugPrint('eduKN: Ana modül yetkisi yok, yönlendirme kontrol ediliyor...');
+            final userSchoolTypes = currentUserData['schoolTypes'] as List<dynamic>? ?? [];
+            if (userSchoolTypes.length == 1) {
+              final schoolTypeId = userSchoolTypes.first.toString();
+              try {
+                final stDoc = await FirebaseFirestore.instance.collection('schoolTypes').doc(schoolTypeId).get();
+                if (stDoc.exists) {
+                  final stName = stDoc.data()?['name'] ?? stDoc.data()?['schoolTypeName'] ?? 'Okul Türü';
+                  final instId = (currentUserData['institutionId'] ?? data['institutionId'] ?? '').toString();
+                  if (mounted) {
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => SchoolTypeDetailScreen(
+                          schoolTypeId: schoolTypeId,
+                          schoolTypeName: stName,
+                          institutionId: instId,
+                        ),
+                      ),
+                    );
+                    return;
+                  }
+                }
+              } catch (e) {
+                debugPrint('Okul türü adı alınırken hata: $e');
+              }
+            }
+            
+            if (mounted) {
+              Navigator.pushReplacementNamed(context, '/school-types');
+              return;
+            }
           }
         }
       } else {
@@ -562,6 +667,9 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
       ),
     );
     if (confirm == true) {
+      await SharedPreferences.getInstance().then((p) => p.remove('active_portal'));
+      UserPermissionService.clearCache();
+      TermService().clearCache();
       await FirebaseAuth.instance.signOut();
       if (mounted) Navigator.pushReplacementNamed(context, '/school-login');
     }
@@ -958,12 +1066,13 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
     final displayName = _getUserDisplayName();
     final role = _getUserRole();
     final initial = displayName.isNotEmpty ? displayName[0].toUpperCase() : 'U';
+
     return PopupMenuButton<String>(
       offset: const Offset(0, 48),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       elevation: 8,
       shadowColor: Colors.black.withOpacity(0.12),
-      onSelected: (value) {
+      onSelected: (value) async {
         if (value == 'profile') {
           Navigator.push(
             context,
@@ -987,6 +1096,12 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
           );
         } else if (value == 'qr') {
           Navigator.push(context, MaterialPageRoute(builder: (_) => const TeacherQrScanScreen()));
+        } else if (value == 'switch_portal') {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.remove('active_portal');
+          if (mounted) {
+            Navigator.pushNamedAndRemoveUntil(context, '/school-login', (route) => false);
+          }
         } else if (value == 'logout') {
           _logout();
         }
@@ -1046,6 +1161,20 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
             ]),
           ),
         ],
+        if (_canSwitchPortal()) ...[
+          const PopupMenuDivider(),
+          PopupMenuItem<String>(
+            value: 'switch_portal',
+            child: Row(children: [
+              Container(padding: const EdgeInsets.all(7), decoration: BoxDecoration(color: Colors.teal.shade50, borderRadius: BorderRadius.circular(8)), child: Icon(Icons.swap_horiz_rounded, color: Colors.teal.shade700, size: 18)),
+              const SizedBox(width: 12),
+              const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Portal Değiştir', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                Text('Diğer rollere geçiş yap', style: TextStyle(fontSize: 11, color: Colors.blueGrey)),
+              ]),
+            ]),
+          ),
+        ],
         const PopupMenuDivider(),
         PopupMenuItem<String>(
           value: 'notifications',
@@ -1089,6 +1218,41 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
         ),
       ),
     );
+  }
+
+  bool _canSwitchPortal() {
+    if (userData == null) return false;
+    final role = userData!['role']?.toString().toLowerCase() ?? '';
+
+    int portalCount = 0;
+
+    bool isManager = role.contains('genel_mudur') ||
+        role.contains('genel müdür') ||
+        role.contains('genel mudur') ||
+        role.contains('mudur') ||
+        role.contains('müdür') ||
+        role.contains('admin') ||
+        role.contains('hr') ||
+        role.contains('muhasebe') ||
+        role.contains('satin_alma') ||
+        role.contains('depo') ||
+        role.contains('destek_hizmetleri') ||
+        role.contains('personel') ||
+        role.contains('staff');
+    bool isStrictlyTeacher = (role.contains('ogretmen') || role.contains('teacher') || role.contains('öğretmen')) && !isManager;
+    bool isStrictlyParent = role == 'parent' || role == 'veli';
+
+    if (isManager || (!isStrictlyTeacher && !isStrictlyParent && role.isNotEmpty)) {
+      portalCount++;
+    }
+    if (role.contains('ogretmen') || role.contains('teacher') || role.contains('öğretmen')) {
+      portalCount++;
+    }
+    if (isStrictlyParent || _hasParentPortal) {
+      portalCount++;
+    }
+
+    return portalCount > 1;
   }
 
   Future<void> _migrateDataToActiveTerm() async { final confirm = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(title: const Text('Veri Aktarımı'), content: const Text('Dönem bilgisi bulunmayan veriler aktif döneme atanacak. Devam edilsin mi?'), actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('İptal')), ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Aktar'))])); if (confirm == true) { setState(() => isLoading = true); await _termService.migrateDataToActiveTerm(); await _loadInitialData(); } }

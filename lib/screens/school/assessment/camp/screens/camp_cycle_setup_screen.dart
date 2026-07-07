@@ -62,6 +62,11 @@ class _CampCycleSetupScreenState extends State<CampCycleSetupScreen>
   bool _isSpecialClassActive = false;
   String? _specialClassRoomId;
   String? _specialClassRoomName;
+  String _specialClassCriteria = 'success_rate';
+
+  // ── Yüksek Başarı Soru Çözüm ────────────────────────────
+  bool _highSuccessSoruCozumActive = true;
+  final TextEditingController _highSuccessThresholdController = TextEditingController(text: '95');
 
   // ── Saat dilimleri ─────────────────────────────────────
   List<CampTimeSlot> _existingSlots = [];
@@ -105,8 +110,11 @@ class _CampCycleSetupScreenState extends State<CampCycleSetupScreen>
       _isSpecialClassActive = c.isSpecialClassActive;
       _specialClassRoomId = c.specialClassRoomId;
       _specialClassRoomName = c.specialClassRoomName;
+      _specialClassCriteria = c.specialClassCriteria;
       _specialCapacityController.text = (c.specialClassCapacity ?? 24).toString();
       _excludedStudentIds = Set<String>.from(c.excludedStudentIds);
+      _highSuccessSoruCozumActive = c.highSuccessSoruCozumActive;
+      _highSuccessThresholdController.text = (c.highSuccessSoruCozumThreshold * 100).toInt().toString();
     }
 
     _loadData();
@@ -321,6 +329,7 @@ class _CampCycleSetupScreenState extends State<CampCycleSetupScreen>
                               });
                               setSt(() {});
                               _updateExamDersler();
+                              _updatePotentialStudents();
                             },
                           ),
                         );
@@ -448,6 +457,28 @@ class _CampCycleSetupScreenState extends State<CampCycleSetupScreen>
                 ),
               ],
             ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: _specialClassCriteria,
+              decoration: _inputDecoration('Özel Sınıf Kriteri'),
+              items: const [
+                DropdownMenuItem(value: 'success_rate', child: Text('Başarı Yüzdesine Göre (Varsayılan)')),
+                DropdownMenuItem(value: 'exam_score', child: Text('Sınav Sonuç Puanına Göre')),
+              ],
+              onChanged: (val) {
+                if (val != null) {
+                  setState(() => _specialClassCriteria = val);
+                }
+              },
+            ),
+          ],
+          const SizedBox(height: 24),
+          _sectionHeader('Otomatik Konu Ayarı', Icons.auto_awesome),
+          const SizedBox(height: 8),
+          SwitchListTile(title: const Text('Başarılı Sınıfları Soru Çözüm Yap', style: TextStyle(fontWeight: FontWeight.bold)), subtitle: const Text('Ortalama başarı yüzdesi yüksek olan sınıflara otomatik olarak Soru Çözüm kazanımı atanır.'), value: _highSuccessSoruCozumActive, onChanged: (val) => setState(() => _highSuccessSoruCozumActive = val), activeColor: Colors.orange.shade700, contentPadding: EdgeInsets.zero),
+          if (_highSuccessSoruCozumActive) ...[
+             const SizedBox(height: 12),
+             TextFormField(controller: _highSuccessThresholdController, keyboardType: TextInputType.number, decoration: _inputDecoration('Başarı Eşiği (Örn: 95)')),
           ],
           const SizedBox(height: 32),
           SizedBox(width: double.infinity, child: ElevatedButton(onPressed: () => _tabController.animateTo(1), style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade700, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), child: const Text('Sonraki: Saat Dilimleri →'))),
@@ -1054,6 +1085,20 @@ class _CampCycleSetupScreenState extends State<CampCycleSetupScreen>
   }
 
   void _showEditSingleSlotSheet(CampTimeSlot slot, int index) {
+    final List<DateTime> cycleDates = [];
+    DateTime current = DateTime(_baslangic.year, _baslangic.month, _baslangic.day);
+    final end = DateTime(_bitis.year, _bitis.month, _bitis.day);
+    while (current.isBefore(end) || current.isAtSameMomentAs(end)) {
+      cycleDates.add(current);
+      current = current.add(const Duration(days: 1));
+    }
+    
+    DateTime selectedDate = slot.tarih ?? cycleDates.first;
+    if (!cycleDates.any((d) => d.isAtSameMomentAs(selectedDate))) {
+       cycleDates.add(selectedDate);
+       cycleDates.sort();
+    }
+
     TimeOfDay bas = TimeOfDay(hour: int.parse(slot.baslangicSaat.split(':')[0]), minute: int.parse(slot.baslangicSaat.split(':')[1]));
     TimeOfDay bit = TimeOfDay(hour: int.parse(slot.bitisSaat.split(':')[0]), minute: int.parse(slot.bitisSaat.split(':')[1]));
     final titleC = TextEditingController(text: slot.ad);
@@ -1062,39 +1107,50 @@ class _CampCycleSetupScreenState extends State<CampCycleSetupScreen>
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom, left: 20, right: 20, top: 20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Saati Düzenle', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
-            TextField(controller: titleC, decoration: _inputDecoration('Başlık')),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(child: _buildTimePicker(ctx: context, label: 'Başlangıç', time: bas, onPicked: (t) => setState(() => bas = t))),
-                const SizedBox(width: 12),
-                Expanded(child: _buildTimePicker(ctx: context, label: 'Bitiş', time: bit, onPicked: (t) => setState(() => bit = t))),
-              ],
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: () {
-                setState(() {
-                  _existingSlots[index] = slot.copyWith(
-                    ad: titleC.text,
-                    baslangicSaat: bas.format(context),
-                    bitisSaat: bit.format(context),
-                  );
-                });
-                Navigator.pop(ctx);
-              },
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade700, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 48), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-              child: const Text('Güncelle'),
-            ),
-            const SizedBox(height: 20),
-          ],
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setSt) => Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom, left: 20, right: 20, top: 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Saati Düzenle', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<DateTime>(
+                value: selectedDate,
+                decoration: _inputDecoration('Tarih Seçin'),
+                items: cycleDates.map((d) => DropdownMenuItem(value: d, child: Text(DateFormat('dd MMM yyyy - EEEE', 'tr').format(d)))).toList(),
+                onChanged: (v) => setSt(() => selectedDate = v!),
+              ),
+              const SizedBox(height: 16),
+              TextField(controller: titleC, decoration: _inputDecoration('Başlık')),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(child: _buildTimePicker(ctx: context, label: 'Başlangıç', time: bas, onPicked: (t) => setSt(() => bas = t))),
+                  const SizedBox(width: 12),
+                  Expanded(child: _buildTimePicker(ctx: context, label: 'Bitiş', time: bit, onPicked: (t) => setSt(() => bit = t))),
+                ],
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: () {
+                  setState(() {
+                    _existingSlots[index] = slot.copyWith(
+                      ad: titleC.text,
+                      gun: DateFormat('EEEE', 'tr').format(selectedDate),
+                      tarih: selectedDate,
+                      baslangicSaat: bas.format(context),
+                      bitisSaat: bit.format(context),
+                    );
+                  });
+                  Navigator.pop(ctx);
+                },
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade700, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 48), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                child: const Text('Güncelle'),
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
         ),
       ),
     );
@@ -1112,8 +1168,16 @@ class _CampCycleSetupScreenState extends State<CampCycleSetupScreen>
     setState(() => slot.ogretmenGirisler.addAll(_copiedEntries!));
   }
 
-    void _showAddSlotSheet() {
-    String selectedGun = _gunler.first;
+  void _showAddSlotSheet() {
+    final List<DateTime> cycleDates = [];
+    DateTime current = DateTime(_baslangic.year, _baslangic.month, _baslangic.day);
+    final end = DateTime(_bitis.year, _bitis.month, _bitis.day);
+    while (current.isBefore(end) || current.isAtSameMomentAs(end)) {
+      cycleDates.add(current);
+      current = current.add(const Duration(days: 1));
+    }
+    DateTime selectedDate = cycleDates.first;
+    
     final templateNameCtrl = TextEditingController();
     int dersSayisi = 1;
     List<TimeOfDay> startTimes = [const TimeOfDay(hour: 9, minute: 0)];
@@ -1147,11 +1211,11 @@ class _CampCycleSetupScreenState extends State<CampCycleSetupScreen>
               children: [
                 const Text('Yeni Şablon Ekle', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  value: selectedGun,
-                  decoration: _inputDecoration('Gün Seçin'),
-                  items: _gunler.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
-                  onChanged: (v) => setSt(() => selectedGun = v!),
+                DropdownButtonFormField<DateTime>(
+                  value: selectedDate,
+                  decoration: _inputDecoration('Tarih Seçin'),
+                  items: cycleDates.map((d) => DropdownMenuItem(value: d, child: Text(DateFormat('dd MMM yyyy - EEEE', 'tr').format(d)))).toList(),
+                  onChanged: (v) => setSt(() => selectedDate = v!),
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
@@ -1255,9 +1319,10 @@ class _CampCycleSetupScreenState extends State<CampCycleSetupScreen>
                 const SizedBox(height: 16),
                 ElevatedButton(
                   onPressed: () async {
+                    final dayName = DateFormat('EEEE', 'tr').format(selectedDate);
                     final finalTemplateName = templateNameCtrl.text.trim().isNotEmpty 
                         ? templateNameCtrl.text.trim() 
-                        : selectedGun;
+                        : DateFormat('dd MMM yyyy - EEEE', 'tr').format(selectedDate);
                     
                     setState(() => _saving = true);
                     for (int i = 0; i < dersSayisi; i++) {
@@ -1265,7 +1330,8 @@ class _CampCycleSetupScreenState extends State<CampCycleSetupScreen>
                         id: '',
                         institutionId: widget.institutionId,
                         ad: '$finalTemplateName ${i + 1}. Seans',
-                        gun: finalTemplateName,
+                        gun: dayName,
+                        tarih: selectedDate,
                         baslangicSaat: startTimes[i].format(context),
                         bitisSaat: endTimes[i].format(context),
                       );
@@ -1638,7 +1704,12 @@ class _CampCycleSetupScreenState extends State<CampCycleSetupScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _summaryCard('Kamp Başlığı', _titleController.text, Icons.edit_note),
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: _titleController,
+            builder: (context, value, child) {
+              return _summaryCard('Kamp Başlığı', value.text, Icons.edit_note);
+            },
+          ),
           _summaryCard('Referans Sınavlar', _selectedExamNames.join(', '), Icons.quiz),
           _tappableStudentCard(),
           _summaryCard('Planlanan Seans Sayısı', '$totalPossibleSlots seans', Icons.access_time),
@@ -2233,6 +2304,19 @@ class _CampCycleSetupScreenState extends State<CampCycleSetupScreen>
     if (_titleController.text.isEmpty || _selectedExamIds.isEmpty) return;
     setState(() => _saving = true);
     try {
+      final oldCycle = widget.initialCycle;
+      bool examChanged = false;
+      if (oldCycle != null) {
+        final oldIds = oldCycle.referansDenemeSinavIds.isNotEmpty ? oldCycle.referansDenemeSinavIds : [oldCycle.referansDenemeSinavId];
+        if (oldIds.length != _selectedExamIds.length || !oldIds.every((id) => _selectedExamIds.contains(id))) {
+          examChanged = true;
+        }
+      }
+
+      if (examChanged && oldCycle != null) {
+        await _repo.rollbackAssignments(oldCycle.id);
+      }
+
       final cycle = CampCycle(
         id: widget.initialCycle?.id ?? '',
         institutionId: widget.institutionId,
@@ -2251,9 +2335,17 @@ class _CampCycleSetupScreenState extends State<CampCycleSetupScreen>
         specialClassCapacity: int.tryParse(_specialCapacityController.text) ?? 24,
         specialClassRoomId: _specialClassRoomId,
         specialClassRoomName: _specialClassRoomName,
+        specialClassCriteria: _specialClassCriteria,
+        specialClassGenerated: examChanged ? false : (widget.initialCycle?.specialClassGenerated ?? false),
         haftalikMaksimumSaat: _maxSaat,
         minimumDersSayisi: _minDers,
         excludedStudentIds: _excludedStudentIds.toList(),
+        highSuccessSoruCozumActive: _highSuccessSoruCozumActive,
+        highSuccessSoruCozumThreshold: (double.tryParse(_highSuccessThresholdController.text) ?? 95) / 100.0,
+        unassignedStudentIds: examChanged ? [] : (widget.initialCycle?.unassignedStudentIds ?? []),
+        underAssignedStudentIds: examChanged ? [] : (widget.initialCycle?.underAssignedStudentIds ?? []),
+        absentStudentIds: examChanged ? [] : (widget.initialCycle?.absentStudentIds ?? []),
+        unassignedReasons: examChanged ? {} : (widget.initialCycle?.unassignedReasons ?? {}),
       );
 
       final List<CampGroup> proposedGroups = [];

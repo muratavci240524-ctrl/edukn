@@ -1640,6 +1640,7 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
       _cachedWeakOutcomes = {};
       final Map<String, StudentResult> aggregatedResults = _cachedResults!;
       final Map<String, Map<String, Set<String>>> aggregatedWeakOutcomes = _cachedWeakOutcomes!;
+      final Map<String, List<double>> studentScoresList = {};
       final Set<String> allStudentsWhoEnteredExam = {};
       final List<String> selectedBranches = [];
       String classLevel = '';
@@ -1675,6 +1676,9 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
           if (result.systemStudentId == null) continue;
           final sid = result.systemStudentId!;
           allStudentsWhoEnteredExam.add(sid);
+          
+          final scoreList = studentScoresList.putIfAbsent(sid, () => []);
+          scoreList.add(result.score);
 
           // Bilgileri birleştir
           if (!aggregatedResults.containsKey(sid)) {
@@ -1823,6 +1827,9 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
           orElse: () => {},
         );
 
+        final scores = studentScoresList[sid] ?? [];
+        final avgScore = scores.isEmpty ? 0.0 : scores.reduce((a, b) => a + b) / scores.length;
+
         profiller.add(
           StudentNeedProfile(
             ogrenciId: sid,
@@ -1838,6 +1845,7 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
                         studentData['branch'] ??
                         result.branch)
                     .toString(),
+            examScore: avgScore,
             dersIhtiyaclari: dersIhtiyaclari,
             kazanimIhtiyaclari: kazanimIhtiyaclari,
             dersBasariOranlari: dersBasariOranlari,
@@ -1868,8 +1876,20 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
 
       // 7) Algoritmayı çalıştır
       _showProgress('Algoritma çalışıyor (${profiller.length} öğrenci)...');
-      final draftResult = await _service.generateDraft(
-        cycle: currentCycle,
+      
+      final engine = AgmAssignmentEngine(
+        cycleId: currentCycle.id,
+        institutionId: currentCycle.institutionId,
+        haftalikMaksimumSaat: currentCycle.haftalikMaksimumSaat,
+        minimumGrupOgrenciSayisi: currentCycle.minimumGrupOgrenciSayisi,
+      );
+      engine.setMinimumDersSayisi(currentCycle.minimumDersSayisi);
+      engine.isSpecialClassEnabled = currentCycle.isSpecialClassEnabled;
+      engine.specialClassCapacity = currentCycle.specialClassCapacity;
+      engine.specialClassRoomId = currentCycle.specialClassRoomId;
+      engine.specialClassCriteria = currentCycle.specialClassCriteria;
+
+      final draftResult = await engine.generateDraft(
         ogrenciProfiller: profiller,
         gruplar: _groups,
       );
@@ -2423,7 +2443,6 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
     AgmGroup? selectedGroup;
     bool override = false;
 
-    // Grupları ders (branş) bazlı ve AYNI SAAT DİLİMİNDE OLACAK ŞEKİLDE grupla
     AgmGroup? originalGrp = currentGroup;
     if (originalGrp == null && studentsToMove.isNotEmpty) {
       final originId = studentsToMove.first.groupId;
@@ -2433,7 +2452,6 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
 
     final Map<String, List<AgmGroup>> groupsByBranch = {};
     for (final g in _groups) {
-      // Orijinal grup bulunabiliyorsa, SADECE onunla aynı saat dilimine sahip grupları dahil et
       if (originalGrp != null && g.saatDilimiId != originalGrp.saatDilimiId) {
         continue;
       }
@@ -2441,231 +2459,326 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
     }
     final sortedBranches = groupsByBranch.keys.toList()..sort();
 
-    showDialog(
+    final studentNames = studentsToMove.map((s) => s.ogrenciAdi).join(', ');
+
+    showModalBottomSheet(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setSt) {
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
           final availableGroups = selectedBranchId != null
               ? groupsByBranch[selectedBranchId] ?? []
               : <AgmGroup>[];
 
-          return AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
+          final int currentCount = selectedGroup != null
+              ? (_assignmentsByGroup[selectedGroup!.id]?.length ?? 0)
+              : 0;
+          final bool isFull = selectedGroup != null && currentCount >= selectedGroup!.kapasite;
+
+          return Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
             ),
-            title: Row(
+            padding: EdgeInsets.fromLTRB(20, 12, 20, MediaQuery.of(ctx).viewInsets.bottom + 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.swap_horiz, color: Colors.deepOrange.shade400),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    studentsToMove.length == 1
-                        ? '${studentsToMove.first.ogrenciAdi} – Grubu Değiştir'
-                        : '${studentsToMove.length} Öğrenciyi Taşı',
-                    style: const TextStyle(fontSize: 16),
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(color: Colors.deepOrange.shade50, borderRadius: BorderRadius.circular(12)),
+                      child: const Icon(Icons.swap_horiz, color: Colors.deepOrange),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Grubu Değiştir',
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
+                          ),
+                          Text(
+                            originalGrp != null
+                                ? '${originalGrp.saatDilimiAdi} Seansı'
+                                : 'Saat Dilimi',
+                            style: const TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Taşınacak Öğrenci(ler):',
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        studentNames,
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.black87),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  '1. Ders / Branş Seçin',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.grey),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF5F6FA),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: selectedBranchId,
+                      isExpanded: true,
+                      hint: const Text('Branş Seçiniz', style: TextStyle(fontSize: 13, color: Colors.grey)),
+                      icon: const Icon(Icons.keyboard_arrow_down, color: Colors.grey),
+                      items: sortedBranches
+                          .map((b) => DropdownMenuItem(value: b, child: Text(b, style: const TextStyle(fontSize: 13))))
+                          .toList(),
+                      onChanged: (v) {
+                        setSheetState(() {
+                          selectedBranchId = v;
+                          selectedGroup = null;
+                          override = false;
+                        });
+                      },
+                    ),
+                  ),
+                ),
+                if (selectedBranchId != null) ...[
+                  const SizedBox(height: 20),
+                  const Text(
+                    '2. Hedef Grup Seçin',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 10),
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight: MediaQuery.of(context).size.height * 0.3,
+                    ),
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: availableGroups.length,
+                      itemBuilder: (context, index) {
+                        final g = availableGroups[index];
+                        final count = _assignmentsByGroup[g.id]?.length ?? 0;
+                        final full = count >= g.kapasite;
+                        final isSelected = selectedGroup?.id == g.id;
+                        final badgeColor = full ? Colors.red : Colors.green;
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          decoration: BoxDecoration(
+                            color: isSelected ? Colors.deepOrange.shade50.withOpacity(0.5) : Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: isSelected ? Colors.deepOrange : Colors.grey.shade200,
+                              width: isSelected ? 1.5 : 1,
+                            ),
+                          ),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(16),
+                              onTap: () {
+                                setSheetState(() {
+                                  selectedGroup = g;
+                                  override = false;
+                                });
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
+                                      color: isSelected ? Colors.deepOrange : Colors.grey,
+                                      size: 20,
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            g.ogretmenAdi,
+                                            style: const TextStyle(
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.black87,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Row(
+                                            children: [
+                                              Icon(Icons.meeting_room_outlined, size: 12, color: Colors.grey.shade400),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                g.derslikAdi ?? 'Derslik Belirtilmedi',
+                                                style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: badgeColor.withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Text(
+                                        '$count / ${g.kapasite}',
+                                        style: TextStyle(
+                                          color: badgeColor,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+                if (selectedGroup != null && isFull) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.orange.shade200),
+                    ),
+                    child: CheckboxListTile(
+                      value: override,
+                      onChanged: (v) => setSheetState(() => override = v ?? false),
+                      title: const Text(
+                        'Kapasite aşımına onay ver',
+                        style: TextStyle(fontSize: 13, color: Colors.orange, fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: const Text(
+                        'Bu grup dolu, yine de atama yapılsın.',
+                        style: TextStyle(fontSize: 11, color: Colors.black54),
+                      ),
+                      controlAffinity: ListTileControlAffinity.leading,
+                      activeColor: Colors.orange,
+                      dense: true,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton(
+                    onPressed: selectedGroup == null || (isFull && !override)
+                        ? null
+                        : () async {
+                            Navigator.pop(ctx);
+                            setState(() => _loading = true);
+                            try {
+                              for (final assignment in studentsToMove) {
+                                double? calculatedScore;
+                                if (_cachedResults != null && _cachedResults!.containsKey(assignment.ogrenciId)) {
+                                  final res = _cachedResults![assignment.ogrenciId]!;
+                                  if (res.subjects.containsKey(selectedGroup!.dersAdi)) {
+                                    final stats = res.subjects[selectedGroup!.dersAdi]!;
+                                    final total = stats.correct + stats.wrong + stats.empty;
+                                    if (total > 0) {
+                                      calculatedScore = 1.0 - (stats.correct / total);
+                                    }
+                                  }
+                                } else if (originalGrp?.dersAdi == selectedGroup?.dersAdi) {
+                                    calculatedScore = assignment.ihtiyacSkoru;
+                                }
+
+                                await _service.moveStudent(
+                                  assignmentId: assignment.id,
+                                  cycleId: widget.cycle.id,
+                                  ogrenciId: assignment.ogrenciId,
+                                  ogrenciAdi: assignment.ogrenciAdi,
+                                  eskiGrupId: assignment.groupId,
+                                  eskiGrupAdi: assignment.groupName ?? '',
+                                  yeniGrupId: selectedGroup!.id,
+                                  yeniGrupAdi:
+                                      '${selectedGroup!.dersAdi} – ${selectedGroup!.saatDilimiAdi}',
+                                  isOverride: override,
+                                  transferKazanimlar: originalGrp?.kazanimlar,
+                                  newIhtiyacSkoru: calculatedScore,
+                                );
+                              }
+                              await _loadData();
+                              setState(() => _selectedStudentIds.clear());
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('${studentsToMove.length} öğrenci başarıyla taşındı.'),
+                                    backgroundColor: Colors.green,
+                                  ),
+                                );
+                              }
+                            } catch (e) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Taşıma hatası: $e'),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                              }
+                            } finally {
+                              if (mounted) setState(() => _loading = false);
+                            }
+                          },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.deepOrange,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      elevation: 0,
+                    ),
+                    child: const Text('Taşı ve Kaydet', style: TextStyle(fontWeight: FontWeight.bold)),
                   ),
                 ),
               ],
             ),
-            content: Container(
-              width: 400,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Ders Seçimi
-                  DropdownButtonFormField<String>(
-                    value: selectedBranchId,
-                    decoration: InputDecoration(
-                      labelText: 'Ders / Branş Seçin',
-                      labelStyle: const TextStyle(fontSize: 13),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      prefixIcon: const Icon(Icons.book_outlined),
-                    ),
-                    items: sortedBranches
-                        .map((b) => DropdownMenuItem(value: b, child: Text(b)))
-                        .toList(),
-                    onChanged: (v) {
-                      setSt(() {
-                        selectedBranchId = v;
-                        selectedGroup = null;
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Grup Seçimi
-                  DropdownButtonFormField<AgmGroup>(
-                    value: selectedGroup,
-                    isExpanded: true,
-                    decoration: InputDecoration(
-                      labelText: 'Grup Seçin',
-                      labelStyle: const TextStyle(fontSize: 13),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      prefixIcon: const Icon(Icons.group_outlined),
-                    ),
-                    items: availableGroups.map((g) {
-                      final currentCount =
-                          _assignmentsByGroup[g.id]?.length ?? 0;
-                      final isFull = currentCount >= g.kapasite;
-                      return DropdownMenuItem<AgmGroup>(
-                        value: g,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              '${g.ogretmenAdi} (${g.baslangicSaat}-${g.bitisSaat})',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: isFull ? Colors.red : Colors.black87,
-                              ),
-                            ),
-                            Text(
-                              '${g.derslikAdi ?? "-"} • $currentCount/${g.kapasite} Doluluk',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: isFull
-                                    ? Colors.red
-                                    : Colors.grey.shade600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }).toList(),
-                    onChanged: selectedBranchId == null
-                        ? null
-                        : (v) => setSt(() => selectedGroup = v),
-                  ),
-
-                  if (selectedGroup != null) ...[
-                    const SizedBox(height: 16),
-                    const Divider(),
-                    const SizedBox(height: 8),
-                    // Kapasite Aşımı Kotrolü (Seçilen grup için)
-                    () {
-                      final currentCount =
-                          _assignmentsByGroup[selectedGroup!.id]?.length ?? 0;
-                      final isFull = currentCount >= selectedGroup!.kapasite;
-
-                      if (isFull) {
-                        return CheckboxListTile(
-                          value: override,
-                          onChanged: (v) => setSt(() => override = v ?? false),
-                          title: const Text(
-                            'Kapasite aşımına onay ver',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.orange,
-                            ),
-                          ),
-                          subtitle: const Text(
-                            'Bu grup dolu, yine de atama yapılsın.',
-                            style: TextStyle(fontSize: 11),
-                          ),
-                          controlAffinity: ListTileControlAffinity.leading,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          tileColor: Colors.orange.shade50,
-                          dense: true,
-                        );
-                      }
-                      return const SizedBox.shrink();
-                    }(),
-                  ],
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('İptal'),
-              ),
-              ElevatedButton(
-                onPressed:
-                    selectedGroup == null ||
-                        ((_assignmentsByGroup[selectedGroup!.id]?.length ??
-                                    0) >=
-                                selectedGroup!.kapasite &&
-                            !override)
-                    ? null
-                    : () async {
-                        Navigator.pop(context);
-                        setState(() => _loading = true);
-
-                        try {
-                          for (final assignment in studentsToMove) {
-                            // [x] Recalculate success level for the target branch <!-- id: 11 -->
-                            double? calculatedScore;
-                            if (_cachedResults != null && _cachedResults!.containsKey(assignment.ogrenciId)) {
-                              final res = _cachedResults![assignment.ogrenciId]!;
-                              if (res.subjects.containsKey(selectedGroup!.dersAdi)) {
-                                final stats = res.subjects[selectedGroup!.dersAdi]!;
-                                final total = stats.correct + stats.wrong + stats.empty;
-                                if (total > 0) {
-                                  calculatedScore = 1.0 - (stats.correct / total);
-                                }
-                              }
-                            } else if (originalGrp?.dersAdi == selectedGroup?.dersAdi) {
-                                // If same branch, keep existing score
-                                calculatedScore = assignment.ihtiyacSkoru;
-                            }
-
-                            await _service.moveStudent(
-                              assignmentId: assignment.id,
-                              cycleId: widget.cycle.id,
-                              ogrenciId: assignment.ogrenciId,
-                              ogrenciAdi: assignment.ogrenciAdi,
-                              eskiGrupId: assignment.groupId,
-                              eskiGrupAdi: assignment.groupName ?? '',
-                              yeniGrupId: selectedGroup!.id,
-                              yeniGrupAdi:
-                                  '${selectedGroup!.dersAdi} – ${selectedGroup!.saatDilimiAdi}',
-                              isOverride: override,
-                              transferKazanimlar: originalGrp?.kazanimlar,
-                              newIhtiyacSkoru: calculatedScore,
-                            );
-                          }
-                          await _loadData();
-                          setState(() => _selectedStudentIds.clear());
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  '${studentsToMove.length} öğrenci başarıyla taşındı.',
-                                ),
-                                backgroundColor: Colors.green,
-                              ),
-                            );
-                          }
-                        } catch (e) {
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Hata: $e'),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
-                          }
-                        } finally {
-                          if (mounted) setState(() => _loading = false);
-                        }
-                      },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.deepOrange,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-                child: const Text('Taşı'),
-              ),
-            ],
           );
         },
       ),
@@ -2712,16 +2825,13 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
 
     try {
       await _repo.rollbackAssignments(widget.cycle.id);
-      setState(() {
-        _assignmentsByGroup = {for (final g in _groups) g.id: []};
-        _absentStudents = [];
-        _unassignedStudents = [];
-        _underAssignedStudents = [];
-        // Grupları yerel state'de de sıfırla
-        _groups = _groups
-            .map((g) => g.copyWith(mevcutOgrenciSayisi: 0, kazanimlar: []))
-            .toList();
+      await _db.collection('agm_cycles').doc(widget.cycle.id).update({
+        'unassignedStudentIds': [],
+        'underAssignedStudentIds': [],
+        'absentStudentIds': [],
+        'unassignedReasons': {},
       });
+      await _loadData();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Taslak sıfırlandı. Gruplar korundu.'),

@@ -31,6 +31,7 @@ import '../school/guidance/demand/demand_dashboard_screen.dart';
 import '../school/guidance/demand/create_demand_dialog.dart';
 import '../../models/guidance/demand_model.dart';
 import '../../services/guidance/demand_service.dart';
+import '../../services/guidance_service.dart';
 
 class PortfolioScreen extends StatefulWidget {
   final String institutionId;
@@ -814,7 +815,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 13, vsync: this);
+    _tabController = TabController(length: 14, vsync: this);
 
     // Listen to Exam Types to get subject order and question counts
     _examTypesSubscription = AssessmentService()
@@ -886,7 +887,6 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
         .collection('etut_requests')
         .where('institutionId', isEqualTo: widget.institutionId)
         .where('studentIds', arrayContains: sid)
-        .orderBy('date', descending: true)
         .snapshots();
 
     // New Service usage
@@ -946,12 +946,13 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
             Tab(text: 'Yazılı Sınavlar'),
             Tab(text: 'Ödevler'),
             Tab(text: 'Devamsızlık'),
+            Tab(text: 'Eylem Planları'),
             Tab(text: 'Etütler'),
             Tab(text: 'Kitaplar'),
             Tab(text: 'Görüşmeler'),
             Tab(text: 'Talepler'),
             Tab(text: 'Gelişim Raporu'),
-            Tab(text: 'Çalışma Programları'),
+            Tab(text: 'Mentör Çalışmaları'),
             Tab(text: 'Rehberlik Testleri'),
             Tab(text: 'Etkinlik Raporları'),
           ],
@@ -1015,6 +1016,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
           _buildWrittenExamsTab(),
           _buildHomeworksTab(),
           _buildAttendanceTab(),
+          _buildEylemPlanlariTab(),
           _buildEtutlerTab(),
           _buildBooksTab(),
           _buildInterviewsTab(),
@@ -3938,12 +3940,29 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
     return StreamBuilder<QuerySnapshot>(
       stream: _etutlerStream,
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          debugPrint("Etüt Yükleme Hatası: ${snapshot.error}");
+          return _buildEmptyState('Etütler yüklenirken hata oluştu: ${snapshot.error}');
+        }
+
         if (snapshot.connectionState == ConnectionState.waiting)
           return Center(child: CircularProgressIndicator());
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty)
           return _buildEmptyState('Planlanmış etüt bulunmuyor.');
 
-        final allDocs = snapshot.data!.docs;
+        // Firestore composite index gereksinimini aşmak için yerel sıralama yapıyoruz
+        final allDocs = List<QueryDocumentSnapshot>.from(snapshot.data!.docs);
+        allDocs.sort((a, b) {
+          final aData = a.data() as Map<String, dynamic>;
+          final bData = b.data() as Map<String, dynamic>;
+          final aDate = (aData['date'] as Timestamp?)?.toDate();
+          final bDate = (bData['date'] as Timestamp?)?.toDate();
+          
+          if (aDate == null && bDate == null) return 0;
+          if (aDate == null) return 1;
+          if (bDate == null) return -1;
+          return bDate.compareTo(aDate); // date descending
+        });
 
         // 1. Extract Subjects
         Set<String> subjects = {'Tümü'};
@@ -4081,6 +4100,214 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                     ),
             ),
           ],
+        );
+      },
+    );
+  }
+
+  Widget _buildEylemPlanlariTab() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('assessment_action_plans')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .where('isActive', isEqualTo: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return _buildEmptyState('Eylem planları yüklenirken hata oluştu: ${snapshot.error}');
+        }
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final docs = snapshot.data?.docs ?? [];
+        
+        // Filter plans where this student has assigned tasks or is targeted
+        final myPlans = <Map<String, dynamic>>[];
+        
+        final sId = widget.student['id']?.toString().toLowerCase().trim() ?? '';
+        final sNum = widget.student['studentNumber']?.toString().toLowerCase().trim() ?? '';
+        final sName = (widget.student['fullName'] ?? widget.student['name'] ?? '').toString().toLowerCase().trim();
+        
+        for (var doc in docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          final tasks = data['studentTasks'] as Map<String, dynamic>? ?? {};
+          
+          // Check if any key in tasks maps matches this student
+          bool isTargeted = false;
+          final myTasks = <String, List<dynamic>>{}; // branch_subject -> tasks
+          
+          tasks.forEach((key, value) {
+            // key structure: branch_subject_studentId (or studentNumber / studentName)
+            final parts = key.split('_');
+            if (parts.length >= 3) {
+              final lastPart = parts.last.toLowerCase().trim();
+              final matchesStudent = (sId.isNotEmpty && lastPart == sId) ||
+                                     (sNum.isNotEmpty && lastPart == sNum) ||
+                                     (sName.isNotEmpty && lastPart == sName);
+              
+              if (matchesStudent) {
+                isTargeted = true;
+                final branch = parts[0];
+                final subject = parts[1];
+                myTasks['$branch - $subject'] = value as List<dynamic>;
+              }
+            }
+          });
+          
+          if (isTargeted) {
+            myPlans.add({
+              'id': doc.id,
+              'title': data['title'] ?? 'Eylem Planı',
+              'date': (data['date'] as Timestamp?)?.toDate() ?? DateTime.now(),
+              'creatorName': data['creatorName'] ?? 'Sistem Yöneticisi',
+              'isRealized': data['isRealized'] ?? false,
+              'tasks': myTasks,
+            });
+          }
+        }
+        
+        if (myPlans.isEmpty) {
+          return _buildEmptyState('Öğrenciye tanımlanmış bir eylem planı bulunmuyor.');
+        }
+
+        // Sort plans by date descending
+        myPlans.sort((a, b) => (b['date'] as DateTime).compareTo(a['date'] as DateTime));
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: myPlans.length,
+          itemBuilder: (context, index) {
+            final plan = myPlans[index];
+            final DateTime date = plan['date'];
+            final isRealized = plan['isRealized'] as bool;
+            final creator = plan['creatorName'];
+            final tasksMap = plan['tasks'] as Map<String, List<dynamic>>;
+            
+            return Card(
+              margin: const EdgeInsets.only(bottom: 16),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              elevation: 2,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        CircleAvatar(
+                          backgroundColor: isRealized ? Colors.green.shade50 : Colors.orange.shade50,
+                          child: Icon(
+                            Icons.playlist_add_check_rounded,
+                            color: isRealized ? Colors.green : Colors.orange,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                plan['title'],
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.indigo),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${DateFormat('dd.MM.yyyy').format(date)} • Hazırlayan: $creator',
+                                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: isRealized ? Colors.green.shade50 : Colors.orange.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: isRealized ? Colors.green.shade200 : Colors.orange.shade200),
+                          ),
+                          child: Text(
+                            isRealized ? 'Tamamlandı' : 'Uygulanıyor',
+                            style: TextStyle(
+                              color: isRealized ? Colors.green.shade800 : Colors.orange.shade800,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (tasksMap.isNotEmpty) ...[
+                      const Divider(height: 24),
+                      const Text(
+                        'Kazanım Destek Çalışmaları',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87),
+                      ),
+                      const SizedBox(height: 8),
+                      ...tasksMap.entries.map((entry) {
+                        final subjectName = entry.key;
+                        final tasksList = entry.value;
+                        
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.grey.shade200),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                subjectName,
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.indigo),
+                              ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: tasksList.map((t) {
+                                  final isDone = t['done'] == true;
+                                  return Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: isDone ? Colors.green.shade50 : Colors.white,
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(color: isDone ? Colors.green.shade200 : Colors.grey.shade300),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          isDone ? Icons.check_circle : Icons.radio_button_unchecked,
+                                          size: 14,
+                                          color: isDone ? Colors.green : Colors.grey,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          t['label'] ?? '',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: isDone ? Colors.green.shade800 : Colors.grey.shade700,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          },
         );
       },
     );
@@ -4870,6 +5097,35 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                       children: [
                         Divider(height: 1, color: Colors.indigo.shade100),
                         SizedBox(height: 16),
+                        // Weekly Target Card (Part of Mentör Çalışmaları)
+                        if (data['weeklyTarget'] != null && data['weeklyTarget'].toString().trim().isNotEmpty) ...[
+                          Container(
+                            width: double.infinity,
+                            margin: const EdgeInsets.only(bottom: 16),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.amber.shade50,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: Colors.amber.shade200, width: 1),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.track_changes, color: Colors.amber.shade800, size: 20),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text('🎯 BU HAFTANIN HEDEFİ', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF78350F), letterSpacing: 0.5)),
+                                      const SizedBox(height: 2),
+                                      Text(data['weeklyTarget'].toString(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF451A03))),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                         if (data['description'] != null &&
                             data['description']
                                 .toString()
@@ -4883,7 +5139,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                               height: 1.4,
                             ),
                           ),
-                          SizedBox(height: 20),
+                          const SizedBox(height: 20),
                         ],
 
                         ...(() {
@@ -4918,7 +5174,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                           return keys.map((key) {
                             final lessons = schedule[key] as List?;
                             if (lessons == null || lessons.isEmpty)
-                              return SizedBox.shrink();
+                              return const SizedBox.shrink();
                             final dayStatuses = executionStatus[key] as List?;
 
                             return Column(
@@ -4927,7 +5183,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                                 Row(
                                   children: [
                                     Container(
-                                      padding: EdgeInsets.symmetric(
+                                      padding: const EdgeInsets.symmetric(
                                         horizontal: 10,
                                         vertical: 4,
                                       ),
@@ -4937,7 +5193,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                                       ),
                                       child: Text(
                                         key.toString(),
-                                        style: TextStyle(
+                                        style: const TextStyle(
                                           color: Colors.white,
                                           fontSize: 11,
                                           fontWeight: FontWeight.bold,
@@ -4952,7 +5208,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                                     ),
                                   ],
                                 ),
-                                SizedBox(height: 12),
+                                const SizedBox(height: 12),
                                 ...lessons.asMap().entries.map((entry) {
                                   final int idx = entry.key;
                                   final String lessonText = entry.value
@@ -4979,48 +5235,132 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                                     color = Colors.red;
                                   }
 
-                                  return Container(
-                                    margin: EdgeInsets.only(bottom: 12),
-                                    padding: EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(10),
-                                      border: Border.all(
-                                        color: Colors.grey.shade100,
-                                      ),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withOpacity(0.01),
-                                          blurRadius: 4,
-                                          offset: Offset(0, 2),
+                                  // Priority Task Check
+                                  final priorityTasks = data['priorityTasks'] as Map<String, dynamic>? ?? {};
+                                  final bool isPriority = priorityTasks["${key}_$idx"] == true;
+
+                                  return InkWell(
+                                    onTap: () async {
+                                      await _showStatusSelectionSheet(
+                                        context,
+                                        widget.institutionId,
+                                        programData['id'],
+                                        key.toString(),
+                                        idx,
+                                        executionStatus,
+                                      );
+                                    },
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: Container(
+                                      margin: const EdgeInsets.only(bottom: 12),
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: isPriority ? Colors.red.shade50.withOpacity(0.3) : Colors.white,
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(
+                                          color: isPriority ? Colors.red.shade200 : Colors.grey.shade100,
+                                          width: isPriority ? 1.5 : 1,
                                         ),
-                                      ],
-                                    ),
-                                    child: Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Icon(icon, size: 18, color: color),
-                                        SizedBox(width: 12),
-                                        Expanded(
-                                          child: Text(
-                                            lessonText.trim(),
-                                            style: TextStyle(
-                                              fontSize: 13,
-                                              color: Colors.blueGrey.shade900,
-                                              height: 1.3,
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black.withOpacity(0.01),
+                                            blurRadius: 4,
+                                            offset: const Offset(0, 2),
+                                          ),
+                                        ],
+                                      ),
+                                      child: Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Icon(icon, size: 18, color: color),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                if (isPriority) ...[
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.red.shade100,
+                                                      borderRadius: BorderRadius.circular(4),
+                                                    ),
+                                                    child: Text(
+                                                      '🚨 ÖNCELİKLİ GÖREV',
+                                                      style: TextStyle(
+                                                        fontSize: 9,
+                                                        fontWeight: FontWeight.bold,
+                                                        color: Colors.red.shade900,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 6),
+                                                ],
+                                                Text(
+                                                  lessonText.trim(),
+                                                  style: TextStyle(
+                                                    fontSize: 13,
+                                                    color: Colors.blueGrey.shade900,
+                                                    height: 1.3,
+                                                    fontWeight: isPriority ? FontWeight.bold : FontWeight.normal,
+                                                  ),
+                                                ),
+                                              ],
                                             ),
                                           ),
-                                        ),
-                                      ],
+                                        ],
+                                      ),
                                     ),
                                   );
                                 }).toList(),
-                                SizedBox(height: 8),
+                                const SizedBox(height: 8),
                               ],
                             );
                           }).toList();
                         })(),
+
+                        // Mentor Feedback Card (Part of Mentör Çalışmaları)
+                        if (data['mentorEvaluation'] != null && data['mentorEvaluation'].toString().trim().isNotEmpty) ...[
+                          const SizedBox(height: 20),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.indigo.shade50,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.indigo.shade100),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(Icons.rate_review_rounded, color: Colors.indigo.shade700, size: 18),
+                                    const SizedBox(width: 8),
+                                    const Text(
+                                      'Mentör Değerlendirmesi',
+                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.indigo),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                Text(
+                                  data['mentorEvaluation'].toString(),
+                                  style: TextStyle(fontSize: 13, color: Colors.blueGrey.shade800, height: 1.4, fontStyle: FontStyle.italic),
+                                ),
+                                const SizedBox(height: 10),
+                                Align(
+                                  alignment: Alignment.bottomRight,
+                                  child: Text(
+                                    'Değerlendiren: ${data['mentorEvaluationBy'] ?? "Mentör"}',
+                                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -5028,6 +5368,63 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
               ),
             );
           },
+        );
+      },
+    );
+  }
+
+  Future<void> _showStatusSelectionSheet(
+    BuildContext context,
+    String institutionId,
+    String programId,
+    String day,
+    int index,
+    Map<String, dynamic> executionStatus,
+  ) async {
+    final statusList = [
+      {'label': 'Beklemede (Atandı)', 'value': 0, 'color': Colors.grey, 'icon': Icons.circle_outlined},
+      {'label': 'Tamamlandı', 'value': 1, 'color': Colors.green, 'icon': Icons.check_circle},
+      {'label': 'Eksik Yapıldı', 'value': 2, 'color': Colors.orange, 'icon': Icons.access_time_filled},
+      {'label': 'Yapılamadı', 'value': 3, 'color': Colors.red, 'icon': Icons.cancel},
+    ];
+
+    await showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) {
+        return Container(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Görev Durumu Güncelle',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.indigo),
+              ),
+              const SizedBox(height: 16),
+              ...statusList.map((status) {
+                return ListTile(
+                  leading: Icon(status['icon'] as IconData, color: status['color'] as Color),
+                  title: Text(status['label'] as String, style: const TextStyle(fontWeight: FontWeight.w600)),
+                  onTap: () async {
+                    final Map<String, List<int>> updatedStatus = {};
+                    executionStatus.forEach((k, v) {
+                      updatedStatus[k] = List<int>.from(v);
+                    });
+                    updatedStatus[day]![index] = status['value'] as int;
+
+                    await GuidanceService().updateStudyProgramStatus(
+                      institutionId,
+                      programId,
+                      updatedStatus,
+                    );
+                    if (ctx.mounted) Navigator.pop(ctx);
+                  },
+                );
+              }).toList(),
+            ],
+          ),
         );
       },
     );

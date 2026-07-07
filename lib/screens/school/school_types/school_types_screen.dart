@@ -1,5 +1,6 @@
 import '../../../constants/school_type_modules.dart';
 import '../../../services/user_permission_service.dart';
+import '../../../services/term_service.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -72,7 +73,20 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
     if (userData == null) return true;
 
     final role = (userData!['role'] as String?)?.toLowerCase();
-    if (role == 'genel_mudur' || role == 'admin') return true;
+    if (role == 'admin') return true;
+
+    // Eğer kullanıcının çalıştığı okul türleri listesi (schoolTypes) tanımlı ve boş değilse,
+    // sadece bu listedeki okul türlerini düzenleyebilir (Genel müdür olmayan herkes için geçerli).
+    if (role != 'genel_mudur') {
+      final userSchoolTypes = userData!['schoolTypes'] as List<dynamic>?;
+      if (userSchoolTypes != null && userSchoolTypes.isNotEmpty) {
+        if (!userSchoolTypes.contains(schoolTypeId)) {
+          return false;
+        }
+      }
+    }
+
+    if (role == 'genel_mudur') return true;
 
     // Önce genel modül erişimi kontrol et
     if (!_hasSchoolTypeAccess()) return false;
@@ -95,7 +109,20 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
     if (userData == null) return true;
 
     final role = (userData!['role'] as String?)?.toLowerCase();
-    if (role == 'genel_mudur' || role == 'admin') return true;
+    if (role == 'admin') return true;
+
+    // Eğer kullanıcının çalıştığı okul türleri listesi (schoolTypes) tanımlı ve boş değilse,
+    // sadece bu listedeki okul türlerine giriş yapabilir (Genel müdür olmayan herkes için geçerli).
+    if (role != 'genel_mudur') {
+      final userSchoolTypes = userData!['schoolTypes'] as List<dynamic>?;
+      if (userSchoolTypes != null && userSchoolTypes.isNotEmpty) {
+        if (!userSchoolTypes.contains(schoolTypeId)) {
+          return false;
+        }
+      }
+    }
+
+    if (role == 'genel_mudur') return true;
 
     // Önce genel modül erişimi kontrol et
     if (!_hasSchoolTypeAccess()) return false;
@@ -321,6 +348,38 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
     }
   }
 
+  Future<void> _logout() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(children: [
+          Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(12)), child: const Icon(Icons.logout_rounded, color: Colors.red, size: 22)),
+          const SizedBox(width: 12),
+          const Text('Çıkış Yap', style: TextStyle(fontWeight: FontWeight.bold)),
+        ]),
+        content: const Text('Hesabınızdan çıkış yapmak istediğinize emin misiniz?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('İptal')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Çıkış Yap'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      await FirebaseAuth.instance.signOut();
+      UserPermissionService.clearCache();
+      TermService().clearCache();
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, '/school-login');
+      }
+    }
+  }
+
   // Aktif modülleri gösteren dialog
   void _showActiveModulesDialog(
     BuildContext context,
@@ -381,29 +440,68 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
           backgroundColor: Colors.white,
           leading: IconButton(
             icon: Icon(Icons.arrow_back, color: Colors.indigo),
-            onPressed: () => Navigator.pop(context),
+            onPressed: () {
+              if (Navigator.canPop(context)) {
+                Navigator.pop(context);
+              } else {
+                Navigator.pushReplacementNamed(context, '/school-dashboard');
+              }
+            },
           ),
           title: Text('Okul Türleri', style: TextStyle(color: Colors.grey.shade900, fontSize: 18, fontWeight: FontWeight.bold)),
+          actions: [
+            IconButton(
+              icon: Icon(Icons.logout_rounded, color: Colors.red),
+              tooltip: 'Çıkış Yap',
+              onPressed: _logout,
+            ),
+            SizedBox(width: 8),
+          ],
         ),
         body: Center(child: CircularProgressIndicator()),
       );
     }
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF0F4FF),
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Colors.indigo),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Text('Okul Türleri', style: TextStyle(color: Colors.grey.shade900, fontSize: 18, fontWeight: FontWeight.bold)),
+    return WillPopScope(
+      onWillPop: () async {
+        if (userData != null && !UserPermissionService.hasAnyMainModuleAccess(userData)) {
+          return false;
+        }
+        if (Navigator.canPop(context)) {
+          return true;
+        } else {
+          Navigator.pushReplacementNamed(context, '/school-dashboard');
+          return false;
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF0F4FF),
+        appBar: AppBar(
+          elevation: 0,
+          backgroundColor: Colors.white,
+          leading: (userData != null && !UserPermissionService.hasAnyMainModuleAccess(userData))
+              ? null
+              : IconButton(
+                  icon: Icon(Icons.arrow_back, color: Colors.indigo),
+                  onPressed: () {
+                    if (Navigator.canPop(context)) {
+                      Navigator.pop(context);
+                    } else {
+                      Navigator.pushReplacementNamed(context, '/school-dashboard');
+                    }
+                  },
+                ),
+          title: Text('Okul Türleri', style: TextStyle(color: Colors.grey.shade900, fontSize: 18, fontWeight: FontWeight.bold)),
         actions: [
           IconButton(
             icon: Icon(Icons.bar_chart, color: Colors.indigo),
             tooltip: 'İstatistikleri Gör',
             onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => SchoolTypeStatsScreen())),
+          ),
+          IconButton(
+            icon: Icon(Icons.logout_rounded, color: Colors.red),
+            tooltip: 'Çıkış Yap',
+            onPressed: _logout,
           ),
           SizedBox(width: 8),
         ],
@@ -502,6 +600,7 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
               label: Text('Okul Türü Ekle', style: TextStyle(color: Colors.white)),
             )
           : null,
+      ),
     );
   }
 }

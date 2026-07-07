@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../widgets/edukn_logo.dart';
 
 class AdminLoginScreen extends StatefulWidget {
@@ -51,6 +52,29 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
         email: email,
         password: password,
       );
+
+      // Super Admin kullanıcı belgesi Firestore'da yoksa otomatik oluştur/onar
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        if (!userDoc.exists) {
+          await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+            'fullName': 'Süper Admin',
+            'email': email,
+            'role': 'super_admin',
+            'institutionId': 'SUPER_ADMIN',
+            'isActive': true,
+            'createdAt': FieldValue.serverTimestamp(),
+          });
+          print('📝 Süper Admin kullanıcı belgesi Firestore\'da oluşturuldu.');
+        } else if (userDoc.data()?['role'] != 'super_admin') {
+          // Rol güncelle
+          await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+            'role': 'super_admin',
+          });
+          print('📝 Süper Admin kullanıcı rolü Firestore\'da güncellendi.');
+        }
+      }
 
       print('✅ Giriş başarılı!');
 

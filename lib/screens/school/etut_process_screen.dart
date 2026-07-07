@@ -1485,6 +1485,54 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
     return blocks;
   }
 
+  Future<String> _resolveEtutTopic(Map<String, dynamic> etut) async {
+    final String topic = (etut['topic'] ?? '').toString().trim();
+    String resolvedTopic = topic;
+    if (topic.isEmpty ||
+        topic.toLowerCase() == 'belirtilmemis' ||
+        topic.toLowerCase() == 'belirtilmemiş' ||
+        topic.toLowerCase() == 'konu belirtilmemis' ||
+        topic.toLowerCase() == 'konu belirtilmemiş' ||
+        topic == '-' ||
+        topic == 'null') {
+      final campGroupId = etut['campGroupId']?.toString();
+      final agmGroupId = etut['agmGroupId']?.toString();
+      
+      if (campGroupId != null && campGroupId.isNotEmpty) {
+        try {
+          final groupDoc = await FirebaseFirestore.instance
+              .collection('camp_groups')
+              .doc(campGroupId)
+              .get();
+          if (groupDoc.exists) {
+            final list = List<dynamic>.from(groupDoc.data()?['kazanimlar'] ?? []);
+            if (list.isNotEmpty) {
+              return list.join(', ');
+            }
+          }
+        } catch (e) {
+          debugPrint('Error fetching camp group kazanimlar: $e');
+        }
+      } else if (agmGroupId != null && agmGroupId.isNotEmpty) {
+        try {
+          final groupDoc = await FirebaseFirestore.instance
+              .collection('agm_groups')
+              .doc(agmGroupId)
+              .get();
+          if (groupDoc.exists) {
+            final list = List<dynamic>.from(groupDoc.data()?['kazanimlar'] ?? []);
+            if (list.isNotEmpty) {
+              return list.join(', ');
+            }
+          }
+        } catch (e) {
+          debugPrint('Error fetching agm group kazanimlar: $e');
+        }
+      }
+    }
+    return resolvedTopic.isNotEmpty ? resolvedTopic : 'Belirtilmemiş';
+  }
+
   void _showDetailedInfoDialog(
     String? title,
     Map<String, dynamic>? details,
@@ -1607,7 +1655,13 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
                           ),
                           child: Column(
                             children: [
-                              _detailRow('Konu', details['topic'] ?? '-'),
+                              FutureBuilder<String>(
+                                future: _resolveEtutTopic(details),
+                                builder: (context, snapshot) {
+                                  final topicVal = snapshot.data ?? details['topic'] ?? '-';
+                                  return _detailRow('Konu', topicVal);
+                                },
+                              ),
                               const Divider(height: 16),
                               _detailRow(
                                 'Aktivite',

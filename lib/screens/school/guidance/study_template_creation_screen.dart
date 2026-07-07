@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../../models/guidance/study_template_model.dart';
 import '../../../services/guidance_service.dart';
 import '../../../services/assessment_service.dart';
@@ -74,16 +75,15 @@ class _StudyTemplateCreationScreenState
   Future<void> _startAssignmentProcess(String type) async {
     if (!_formKey.currentState!.validate()) return;
     if (_nameController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Lütfen şablon adını giriniz.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Lütfen şablon adını giriniz.', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+          backgroundColor: Colors.orange.shade700,
+        ),
+      );
       return;
     }
 
-    // Prepare template object (ID will be assigned later or now for reference)
-    // We generate a local ID to pass around, but definitive save happens last.
-
-    // Let's create the object.
     final template = StudyTemplate(
       id: _templateId,
       institutionId: widget.institutionId,
@@ -113,8 +113,6 @@ class _StudyTemplateCreationScreenState
     setState(() => _isLoading = true);
 
     try {
-      // 1. Save Template
-      // Reuse ID if exists, OR generate new one
       final String idToUse = _templateId.isNotEmpty
           ? _templateId
           : FirebaseFirestore.instance
@@ -144,9 +142,14 @@ class _StudyTemplateCreationScreenState
       if (!isAll &&
           className == null &&
           (studentIds == null || studentIds.isEmpty)) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Şablon başarıyla kaydedildi.')));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Şablon başarıyla kaydedildi.', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+              backgroundColor: Colors.teal.shade600,
+            ),
+          );
+        }
         Navigator.pop(context);
         return;
       }
@@ -159,10 +162,14 @@ class _StudyTemplateCreationScreenState
           newTemplate.id,
           newTemplate.name,
         );
-        if (mounted)
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('Şablon tüm okula atandı.')));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Şablon tüm okula atandı.', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+              backgroundColor: Colors.teal.shade600,
+            ),
+          );
+        }
       } else if (className != null) {
         await _guidanceService.assignTemplateToClass(
           widget.institutionId,
@@ -171,10 +178,14 @@ class _StudyTemplateCreationScreenState
           newTemplate.name,
           className,
         );
-        if (mounted)
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Şablon $className şubesine atandı.')),
+            SnackBar(
+              content: Text('Şablon $className şubesine atandı.', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+              backgroundColor: Colors.teal.shade600,
+            ),
           );
+        }
       } else if (studentIds != null && studentIds.isNotEmpty) {
         await _guidanceService.assignTemplateToStudents(
           widget.institutionId,
@@ -182,17 +193,23 @@ class _StudyTemplateCreationScreenState
           newTemplate.name,
           studentIds,
         );
-        if (mounted)
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('Şablon öğrencilere atandı.')));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Şablon öğrencilere atandı.', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+              backgroundColor: Colors.teal.shade600,
+            ),
+          );
+        }
       }
 
       Navigator.pop(context); // Close Screen
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Hata: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hata: $e', style: GoogleFonts.inter(fontWeight: FontWeight.w600)), backgroundColor: Colors.red),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -224,56 +241,127 @@ class _StudyTemplateCreationScreenState
         .where('isActive', isEqualTo: true)
         .get();
 
-    final classes =
-        query.docs
-            .map((d) => d['className'] as String? ?? '')
-            .where((c) => c.isNotEmpty)
-            .toSet()
-            .toList()
-          ..sort();
+    final classes = query.docs
+        .map((d) => d['className'] as String? ?? '')
+        .where((c) => c.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
 
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Şube Seçiniz'),
-        content: Container(
-          width: double.maxFinite,
-          child: ListView.builder(
-            shrinkWrap: true,
-            itemCount: classes.length,
-            itemBuilder: (c, i) {
-              return ListTile(
-                title: Text(classes[i]),
-                onTap: () async {
-                  Navigator.pop(ctx);
-                  await _performSaveAndAssign(template, className: classes[i]);
-                },
-              );
-            },
+    if (mounted) {
+      showDialog(
+        context: context,
+        builder: (ctx) => Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            width: 400,
+            height: 450,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Şube Seçiniz',
+                  style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.indigo.shade900),
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
+                    child: ListView.separated(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      itemCount: classes.length,
+                      separatorBuilder: (c, idx) => const Divider(height: 1, indent: 16, endIndent: 16),
+                      itemBuilder: (c, i) {
+                        return ListTile(
+                          title: Text(classes[i], style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 14)),
+                          trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Colors.grey),
+                          onTap: () async {
+                            Navigator.pop(ctx);
+                            await _performSaveAndAssign(template, className: classes[i]);
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: Text('İptal', style: GoogleFonts.inter(color: Colors.grey.shade700, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-      ),
-    );
+      );
+    }
   }
 
   Future<void> _confirmAssignAll(StudyTemplate template) async {
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Tüm Okula Ata'),
-        content: Text(
-          'Bu şablonu bu okul türündeki TÜM aktif öğrencilere atamak istediğinize emin misiniz?',
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Padding(
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: Colors.orange.shade50, shape: BoxShape.circle),
+                child: const Icon(Icons.people_alt_rounded, color: Colors.orange, size: 28),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Tüm Okula Ata',
+                style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Bu şablonu bu okul türündeki TÜM aktif öğrencilere atamak istediğinize emin misiniz? Bu işlem toplu bir işlemdir.',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade600, height: 1.4),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child: Text('İptal', style: GoogleFonts.inter(color: Colors.grey.shade700, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.indigo,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      onPressed: () => Navigator.pop(ctx, true),
+                      child: Text('Onayla', style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text('İptal'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text('Onayla', style: TextStyle(color: Colors.red)),
-          ),
-        ],
       ),
     );
 
@@ -297,17 +385,39 @@ class _StudyTemplateCreationScreenState
                 )
                 .toList();
 
-            return AlertDialog(
-              title: Text('$day - Ders Seçimi'),
-              content: Container(
-                width: double.maxFinite,
-                height: 400,
+            return Dialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: Container(
+                padding: const EdgeInsets.all(20),
+                width: 400,
+                height: 480,
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Text(
+                      '$day - Ders Seçimi',
+                      style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.indigo.shade900),
+                    ),
+                    const SizedBox(height: 12),
                     TextField(
                       decoration: InputDecoration(
                         hintText: 'Ders Ara...',
-                        prefixIcon: Icon(Icons.search),
+                        prefixIcon: const Icon(Icons.search, color: Colors.indigo),
+                        filled: true,
+                        fillColor: Colors.grey.shade50,
+                        contentPadding: const EdgeInsets.symmetric(vertical: 6),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide(color: Colors.grey.shade300),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide(color: Colors.grey.shade200),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: const BorderSide(color: Colors.indigo, width: 1.5),
+                        ),
                       ),
                       onChanged: (val) {
                         setDialogState(() {
@@ -315,36 +425,54 @@ class _StudyTemplateCreationScreenState
                         });
                       },
                     ),
+                    const SizedBox(height: 12),
                     Expanded(
-                      child: ListView.builder(
-                        itemCount: filteredBranches.length,
-                        itemBuilder: (context, index) {
-                          final branch = filteredBranches[index];
-                          final isSelected = selected.contains(branch);
-                          return CheckboxListTile(
-                            title: Text(branch),
-                            value: isSelected,
-                            onChanged: (val) {
-                              setDialogState(() {
-                                if (val == true)
-                                  selected.add(branch);
-                                else
-                                  selected.remove(branch);
-                              });
-                            },
-                          );
-                        },
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade50,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey.shade200),
+                        ),
+                        child: ListView.builder(
+                          itemCount: filteredBranches.length,
+                          itemBuilder: (context, index) {
+                            final branch = filteredBranches[index];
+                            final isSelected = selected.contains(branch);
+                            return CheckboxListTile(
+                              activeColor: Colors.indigo,
+                              title: Text(branch, style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13)),
+                              value: isSelected,
+                              onChanged: (val) {
+                                setDialogState(() {
+                                  if (val == true) {
+                                    selected.add(branch);
+                                  } else {
+                                    selected.remove(branch);
+                                  }
+                                });
+                              },
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.indigo,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        onPressed: () => Navigator.pop(ctx),
+                        child: Text('Tamam', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: Colors.white)),
                       ),
                     ),
                   ],
                 ),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: Text('Tamam'),
-                ),
-              ],
             );
           },
         );
@@ -360,46 +488,84 @@ class _StudyTemplateCreationScreenState
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Scaffold(
-        appBar: AppBar(title: Text('Şablon Oluşturuluyor...')),
-        body: Center(child: CircularProgressIndicator()),
+        backgroundColor: const Color(0xFFF3F4F6),
+        appBar: AppBar(
+          title: Text('Şablon Kaydediliyor...', style: GoogleFonts.inter(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+          backgroundColor: Colors.indigo,
+          foregroundColor: Colors.white,
+          automaticallyImplyLeading: false,
+        ),
+        body: const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(color: Colors.indigo),
+              SizedBox(height: 16),
+              Text('Değişiklikler sunucuya kaydediliyor, lütfen bekleyin...', style: TextStyle(color: Colors.grey)),
+            ],
+          ),
+        ),
       );
     }
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF3F4F6),
       appBar: AppBar(
-        title: Text('Yeni Şablon Oluştur'),
+        title: Text(
+          'Yeni Şablon Oluştur',
+          style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white),
+        ),
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
+        iconTheme: const IconThemeData(color: Colors.white),
+        actionsIconTheme: const IconThemeData(color: Colors.white),
       ),
       body: Column(
         children: [
           Expanded(
             child: SingleChildScrollView(
-              padding: EdgeInsets.all(16),
+              padding: const EdgeInsets.all(16),
               child: Form(
                 key: _formKey,
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     TextFormField(
                       controller: _nameController,
+                      style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600),
                       decoration: InputDecoration(
-                        labelText: 'Şablon Adı',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.title),
+                        labelText: 'Şablon Adı *',
+                        labelStyle: const TextStyle(color: Colors.indigo),
+                        filled: true,
+                        fillColor: Colors.white,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey.shade200),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey.shade200),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: Colors.indigo, width: 2),
+                        ),
+                        prefixIcon: const Icon(Icons.title, color: Colors.indigo),
                         hintText: 'Örn: 8. Sınıf Sayısal Şablonu',
                       ),
                       validator: (v) =>
-                          v!.trim().isEmpty ? 'İsim gerekli' : null,
+                          v!.trim().isEmpty ? 'Şablon adı girilmesi zorunludur.' : null,
                     ),
-                    SizedBox(height: 16),
+                    const SizedBox(height: 24),
                     Text(
                       'Haftalık Ders Programı',
-                      style: TextStyle(
-                        fontSize: 18,
+                      style: GoogleFonts.inter(
+                        fontSize: 16,
                         fontWeight: FontWeight.bold,
+                        color: Colors.indigo.shade900,
                       ),
                     ),
-                    SizedBox(height: 8),
+                    const SizedBox(height: 12),
                     ..._days.map((day) => _buildDayCard(day)).toList(),
                   ],
                 ),
@@ -407,76 +573,77 @@ class _StudyTemplateCreationScreenState
             ),
           ),
           Container(
-            padding: EdgeInsets.all(16),
-            decoration: BoxDecoration(
+            padding: const EdgeInsets.all(20),
+            decoration: const BoxDecoration(
               color: Colors.white,
-              boxShadow: [BoxShadow(blurRadius: 5, color: Colors.black12)],
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              boxShadow: [BoxShadow(blurRadius: 10, color: Colors.black12, offset: Offset(0, -2))],
             ),
             child: SafeArea(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    'Bu şablonu kimlere atayacaksınız?',
-                    style: TextStyle(color: Colors.grey[700]),
+                    'Şablon Kayıt ve Atama İşlemleri',
+                    style: GoogleFonts.inter(color: Colors.indigo.shade900, fontWeight: FontWeight.bold, fontSize: 13),
                   ),
-                  SizedBox(height: 8),
+                  const SizedBox(height: 12),
                   ElevatedButton.icon(
                     onPressed: () => _startAssignmentProcess('save'),
-                    icon: Icon(Icons.save, color: Colors.white),
+                    icon: const Icon(Icons.save, color: Colors.white, size: 20),
                     label: Text(
                       'Şablonu Kaydet',
-                      style: TextStyle(color: Colors.white),
+                      style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
                     ),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      minimumSize: Size(double.infinity, 50),
+                      backgroundColor: Colors.teal.shade600,
+                      elevation: 0,
+                      minimumSize: const Size(double.infinity, 48),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     ),
                   ),
-                  SizedBox(height: 12),
-                  Text(
-                    'Veya doğrudan atayın:',
-                    style: TextStyle(color: Colors.grey[700]),
-                  ),
-                  SizedBox(height: 8),
+                  const SizedBox(height: 12),
                   Row(
                     children: [
                       Expanded(
-                        child: ElevatedButton(
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.person, color: Colors.white, size: 16),
+                          label: Text('Öğrenciye', style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.orange,
+                            backgroundColor: Colors.orange.shade700,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           ),
                           onPressed: () => _startAssignmentProcess('student'),
-                          child: Text(
-                            'Öğrenciye',
-                            style: TextStyle(color: Colors.white),
-                          ),
                         ),
                       ),
-                      SizedBox(width: 8),
+                      const SizedBox(width: 8),
                       Expanded(
-                        child: ElevatedButton(
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.class_, color: Colors.white, size: 16),
+                          label: Text('Şubeye', style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue,
+                            backgroundColor: Colors.blue.shade700,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           ),
                           onPressed: () => _startAssignmentProcess('class'),
-                          child: Text(
-                            'Şubeye',
-                            style: TextStyle(color: Colors.white),
-                          ),
                         ),
                       ),
-                      SizedBox(width: 8),
+                      const SizedBox(width: 8),
                       Expanded(
-                        child: ElevatedButton(
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.people, color: Colors.white, size: 16),
+                          label: Text('Herkes', style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red,
+                            backgroundColor: Colors.red.shade700,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           ),
                           onPressed: () => _startAssignmentProcess('all'),
-                          child: Text(
-                            'Herkes',
-                            style: TextStyle(color: Colors.white),
-                          ),
                         ),
                       ),
                     ],
@@ -494,44 +661,90 @@ class _StudyTemplateCreationScreenState
     final subjects = _schedule[day] ?? [];
 
     return Card(
-      margin: EdgeInsets.only(bottom: 8),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      elevation: 2,
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: Colors.grey.shade200),
+      ),
+      color: Colors.white,
       child: ExpansionTile(
-        title: Text(day, style: TextStyle(fontWeight: FontWeight.bold)),
+        shape: const Border(),
+        collapsedShape: const Border(),
+        title: Text(day, style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.indigo.shade900)),
         subtitle: Text(
           subjects.isEmpty
               ? 'Ders seçilmedi'
               : '${subjects.length} ders seçildi',
-          style: TextStyle(color: subjects.isEmpty ? Colors.red : Colors.green),
+          style: GoogleFonts.inter(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: subjects.isEmpty ? Colors.red.shade700 : Colors.teal.shade700,
+          ),
         ),
-        trailing: IconButton(
-          icon: Icon(Icons.add_circle, color: Colors.indigo),
-          onPressed: () => _modifyDay(day),
+        trailing: Container(
+          decoration: BoxDecoration(color: Colors.indigo.shade50, borderRadius: BorderRadius.circular(8)),
+          child: IconButton(
+            icon: const Icon(Icons.add_circle, color: Colors.indigo),
+            onPressed: () => _modifyDay(day),
+          ),
         ),
         children: [
           if (subjects.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.all(8.0),
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
               child: Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 children: subjects
                     .map(
-                      (s) => Chip(
-                        label: Text(s),
-                        deleteIcon: Icon(Icons.close, size: 16),
-                        onDeleted: () {
-                          setState(() {
-                            _schedule[day]!.remove(s);
-                          });
-                        },
+                      (s) => Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.indigo.shade50,
+                          border: Border.all(color: Colors.indigo.shade100),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              s,
+                              style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.indigo.shade900),
+                            ),
+                            const SizedBox(width: 6),
+                            InkWell(
+                              onTap: () {
+                                setState(() {
+                                  _schedule[day]!.remove(s);
+                                });
+                              },
+                              child: const Icon(Icons.close_rounded, size: 14, color: Colors.red),
+                            ),
+                          ],
+                        ),
                       ),
                     )
                     .toList(),
               ),
             ),
-          TextButton(onPressed: () => _modifyDay(day), child: Text('Düzenle')),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton.icon(
+                  onPressed: () => _modifyDay(day),
+                  icon: const Icon(Icons.edit_rounded, size: 16),
+                  label: Text('Dersleri Düzenle', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.indigo,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -576,8 +789,7 @@ class _StudentSelectorDialogState extends State<_StudentSelectorDialog> {
         .get();
 
     final list = q.docs.map((d) {
-      final name =
-          d['fullName'] ?? '${d['name'] ?? ''} ${d['surname'] ?? ''}'.trim();
+      final name = d['fullName'] ?? '${d['name'] ?? ''} ${d['surname'] ?? ''}'.trim();
       return {'id': d.id, 'name': name, 'class': d['className'] ?? ''};
     }).toList();
 
@@ -602,81 +814,126 @@ class _StudentSelectorDialogState extends State<_StudentSelectorDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text('Öğrenci Seç'),
-      content: Container(
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        padding: const EdgeInsets.all(20),
         width: 400,
-        height: 500,
+        height: 520,
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Text(
+              'Öğrenci Seçiniz',
+              style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.indigo.shade900),
+            ),
+            const SizedBox(height: 12),
             TextField(
               decoration: InputDecoration(
-                hintText: 'Ara...',
-                prefixIcon: Icon(Icons.search),
+                hintText: 'Öğrenci Ara...',
+                prefixIcon: const Icon(Icons.search, color: Colors.indigo),
+                filled: true,
+                fillColor: Colors.grey.shade50,
+                contentPadding: const EdgeInsets.symmetric(vertical: 6),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide(color: Colors.grey.shade200),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: Colors.indigo, width: 1.5),
+                ),
               ),
               onChanged: (v) {
                 _search = v;
                 _filter();
               },
             ),
-            SizedBox(height: 8),
+            const SizedBox(height: 8),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('${_selected.length}/${_allStudents.length} Seçildi'),
+                Text(
+                  '${_selected.length}/${_allStudents.length} Seçildi',
+                  style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey.shade600),
+                ),
                 TextButton(
                   onPressed: () {
                     setState(() {
-                      if (_selected.length == _filtered.length)
+                      if (_selected.length == _filtered.length) {
                         _selected.clear();
-                      else
-                        _selected = _filtered
-                            .map((e) => e['id'] as String)
-                            .toSet();
+                      } else {
+                        _selected = _filtered.map((e) => e['id'] as String).toSet();
+                      }
                     });
                   },
-                  child: Text('Tümünü Seç/Sil'),
+                  child: Text('Tümünü Seç/Sil', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold)),
                 ),
               ],
             ),
             Expanded(
               child: _loading
-                  ? Center(child: CircularProgressIndicator())
-                  : ListView.builder(
-                      itemCount: _filtered.length,
-                      itemBuilder: (c, i) {
-                        final s = _filtered[i];
-                        final sel = _selected.contains(s['id']);
-                        return CheckboxListTile(
-                          value: sel,
-                          title: Text(s['name']),
-                          subtitle: Text(s['class']),
-                          dense: true,
-                          onChanged: (v) {
-                            setState(() {
-                              if (v == true)
-                                _selected.add(s['id']);
-                              else
-                                _selected.remove(s['id']);
-                            });
-                          },
-                        );
-                      },
+                  ? const Center(child: CircularProgressIndicator(color: Colors.indigo))
+                  : Container(
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.grey.shade200),
+                      ),
+                      child: _filtered.isEmpty
+                          ? const Center(child: Text('Öğrenci bulunamadı.', style: TextStyle(color: Colors.grey)))
+                          : ListView.builder(
+                              itemCount: _filtered.length,
+                              itemBuilder: (c, i) {
+                                final s = _filtered[i];
+                                final sel = _selected.contains(s['id']);
+                                return CheckboxListTile(
+                                  value: sel,
+                                  title: Text(s['name'], style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13)),
+                                  subtitle: Text('Sınıf/Şube: ${s['class']}', style: GoogleFonts.inter(fontSize: 11)),
+                                  dense: true,
+                                  activeColor: Colors.indigo,
+                                  onChanged: (v) {
+                                    setState(() {
+                                      if (v == true) {
+                                        _selected.add(s['id']);
+                                      } else {
+                                        _selected.remove(s['id']);
+                                      }
+                                    });
+                                  },
+                                );
+                              },
+                            ),
                     ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text('İptal', style: GoogleFonts.inter(color: Colors.grey.shade700, fontWeight: FontWeight.bold)),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.indigo,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: () => widget.onConfirm(_selected.toList()),
+                  child: Text('Ata', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: Colors.white)),
+                ),
+              ],
             ),
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text('İptal'),
-        ),
-        ElevatedButton(
-          onPressed: () => widget.onConfirm(_selected.toList()),
-          child: Text('Ata'),
-        ),
-      ],
     );
   }
 }

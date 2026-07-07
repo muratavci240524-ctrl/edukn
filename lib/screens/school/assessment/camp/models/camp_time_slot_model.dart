@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 class CampTimeSlot {
   final String id;
   final String institutionId;
@@ -5,6 +7,7 @@ class CampTimeSlot {
   final String baslangicSaat;
   final String bitisSaat;
   final String ad; // Renamed from label to match AGM logic
+  final DateTime? tarih;
   final bool isActive;
   final List<CampSlotTeacherEntry> ogretmenGirisler;
 
@@ -15,6 +18,7 @@ class CampTimeSlot {
     required this.baslangicSaat,
     required this.bitisSaat,
     this.ad = '',
+    this.tarih,
     this.isActive = true,
     this.ogretmenGirisler = const [],
   });
@@ -26,6 +30,7 @@ class CampTimeSlot {
       'baslangicSaat': baslangicSaat,
       'bitisSaat': bitisSaat,
       'ad': ad,
+      'tarih': tarih != null ? Timestamp.fromDate(tarih!) : null,
       'isActive': isActive,
       'ogretmenGirisler': ogretmenGirisler.map((e) => e.toMap()).toList(),
     };
@@ -39,6 +44,7 @@ class CampTimeSlot {
       baslangicSaat: map['baslangicSaat'] ?? '',
       bitisSaat: map['bitisSaat'] ?? '',
       ad: map['ad'] ?? map['label'] ?? '',
+      tarih: map['tarih'] != null ? (map['tarih'] as Timestamp).toDate() : null,
       isActive: map['isActive'] ?? true,
       ogretmenGirisler: (map['ogretmenGirisler'] as List<dynamic>? ?? [])
           .map((e) => CampSlotTeacherEntry.fromMap(e as Map<String, dynamic>))
@@ -53,6 +59,7 @@ class CampTimeSlot {
     String? baslangicSaat,
     String? bitisSaat,
     String? ad,
+    DateTime? tarih,
     bool? isActive,
     List<CampSlotTeacherEntry>? ogretmenGirisler,
   }) {
@@ -63,6 +70,7 @@ class CampTimeSlot {
       baslangicSaat: baslangicSaat ?? this.baslangicSaat,
       bitisSaat: bitisSaat ?? this.bitisSaat,
       ad: ad ?? this.ad,
+      tarih: tarih ?? this.tarih,
       isActive: isActive ?? this.isActive,
       ogretmenGirisler: ogretmenGirisler ?? this.ogretmenGirisler,
     );

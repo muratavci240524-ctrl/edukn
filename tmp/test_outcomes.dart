@@ -1,15 +1,15 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:edukn/firebase_options.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'dart:io';
-import 'firebase_options.dart';
 
 void main() async {
   try {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.windows,
-    );
-    
-    final snap = await FirebaseFirestore.instance.collection('trial_exams').get();
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.windows);
+
+    final snap = await FirebaseFirestore.instance
+        .collection('trial_exams')
+        .get();
     for (var doc in snap.docs) {
       final data = doc.data();
       final outcomes = data['outcomes'] as Map<String, dynamic>? ?? {};

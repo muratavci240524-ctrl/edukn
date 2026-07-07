@@ -48,7 +48,7 @@ class _AnnouncementDetailScreenState extends State<AnnouncementDetailScreen> {
 
   // Duyuru modülüne düzenleme yetkisi var mı?
   bool _canEditAnnouncements() {
-    return UserPermissionService.canEdit('genel_duyurular', userData);
+    return UserPermissionService.canEditSubModule('haberlesme', 'genel_duyurular', userData);
   }
 
   Future<void> _loadAnnouncementData() async {

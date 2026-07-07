@@ -1,21 +1,10 @@
-import os
-import sys
+import re
 
-def search_in_files(directory, keyword):
-    for root, dirs, files in os.walk(directory):
-        for file in files:
-            if file.endswith('.dart'):
-                filepath = os.path.join(root, file)
-                try:
-                    with open(filepath, 'r', encoding='utf-8') as f:
-                        content = f.read()
-                        if keyword.lower() in content.lower():
-                            print(f"Match found in: {filepath}")
-                except Exception as e:
-                    pass
+path = r"c:\Users\user\Desktop\eduKN\edukn\edukn21.11.2025\edukn\lib\screens\school\assessment\action_plan\assessment_action_plan_screen.dart"
 
-if __name__ == "__main__":
-    search_in_files('lib', 'Eğitim ve Gelişimde')
-    search_in_files('lib', 'Sayfa ')
-    search_in_files('lib', 'konu analizi')
-    search_in_files('lib', 'kazanım listesi')
+with open(path, 'r', encoding='utf-8') as f:
+    lines = f.readlines()
+
+for i, line in enumerate(lines, 1):
+    if '_studentTasks' in line:
+        print(f"Line {i}: {line.strip()}")

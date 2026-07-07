@@ -156,7 +156,7 @@ class CampService {
   }) async {
     final engine = CampAssignmentEngine(cycleId: cycle.id, institutionId: cycle.institutionId, haftalikMaksimumSaat: cycle.haftalikMaksimumSaat, minimumGrupOgrenciSayisi: minGroupSize);
     engine.setMinimumDersSayisi(cycle.minimumDersSayisi);
-    final draft = await engine.generateDraft(ogrenciProfiller: ogrenciProfiller, gruplar: gruplar, esikBasariOrani: esikBasariOrani, sadeceDusukBasari: sadeceDusukBasari, dersBazliEsikler: dersBazliEsikler);
+    final draft = await engine.generateDraft(ogrenciProfiller: ogrenciProfiller, gruplar: gruplar, esikBasariOrani: esikBasariOrani, sadeceDusukBasari: sadeceDusukBasari, dersBazliEsikler: dersBazliEsikler, highSuccessSoruCozumActive: cycle.highSuccessSoruCozumActive, highSuccessSoruCozumThreshold: cycle.highSuccessSoruCozumThreshold);
     await _repo.rollbackAssignments(cycle.id);
     await _repo.batchWriteAssignments(draft.atamalar);
     await _repo.batchUpdateGroups(draft.gruplar);

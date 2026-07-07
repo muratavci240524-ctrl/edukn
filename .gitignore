@@ -35,6 +35,15 @@ GoogleService-Info.plist
 .firebase/
 .firebaserc
 
+# 🔐 Güvenlik: API key içeren dosyalar — GIT'E GÖNDERİLMEMELİ
+lib/firebase_options.dart
+.env
+.env.local
+.env.production
+functions/.env
+functions/.runtimeconfig.json
+*.secret
+
 # IDE related
 .idea/
 .vscode/

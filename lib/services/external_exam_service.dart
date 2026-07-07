@@ -134,10 +134,24 @@ class ExternalExamService {
 
   Future<String> addRegistration(ExternalExamRegistration reg) async {
     try {
+      String? entryCode = reg.examEntryCode;
+      if (entryCode == null || entryCode.trim().isEmpty) {
+        final countSnap = await _firestore
+            .collection(_registrationsCollection)
+            .where('examId', isEqualTo: reg.examId)
+            .count()
+            .get();
+        final count = countSnap.count ?? 0;
+        final year = DateTime.now().year;
+        final randomDigits = Random().nextInt(90) + 10;
+        entryCode = 'EKS-$year-${(count + 1).toString().padLeft(4, '0')}-$randomDigits';
+      }
+      final regWithCode = reg.copyWith(examEntryCode: entryCode);
+
       final docRef = await _firestore
           .collection(_registrationsCollection)
-          .add(reg.toMap());
-      debugPrint('✅ Başvuru eklendi: ${docRef.id}');
+          .add(regWithCode.toMap());
+      debugPrint('✅ Başvuru eklendi: ${docRef.id} ($entryCode)');
       return docRef.id;
     } catch (e) {
       debugPrint('Başvuru ekleme hatası: $e');

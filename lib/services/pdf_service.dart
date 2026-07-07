@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -7,27 +8,76 @@ import '../models/assessment/trial_exam_model.dart';
 import '../models/field_trip_model.dart'; // Add this import
 
 class PdfService {
+  // ─── FONT CACHE ─────────────────────────────────────────────────────────────
+  // Static cache: fontlar bir kez yüklenir, sonraki çağrılarda anında hazır
+  static pw.Font? _cachedFont;
+  static pw.Font? _cachedFontBold;
+  static Uint8List? _cachedLogoBytes;
+
+  static Future<pw.Font> _getFont() async {
+    if (_cachedFont != null) return _cachedFont!;
+    // Local TTF — internet gerekmez, anında yüklenir
+    final fontData = await rootBundle.load('assets/fonts/Roboto-Regular.ttf');
+    _cachedFont = pw.Font.ttf(fontData);
+    return _cachedFont!;
+  }
+
+  static Future<pw.Font> _getFontBold() async {
+    if (_cachedFontBold != null) return _cachedFontBold!;
+    final fontData = await rootBundle.load('assets/fonts/Roboto-Bold.ttf');
+    _cachedFontBold = pw.Font.ttf(fontData);
+    return _cachedFontBold!;
+  }
+
+  static Future<Uint8List> _getLogo() async {
+    if (_cachedLogoBytes != null) return _cachedLogoBytes!;
+    // logo_full_light.png — beyaz zemin üzerinde düzgün görünen renkli logo
+    final logoData = await rootBundle.load('assets/images/logo_full_light.png');
+    _cachedLogoBytes = logoData.buffer.asUint8List();
+    return _cachedLogoBytes!;
+  }
+
+  // PDF oluşturulmasını hızlandırmak için ön yükleme fonksiyonu
+  static void preload() {
+    _getFont();
+    _getFontBold();
+    _getLogo();
+  }
+
   Future<Uint8List> generatePreRegistrationOfferPdf(
     Map<String, dynamic> reg,
     Map<String, dynamic> settings,
   ) async {
     final pdf = pw.Document();
-    final font = await PdfGoogleFonts.robotoRegular();
-    final fontBold = await PdfGoogleFonts.robotoBold();
+    
+    // Font + logo paralel yükle (Future.wait ile aynı anda)
+    final results = await Future.wait([
+      _getFont(),
+      _getFontBold(),
+      _getLogo(),
+    ]);
+    final font = results[0] as pw.Font;
+    final fontBold = results[1] as pw.Font;
+    final defaultLogoBytes = results[2] as Uint8List;
+    
     final offer = reg['priceOffer'] as Map<String, dynamic>? ?? {};
     final priceTypes = settings['priceTypes'] as List<dynamic>? ?? ['Eğitim', 'Yemek'];
     final discounts = settings['discounts'] as List<dynamic>? ?? [];
     final paymentMethods = settings['paymentMethods'] as List<dynamic>? ?? [];
 
-    // Logo (if exists in settings)
+    // Logo widget: settings'te özel logo varsa onu kullan, yoksa eduKN logosu
     pw.Widget logoWidget;
-    if (settings['logo'] != null && settings['logo'].toString().isNotEmpty) {
-      final logoBytes = Uint8List.fromList(List<int>.from(settings['logo'] is String 
-          ? Uri.parse(settings['logo']).data!.contentAsBytes() 
-          : settings['logo']));
-      logoWidget = pw.Image(pw.MemoryImage(logoBytes), width: 100);
-    } else {
-      logoWidget = pw.Text('LOGO', style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold));
+    try {
+      if (settings['logo'] != null && settings['logo'].toString().isNotEmpty) {
+        final logoBytes = Uint8List.fromList(List<int>.from(settings['logo'] is String 
+            ? Uri.parse(settings['logo']).data!.contentAsBytes() 
+            : settings['logo']));
+        logoWidget = pw.Image(pw.MemoryImage(logoBytes), height: 50);
+      } else {
+        logoWidget = pw.Image(pw.MemoryImage(defaultLogoBytes), height: 50);
+      }
+    } catch (_) {
+      logoWidget = pw.Text('eduKN', style: pw.TextStyle(font: fontBold, fontSize: 24, fontWeight: pw.FontWeight.bold, color: PdfColors.indigo900));
     }
 
     // Validity Date: Last day of meeting month
@@ -57,19 +107,20 @@ class PdfService {
               pw.Center(child: logoWidget),
               pw.SizedBox(height: 20),
               
-              pw.Text('ADAY ÖÄRENCİ ÜCRET FORMU', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+              // DÜZELTME: Türkçe karakterler doğru yazıldı
+              pw.Text('ADAY ÖĞRENCİ ÜCRET FORMU', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
               pw.SizedBox(height: 16),
 
               // Student Info Grid
               pw.Table(
                 children: [
                    pw.TableRow(children: [
-                     _pdfInfoCell('Öğrencinin Adı Soyadı:', reg['fullName']),
-                     _pdfInfoCell('Tarih:', DateFormat('dd.MM.yyyy').format(DateTime.now())),
+                     _pdfInfoCell('Öğrencinin Adı Soyadı:', reg['fullName'], font: font, fontBold: fontBold),
+                     _pdfInfoCell('Tarih:', DateFormat('dd.MM.yyyy').format(DateTime.now()), font: font, fontBold: fontBold),
                    ]),
                    pw.TableRow(children: [
-                     _pdfInfoCell('Kayıt Olacağı Okul Türü:', reg['schoolTypeName'] ?? '-'),
-                     _pdfInfoCell('Sınıfı:', reg['classLevel']?.toString() ?? '-'),
+                     _pdfInfoCell('Kayıt Olacağı Okul Türü:', reg['schoolTypeName'] ?? '-', font: font, fontBold: fontBold),
+                     _pdfInfoCell('Sınıfı:', reg['classLevel']?.toString() ?? '-', font: font, fontBold: fontBold),
                    ]),
                 ]
               ),
@@ -81,13 +132,13 @@ class PdfService {
                 children: [
                   // Left Column: Eğitim (or first price type)
                   pw.Expanded(
-                    child: _buildPriceColumn(priceTypes.isNotEmpty ? priceTypes[0].toString() : 'Eğitim', offer, discounts, paymentMethods, true),
+                    child: _buildPriceColumn(priceTypes.isNotEmpty ? priceTypes[0].toString() : 'Eğitim', offer, discounts, paymentMethods, true, font: font, fontBold: fontBold),
                   ),
                   pw.SizedBox(width: 2),
                   // Right Column: Yemek (or second price type)
                   pw.Expanded(
                     child: priceTypes.length > 1 
-                      ? _buildPriceColumn(priceTypes[1].toString(), offer, discounts, paymentMethods, false)
+                      ? _buildPriceColumn(priceTypes[1].toString(), offer, discounts, paymentMethods, false, font: font, fontBold: fontBold)
                       : pw.Container(),
                   ),
                 ],
@@ -101,17 +152,17 @@ class PdfService {
                 border: pw.TableBorder.all(color: PdfColors.grey300),
                 children: [
                   pw.TableRow(children: [
-                    _pdfFooterCell('Veli Adı Soyadı:', reg['guardian1Name']),
-                    _pdfFooterCell('Görüşme Geçerlilik Tarihi:', validityDateStr),
+                    _pdfFooterCell('Veli Adı Soyadı:', reg['guardian1Name'], font: font, fontBold: fontBold),
+                    _pdfFooterCell('Görüşme Geçerlilik Tarihi:', validityDateStr, font: font, fontBold: fontBold),
                   ]),
                    pw.TableRow(children: [
-                    _pdfFooterCell('Telefon:', reg['phone']),
-                    _pdfFooterCell('Görüşme Yapan Yönetici:', reg['responsibleName']),
+                    _pdfFooterCell('Telefon:', reg['phone'], font: font, fontBold: fontBold),
+                    _pdfFooterCell('Görüşme Yapan Yönetici:', reg['responsibleName'], font: font, fontBold: fontBold),
                   ]),
                 ]
               ),
               pw.SizedBox(height: 12),
-              pw.Center(child: pw.Text('abc.k12.tr  444 222 1', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600))),
+              pw.Center(child: pw.Text('abc.k12.tr  444 222 1', style: pw.TextStyle(font: font, fontSize: 8, color: PdfColors.grey600))),
             ],
           );
         },
@@ -121,34 +172,34 @@ class PdfService {
     return pdf.save();
   }
 
-  pw.Widget _pdfInfoCell(String label, String? value) {
+  pw.Widget _pdfInfoCell(String label, String? value, {required pw.Font font, required pw.Font fontBold}) {
     return pw.Padding(
       padding: const pw.EdgeInsets.symmetric(vertical: 4),
       child: pw.Row(
         children: [
-          pw.Text(label, style: const pw.TextStyle(fontSize: 10)),
+          pw.Text(label, style: pw.TextStyle(font: font, fontSize: 10)),
           pw.SizedBox(width: 8),
-          pw.Text(value ?? '-', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+          pw.Text(value ?? '-', style: pw.TextStyle(font: fontBold, fontSize: 10, fontWeight: pw.FontWeight.bold)),
         ],
       )
     );
   }
 
-  pw.Widget _pdfFooterCell(String label, String? value) {
+  pw.Widget _pdfFooterCell(String label, String? value, {required pw.Font font, required pw.Font fontBold}) {
     return pw.Padding(
       padding: const pw.EdgeInsets.all(6),
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          pw.Text(label, style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
+          pw.Text(label, style: pw.TextStyle(font: font, fontSize: 8, color: PdfColors.grey700)),
           pw.SizedBox(height: 2),
-          pw.Text(value ?? '-', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+          pw.Text(value ?? '-', style: pw.TextStyle(font: fontBold, fontSize: 10, fontWeight: pw.FontWeight.bold)),
         ],
       )
     );
   }
 
-  pw.Widget _buildPriceColumn(String type, Map<String, dynamic> offer, List<dynamic> discounts, List<dynamic> paymentMethods, bool showTotals) {
+  pw.Widget _buildPriceColumn(String type, Map<String, dynamic> offer, List<dynamic> discounts, List<dynamic> paymentMethods, bool showTotals, {required pw.Font font, required pw.Font fontBold}) {
     final baseAmt = (offer[type] ?? 0.0).toDouble();
     final appliedIds = offer['appliedDiscounts'] as List<dynamic>? ?? [];
     
@@ -175,11 +226,9 @@ class PdfService {
           final perc = (offer['_manualPerc_${d['id']}'] as num?)?.toDouble() ?? (d['percentage'] as num?)?.toDouble() ?? 0.0;
           final dAmt = baseAmt * (perc / 100);
           totalGlobalDiscForThisType += dAmt;
-          typeDiscounts.add(_pdfTableRow(dName + ':', '%${perc.toInt()}', isBold: false, fontSize: 9));
+          typeDiscounts.add(_pdfTableRow(dName + ':', '%${perc.toInt()}', isBold: false, fontSize: 9, font: font, fontBold: fontBold));
         } else {
-          // Show empty as in image? Actually image shows labels Erken Kayıt, Burs etc.
-          // Let's list some common ones if they exist in settings
-          typeDiscounts.add(_pdfTableRow(dName + ':', '', isBold: false, fontSize: 9));
+          typeDiscounts.add(_pdfTableRow(dName + ':', '', isBold: false, fontSize: 9, font: font, fontBold: fontBold));
         }
       }
     }
@@ -199,7 +248,6 @@ class PdfService {
           final disc = (mt['discount'] as num?)?.toDouble() ?? 0.0;
           double typeCombined = 0;
           for (var pt in priceTypes) {
-             // Redo the global discount calc for pt...
              double ptBase = (offer[pt.toString()] ?? 0.0).toDouble();
              double ptGlobalDisc = 0;
              for (var d in discounts) {
@@ -222,9 +270,11 @@ class PdfService {
              }
              typeCombined += (ptBase - ptGlobalDisc) * (1 - disc / 100);
           }
-          if (mName.contains('peşin')) combinedPesin = typeCombined;
-          else if (mName.contains('tek çekim')) combinedTek = typeCombined;
-          else if (mName.contains('taksit')) combinedTaksit = typeCombined;
+          // Türkçe karakter güvenli karşılaştırma
+          final mNameNorm = mName.replaceAll('ş', 's').replaceAll('ğ', 'g').replaceAll('ı', 'i').replaceAll('ü', 'u').replaceAll('ö', 'o').replaceAll('ç', 'c');
+          if (mNameNorm.contains('pesin')) combinedPesin = typeCombined;
+          else if (mNameNorm.contains('tek cekim') || mNameNorm.contains('tek çekim')) combinedTek = typeCombined;
+          else if (mNameNorm.contains('taksit')) combinedTaksit = typeCombined;
        }
     }
 
@@ -237,14 +287,14 @@ class PdfService {
             color: PdfColors.indigo,
             width: double.infinity,
             alignment: pw.Alignment.center,
-            child: pw.Text(type.toUpperCase(), style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 12)),
+            child: pw.Text(type.toUpperCase(), style: pw.TextStyle(font: fontBold, color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 12)),
           ),
-          _pdfTableRow('Ücreti:', baseAmt, isBold: true, bgColor: PdfColors.grey100),
+          _pdfTableRow('Ücreti:', baseAmt, isBold: true, bgColor: PdfColors.grey100, font: font, fontBold: fontBold),
           pw.Container(
             padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 4),
             color: PdfColors.indigo400,
             width: double.infinity,
-            child: pw.Text('Uygulanan İndirimler:', style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 10)),
+            child: pw.Text('Uygulanan İndirimler:', style: pw.TextStyle(font: fontBold, color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 10)),
           ),
           ...typeDiscounts,
           pw.Divider(thickness: 0.5, height: 1),
@@ -252,7 +302,7 @@ class PdfService {
           ...paymentMethods.map((m) {
              final disc = (m['discount'] as num?)?.toDouble() ?? 0.0;
              final pAmt = amtAfterGlobal * (1 - disc / 100);
-             return _pdfTableRow('${m['name']} ($type):', pAmt, isBold: true, fontSize: 9);
+             return _pdfTableRow('${m['name']} ($type):', pAmt, isBold: true, fontSize: 9, font: font, fontBold: fontBold);
           }).toList(),
 
           if (!showTotals) ...[
@@ -260,18 +310,18 @@ class PdfService {
                padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                color: PdfColors.indigo,
                width: double.infinity,
-               child: pw.Text('Eğitim + Yemek Toplam Ücretler:', style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 10)),
+               child: pw.Text('Eğitim + Yemek Toplam Ücretler:', style: pw.TextStyle(font: fontBold, color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 10)),
              ),
-             _pdfTableRow('Taksitli:', combinedTaksit, isBold: true),
-             _pdfTableRow('Peşin:', combinedPesin, isBold: true),
-             _pdfTableRow('Tek Çekim:', combinedTek, isBold: true),
+             _pdfTableRow('Taksitli:', combinedTaksit, isBold: true, font: font, fontBold: fontBold),
+             _pdfTableRow('Peşin:', combinedPesin, isBold: true, font: font, fontBold: fontBold),
+             _pdfTableRow('Tek Çekim:', combinedTek, isBold: true, font: font, fontBold: fontBold),
           ]
         ],
       ),
     );
   }
 
-  pw.Widget _pdfTableRow(String label, dynamic value, {bool isBold = false, PdfColor? bgColor, double fontSize = 10}) {
+  pw.Widget _pdfTableRow(String label, dynamic value, {bool isBold = false, PdfColor? bgColor, double fontSize = 10, required pw.Font font, required pw.Font fontBold}) {
     final valStr = value is double 
         ? NumberFormat.currency(locale: 'tr_TR', symbol: '').format(value)
         : value.toString();
@@ -282,8 +332,8 @@ class PdfService {
       child: pw.Row(
         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
         children: [
-          pw.Text(label, style: pw.TextStyle(fontSize: fontSize, fontWeight: isBold ? pw.FontWeight.bold : null)),
-          pw.Text(valStr, style: pw.TextStyle(fontSize: fontSize, fontWeight: isBold ? pw.FontWeight.bold : null)),
+          pw.Text(label, style: pw.TextStyle(font: isBold ? fontBold : font, fontSize: fontSize, fontWeight: isBold ? pw.FontWeight.bold : null)),
+          pw.Text(valStr, style: pw.TextStyle(font: isBold ? fontBold : font, fontSize: fontSize, fontWeight: isBold ? pw.FontWeight.bold : null)),
         ],
       ),
     );

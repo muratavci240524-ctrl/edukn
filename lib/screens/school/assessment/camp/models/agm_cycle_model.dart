@@ -26,6 +26,7 @@ class AgmCycle {
   final int? specialClassCapacity;
   final String? specialClassRoomId;
   final String? specialClassRoomName;
+  final String specialClassCriteria; // 'success_rate' veya 'exam_score'
 
   // Taslak istatistikleri (Persistence için)
   final List<String> unassignedStudentIds;
@@ -68,6 +69,7 @@ class AgmCycle {
     this.specialClassCapacity,
     this.specialClassRoomId,
     this.specialClassRoomName,
+    this.specialClassCriteria = 'success_rate',
   });
 
   String get statusLabel {
@@ -110,6 +112,7 @@ class AgmCycle {
       'specialClassCapacity': specialClassCapacity,
       'specialClassRoomId': specialClassRoomId,
       'specialClassRoomName': specialClassRoomName,
+      'specialClassCriteria': specialClassCriteria,
     };
     print('DEBUG: AgmCycle.toMap finished');
     return data;
@@ -165,6 +168,7 @@ class AgmCycle {
       specialClassCapacity: map['specialClassCapacity'],
       specialClassRoomId: map['specialClassRoomId'],
       specialClassRoomName: map['specialClassRoomName'],
+      specialClassCriteria: map['specialClassCriteria'] ?? 'success_rate',
     );
   }
 
@@ -196,6 +200,7 @@ class AgmCycle {
     int? specialClassCapacity,
     String? specialClassRoomId,
     String? specialClassRoomName,
+    String? specialClassCriteria,
   }) {
     return AgmCycle(
       id: id ?? this.id,
@@ -231,6 +236,7 @@ class AgmCycle {
       specialClassCapacity: specialClassCapacity ?? this.specialClassCapacity,
       specialClassRoomId: specialClassRoomId ?? this.specialClassRoomId,
       specialClassRoomName: specialClassRoomName ?? this.specialClassRoomName,
+      specialClassCriteria: specialClassCriteria ?? this.specialClassCriteria,
     );
   }
 }

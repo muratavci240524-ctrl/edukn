@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'crypto_service.dart';
 
 class PayrollService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -24,17 +25,33 @@ class PayrollService {
     await _firestore.collection(colSalaries).doc(staffId).set({
       'staffId': staffId,
       'institutionId': institutionId,
-      'baseSalary': baseSalary,
+      'baseSalary': CryptoService.encrypt(baseSalary.toString(), institutionId: institutionId),
       'salaryType': salaryType,
-      'extraHourRate': extraHourRate ?? 0.0,
-      'overtimeHourRate': overtimeHourRate ?? 0.0,
+      'extraHourRate': CryptoService.encrypt((extraHourRate ?? 0.0).toString(), institutionId: institutionId),
+      'overtimeHourRate': CryptoService.encrypt((overtimeHourRate ?? 0.0).toString(), institutionId: institutionId),
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }
 
   Future<Map<String, dynamic>?> getSalaryDefinition(String staffId) async {
     final doc = await _firestore.collection(colSalaries).doc(staffId).get();
-    return doc.exists ? doc.data() : null;
+    if (!doc.exists) return null;
+    final data = doc.data()!;
+    final instId = data['institutionId'] as String?;
+    
+    if (data.containsKey('baseSalary') && data['baseSalary'] is String) {
+      final decrypted = CryptoService.decrypt(data['baseSalary'] as String, institutionId: instId);
+      data['baseSalary'] = double.tryParse(decrypted) ?? 0.0;
+    }
+    if (data.containsKey('extraHourRate') && data['extraHourRate'] is String) {
+      final decrypted = CryptoService.decrypt(data['extraHourRate'] as String, institutionId: instId);
+      data['extraHourRate'] = double.tryParse(decrypted) ?? 0.0;
+    }
+    if (data.containsKey('overtimeHourRate') && data['overtimeHourRate'] is String) {
+      final decrypted = CryptoService.decrypt(data['overtimeHourRate'] as String, institutionId: instId);
+      data['overtimeHourRate'] = double.tryParse(decrypted) ?? 0.0;
+    }
+    return data;
   }
 
   Future<List<Map<String, dynamic>>> getAllSalaries(String institutionId) async {
@@ -42,7 +59,22 @@ class PayrollService {
         .collection(colSalaries)
         .where('institutionId', isEqualTo: institutionId)
         .get();
-    return query.docs.map((e) => e.data()).toList();
+    return query.docs.map((e) {
+      final data = e.data();
+      if (data.containsKey('baseSalary') && data['baseSalary'] is String) {
+        final decrypted = CryptoService.decrypt(data['baseSalary'] as String, institutionId: institutionId);
+        data['baseSalary'] = double.tryParse(decrypted) ?? 0.0;
+      }
+      if (data.containsKey('extraHourRate') && data['extraHourRate'] is String) {
+        final decrypted = CryptoService.decrypt(data['extraHourRate'] as String, institutionId: institutionId);
+        data['extraHourRate'] = double.tryParse(decrypted) ?? 0.0;
+      }
+      if (data.containsKey('overtimeHourRate') && data['overtimeHourRate'] is String) {
+        final decrypted = CryptoService.decrypt(data['overtimeHourRate'] as String, institutionId: institutionId);
+        data['overtimeHourRate'] = double.tryParse(decrypted) ?? 0.0;
+      }
+      return data;
+    }).toList();
   }
 
   // --- Overtime & Extra Hours ---
@@ -150,10 +182,10 @@ class PayrollService {
       'institutionId': institutionId,
       'month': month,
       'year': year,
-      'baseSalary': base,
-      'totalEarnings': totalEarnings,
-      'totalDeductions': totalDeductions,
-      'netSalary': netSalary,
+      'baseSalary': CryptoService.encrypt(base.toString(), institutionId: institutionId),
+      'totalEarnings': CryptoService.encrypt(totalEarnings.toString(), institutionId: institutionId),
+      'totalDeductions': CryptoService.encrypt(totalDeductions.toString(), institutionId: institutionId),
+      'netSalary': CryptoService.encrypt(netSalary.toString(), institutionId: institutionId),
       'status': 'draft',
       'createdAt': FieldValue.serverTimestamp(),
     });
@@ -162,49 +194,55 @@ class PayrollService {
     
     batch.set(_firestore.collection(colPayrollItems).doc(), {
       'payrollId': pDoc.id,
+      'institutionId': institutionId,
       'type': 'earning',
       'title': 'Temel Maaş',
-      'amount': base,
+      'amount': CryptoService.encrypt(base.toString(), institutionId: institutionId),
     });
     if (overtimeAmount > 0) {
       batch.set(_firestore.collection(colPayrollItems).doc(), {
         'payrollId': pDoc.id,
+        'institutionId': institutionId,
         'type': 'earning',
         'title': 'Fazla Mesai',
-        'amount': overtimeAmount,
+        'amount': CryptoService.encrypt(overtimeAmount.toString(), institutionId: institutionId),
       });
     }
     if (extraLectureAmount > 0) {
       batch.set(_firestore.collection(colPayrollItems).doc(), {
         'payrollId': pDoc.id,
+        'institutionId': institutionId,
         'type': 'earning',
         'title': 'Ek Ders Ücreti ($extraLectures Saat)',
-        'amount': extraLectureAmount,
+        'amount': CryptoService.encrypt(extraLectureAmount.toString(), institutionId: institutionId),
       });
     }
     if (customBonus > 0) {
        batch.set(_firestore.collection(colPayrollItems).doc(), {
         'payrollId': pDoc.id,
+        'institutionId': institutionId,
         'type': 'earning',
         'title': 'Ek Kazanç / Prim',
-        'amount': customBonus,
+        'amount': CryptoService.encrypt(customBonus.toString(), institutionId: institutionId),
       });
     }
 
     if (leaveDeduction > 0) {
       batch.set(_firestore.collection(colPayrollItems).doc(), {
         'payrollId': pDoc.id,
+        'institutionId': institutionId,
         'type': 'deduction',
         'title': 'Ücretsiz İzin Kesintisi',
-        'amount': leaveDeduction,
+        'amount': CryptoService.encrypt(leaveDeduction.toString(), institutionId: institutionId),
       });
     }
     if (customDeduction > 0) {
       batch.set(_firestore.collection(colPayrollItems).doc(), {
         'payrollId': pDoc.id,
+        'institutionId': institutionId,
         'type': 'deduction',
         'title': 'Diğer Kesintiler',
-        'amount': customDeduction,
+        'amount': CryptoService.encrypt(customDeduction.toString(), institutionId: institutionId),
       });
     }
 
@@ -227,10 +265,27 @@ class PayrollService {
     if (staffId != null) query = query.where('staffId', isEqualTo: staffId);
 
     final snapshot = await query.get();
-    return snapshot.docs.map((doc) => {
-      ...doc.data() as Map<String, dynamic>,
-      'id': doc.id,
-      'staffId': (doc.data() as Map<String, dynamic>)['staffId'],
+    return snapshot.docs.map((doc) {
+      final data = doc.data() as Map<String, dynamic>;
+      
+      if (data.containsKey('baseSalary') && data['baseSalary'] is String) {
+        data['baseSalary'] = double.tryParse(CryptoService.decrypt(data['baseSalary'] as String, institutionId: institutionId)) ?? 0.0;
+      }
+      if (data.containsKey('totalEarnings') && data['totalEarnings'] is String) {
+        data['totalEarnings'] = double.tryParse(CryptoService.decrypt(data['totalEarnings'] as String, institutionId: institutionId)) ?? 0.0;
+      }
+      if (data.containsKey('totalDeductions') && data['totalDeductions'] is String) {
+        data['totalDeductions'] = double.tryParse(CryptoService.decrypt(data['totalDeductions'] as String, institutionId: institutionId)) ?? 0.0;
+      }
+      if (data.containsKey('netSalary') && data['netSalary'] is String) {
+        data['netSalary'] = double.tryParse(CryptoService.decrypt(data['netSalary'] as String, institutionId: institutionId)) ?? 0.0;
+      }
+
+      return {
+        ...data,
+        'id': doc.id,
+        'staffId': data['staffId'],
+      };
     }).toList();
   }
 
@@ -239,7 +294,14 @@ class PayrollService {
         .collection(colPayrollItems)
         .where('payrollId', isEqualTo: payrollId)
         .get();
-    return query.docs.map((e) => e.data()).toList();
+    return query.docs.map((doc) {
+      final data = doc.data();
+      final instId = data['institutionId'] as String?;
+      if (data.containsKey('amount') && data['amount'] is String) {
+        data['amount'] = double.tryParse(CryptoService.decrypt(data['amount'] as String, institutionId: instId)) ?? 0.0;
+      }
+      return data;
+    }).toList();
   }
 
   Future<void> updatePayrollStatus(String payrollId, String status) async {

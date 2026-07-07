@@ -41,12 +41,12 @@ class _SentAnnouncementsScreenState extends State<SentAnnouncementsScreen> {
       print('Gönderilen duyurular yükleniyor: ${currentUser.email}');
 
       // Sadece kullanıcının kendi gönderdiği duyuruları getir
+      // Bellekte sıralama yapacağımız için orderBy ifadesini kaldırarak index gereksinimini gideriyoruz
       yield* FirebaseFirestore.instance
           .collection('schools')
           .doc(schoolId)
           .collection('announcements')
           .where('createdBy', isEqualTo: currentUser.email)
-          .orderBy('createdAt', descending: true)
           .snapshots();
     } catch (e, stackTrace) {
       print('Gönderilen duyurular alınırken hata: $e');
@@ -384,6 +384,18 @@ class _SentAnnouncementsScreenState extends State<SentAnnouncementsScreen> {
 
                       return true;
                     }).toList();
+
+                    // Firestore index hatasını önlemek için sıralamayı bellekte yapıyoruz (createdAt DESC)
+                    filteredAnnouncements.sort((a, b) {
+                      final aData = a.data() as Map<String, dynamic>;
+                      final bData = b.data() as Map<String, dynamic>;
+                      final aTime = aData['createdAt'] as Timestamp?;
+                      final bTime = bData['createdAt'] as Timestamp?;
+                      if (aTime == null && bTime == null) return 0;
+                      if (aTime == null) return 1;
+                      if (bTime == null) return -1;
+                      return bTime.compareTo(aTime);
+                    });
 
                     if (filteredAnnouncements.isEmpty) {
                       return Center(

@@ -117,6 +117,7 @@ class _AgmStudentTimetableScreenState extends State<AgmStudentTimetableScreen> {
           bitisSaat: group.bitisSaat,
           dersAdi: group.dersAdi,
           ogretmenAdi: group.ogretmenAdi,
+          derslikAdi: group.derslikAdi,
           kazanim: group.kazanimlar.isNotEmpty ? group.kazanimlar.first : null,
           renk: _dersRenkleri[group.dersId]!,
         ),
@@ -595,7 +596,9 @@ class _AgmStudentTimetableScreenState extends State<AgmStudentTimetableScreen> {
               Icon(Icons.person_outline, size: 14, color: Colors.grey.shade400),
               const SizedBox(height: 2),
               Text(
-                entry.ogretmenAdi,
+                entry.derslikAdi != null && entry.derslikAdi!.isNotEmpty 
+                  ? '${entry.ogretmenAdi} - ${entry.derslikAdi}' 
+                  : entry.ogretmenAdi,
                 style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
               ),
             ],
@@ -739,7 +742,7 @@ class _AgmStudentTimetableScreenState extends State<AgmStudentTimetableScreen> {
                                       ),
                                     ),
                                     pw.Text(
-                                      '${_norm(e.dersAdi)} (${_norm(e.ogretmenAdi)})',
+                                      '${_norm(e.dersAdi)} (${_norm(e.ogretmenAdi)}${e.derslikAdi != null ? ' - ' + _norm(e.derslikAdi!) : ''})',
                                       style: pw.TextStyle(
                                         font: fontBold,
                                         fontSize: 7,
@@ -822,7 +825,7 @@ class _AgmStudentTimetableScreenState extends State<AgmStudentTimetableScreen> {
                   ),
                   pw.SizedBox(height: 20),
                   pw.Table.fromTextArray(
-                    headers: ['Gün', 'Saat', 'Ders', 'Öğretmen', 'Kazanım'],
+                    headers: ['Gün', 'Saat', 'Ders', 'Öğretmen', 'Derslik', 'Kazanım'],
                     headerStyle: pw.TextStyle(
                       font: fontBold,
                       color: PdfColors.white,
@@ -838,6 +841,7 @@ class _AgmStudentTimetableScreenState extends State<AgmStudentTimetableScreen> {
                             '${e.baslangicSaat}-${e.bitisSaat}',
                             _norm(e.dersAdi),
                             _norm(e.ogretmenAdi),
+                            e.derslikAdi != null ? _norm(e.derslikAdi!) : '-',
                             e.kazanim != null ? _norm(e.kazanim!) : '-',
                           ],
                         )
@@ -906,6 +910,7 @@ class _AgmStudentTimetableScreenState extends State<AgmStudentTimetableScreen> {
             bitisSaat: group.bitisSaat,
             dersAdi: group.dersAdi,
             ogretmenAdi: group.ogretmenAdi,
+            derslikAdi: group.derslikAdi,
             kazanim: group.kazanimlar.isNotEmpty
                 ? group.kazanimlar.first
                 : null,
@@ -944,6 +949,7 @@ class _AgmStudentTimetableScreenState extends State<AgmStudentTimetableScreen> {
         TextCellValue('Saat'),
         TextCellValue('Ders'),
         TextCellValue('Öğretmen'),
+        TextCellValue('Derslik'),
         TextCellValue('Konu/Kazanım'),
       ]);
 
@@ -953,6 +959,7 @@ class _AgmStudentTimetableScreenState extends State<AgmStudentTimetableScreen> {
           TextCellValue('${e.baslangicSaat}-${e.bitisSaat}'),
           TextCellValue(e.dersAdi),
           TextCellValue(e.ogretmenAdi),
+          TextCellValue(e.derslikAdi ?? '-'),
           TextCellValue(e.kazanim ?? '-'),
         ]);
       }
@@ -976,6 +983,7 @@ class _TimetableEntry {
   final String bitisSaat;
   final String dersAdi;
   final String ogretmenAdi;
+  final String? derslikAdi;
   final String? kazanim;
   final Color renk;
 
@@ -985,6 +993,7 @@ class _TimetableEntry {
     required this.bitisSaat,
     required this.dersAdi,
     required this.ogretmenAdi,
+    this.derslikAdi,
     this.kazanim,
     required this.renk,
   });

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+// dart:html kaldırıldı – mobil uyumlu navigasyon kullanılıyor
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../models/assessment/external_exam_model.dart';
@@ -10,7 +11,9 @@ import 'external_exam_registrations_tab.dart';
 import 'external_exam_venue_screen.dart';
 import 'external_exam_messaging_screen.dart';
 import 'external_exam_entry_card_screen.dart';
+import 'external_exam_attendance_stats_screen.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../../../../screens/public/external_exam_attendance_screen.dart';
 
 class ExternalExamDetailScreen extends StatefulWidget {
   final ExternalExam exam;
@@ -34,6 +37,7 @@ class _ExternalExamDetailScreenState extends State<ExternalExamDetailScreen>
   late TabController _tabController;
   final ExternalExamService _service = ExternalExamService();
   late ExternalExam _exam;
+  late Stream<ExternalExam> _examStream;
 
   static const _primaryColor = Color(0xFFF57C00);
 
@@ -41,6 +45,11 @@ class _ExternalExamDetailScreenState extends State<ExternalExamDetailScreen>
   void initState() {
     super.initState();
     _exam = widget.exam;
+    _examStream = FirebaseFirestore.instance
+        .collection('external_exams')
+        .doc(widget.exam.id)
+        .snapshots()
+        .map((doc) => ExternalExam.fromMap(doc.data()!, doc.id));
     _tabController = TabController(length: 5, vsync: this);
   }
 
@@ -52,118 +61,124 @@ class _ExternalExamDetailScreenState extends State<ExternalExamDetailScreen>
 
   @override
   Widget build(BuildContext context) {
-    final isMobile = MediaQuery.of(context).size.width < 768;
+    return StreamBuilder<ExternalExam>(
+      stream: _examStream,
+      initialData: widget.exam,
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        }
+        final exam = snapshot.data!;
+        _exam = exam;
+        
+        final isMobile = MediaQuery.of(context).size.width < 768;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        title: Text(
-          _exam.title,
-          style: GoogleFonts.inter(
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-            fontSize: 16,
+        return Scaffold(
+          backgroundColor: const Color(0xFFF8FAFC),
+          appBar: AppBar(
+            title: Text(
+              exam.title,
+              style: GoogleFonts.inter(
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+                fontSize: 16,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+            backgroundColor: _primaryColor,
+            elevation: 0,
+            iconTheme: const IconThemeData(color: Colors.white),
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back_ios_new_rounded),
+              onPressed: () => Navigator.pop(context),
+            ),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.link_rounded),
+                onPressed: () {
+                  final String baseUrl = "${Uri.base.scheme}://${Uri.base.host}${Uri.base.hasPort ? ':${Uri.base.port}' : ''}";
+                  final String regUrl = "$baseUrl/sinav-basvuru?examId=${exam.id}";
+                  Clipboard.setData(ClipboardData(text: regUrl));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Başvuru linki panoya kopyalandı!'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                },
+                tooltip: 'Başvuru Linkini Kopyala',
+              ),
+              IconButton(
+                icon: const Icon(Icons.edit_rounded),
+                onPressed: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ExternalExamFormScreen(
+                        institutionId: widget.institutionId,
+                        schoolTypeId: widget.schoolTypeId,
+                        existingExam: exam,
+                      ),
+                    ),
+                  );
+                },
+                tooltip: 'Düzenle',
+              ),
+            ],
+            bottom: TabBar(
+              controller: _tabController,
+              isScrollable: true,
+              indicatorColor: Colors.white,
+              indicatorWeight: 3,
+              labelColor: Colors.white,
+              unselectedLabelColor: Colors.white.withOpacity(0.65),
+              labelStyle: GoogleFonts.inter(
+                  fontWeight: FontWeight.bold, fontSize: 13),
+              unselectedLabelStyle:
+                  GoogleFonts.inter(fontSize: 13),
+              tabs: const [
+                Tab(text: 'Başvurular'),
+                Tab(text: 'Salon Planı'),
+                Tab(text: 'Giriş Belgeleri'),
+                Tab(text: 'İletişim'),
+                Tab(text: 'Sınav Seviyeleri'),
+              ],
+            ),
           ),
-          overflow: TextOverflow.ellipsis,
-        ),
-        backgroundColor: _primaryColor,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded),
-          onPressed: () => Navigator.pop(context),
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.link_rounded),
-            onPressed: () {
-              final String baseUrl = "${Uri.base.scheme}://${Uri.base.host}${Uri.base.hasPort ? ':${Uri.base.port}' : ''}";
-              final String regUrl = "$baseUrl/sinav-basvuru?examId=${_exam.id}";
-              Clipboard.setData(ClipboardData(text: regUrl));
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Başvuru linki panoya kopyalandı!'),
-                  backgroundColor: Colors.green,
-                ),
-              );
-            },
-            tooltip: 'Başvuru Linkini Kopyala',
-          ),
-          IconButton(
-            icon: const Icon(Icons.edit_rounded),
-            onPressed: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => ExternalExamFormScreen(
-                    institutionId: widget.institutionId,
-                    schoolTypeId: widget.schoolTypeId,
-                    existingExam: _exam,
-                  ),
-                ),
-              );
-              // Reload exam data after edit
-              final updated =
-                  await _service.getExternalExamById(_exam.id ?? '');
-              if (updated != null && mounted) {
-                setState(() => _exam = updated);
-              }
-            },
-            tooltip: 'Düzenle',
-          ),
-        ],
-        bottom: TabBar(
-          controller: _tabController,
-          isScrollable: true,
-          indicatorColor: Colors.white,
-          indicatorWeight: 3,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white.withOpacity(0.65),
-          labelStyle: GoogleFonts.inter(
-              fontWeight: FontWeight.bold, fontSize: 13),
-          unselectedLabelStyle:
-              GoogleFonts.inter(fontSize: 13),
-          tabs: const [
-            Tab(text: 'Başvurular'),
-            Tab(text: 'Salon Planı'),
-            Tab(text: 'Giriş Belgeleri'),
-            Tab(text: 'İletişim'),
-            Tab(text: 'Sınav Seviyeleri'),
-          ],
-        ),
-      ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          // Tab 1: Başvurular
-          ExternalExamRegistrationsTab(
-            exam: _exam,
-            institutionId: widget.institutionId,
-          ),
+          body: TabBarView(
+            controller: _tabController,
+            children: [
+              // Tab 1: Başvurular
+              ExternalExamRegistrationsTab(
+                exam: exam,
+                institutionId: widget.institutionId,
+              ),
 
-          // Tab 2: Salon Planı
-          ExternalExamVenueScreen(
-            exam: _exam,
-            institutionId: widget.institutionId,
+              // Tab 2: Salon Planı
+              ExternalExamVenueScreen(
+                exam: exam,
+                institutionId: widget.institutionId,
+              ),
+
+              // Tab 3: Giriş Belgeleri
+              _buildEntryCardsTab(exam),
+
+              // Tab 4: İletişim
+              ExternalExamMessagingScreen(
+                exam: exam,
+                institutionId: widget.institutionId,
+              ),
+
+              // Tab 5: Sınav Seviyeleri
+              _buildExamLevelsTab(exam),
+            ],
           ),
-
-          // Tab 3: Giriş Belgeleri
-          _buildEntryCardsTab(),
-
-          // Tab 4: İletişim
-          ExternalExamMessagingScreen(
-            exam: _exam,
-            institutionId: widget.institutionId,
-          ),
-
-          // Tab 5: Sınav Seviyeleri
-          _buildExamLevelsTab(),
-        ],
-      ),
+        );
+      },
     );
   }
 
-  Widget _buildEntryCardsTab() {
+  Widget _buildEntryCardsTab(ExternalExam exam) {
     final isMobile = MediaQuery.of(context).size.width < 768;
 
     return StreamBuilder<List<ExternalExamRegistration>>(
@@ -259,6 +274,86 @@ class _ExternalExamDetailScreenState extends State<ExternalExamDetailScreen>
                       style: GoogleFonts.inter(fontWeight: FontWeight.bold),
                     ),
                   ),
+                  // Yoklama Al – uygulama içi gezinme (mobil uyumlu)
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ExternalExamAttendanceScreen(
+                            examId: exam.id ?? '',
+                          ),
+                        ),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF0EA5E9),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 24, vertical: 14),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14)),
+                      elevation: 0,
+                    ),
+                    icon: const Icon(Icons.fact_check_rounded),
+                    label: Text(
+                      'Yoklama Al',
+                      style: GoogleFonts.inter(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  // Yoklama Linkini Kopyala
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      final String baseUrl = '${Uri.base.scheme}://${Uri.base.host}${Uri.base.hasPort ? ':${Uri.base.port}' : ''}';
+                      final String yoklamaUrl = '$baseUrl/yoklama-al-${exam.id}';
+                      Clipboard.setData(ClipboardData(text: yoklamaUrl));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Yoklama linki panoya kopyalandı!'),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.teal,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 24, vertical: 14),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14)),
+                      elevation: 0,
+                    ),
+                    icon: const Icon(Icons.copy_rounded),
+                    label: Text(
+                      'Yoklama Linki Kopyala',
+                      style: GoogleFonts.inter(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ExternalExamAttendanceStatsScreen(
+                          exam: _exam,
+                          allRegistrations: regs,
+                        ),
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.indigo,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 24, vertical: 14),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14)),
+                      elevation: 0,
+                    ),
+                    icon: const Icon(Icons.analytics_rounded),
+                    label: Text(
+                      'Yoklama Raporları',
+                      style: GoogleFonts.inter(fontWeight: FontWeight.bold),
+                    ),
+                  ),
                 ],
               ),
 
@@ -293,7 +388,7 @@ class _ExternalExamDetailScreenState extends State<ExternalExamDetailScreen>
     );
   }
 
-  Widget _buildExamLevelsTab() {
+  Widget _buildExamLevelsTab(ExternalExam exam) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -311,8 +406,8 @@ class _ExternalExamDetailScreenState extends State<ExternalExamDetailScreen>
                 fontSize: 13, color: Colors.grey.shade500),
           ),
           const SizedBox(height: 24),
-          ...(_exam.gradeLevels).map((grade) {
-            final trialId = _exam.trialExamIds[grade];
+          ...(exam.gradeLevels).map((grade) {
+            final trialId = exam.trialExamIds[grade];
             return Container(
               margin: const EdgeInsets.only(bottom: 12),
               padding: const EdgeInsets.all(16),
@@ -514,7 +609,54 @@ class _ExternalExamDetailScreenState extends State<ExternalExamDetailScreen>
       if (reg.isScanned) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${reg.fullName} zaten okutulmuş!'), backgroundColor: Colors.orange));
       } else {
+        // 1) isScanned flag'i güncelle
         await _service.markAsScanned(reg.id!, true);
+
+        // 2) Öğrenci bir salona atandıysa external_exam_attendance kaydına da işle
+        if (reg.assignedRoomId != null && reg.id != null) {
+          try {
+            final attendSnap = await FirebaseFirestore.instance
+                .collection('external_exam_attendance')
+                .where('examId', isEqualTo: _exam.id)
+                .where('roomId', isEqualTo: reg.assignedRoomId)
+                .limit(1)
+                .get();
+
+            if (attendSnap.docs.isNotEmpty) {
+              final doc = attendSnap.docs.first;
+              final List<dynamic> attendances = List<dynamic>.from(doc.data()['attendances'] ?? []);
+              // Kaydı bul ve attended = true yap
+              bool found = false;
+              for (int i = 0; i < attendances.length; i++) {
+                if (attendances[i]['registrationId'] == reg.id) {
+                  attendances[i] = Map<String, dynamic>.from(attendances[i])..["attended"] = true;
+                  found = true;
+                  break;
+                }
+              }
+              if (!found) {
+                // Listede yoksa ekle
+                attendances.add({
+                  'registrationId': reg.id,
+                  'studentName': reg.fullName,
+                  'studentTcNo': reg.studentTcNo,
+                  'gradeLevel': reg.gradeLevel,
+                  'seatNumber': reg.seatNumber,
+                  'attended': true,
+                });
+              }
+              final attendedCount = attendances.where((a) => a['attended'] == true).length;
+              await doc.reference.update({
+                'attendances': attendances,
+                'attendedCount': attendedCount,
+                'savedAt': FieldValue.serverTimestamp(),
+              });
+            }
+          } catch (e) {
+            debugPrint('Attendance güncelleme hatası: $e');
+          }
+        }
+
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${reg.fullName} başarıyla okutuldu!'), backgroundColor: Colors.green));
       }
     } else {

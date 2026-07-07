@@ -113,6 +113,7 @@ class _SmsIntegrationScreenState extends State<SmsIntegrationScreen> {
         lastTestedAt: _existingSettings?.lastTestedAt,
         lastTestResult: _existingSettings?.lastTestResult,
         updatedBy: _userEmail,
+        schoolId: _schoolId,
       );
 
       await _smsService.saveSmsSettings(_schoolId!, settings, _userEmail ?? '');
@@ -167,6 +168,7 @@ class _SmsIntegrationScreenState extends State<SmsIntegrationScreen> {
             ? _customUrlController.text.trim()
             : null,
         isActive: true,
+        schoolId: _schoolId,
       );
 
       final result = await _smsService.testConnection(

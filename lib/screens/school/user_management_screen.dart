@@ -11,6 +11,7 @@ import '../../constants/school_type_modules.dart';
 import '../../firebase_options.dart';
 import '../../services/user_permission_service.dart';
 import '../../services/role_permission_service.dart';
+import '../../services/crypto_service.dart';
 // Web için
 
 import 'dart:html' as html show window;
@@ -430,7 +431,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                         _buildDetailRow(
                           Icons.badge,
                           'TC Kimlik',
-                          data['tcKimlik'],
+                          CryptoService.decrypt(data['tcKimlik']?.toString(), institutionId: data['institutionId']),
                         ),
 
                       // Telefon
@@ -1045,8 +1046,8 @@ class _UserManagementScreenState extends State<UserManagementScreen>
           }
           
           sortedUsers.sort((a, b) {
-            final aData = a.data() as Map<String, dynamic>;
-            final bData = b.data() as Map<String, dynamic>;
+            final aData = CryptoService.decryptMap(a.data() as Map<String, dynamic>);
+            final bData = CryptoService.decryptMap(b.data() as Map<String, dynamic>);
             final aRole = (aData['role'] ?? '').toString();
             final bRole = (bData['role'] ?? '').toString();
             
@@ -1095,7 +1096,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
     const staffRoles = ['personel', 'staff'];
 
     final filteredUsers = allUsers.where((doc) {
-      final data = doc.data() as Map<String, dynamic>;
+      final data = CryptoService.decryptMap(doc.data() as Map<String, dynamic>);
       final role = (data['role'] ?? '').toString().toLowerCase();
 
       switch (category) {
@@ -1136,7 +1137,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
       itemCount: filteredUsers.length,
       itemBuilder: (context, index) {
         final doc = filteredUsers[index];
-        final data = doc.data() as Map<String, dynamic>;
+        final data = CryptoService.decryptMap(doc.data() as Map<String, dynamic>);
         final role = data['role'] ?? 'staff';
         final isAdminRole = role == 'admin' || role == 'genel_mudur';
         final currentAuthUid = FirebaseAuth.instance.currentUser?.uid;
@@ -1536,6 +1537,48 @@ class _UserFormSheetState extends State<_UserFormSheet> {
 
   }
 
+  Future<void> _checkDuplicateAndPullData(String tc) async {
+    if (tc.length != 11) return;
+
+    try {
+      final encryptedTc = CryptoService.encrypt(tc, institutionId: widget.institutionId);
+
+      // Check in 'users'
+      final userQuery = await FirebaseFirestore.instance
+          .collection('users')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .where('tcKimlik', isEqualTo: encryptedTc)
+          .limit(1)
+          .get();
+
+      if (userQuery.docs.isNotEmpty) {
+        final existingUser = userQuery.docs.first.data();
+        
+        setState(() {
+          _fullNameController.text = CryptoService.decrypt(existingUser['fullName']?.toString(), institutionId: widget.institutionId);
+          _phoneController.text = CryptoService.decrypt(existingUser['phone']?.toString(), institutionId: widget.institutionId);
+          _emailController.text = existingUser['email'] ?? '';
+          _usernameController.text = existingUser['username'] ?? '';
+          final r = existingUser['role']?.toString();
+          if (r != null && widget.availableRoles.containsKey(r)) {
+            _selectedRole = r;
+          }
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('ℹ️ Bu TC numarasına ait mevcut kullanıcı bulundu ve bilgileri otomatik dolduruldu.'),
+              backgroundColor: Colors.indigo,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('TC lookup error: $e');
+    }
+  }
+
 
   @override
   void initState() {
@@ -1550,7 +1593,7 @@ class _UserFormSheetState extends State<_UserFormSheet> {
       text: widget.userData?['username'] ?? '',
     );
     _tcController = TextEditingController(
-      text: widget.userData?['tcKimlik'] ?? '',
+      text: CryptoService.decrypt(widget.userData?['tcKimlik']?.toString(), institutionId: widget.institutionId),
     );
     _phoneController = TextEditingController(
       text: widget.userData?['phone'] ?? '',
@@ -1706,8 +1749,13 @@ class _UserFormSheetState extends State<_UserFormSheet> {
     Map<String, Map<String, dynamic>> targetMap,
   ) {
     final hasSubModules = info.subModules.isNotEmpty;
-    final subPermsRaw = targetMap[key]?['subModules'] ?? {};
-    final subPerms = Map<String, dynamic>.from(subPermsRaw is Map ? subPermsRaw : {});
+    if (targetMap[key] == null) {
+      targetMap[key] = {'enabled': false, 'level': 'viewer'};
+    }
+    if (targetMap[key]!['subModules'] == null) {
+      targetMap[key]!['subModules'] = <String, dynamic>{};
+    }
+    final subPerms = targetMap[key]!['subModules'] as Map<String, dynamic>;
 
     return Column(
       children: [
@@ -1961,6 +2009,28 @@ class _UserFormSheetState extends State<_UserFormSheet> {
 
     try {
       final isEdit = widget.userId != null;
+
+      // TC Kimlik format kontrolü ve Mükerrer Kontrolü
+      if (_tcController.text.trim().isNotEmpty) {
+        final tcVal = _tcController.text.trim();
+        if (tcVal.length != 11) {
+          throw 'TC Kimlik numarası 11 haneli olmalıdır.';
+        }
+        final encryptedTc = CryptoService.encrypt(tcVal, institutionId: widget.institutionId);
+        final tcCheck = await FirebaseFirestore.instance
+            .collection('users')
+            .where('institutionId', isEqualTo: widget.institutionId)
+            .where('tcKimlik', isEqualTo: encryptedTc)
+            .limit(1)
+            .get();
+        if (tcCheck.docs.isNotEmpty) {
+          final foundDoc = tcCheck.docs.first;
+          if (!isEdit || foundDoc.id != widget.userId) {
+            throw 'Bu TC Kimlik numarasıyla kayıtlı başka bir kullanıcı zaten var.';
+          }
+        }
+      }
+
       final username = _usernameController.text.trim().toLowerCase().replaceAll(' ', '');
       final inputEmail = _emailController.text.trim().replaceAll(' ', '');
       final generatedEmail = '$username@${widget.institutionId.toLowerCase().replaceAll(' ', '')}.edukn';
@@ -2000,7 +2070,7 @@ class _UserFormSheetState extends State<_UserFormSheet> {
         'schoolId': widget.schoolId,
         'fullName': _fullNameController.text.trim(),
         'username': username,
-        'phone': _phoneController.text.trim(),
+        'phone': CryptoService.encrypt(_phoneController.text.trim(), institutionId: widget.institutionId),
         'role': _selectedRole,
         'email': contactEmail, // İletişim/Google login için
         'authEmail': authEmail, // Şifreli giriş için
@@ -2012,21 +2082,12 @@ class _UserFormSheetState extends State<_UserFormSheet> {
 
       // Opsiyonel alanları ekle
       if (_tcController.text.trim().isNotEmpty) {
-        userData['tcKimlik'] = _tcController.text.trim();
+        userData['tcKimlik'] = CryptoService.encrypt(_tcController.text.trim(), institutionId: widget.institutionId);
       }
 
-      // Sadece dolu olanları ekle
-      if (_schoolTypePermissions.isNotEmpty) {
-        userData['schoolTypePermissions'] = _schoolTypePermissions;
-      }
-
-      if (activeModules.isNotEmpty) {
-        userData['modulePermissions'] = activeModules;
-      }
-
-      if (activeSchoolTypeModules.isNotEmpty) {
-        userData['schoolTypeModulePermissions'] = activeSchoolTypeModules;
-      }
+      userData['schoolTypePermissions'] = _schoolTypePermissions;
+      userData['modulePermissions'] = activeModules;
+      userData['schoolTypeModulePermissions'] = activeSchoolTypeModules;
 
 
       if (isEdit) {
@@ -2172,6 +2233,7 @@ class _UserFormSheetState extends State<_UserFormSheet> {
       }
 
       if (mounted) {
+        UserPermissionService.clearCache();
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -2759,6 +2821,9 @@ class _UserFormSheetState extends State<_UserFormSheet> {
                                               offset: filtered.length,
                                             ),
                                           );
+                                    }
+                                    if (filtered.length == 11) {
+                                      _checkDuplicateAndPullData(filtered);
                                     }
                                   },
                                   validator: (v) {

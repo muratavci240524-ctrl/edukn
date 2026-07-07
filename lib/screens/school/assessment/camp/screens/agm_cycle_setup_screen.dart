@@ -63,6 +63,7 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
   int? _specialClassCapacity;
   String? _specialClassRoomId;
   String? _specialClassRoomName;
+  String _specialClassCriteria = 'success_rate';
 
   // ── Saat dilimleri ─────────────────────────────────────
   List<AgmTimeSlot> _existingSlots = [];
@@ -112,6 +113,7 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
       _specialClassCapacity = c.specialClassCapacity;
       _specialClassRoomId = c.specialClassRoomId;
       _specialClassRoomName = c.specialClassRoomName;
+      _specialClassCriteria = c.specialClassCriteria;
     }
 
     _loadData();
@@ -751,6 +753,18 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: _specialClassCriteria,
+                    decoration: _inputDecoration('Özel Sınıf Kriteri'),
+                    items: const [
+                      DropdownMenuItem(value: 'success_rate', child: Text('Başarı Yüzdesine Göre (Varsayılan)', style: TextStyle(fontSize: 13))),
+                      DropdownMenuItem(value: 'exam_score', child: Text('Sınav Sonuç Puanına Göre', style: TextStyle(fontSize: 13))),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) setState(() => _specialClassCriteria = v);
+                    },
                   ),
                 ],
               ],
@@ -2454,6 +2468,19 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
       }
     }
 
+    final oldCycle = widget.initialCycle;
+    bool examChanged = false;
+    if (oldCycle != null) {
+      final oldIds = oldCycle.referansDenemeSinavIds.isNotEmpty ? oldCycle.referansDenemeSinavIds : [oldCycle.referansDenemeSinavId];
+      if (oldIds.length != _selectedExamIds.length || !oldIds.every((id) => _selectedExamIds.contains(id))) {
+        examChanged = true;
+      }
+    }
+
+    if (examChanged && oldCycle != null) {
+      await _repo.rollbackAssignments(oldCycle.id);
+    }
+
     // 2) Cycle nesnesini hazırla
     final cycle = AgmCycle(
       id: widget.initialCycle?.id ?? '',
@@ -2475,6 +2502,11 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
       specialClassCapacity: _specialClassCapacity,
       specialClassRoomId: _specialClassRoomId,
       specialClassRoomName: _specialClassRoomName,
+      specialClassCriteria: _specialClassCriteria,
+      unassignedStudentIds: examChanged ? [] : (widget.initialCycle?.unassignedStudentIds ?? []),
+      underAssignedStudentIds: examChanged ? [] : (widget.initialCycle?.underAssignedStudentIds ?? []),
+      absentStudentIds: examChanged ? [] : (widget.initialCycle?.absentStudentIds ?? []),
+      unassignedReasons: examChanged ? {} : (widget.initialCycle?.unassignedReasons ?? {}),
     );
 
     // 3) Servis üzerinden kaydet (SMART UPDATE)

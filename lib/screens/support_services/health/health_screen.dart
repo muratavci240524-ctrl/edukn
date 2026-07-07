@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import '../../../services/crypto_service.dart';
 
 class HealthScreen extends StatefulWidget {
   final String? fixedSchoolTypeId;
@@ -96,7 +97,15 @@ class _HealthScreenState extends State<HealthScreen>
     final snap = await query.orderBy('visitDate', descending: true).get();
 
     setState(() {
-      _visits = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+      _visits = snap.docs.map((d) {
+        final data = Map<String, dynamic>.from(d.data());
+        data['id'] = d.id;
+        data['complaint'] = CryptoService.decrypt(data['complaint']?.toString(), institutionId: _institutionId);
+        data['treatment'] = CryptoService.decrypt(data['treatment']?.toString(), institutionId: _institutionId);
+        data['medicationName'] = CryptoService.decrypt(data['medicationName']?.toString(), institutionId: _institutionId);
+        data['notes'] = CryptoService.decrypt(data['notes']?.toString(), institutionId: _institutionId);
+        return data;
+      }).toList();
     });
   }
 
@@ -220,11 +229,11 @@ class _HealthScreenState extends State<HealthScreen>
         .collection('healthVisits')
         .add({
           'studentName': studentNameCtrl.text.trim(),
-          'complaint': complaintCtrl.text.trim(),
-          'treatment': treatmentCtrl.text.trim(),
+          'complaint': CryptoService.encrypt(complaintCtrl.text.trim(), institutionId: _institutionId),
+          'treatment': CryptoService.encrypt(treatmentCtrl.text.trim(), institutionId: _institutionId),
           'medicationGiven': medicationGiven,
-          'medicationName': medicationGiven ? (medicationName ?? '') : '',
-          'notes': notesCtrl.text.trim(),
+          'medicationName': CryptoService.encrypt(medicationGiven ? (medicationName ?? '') : '', institutionId: _institutionId),
+          'notes': CryptoService.encrypt(notesCtrl.text.trim(), institutionId: _institutionId),
           'visitDate': Timestamp.fromDate(DateTime.now()),
           'createdAt': FieldValue.serverTimestamp(),
           'createdBy': FirebaseAuth.instance.currentUser?.email ?? '',
@@ -577,7 +586,8 @@ class _HealthScreenState extends State<HealthScreen>
         // Group by complaint
         final complaintMap = <String, int>{};
         for (final doc in docs) {
-          final complaint = doc['complaint'] as String? ?? 'Diğer';
+          final rawComplaint = doc['complaint'] as String?;
+          final complaint = CryptoService.decrypt(rawComplaint, institutionId: _institutionId) ?? 'Diğer';
           complaintMap[complaint] = (complaintMap[complaint] ?? 0) + 1;
         }
         final sortedComplaints = complaintMap.entries.toList()

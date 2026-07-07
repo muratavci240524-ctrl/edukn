@@ -9,6 +9,7 @@ import '../../widgets/edukn_logo.dart';
 import 'dart:html' as html show window;
 import 'profile_settings_screen.dart';
 import '../../services/term_service.dart';
+import '../../services/user_permission_service.dart';
 import 'terms_screen.dart';
 import 'assessment/assessment_dashboard_screen.dart';
 import 'assessment/assessment_reports_screen.dart';
@@ -368,6 +369,8 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
     );
 
     if (confirm == true) {
+      UserPermissionService.clearCache();
+      TermService().clearCache();
       await FirebaseAuth.instance.signOut();
       if (mounted) {
         Navigator.pushReplacementNamed(context, '/school-login');

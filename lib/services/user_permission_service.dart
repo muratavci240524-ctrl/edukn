@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'crypto_service.dart';
 
 /// Merkezi kullanıcı yetki yönetim servisi
 /// Tüm modüller bu servisi kullanarak kullanıcı verilerini ve yetkilerini alır
@@ -24,6 +25,9 @@ class UserPermissionService {
         _loadFuture = null;
         return null;
       }
+
+      // Şifreleme anahtarını sunucudan güvenli bir şekilde çek ve yükle
+      await CryptoService.init();
 
       // Impersonation kontrolü
       final prefs = await SharedPreferences.getInstance();
@@ -151,8 +155,8 @@ class UserPermissionService {
         print('ℹ️ Kullanıcı verisi bulunamadı, varsayılan yetkiler kullanılacak.');
       }
 
-      _cachedUserData = userData;
-      return userData;
+      _cachedUserData = userData != null ? CryptoService.decryptMap(userData) : null;
+      return _cachedUserData;
     } catch (e) {
       print('❌ Kullanıcı verileri yüklenirken hata: $e');
       return null;
@@ -168,6 +172,8 @@ class UserPermissionService {
   static void clearCache() {
     _cachedUserData = null;
     _isImpersonating = false;
+    _loadFuture = null;
+    CryptoService.clearCache();
   }
 
   /// Belirli bir modüle erişim yetkisi var mı?

@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../../../firebase_options.dart';
 import 'package:edukn/services/pdf_service.dart';
+import '../../../services/crypto_service.dart';
 
 class StaffDetailScreen extends StatefulWidget {
   final Map<String, dynamic>? staff;
@@ -541,7 +542,8 @@ class _PersonalTabState extends State<_PersonalTab> {
   Future<void> _editPersonalInfo() async {
     final staff = _staffData;
 
-    final tcCtrl = TextEditingController(text: staff['tc']);
+    final tcDecrypted = CryptoService.decrypt(staff['tc'] ?? staff['tcKimlik'] ?? '', institutionId: staff['institutionId']);
+    final tcCtrl = TextEditingController(text: tcDecrypted);
     final birthDateCtrl = TextEditingController(text: staff['birthDate']);
     final birthPlaceCtrl = TextEditingController(text: staff['birthPlace']);
     final nationalityCtrl = TextEditingController(text: staff['nationality']);
@@ -789,7 +791,8 @@ class _PersonalTabState extends State<_PersonalTab> {
                     onPressed: () {
                       Navigator.pop(context);
                       _updateStaff({
-                        'tc': tcCtrl.text.trim(),
+                        'tc': CryptoService.encrypt(tcCtrl.text.trim(), institutionId: staff['institutionId']),
+                        'tcKimlik': CryptoService.encrypt(tcCtrl.text.trim(), institutionId: staff['institutionId']),
                         'birthDate': birthDateCtrl.text.trim(),
                         'birthPlace': birthPlaceCtrl.text.trim(),
                         'gender': gender,
@@ -1090,7 +1093,7 @@ class _PersonalInfoCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final fullName = (staff['fullName'] ?? '') as String;
     final role = (staff['title'] ?? 'Ünvan Girilmedi') as String;
-    final tc = (staff['tc'] ?? '') as String;
+    final tc = CryptoService.decrypt((staff['tc'] ?? staff['tcKimlik'] ?? '')?.toString(), institutionId: staff['institutionId']);
     final birthDate = (staff['birthDate'] ?? '') as String;
     final birthPlace = (staff['birthPlace'] ?? '') as String;
     final gender = (staff['gender'] ?? '') as String;

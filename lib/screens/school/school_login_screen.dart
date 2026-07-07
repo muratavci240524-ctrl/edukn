@@ -11,6 +11,9 @@ import '../../widgets/web_image_renderer.dart';
 import '../teacher/teacher_main_screen.dart';
 import 'parent_student_selection_screen.dart';
 import '../../services/notification_service.dart';
+import '../../services/user_permission_service.dart';
+import '../../services/term_service.dart';
+import 'school_types/school_type_detail_screen.dart';
 
 class SchoolLoginScreen extends StatefulWidget {
   const SchoolLoginScreen({Key? key}) : super(key: key);
@@ -32,20 +35,70 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
   @override
   void initState() {
     super.initState();
+    _clearStaleSessionData();
     _checkExistingSession();
+  }
+
+  Future<void> _clearStaleSessionData() async {
+    final prefs = await SharedPreferences.getInstance();
+    // Only clear active_portal if we don't have an active Firebase session.
+    // However, if we are at the login screen, we should clear it so that
+    // a new manual login starts fresh.
+    if (FirebaseAuth.instance.currentUser == null) {
+      await prefs.remove('active_portal');
+      UserPermissionService.clearCache();
+      TermService().clearCache();
+    }
   }
 
   /// Mevcut Firebase Auth oturumunu kontrol et.
   /// Kullanıcı daha önce giriş yaptıysa (ve çıkış yapmadıysa) direkt dashboard'a yönlendir.
+  /// ANCAK: URL public bir sayfaysa (/yoklama-al-* veya /sinav-basvuru) o sayfaya yönlendir.
   Future<void> _checkExistingSession() async {
     try {
+      // Mevcut URL public bir sayfa mı? (yoklama-al veya sinav-basvuru)
+      // Öyleyse login ekranı değil, direkt o sayfa açılmalı.
+      if (kIsWeb) {
+        final currentUri = Uri.base;
+        final currentPath = currentUri.path;
+
+        if (currentPath.startsWith('/yoklama-al-')) {
+          if (!mounted) return;
+          // Login ekranı değil, yoklama ekranına yönlendir
+          Navigator.pushReplacementNamed(context, currentPath);
+          return;
+        }
+        if (currentPath.startsWith('/sinav-basvuru')) {
+          if (!mounted) return;
+          final examId = currentUri.queryParameters['examId'];
+          final route = examId != null
+              ? '/sinav-basvuru?examId=$examId'
+              : '/sinav-basvuru';
+          Navigator.pushReplacementNamed(context, route);
+          return;
+        }
+      }
+
       // Firebase Auth oturumu var mı?
-      final user = FirebaseAuth.instance.currentUser;
+      User? user = FirebaseAuth.instance.currentUser;
+      if (user == null && kIsWeb) {
+        // Web'de yüklenmesi vakit alabilir, çok kısa bekle
+        await Future.delayed(const Duration(milliseconds: 1000));
+        user = FirebaseAuth.instance.currentUser;
+      }
+      
       if (user != null) {
         print('✅ Mevcut oturum bulundu: ${user.email}');
         // Token'ı yenile (geçerliliği kontrol et)
         await user.reload();
         if (!mounted) return;
+        
+        // Süper Admin yönlendirmesi
+        if (user.email?.toLowerCase() == 'superadmin@edukn.com') {
+          Navigator.pushReplacementNamed(context, '/admin-dashboard');
+          return;
+        }
+        
         // Direkt dashboard'a git
         Navigator.pushReplacementNamed(context, '/school-dashboard');
         return;
@@ -97,7 +150,47 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       String emailToUse;
       if (username.contains('@')) {
         emailToUse = username;
-        print('📧 Email formatı algılandı: $emailToUse');
+        print('📧 Email formatı algılandı: $emailToUse. Firestore araması yapılıyor...');
+        try {
+          final results = await Future.wait([
+            FirebaseFirestore.instance
+                .collection('users')
+                .where('institutionId', isEqualTo: institutionId)
+                .where('email', isEqualTo: username)
+                .limit(1)
+                .get(),
+            FirebaseFirestore.instance
+                .collection('users')
+                .where('institutionId', isEqualTo: institutionId)
+                .where('corporateEmail', isEqualTo: username)
+                .limit(1)
+                .get(),
+            FirebaseFirestore.instance
+                .collection('users')
+                .where('institutionId', isEqualTo: institutionId)
+                .where('personalEmail', isEqualTo: username)
+                .limit(1)
+                .get(),
+          ]);
+
+          DocumentSnapshot? matchedDoc;
+          for (final snap in results) {
+            if (snap.docs.isNotEmpty) {
+              matchedDoc = snap.docs.first;
+              break;
+            }
+          }
+
+          if (matchedDoc != null) {
+            final dbAuthEmail = matchedDoc.get('email') as String?;
+            if (dbAuthEmail != null && dbAuthEmail.isNotEmpty) {
+              emailToUse = dbAuthEmail;
+              print('✅ E-posta eşleşmesi bulundu! Kullanılacak Auth e-postası: $emailToUse');
+            }
+          }
+        } catch (e) {
+          print('❌ E-posta Firestore arama hatası: $e');
+        }
       } else {
         // Önce Firestore'dan bu kullanıcı adının gerçek mailini bulmayı dene
         print('🔍 Firestore\'da kullanıcı adı aranıyor: $username');
@@ -241,7 +334,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         final fallbackQuery = await FirebaseFirestore.instance
             .collection('users')
             .where('institutionId', isEqualTo: institutionId)
-            .where('username', isEqualTo: username)
+            .where('email', isEqualTo: successEmail)
             .limit(1)
             .get();
         if (fallbackQuery.docs.isNotEmpty) userData = fallbackQuery.docs.first.data();
@@ -271,39 +364,11 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         if (!mounted) return;
         Navigator.pop(context);
 
-        final role = userData?['role']?.toString().toLowerCase() ?? '';
-        if (role.contains('ogretmen') || role.contains('teacher') || role.contains('öğretmen')) {
-          Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => TeacherMainScreen(institutionId: institutionId)));
-        } else if (role == 'parent') {
-          // Veli girişi: Öğrencileri bul
-          final tcNo = userData?['tcNo'] ?? '';
-          final studentsQuery = await FirebaseFirestore.instance
-              .collection('students')
-              .where('institutionId', isEqualTo: institutionId)
-              .where('parentTcNos', arrayContains: tcNo)
-              .get();
-              
-          final students = studentsQuery.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
-          
-          if (students.length > 1) {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                builder: (context) => ParentStudentSelectionScreen(
-                  institutionId: institutionId,
-                  parentTcNo: tcNo,
-                  students: students,
-                ),
-              ),
-            );
-          } else if (students.length == 1) {
-            final prefs = await SharedPreferences.getInstance();
-            await prefs.setString('selected_student_id', students[0]['id']);
-            Navigator.pushReplacementNamed(context, '/school-dashboard');
-          } else {
-            Navigator.pushReplacementNamed(context, '/school-dashboard');
-          }
+        if (userData != null) {
+          await _routeUserAfterLoadingData(userData, institutionId);
         } else {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('active_portal', 'manager');
           Navigator.pushReplacementNamed(context, '/school-dashboard');
         }
       }
@@ -313,6 +378,320 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _routeUserAfterLoadingData(Map<String, dynamic>? userData, String institutionId) async {
+    if (userData == null) {
+      Navigator.pushReplacementNamed(context, '/school-dashboard');
+      return;
+    }
+
+    final role = userData['role']?.toString().toLowerCase() ?? '';
+    final tcNo = userData['tcNo'] ?? userData['tcKimlik'] ?? '';
+
+    // Check parent eligibility
+    bool hasParentRole = role == 'parent' || role == 'veli';
+    List<Map<String, dynamic>> students = [];
+    if (tcNo.toString().isNotEmpty) {
+      try {
+        final studentsQuery = await FirebaseFirestore.instance
+            .collection('students')
+            .where('institutionId', isEqualTo: institutionId)
+            .where('parentTcNos', arrayContains: tcNo.toString())
+            .get();
+        if (studentsQuery.docs.isNotEmpty) {
+          hasParentRole = true;
+          students = studentsQuery.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+        }
+      } catch (e) {
+        print('❌ Redirection parent check error: $e');
+      }
+    }
+
+    // Identify portals
+    final eligiblePortals = <Map<String, dynamic>>[];
+
+    // 1. Yönetici / Personel Portalı
+    bool isManager = role.contains('genel_mudur') ||
+        role.contains('genel müdür') ||
+        role.contains('genel mudur') ||
+        role.contains('mudur') ||
+        role.contains('müdür') ||
+        role.contains('admin') ||
+        role.contains('hr') ||
+        role.contains('muhasebe') ||
+        role.contains('satin_alma') ||
+        role.contains('depo') ||
+        role.contains('destek_hizmetleri') ||
+        role.contains('personel') ||
+        role.contains('staff') ||
+        role.contains('kurucu') ||
+        role.contains('yönetici') ||
+        role.contains('yonetici');
+
+    bool isStrictlyTeacher = (role.contains('ogretmen') || role.contains('teacher') || role.contains('öğretmen')) && !isManager;
+    bool isStrictlyParent = role == 'parent' || role == 'veli';
+
+    if (isManager || (!isStrictlyTeacher && !isStrictlyParent && role.isNotEmpty)) {
+      eligiblePortals.add({
+        'id': 'manager',
+        'title': 'Yönetici / Personel Portalı',
+        'subtitle': 'Kurum genel yönetimi ve modüller',
+        'icon': Icons.admin_panel_settings_rounded,
+        'color': Colors.indigo,
+      });
+    }
+
+    // 2. Öğretmen Portalı
+    if (role.contains('ogretmen') || role.contains('teacher') || role.contains('öğretmen')) {
+      eligiblePortals.add({
+        'id': 'teacher',
+        'title': 'Öğretmen Portalı',
+        'subtitle': 'Sınıf, ders ve öğrenci işlemleri',
+        'icon': Icons.school_rounded,
+        'color': Colors.orange,
+      });
+    }
+
+    // 3. Veli / Öğrenci Portalı
+    if (hasParentRole || isStrictlyParent) {
+      eligiblePortals.add({
+        'id': 'parent',
+        'title': 'Veli / Öğrenci Portalı',
+        'subtitle': 'Öğrenci takibi ve bilgilendirme',
+        'icon': Icons.family_restroom_rounded,
+        'color': Colors.green,
+      });
+    }
+
+    if (eligiblePortals.length > 1) {
+      if (mounted) {
+        setState(() {
+          _checkingSession = false;
+          _isLoading = false;
+        });
+        _showPortalSelectionDialog(eligiblePortals, userData, institutionId, students);
+      }
+    } else if (eligiblePortals.length == 1) {
+      final portal = eligiblePortals.first['id'];
+      _navigateToPortal(portal, userData, institutionId, students);
+    } else {
+      Navigator.pushReplacementNamed(context, '/school-dashboard');
+    }
+  }
+
+  void _showPortalSelectionDialog(
+    List<Map<String, dynamic>> portals,
+    Map<String, dynamic> userData,
+    String institutionId,
+    List<Map<String, dynamic>> students,
+  ) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return WillPopScope(
+          onWillPop: () async => false,
+          child: Dialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+            backgroundColor: Colors.white,
+            elevation: 16,
+            child: Container(
+              padding: const EdgeInsets.all(28),
+              constraints: const BoxConstraints(maxWidth: 450),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF4C59BC).withOpacity(0.08),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.account_tree_rounded,
+                      color: Color(0xFF4C59BC),
+                      size: 32,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    'Portal Seçimi',
+                    style: GoogleFonts.inter(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: const Color(0xFF1E2661),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Hesabınızda tanımlı birden fazla portal bulundu. Lütfen giriş yapmak istediğiniz portalı seçin:',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.inter(
+                      fontSize: 13,
+                      color: Colors.grey.shade600,
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  ...portals.map((portal) {
+                    final color = portal['color'] as Color;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: InkWell(
+                        onTap: () {
+                          Navigator.pop(context); // Close dialog
+                          _navigateToPortal(portal['id'], userData, institutionId, students);
+                        },
+                        borderRadius: BorderRadius.circular(20),
+                        child: Container(
+                          padding: const EdgeInsets.all(18),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: color.withOpacity(0.2), width: 1.5),
+                            borderRadius: BorderRadius.circular(20),
+                            color: color.withOpacity(0.02),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: color.withOpacity(0.1),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Icon(portal['icon'] as IconData, color: color, size: 24),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      portal['title'] as String,
+                                      style: GoogleFonts.inter(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.bold,
+                                        color: const Color(0xFF1E2661),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      portal['subtitle'] as String,
+                                      style: GoogleFonts.inter(
+                                        fontSize: 11,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Icon(
+                                Icons.arrow_forward_ios_rounded,
+                                size: 14,
+                                color: Colors.grey.shade400,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                  const SizedBox(height: 12),
+                  TextButton(
+                    onPressed: () async {
+                      await FirebaseAuth.instance.signOut();
+                      if (mounted) {
+                        Navigator.pop(context); // Close dialog
+                        setState(() {
+                          _checkingSession = false;
+                        });
+                      }
+                    },
+                    child: Text(
+                      'İptal Et ve Çıkış Yap',
+                      style: GoogleFonts.inter(
+                        color: Colors.red.shade600,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _navigateToPortal(
+    String portalId,
+    Map<String, dynamic> userData,
+    String institutionId,
+    List<Map<String, dynamic>> students,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('active_portal', portalId);
+
+    if (portalId == 'manager') {
+      if (!UserPermissionService.hasAnyMainModuleAccess(userData)) {
+        final userSchoolTypes = userData['schoolTypes'] as List<dynamic>? ?? [];
+        if (userSchoolTypes.length == 1) {
+          final schoolTypeId = userSchoolTypes.first.toString();
+          try {
+            final stDoc = await FirebaseFirestore.instance.collection('schoolTypes').doc(schoolTypeId).get();
+            if (stDoc.exists) {
+              final stName = stDoc.data()?['name'] ?? stDoc.data()?['schoolTypeName'] ?? 'Okul Türü';
+              if (mounted) {
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => SchoolTypeDetailScreen(
+                      schoolTypeId: schoolTypeId,
+                      schoolTypeName: stName,
+                      institutionId: institutionId,
+                    ),
+                  ),
+                );
+                return;
+              }
+            }
+          } catch (e) {
+            print('Error fetching school type details on login redirect: $e');
+          }
+        }
+        
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/school-types');
+          return;
+        }
+      }
+      Navigator.pushReplacementNamed(context, '/school-dashboard');
+    } else if (portalId == 'teacher') {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => TeacherMainScreen(institutionId: institutionId)),
+      );
+    } else if (portalId == 'parent') {
+      final tcNo = userData['tcNo'] ?? userData['tcKimlik'] ?? '';
+      if (students.length > 1) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ParentStudentSelectionScreen(
+              institutionId: institutionId,
+              parentTcNo: tcNo.toString(),
+              students: students,
+            ),
+          ),
+        );
+      } else if (students.length == 1) {
+        await prefs.setString('selected_student_id', students[0]['id']);
+        Navigator.pushReplacementNamed(context, '/school-dashboard');
+      } else {
+        Navigator.pushReplacementNamed(context, '/school-dashboard');
+      }
     }
   }
 
@@ -1199,15 +1578,15 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       onTap: () => setState(() => _kvkkAccepted = !_kvkkAccepted),
       child: Row(
         children: [
-          Container(
-            width: 16,
-            height: 16,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: _kvkkAccepted ? const Color(0xFF4C59BC) : Colors.grey.shade300, width: 1.5),
-              color: _kvkkAccepted ? const Color(0xFF4C59BC) : Colors.transparent,
+          SizedBox(
+            width: 24,
+            height: 24,
+            child: Checkbox(
+              value: _kvkkAccepted,
+              onChanged: (val) => setState(() => _kvkkAccepted = val ?? false),
+              activeColor: const Color(0xFF4C59BC),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
             ),
-            child: _kvkkAccepted ? const Icon(Icons.check, size: 10, color: Colors.white) : null,
           ),
           const SizedBox(width: 10),
           Expanded(

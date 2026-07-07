@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../school/profile_settings_screen.dart';
 import 'teacher_lessons_screen.dart';
 import 'teacher_student_list_screen.dart';
@@ -19,6 +20,7 @@ import '../school/homework/homework_operations_screen.dart';
 import '../school/etut_process_screen.dart';
 import '../school/survey/survey_list_screen.dart';
 import '../../services/user_permission_service.dart';
+import '../../services/term_service.dart';
 import '../hr/leave/leave_management_screen.dart';
 import 'teacher_duty_screen.dart';
 import '../school/tasks/field_trip_list_screen.dart';
@@ -1510,6 +1512,10 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     );
 
     if (confirm == true) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('active_portal');
+      UserPermissionService.clearCache();
+      TermService().clearCache();
       await FirebaseAuth.instance.signOut();
       if (mounted) {
         Navigator.pushNamedAndRemoveUntil(context, '/school-login', (route) => false);

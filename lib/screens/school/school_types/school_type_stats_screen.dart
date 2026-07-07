@@ -22,28 +22,13 @@ class _SchoolTypeStatsScreenState extends State<SchoolTypeStatsScreen>
   @override
   void initState() {
     super.initState();
-    _loadUserPermissions();
     _loadData();
   }
 
   // Kullanıcı yetkilendirme bilgilerini yükle
   Future<void> _loadUserPermissions() async {
     try {
-      final currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser == null) {
-        return;
-      }
-
-      // Kullanıcı verilerini çek
-      final userQuery = await FirebaseFirestore.instance
-          .collection('users')
-          .where('email', isEqualTo: currentUser.email)
-          .limit(1)
-          .get();
-
-      if (userQuery.docs.isNotEmpty) {
-        userData = userQuery.docs.first.data();
-      }
+      userData = await UserPermissionService.loadUserData();
     } catch (e) {
       print('Kullanıcı yetkileri yüklenirken hata: $e');
     }
@@ -54,6 +39,26 @@ class _SchoolTypeStatsScreenState extends State<SchoolTypeStatsScreen>
     // Admin kullanıcısı (userData yok) - Tüm okul türlerine erişim var
     if (userData == null) return true;
 
+    final role = (userData!['role'] as String?)?.toLowerCase();
+    if (role == 'genel_mudur' || role == 'admin') return true;
+
+    // Modül düzeyindeki yetki seviyesine bak
+    final modulePerms = userData!['modulePermissions'] as Map<String, dynamic>?;
+    final egitimPerm = modulePerms?['egitim'] as Map<String, dynamic>?;
+    final subModules = egitimPerm?['subModules'] as Map<String, dynamic>?;
+    final schoolTypePerm = subModules?['okul_turleri'] as Map<String, dynamic>?;
+    final generalLevel = schoolTypePerm?['level'];
+
+    // Eğer modül düzeyinde 'editor' ise tüm okul türlerine girebilir
+    if (generalLevel == 'editor') return true;
+
+    // schoolTypePermissions map'inde tanımlı mı?
+    final schoolTypePerms = userData!['schoolTypePermissions'] as Map<String, dynamic>?;
+    if (schoolTypePerms != null && schoolTypePerms.containsKey(schoolTypeId)) {
+      return true;
+    }
+
+    // schoolTypes list'inde tanımlı mı? (Örn. öğretmenler için)
     final schoolTypes = userData!['schoolTypes'] as List<dynamic>? ?? [];
     return schoolTypes.contains(schoolTypeId);
   }
@@ -62,6 +67,9 @@ class _SchoolTypeStatsScreenState extends State<SchoolTypeStatsScreen>
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
+
+      // Yetkileri yükle
+      await _loadUserPermissions();
 
       final email = user.email!;
       final instId = await UserPermissionService.resolveInstitutionId(email, userData: userData);

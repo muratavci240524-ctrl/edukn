@@ -241,6 +241,19 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
       _selectedExamIds = Set.from(plan.selectedExamIds);
       _subjectThresholds = Map.from(plan.subjectThresholds);
       _branchActionPlans = Map.from(plan.branchActionPlans);
+      
+      // Load student tasks and parent notifications
+      _studentTasks = {};
+      plan.studentTasks.forEach((k, v) {
+        if (v is List) {
+          _studentTasks[k] = List<Map<String, dynamic>>.from(
+            v.map((item) => Map<String, dynamic>.from(item as Map)),
+          );
+        }
+      });
+      _parentNotified = Map<String, bool>.from(plan.parentNotified);
+      _studentStatus = Map<String, String>.from(plan.studentStatus);
+
       _selectedClassLevel = plan.classLevel;
       _calculateStats();
     });
@@ -330,6 +343,9 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
           subjectThresholds: _subjectThresholds,
           outcomeStats: _outcomeStats,
           branchActionPlans: _branchActionPlans,
+          studentTasks: _studentTasks,
+          parentNotified: _parentNotified,
+          studentStatus: _studentStatus,
           isRealized: widget.existingPlan?.isRealized ?? false,
           realizationNotes: widget.existingPlan?.realizationNotes ?? '',
         );

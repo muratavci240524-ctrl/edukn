@@ -4,6 +4,7 @@ import 'package:cloud_functions/cloud_functions.dart'; // Yeni fonksiyonlar içi
 import 'package:intl/intl.dart'; // Tarih formatlamak için
 import 'add_school_screen.dart';
 import 'admin_login_screen.dart';
+import '../admin/data_encryption_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   @override
@@ -722,6 +723,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         ),
         actions: [
           IconButton(
+            icon: Icon(Icons.lock_outline_rounded, color: Colors.indigo),
+            tooltip: 'Veri Şifreleme',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const DataEncryptionScreen()),
+              );
+            },
+          ),
+          IconButton(
             icon: Icon(Icons.logout_outlined, color: Colors.red),
             tooltip: 'Çıkış Yap',
             onPressed: _logout,
@@ -805,34 +816,38 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       );
                     }
 
-                    // İstatistikleri hesapla
-                    int totalSchools = snapshot.data!.docs.length;
-                    int activeSchools = 0;
-                    int passiveSchools = 0;
-                    int totalStudents = 0;
-                    int activeStudents = 0;
-                    int passiveStudents = 0;
+                    return FutureBuilder<QuerySnapshot>(
+                      future: FirebaseFirestore.instance.collection('students').get(),
+                      builder: (context, studentsSnapshot) {
+                        if (studentsSnapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(child: CircularProgressIndicator());
+                        }
 
-                    for (var doc in snapshot.data!.docs) {
-                      Map<String, dynamic> school =
-                          doc.data() as Map<String, dynamic>;
-                      bool isActive = school['isActive'] ?? false;
+                        final studentDocs = studentsSnapshot.data?.docs ?? [];
 
-                      if (isActive) {
-                        activeSchools++;
-                      } else {
-                        passiveSchools++;
-                      }
+                        // İstatistikleri hesapla
+                        int totalSchools = snapshot.data!.docs.length;
+                        int activeSchools = 0;
+                        int passiveSchools = 0;
 
-                      // Öğrenci sayılarını al (eğer varsa)
-                      int schoolTotalStudents = school['totalStudents'] ?? 0;
-                      int schoolActiveStudents = school['activeStudents'] ?? 0;
-                      int schoolPassiveStudents = school['passiveStudents'] ?? 0;
+                        for (var doc in snapshot.data!.docs) {
+                          Map<String, dynamic> school =
+                              doc.data() as Map<String, dynamic>;
+                          bool isActive = school['isActive'] ?? false;
 
-                      totalStudents += schoolTotalStudents;
-                      activeStudents += schoolActiveStudents;
-                      passiveStudents += schoolPassiveStudents;
-                    }
+                          if (isActive) {
+                            activeSchools++;
+                          } else {
+                            passiveSchools++;
+                          }
+                        }
+
+                        int totalStudents = studentDocs.length;
+                        int activeStudents = studentDocs.where((doc) {
+                          final data = doc.data() as Map<String, dynamic>;
+                          return data['isActive'] != false;
+                        }).length;
+                        int passiveStudents = totalStudents - activeStudents;
 
                     // Veri geldiyse, istatistikler ve listeyi oluştur
                     return LayoutBuilder(
@@ -971,7 +986,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                 final institutionId = (data['institutionId'] ?? '').toString().toLowerCase();
                                 return schoolName.contains(_searchQuery) || institutionId.contains(_searchQuery);
                               }).map((DocumentSnapshot document) {
-                                return _buildSchoolCard(document);
+                                return _buildSchoolCard(document, studentDocs);
                               }).toList(),
                             ],
                           ],
@@ -979,7 +994,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       },
                     );
                   },
-                ),
+                );
+              },
+            ),
               ),
             ],
           ),
@@ -1102,7 +1119,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   // --- 3. OKUL KARTINI LİSANS BİLGİSİNİ GÖSTERECEK ŞEKİLDE GÜNCELLE ---
-  Widget _buildSchoolCard(DocumentSnapshot document) {
+  Widget _buildSchoolCard(DocumentSnapshot document, List<QueryDocumentSnapshot> studentDocs) {
     Map<String, dynamic> school = document.data()! as Map<String, dynamic>;
     bool isActive = school['isActive'] ?? false;
 
@@ -1297,7 +1314,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     ),
                   ),
                   SizedBox(width: 16),
-                  _buildStudentQuotaInfo(school['institutionId'], (school['studentQuota'] ?? 0).toInt()),
+                  _buildLocalStudentQuotaInfo(school['institutionId'], (school['studentQuota'] ?? 0).toInt(), studentDocs),
                   SizedBox(width: 16),
                   Chip(
                     label: Text(
@@ -1325,45 +1342,41 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
   }
 
-  // --- YENİ YARDIMCI WIDGET: ÖĞRENCİ SAYISI VE KOTA GÖSTERİCİ ---
-  Widget _buildStudentQuotaInfo(String? institutionId, int quota) {
+  // --- YENİ YARDIMCI WIDGET: ÖĞRENCİ SAYISI VE KOTA GÖSTERİCİ (LOKAL HESAPLAMA) ---
+  Widget _buildLocalStudentQuotaInfo(String? institutionId, int quota, List<QueryDocumentSnapshot> studentDocs) {
     if (institutionId == null) return Text('Kota: $quota');
 
-    return FutureBuilder<QuerySnapshot>(
-      future: FirebaseFirestore.instance
-          .collection('students')
-          .where('institutionId', isEqualTo: institutionId)
-          .where('isActive', isEqualTo: true)
-          .get(),
-      builder: (context, snapshot) {
-        int currentCount = 0;
-        if (snapshot.hasData) {
-          currentCount = snapshot.data!.docs.length;
-        }
+    final schoolStudents = studentDocs.where((s) {
+      final sData = s.data() as Map<String, dynamic>;
+      return sData['institutionId'] == institutionId;
+    }).toList();
 
-        final bool isNearLimit = quota > 0 && currentCount >= (quota * 0.9);
-        final bool isOverLimit = quota > 0 && currentCount >= quota;
+    int currentCount = schoolStudents.where((s) {
+      final sData = s.data() as Map<String, dynamic>;
+      return sData['isActive'] != false;
+    }).length;
 
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.people_outline,
-              size: 14,
-              color: isOverLimit ? Colors.red : (isNearLimit ? Colors.orange : Colors.grey.shade600),
-            ),
-            SizedBox(width: 4),
-            Text(
-              '$currentCount / $quota',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: isOverLimit ? FontWeight.bold : FontWeight.normal,
-                color: isOverLimit ? Colors.red : (isNearLimit ? Colors.orange : Colors.grey.shade600),
-              ),
-            ),
-          ],
-        );
-      },
+    final bool isNearLimit = quota > 0 && currentCount >= (quota * 0.9);
+    final bool isOverLimit = quota > 0 && currentCount >= quota;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          Icons.people_outline,
+          size: 14,
+          color: isOverLimit ? Colors.red : (isNearLimit ? Colors.orange : Colors.grey.shade600),
+        ),
+        SizedBox(width: 4),
+        Text(
+          '$currentCount / $quota',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: isOverLimit ? FontWeight.bold : FontWeight.normal,
+            color: isOverLimit ? Colors.red : (isNearLimit ? Colors.orange : Colors.grey.shade600),
+          ),
+        ),
+      ],
     );
   }
 }

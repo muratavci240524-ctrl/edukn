@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:csv/csv.dart';
+import 'package:excel/excel.dart' hide Border;
+import 'package:file_saver/file_saver.dart';
+import 'dart:typed_data';
 import '../../../../models/assessment/external_exam_model.dart';
 import '../../../../models/assessment/external_exam_registration_model.dart';
 import '../../../../services/external_exam_service.dart';
@@ -31,6 +34,8 @@ class _ExternalExamRegistrationsTabState
   RegistrationStatus? _filterStatus;
   String? _filterSessionId;
   bool _showFilters = false;
+  bool _isSaving = false;
+  final Set<String> _selectedRegistrations = {};
 
   static const _primaryColor = Color(0xFFF57C00);
 
@@ -100,7 +105,7 @@ class _ExternalExamRegistrationsTabState
               ),
               const SizedBox(width: 8),
               IconButton(
-                onPressed: _pickAndImportCsv,
+                onPressed: _pickAndImportExcel,
                 icon: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
@@ -131,9 +136,9 @@ class _ExternalExamRegistrationsTabState
                 padding: EdgeInsets.zero,
               ),
               const SizedBox(width: 8),
-              // Excel export placeholder
+              // Excel export
               IconButton(
-                onPressed: () => _showExportInfo(context),
+                onPressed: _exportToExcel,
                 icon: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
@@ -271,17 +276,122 @@ class _ExternalExamRegistrationsTabState
                 );
               }
 
-              return ListView.separated(
-                padding: const EdgeInsets.all(16),
-                itemCount: regs.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 8),
-                itemBuilder: (context, i) => _buildRegCard(regs[i]),
+              // Başvuru tarihine göre sırala (en yeni başta)
+              regs = List.from(regs)..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+              final allIds = regs.where((r) => r.id != null).map((r) => r.id!).toList();
+              final isAllSelected = allIds.isNotEmpty && _selectedRegistrations.length == allIds.length;
+              final isAnySelected = _selectedRegistrations.isNotEmpty;
+
+              return Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Row(
+                      children: [
+                        Checkbox(
+                          value: isAllSelected,
+                          tristate: isAnySelected && !isAllSelected,
+                          activeColor: _primaryColor,
+                          onChanged: (val) {
+                            setState(() {
+                              if (val == true || val == null) {
+                                _selectedRegistrations.addAll(allIds);
+                              } else {
+                                _selectedRegistrations.clear();
+                              }
+                            });
+                          },
+                        ),
+                        Text('Tümünü Seç (${regs.length})', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey.shade800)),
+                        const Spacer(),
+                        if (isAnySelected)
+                          ElevatedButton.icon(
+                            onPressed: () => _deleteSelectedRegistrations(),
+                            icon: const Icon(Icons.delete_outline, size: 16),
+                            label: Text('${_selectedRegistrations.length} Başvuruyu Kaldır'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.red.shade50,
+                              foregroundColor: Colors.red.shade700,
+                              elevation: 0,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: ListView.separated(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: regs.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (context, i) => _buildRegCard(regs[i]),
+                    ),
+                  ),
+                ],
               );
             },
           ),
         ),
+        if (_isSaving)
+          const LinearProgressIndicator(color: _primaryColor),
       ],
     );
+  }
+
+  Future<void> _deleteSelectedRegistrations() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Seçili Başvuruları Kaldır'),
+        content: Text('Seçili ${_selectedRegistrations.length} başvuruyu kalıcı olarak kaldırmak istediğinize emin misiniz?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('İptal'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Evet, Kaldır'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      setState(() => _isSaving = true);
+      try {
+        // Firestore batch ile tek seferde sil (çok hızlı)
+        const batchLimit = 500;
+        final ids = _selectedRegistrations.toList();
+        for (int i = 0; i < ids.length; i += batchLimit) {
+          final batch = FirebaseFirestore.instance.batch();
+          final chunk = ids.sublist(i, (i + batchLimit).clamp(0, ids.length));
+          for (final id in chunk) {
+            batch.delete(
+              FirebaseFirestore.instance
+                  .collection('external_exam_registrations')
+                  .doc(id),
+            );
+          }
+          await batch.commit();
+        }
+        setState(() {
+          _selectedRegistrations.clear();
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Seçili başvurular kaldırıldı.')),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e')));
+        }
+      } finally {
+        if (mounted) setState(() => _isSaving = false);
+      }
+    }
   }
 
   Widget _buildRegCard(ExternalExamRegistration reg) {
@@ -309,6 +419,20 @@ class _ExternalExamRegistrationsTabState
             padding: const EdgeInsets.all(16),
             child: Row(
         children: [
+          if (reg.id != null)
+            Checkbox(
+              value: _selectedRegistrations.contains(reg.id),
+              activeColor: _primaryColor,
+              onChanged: (val) {
+                setState(() {
+                  if (val == true) {
+                    _selectedRegistrations.add(reg.id!);
+                  } else {
+                    _selectedRegistrations.remove(reg.id!);
+                  }
+                });
+              },
+            ),
           Container(
             width: 42,
             height: 42,
@@ -342,9 +466,13 @@ class _ExternalExamRegistrationsTabState
                             fontWeight: FontWeight.bold, fontSize: 15, color: Colors.grey.shade800),
                       ),
                     ),
+                    Text(
+                      '${reg.createdAt.day.toString().padLeft(2,'0')}.${reg.createdAt.month.toString().padLeft(2,'0')}.${reg.createdAt.year} ${reg.createdAt.hour.toString().padLeft(2,'0')}:${reg.createdAt.minute.toString().padLeft(2,'0')}',
+                      style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade400),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 4),
                 Text(
                   '${reg.gradeLevel == 'Mezun' ? 'Mezun' : '${reg.gradeLevel}. Sınıf'}${reg.parentName != null && reg.parentName!.isNotEmpty ? ' · Veli: ${reg.parentName}' : ''}${reg.parentPhone != null && reg.parentPhone!.isNotEmpty ? ' - ${reg.parentPhone}' : ''}',
                   style: GoogleFonts.inter(
@@ -420,40 +548,133 @@ class _ExternalExamRegistrationsTabState
     ); // closes Container
   }
 
-  void _showExportInfo(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Excel dışa aktarma özelliği yakında eklenecek.'),
-        backgroundColor: Colors.orange,
-      ),
-    );
+  Future<void> _exportToExcel() async {
+    try {
+      final regs = await _service.getRegistrations(widget.exam.id ?? '').first;
+      var excel = Excel.createExcel();
+      Sheet sheetObject = excel['Başvurular'];
+      excel.setDefaultSheet('Başvurular');
+
+      // Headers
+      List<String> headers = [
+        'StudentName',
+        'StudentSurname',
+        'StudentTcNo',
+        'StudentNumber',
+        'GradeLevel',
+        'ParentName',
+        'ParentSurname',
+        'ParentPhone',
+        'ParentEmail',
+        'City',
+        'District',
+        'CurrentSchool',
+        'SessionId'
+      ];
+      sheetObject.appendRow(headers.map((e) => TextCellValue(e)).toList());
+
+      for (var reg in regs) {
+        List<CellValue> row = [
+          TextCellValue(reg.studentName),
+          TextCellValue(reg.studentSurname),
+          TextCellValue(reg.studentTcNo),
+          TextCellValue(reg.studentNumber ?? ''),
+          TextCellValue(reg.gradeLevel),
+          TextCellValue(reg.parentName ?? ''),
+          TextCellValue(reg.parentSurname ?? ''),
+          TextCellValue(reg.parentPhone ?? ''),
+          TextCellValue(reg.parentEmail ?? ''),
+          TextCellValue(reg.city ?? ''),
+          TextCellValue(reg.district ?? ''),
+          TextCellValue(reg.currentSchool),
+          TextCellValue(reg.sessionId ?? ''),
+        ];
+        sheetObject.appendRow(row);
+      }
+
+      if (excel.sheets.containsKey('Sheet1')) {
+        excel.delete('Sheet1');
+      }
+
+      var fileBytes = excel.encode();
+      if (fileBytes != null) {
+        await FileSaver.instance.saveFile(
+          name: 'Basvurular_${widget.exam.title.replaceAll(' ', '_')}',
+          bytes: Uint8List.fromList(fileBytes),
+          ext: 'xlsx',
+          mimeType: MimeType.microsoftExcel,
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Excel başarıyla indirildi.')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Excel indirme hatası: $e')),
+        );
+      }
+    }
   }
 
-  Future<void> _pickAndImportCsv() async {
+  Future<void> _pickAndImportExcel() async {
     try {
       final result = await FilePicker.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['csv'],
+        allowedExtensions: ['xlsx'],
         withData: true,
       );
       if (result == null || result.files.isEmpty) return;
       final file = result.files.first;
-      final input = file.bytes != null ? utf8.decode(file.bytes!) : '';
-      final rows = const CsvToListConverter(eol: '\n').convert(input);
-      if (rows.isEmpty) return;
-      final header = rows.first.map((e) => e.toString().toLowerCase()).toList();
+      if (file.bytes == null) return;
+      
+      var excel = Excel.decodeBytes(file.bytes!);
+      var sheet = excel.tables[excel.tables.keys.first];
+      
+      if (sheet == null || sheet.maxRows < 2) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Excel dosyası boş veya geçersiz.')),
+          );
+        }
+        return;
+      }
+
+      List<String> header = [];
+      for (var cell in sheet.row(0)) {
+        header.add(cell?.value?.toString().toLowerCase().trim() ?? '');
+      }
+
       final expected = ['studentname', 'studentsurname', 'studenttcno', 'studentnumber', 'gradelevel', 'parentname', 'parentsurname', 'parentphone', 'parentemail', 'city', 'district', 'currentschool'];
       for (final col in expected) {
         if (!header.contains(col)) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('CSV başlık eksik: $col')),
-          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Excel başlık eksik: $col. Lütfen indirdiğiniz Excel formatını kullanın.')),
+            );
+          }
           return;
         }
       }
-      for (int i = 1; i < rows.length; i++) {
-        final row = rows[i];
-        final map = Map<String, dynamic>.fromIterables(header, row);
+
+      List<ExternalExamRegistration> pendingRegistrations = [];
+
+      for (int i = 1; i < sheet.maxRows; i++) {
+        var row = sheet.row(i);
+        // check if row is empty
+        if (row.every((cell) => cell?.value == null || cell!.value.toString().trim().isEmpty)) continue;
+
+        Map<String, dynamic> map = {};
+        for (int j = 0; j < header.length; j++) {
+          if (j < row.length) {
+            map[header[j]] = row[j]?.value?.toString().trim() ?? '';
+          } else {
+            map[header[j]] = '';
+          }
+        }
+
         final registration = ExternalExamRegistration(
           examId: widget.exam.id ?? '',
           institutionId: widget.exam.institutionId,
@@ -478,15 +699,138 @@ class _ExternalExamRegistrationsTabState
           status: RegistrationStatus.confirmed,
           createdAt: DateTime.now(),
         );
-        await _service.addRegistration(registration);
+        pendingRegistrations.add(registration);
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('CSV başarıyla içe aktarıldı.')),
+      
+      if (pendingRegistrations.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Eklenecek geçerli satır bulunamadı.')));
+        }
+        return;
+      }
+
+      // Sınıf seviyesi kırılımını hesapla
+      Map<String, int> gradeBreakdown = {};
+      for (var r in pendingRegistrations) {
+        final g = r.gradeLevel.isNotEmpty ? r.gradeLevel : 'Belirtilmemiş';
+        gradeBreakdown[g] = (gradeBreakdown[g] ?? 0) + 1;
+      }
+
+      String breakdownText = gradeBreakdown.entries
+          .map((e) => '${e.key}. Sınıf: ${e.value} kişi')
+          .join('\n');
+
+      if (!mounted) return;
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Excel İle Başvuru Yükleme'),
+          content: Text(
+            'Toplam ${pendingRegistrations.length} öğrenci yüklenecek.\n\n'
+            'Sınıf Dağılımı:\n$breakdownText\n\n'
+            'Onaylıyor musunuz?'
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('İptal'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+              child: const Text('Evet, Yükle'),
+            ),
+          ],
+        ),
       );
+
+      if (confirm != true) return;
+
+      if (!mounted) return;
+
+      // Animasyonlu ilerleme dialogu
+      int uploaded = 0;
+      final total = pendingRegistrations.length;
+
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: Row(
+                children: [
+                  const Icon(Icons.upload_file_rounded, color: _primaryColor),
+                  const SizedBox(width: 12),
+                  Text('Yükleniyor...', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+                ],
+              ),
+              content: StatefulBuilder(
+                builder: (ctx2, setInner) {
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TweenAnimationBuilder<double>(
+                        tween: Tween(begin: 0, end: total > 0 ? uploaded / total : 0),
+                        duration: const Duration(milliseconds: 400),
+                        builder: (_, val, __) => LinearProgressIndicator(
+                          value: val,
+                          backgroundColor: Colors.grey.shade200,
+                          color: _primaryColor,
+                          minHeight: 8,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        '$uploaded / $total öğrenci yüklendi',
+                        style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            );
+          },
+        ),
+      );
+
+      try {
+        // Batch ile yükle (500'lük gruplar halinde)
+        const batchLimit = 500;
+        for (int i = 0; i < pendingRegistrations.length; i += batchLimit) {
+          final batch = FirebaseFirestore.instance.batch();
+          final chunk = pendingRegistrations.sublist(
+            i, (i + batchLimit).clamp(0, pendingRegistrations.length));
+          for (final r in chunk) {
+            final docRef = FirebaseFirestore.instance
+                .collection('external_exam_registrations')
+                .doc();
+            batch.set(docRef, r.toMap());
+          }
+          await batch.commit();
+          uploaded = (i + chunk.length).clamp(0, total);
+        }
+
+        if (mounted) Navigator.of(context, rootNavigator: true).pop();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('$total öğrenci başarıyla yüklendi.')),
+          );
+        }
+      } catch (e) {
+        if (mounted) Navigator.of(context, rootNavigator: true).pop();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Excel import hatası: $e')));
+        }
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('CSV import hatası: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Excel import hatası: $e')),
+        );
+      }
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
@@ -542,18 +886,28 @@ class _ExistingStudentsDialogState extends State<_ExistingStudentsDialog> {
 
   Future<void> _fetchStudents() async {
     try {
-      // Try to get students for the institution. If it fails or returns 0, maybe fallback to all students just for display if needed, but let's stick to institutionId.
-      final snapshot = await FirebaseFirestore.instance
-          .collection('users')
+      // venueConfig.schoolTypeIds sınavın hangi okul türlerini kapsadığını gösterir
+      final schoolTypeIds = widget.exam.venueConfig.schoolTypeIds;
+
+      Query<Map<String, dynamic>> query = FirebaseFirestore.instance
+          .collection('students')
           .where('institutionId', isEqualTo: widget.exam.institutionId)
-          .where('role', isEqualTo: 'Öğrenci')
-          .get();
-      
-      final List<Map<String, dynamic>> students = snapshot.docs.map((doc) {
+          .where('isActive', isEqualTo: true);
+
+      final snapshot = await query.get();
+
+      List<Map<String, dynamic>> students = snapshot.docs.map((doc) {
         final data = doc.data();
         data['id'] = doc.id;
         return data;
       }).toList();
+
+      // Eğer schoolTypeIds doluysa client-side filtrele
+      if (schoolTypeIds.isNotEmpty) {
+        students = students
+            .where((s) => schoolTypeIds.contains(s['schoolTypeId']?.toString()))
+            .toList();
+      }
 
       // Sort by name
       students.sort((a, b) {
@@ -580,8 +934,8 @@ class _ExistingStudentsDialogState extends State<_ExistingStudentsDialog> {
     // First, filter all students
     final filtered = _allStudents.where((s) {
       final name = (s['fullName'] ?? s['name'] ?? '').toString().toLowerCase();
-      final tc = (s['tcIdentityNumber'] ?? s['tcNo'] ?? '').toString();
-      final studentNo = (s['studentNumber'] ?? s['schoolNumber'] ?? '').toString();
+      final tc = (s['tcIdentityNumber'] ?? s['tcNo'] ?? s['tcKimlik'] ?? '').toString();
+      final studentNo = (s['studentNumber'] ?? s['schoolNumber'] ?? s['studentNo'] ?? '').toString();
       return name.contains(_searchQuery) || tc.contains(_searchQuery) || studentNo.contains(_searchQuery);
     }).toList();
 
@@ -666,20 +1020,20 @@ class _ExistingStudentsDialogState extends State<_ExistingStudentsDialog> {
     setState(() => _isSaving = true);
     try {
       final selectedStudents = _allStudents.where((s) => _selectedIds.contains(s['id'])).toList();
-      for (final user in selectedStudents) {
+      final registrations = selectedStudents.map((user) {
         final nameParts = (user['fullName'] ?? user['name'] ?? 'İsimsiz').toString().split(' ');
         final surname = nameParts.length > 1 ? nameParts.last : '';
         final name = nameParts.length > 1 ? nameParts.sublist(0, nameParts.length - 1).join(' ') : nameParts.first;
 
-        final registration = ExternalExamRegistration(
+        return ExternalExamRegistration(
           examId: widget.exam.id ?? '',
           institutionId: widget.exam.institutionId,
           sessionId: widget.exam.applicationSessions.isNotEmpty ? widget.exam.applicationSessions.first.id : '',
           studentName: name,
           studentSurname: surname,
-          studentTcNo: (user['tcIdentityNumber'] ?? user['tcNo'] ?? '').toString(),
-          studentNumber: user['studentNumber']?.toString() ?? user['schoolNumber']?.toString(),
-          gradeLevel: user['classLevel']?.toString() ?? user['grade']?.toString() ?? user['class']?.toString() ?? '',
+          studentTcNo: (user['tcIdentityNumber'] ?? user['tcNo'] ?? user['tcKimlik'] ?? '').toString(),
+          studentNumber: (user['studentNumber'] ?? user['schoolNumber'] ?? user['studentNo'])?.toString(),
+          gradeLevel: (user['classLevel'] ?? user['grade'] ?? user['class'] ?? '').toString(),
           parentName: user['parentName']?.toString() ?? '',
           parentSurname: '',
           parentPhone: user['parentPhone']?.toString() ?? '',
@@ -690,15 +1044,29 @@ class _ExistingStudentsDialogState extends State<_ExistingStudentsDialog> {
           phone: user['phone']?.toString(),
           email: user['email']?.toString(),
           registrationSource: RegistrationSource.manualExcel,
-          status: RegistrationStatus.confirmed, // Auto confirm internal students
+          status: RegistrationStatus.confirmed,
           createdAt: DateTime.now(),
         );
-        await widget.service.addRegistration(registration);
+      }).toList();
+
+      // Firestore batch ile tek seferde kaydet
+      const batchLimit = 500;
+      for (int i = 0; i < registrations.length; i += batchLimit) {
+        final batch = FirebaseFirestore.instance.batch();
+        final chunk = registrations.sublist(
+          i, (i + batchLimit).clamp(0, registrations.length));
+        for (final r in chunk) {
+          final docRef = FirebaseFirestore.instance
+              .collection('external_exam_registrations')
+              .doc();
+          batch.set(docRef, r.toMap());
+        }
+        await batch.commit();
       }
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${selectedStudents.length} öğrenci başarıyla kaydedildi.')),
+          SnackBar(content: Text('${registrations.length} öğrenci başarıyla kaydedildi.')),
         );
       }
     } catch (e) {

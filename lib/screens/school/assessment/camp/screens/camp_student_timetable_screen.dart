@@ -81,6 +81,7 @@ class _CampStudentTimetableScreenState extends State<CampStudentTimetableScreen>
         bitisSaat: group.bitisSaat, 
         dersAdi: group.dersAdi, 
         ogretmenAdi: group.ogretmenAdi, 
+        derslikAdi: group.derslikAdi,
         kazanim: resolvedKazanim, 
         renk: _renkPaleti[entries.length % _renkPaleti.length],
         basariOrani: studentAssignment.basariOrani,
@@ -244,7 +245,7 @@ class _CampStudentTimetableScreenState extends State<CampStudentTimetableScreen>
               const SizedBox(width: 4),
               Expanded(
                 child: Text(
-                  e.ogretmenAdi, 
+                  e.derslikAdi != null && e.derslikAdi!.isNotEmpty ? '${e.ogretmenAdi} - ${e.derslikAdi}' : e.ogretmenAdi, 
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w500)
@@ -370,11 +371,11 @@ class _CampStudentTimetableScreenState extends State<CampStudentTimetableScreen>
                   pw.Text('Öğrenci: ${sName != null ? _norm(sName) : ''}', style: pw.TextStyle(font: fontBold, fontSize: 16)),
                   pw.SizedBox(height: 20),
                   pw.Table.fromTextArray(
-                    headers: ['Gün', 'Saat', 'Ders', 'Öğretmen', 'Başarı %', 'Kazanım'],
+                    headers: ['Gün', 'Saat', 'Ders', 'Öğretmen', 'Derslik', 'Başarı %', 'Kazanım'],
                     headerStyle: pw.TextStyle(font: fontBold, color: PdfColors.white),
                     headerDecoration: const pw.BoxDecoration(color: PdfColors.orange400),
                     cellStyle: pw.TextStyle(font: font, fontSize: 10),
-                    data: sEntries.map((e) => [_norm(e.gun), '${e.baslangicSaat}-${e.bitisSaat}', _norm(e.dersAdi), _norm(e.ogretmenAdi), '%${(e.basariOrani * 100).toStringAsFixed(0)}', e.kazanim != null ? _norm(e.kazanim!) : '-']).toList(),
+                    data: sEntries.map((e) => [_norm(e.gun), '${e.baslangicSaat}-${e.bitisSaat}', _norm(e.dersAdi), _norm(e.ogretmenAdi), e.derslikAdi != null ? _norm(e.derslikAdi!) : '-', '%${(e.basariOrani * 100).toStringAsFixed(0)}', e.kazanim != null ? _norm(e.kazanim!) : '-']).toList(),
                   ),
                   pw.Spacer(),
                   pw.Align(alignment: pw.Alignment.centerRight, child: pw.Text('eduKN Eğitim Yönetim Sistemi', style: pw.TextStyle(font: font, fontSize: 8, color: PdfColors.grey500))),
@@ -431,7 +432,7 @@ class _CampStudentTimetableScreenState extends State<CampStudentTimetableScreen>
 
         entries.add(
           _TimetableEntry(
-            gun: group.gun, baslangicSaat: group.baslangicSaat, bitisSaat: group.bitisSaat, dersAdi: group.dersAdi, ogretmenAdi: group.ogretmenAdi,
+            gun: group.gun, baslangicSaat: group.baslangicSaat, bitisSaat: group.bitisSaat, dersAdi: group.dersAdi, ogretmenAdi: group.ogretmenAdi, derslikAdi: group.derslikAdi,
             kazanim: resolvedKazanim, renk: Colors.orange,
             basariOrani: studentAssignment.basariOrani,
           ),
@@ -463,10 +464,10 @@ class _CampStudentTimetableScreenState extends State<CampStudentTimetableScreen>
 
       sheet.appendRow([TextCellValue('KAMP Öğrenci Programı - $sName')]);
       sheet.appendRow([TextCellValue('')]);
-      sheet.appendRow([TextCellValue('Gün'), TextCellValue('Saat'), TextCellValue('Ders'), TextCellValue('Öğretmen'), TextCellValue('Başarı %'), TextCellValue('Konu/Kazanım')]);
+      sheet.appendRow([TextCellValue('Gün'), TextCellValue('Saat'), TextCellValue('Ders'), TextCellValue('Öğretmen'), TextCellValue('Derslik'), TextCellValue('Başarı %'), TextCellValue('Konu/Kazanım')]);
 
       for (final e in sEntries) {
-        sheet.appendRow([TextCellValue(e.gun), TextCellValue('${e.baslangicSaat}-${e.bitisSaat}'), TextCellValue(e.dersAdi), TextCellValue(e.ogretmenAdi), TextCellValue('%${(e.basariOrani * 100).toStringAsFixed(0)}'), TextCellValue(e.kazanim ?? '-')]);
+        sheet.appendRow([TextCellValue(e.gun), TextCellValue('${e.baslangicSaat}-${e.bitisSaat}'), TextCellValue(e.dersAdi), TextCellValue(e.ogretmenAdi), TextCellValue(e.derslikAdi ?? '-'), TextCellValue('%${(e.basariOrani * 100).toStringAsFixed(0)}'), TextCellValue(e.kazanim ?? '-')]);
       }
       sheet.appendRow([TextCellValue('')]);
       sheet.appendRow([TextCellValue('')]);
@@ -481,8 +482,9 @@ class _CampStudentTimetableScreenState extends State<CampStudentTimetableScreen>
 
 class _TimetableEntry {
   final String gun, baslangicSaat, bitisSaat, dersAdi, ogretmenAdi;
+  final String? derslikAdi;
   final String? kazanim;
   final Color renk;
   final double basariOrani;
-  _TimetableEntry({required this.gun, required this.baslangicSaat, required this.bitisSaat, required this.dersAdi, required this.ogretmenAdi, this.kazanim, required this.renk, required this.basariOrani});
+  _TimetableEntry({required this.gun, required this.baslangicSaat, required this.bitisSaat, required this.dersAdi, required this.ogretmenAdi, this.derslikAdi, this.kazanim, required this.renk, required this.basariOrani});
 }

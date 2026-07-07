@@ -1,16 +1,7 @@
 // Firebase Cloud Messaging Service Worker
 // Bu dosya web'de uygulama kapalıyken de bildirimleri alır
 
-// ✨ Yeni build deploy edildiğinde anında devreye gir (kullanıcı F5 basmak zorunda kalmasın)
-self.addEventListener('install', (event) => {
-  console.log('[SW] Yeni sürüm kurulum yapılıyor, anlık aktive ediliyor...');
-  self.skipWaiting(); // Beklemeye geçme, hemen aktive ol
-});
-
-self.addEventListener('activate', (event) => {
-  console.log('[SW] Yeni sürüm aktive edildi, tüm sayfalara uygulanıyor...');
-  event.waitUntil(clients.claim()); // Mevcut tüm sekmeleri devral
-});
+// FCM Service Worker does not claim clients to avoid conflicts with main app routing.
 
 importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js');

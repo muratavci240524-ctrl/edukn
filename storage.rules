@@ -2,17 +2,84 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
-    // Allow read/write access to the 'social_posts' folder for authenticated users
+
+    // Yardımcı fonksiyonlar
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isImageFile() {
+      return request.resource.contentType.matches('image/.*');
+    }
+
+    function isPdfFile() {
+      return request.resource.contentType == 'application/pdf';
+    }
+
+    function isAudioFile() {
+      return request.resource.contentType.matches('audio/.*');
+    }
+
+    function isAllowedFileType() {
+      return isImageFile() || isPdfFile() || isAudioFile()
+        || request.resource.contentType.matches('application/vnd.openxmlformats.*') // xlsx, docx
+        || request.resource.contentType == 'application/vnd.ms-excel';
+    }
+
+    // Max 50MB dosya boyutu
+    function isValidFileSize() {
+      return request.resource.size < 50 * 1024 * 1024;
+    }
+
+    // ─── Sosyal Medya Gönderileri ─────────────────────────────────
     match /social_posts/{allPaths=**} {
-      allow read, write: if request.auth != null;
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated()
+        && isAllowedFileType()
+        && isValidFileSize();
     }
-    
-    // Allow read/write access to 'exam_booklets' folder for authenticated users
+
+    // ─── Sınav Kitapçıkları ───────────────────────────────────────
     match /exam_booklets/{allPaths=**} {
-      allow read, write: if request.auth != null;
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated()
+        && (isPdfFile() || isImageFile())
+        && isValidFileSize();
     }
-    
-    // Default deny all other access
+
+    // ─── Ödev Ekleri ──────────────────────────────────────────────
+    match /homeworks/{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated()
+        && isAllowedFileType()
+        && isValidFileSize();
+    }
+
+    // ─── Okul Logoları / Profil Fotoğrafları ─────────────────────
+    match /school_assets/{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated()
+        && isImageFile()
+        && request.resource.size < 5 * 1024 * 1024; // Max 5MB
+    }
+
+    // ─── PDF Raporlar ─────────────────────────────────────────────
+    match /reports/{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated()
+        && isPdfFile()
+        && isValidFileSize();
+    }
+
+    // ─── Ses Kayıtları ────────────────────────────────────────────
+    match /audio_recordings/{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated()
+        && isAudioFile()
+        && request.resource.size < 100 * 1024 * 1024; // Max 100MB
+    }
+
+    // ─── Default: Her şeyi reddet ─────────────────────────────────
     match /{allPaths=**} {
       allow read, write: if false;
     }

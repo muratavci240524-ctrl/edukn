@@ -47,6 +47,7 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
   @override
   void initState() {
     super.initState();
+    PdfService.preload(); // PDF oluşturulmasını hızlandırmak için fontları/logoyu önbelleğe yükle
     _loadInitialData();
   }
 
@@ -74,12 +75,34 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
       _schoolTypes = schoolTypesQuery.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
 
       if (_terms.isNotEmpty) {
-        _selectedTermFilter = _terms.firstWhere((t) => t['isActive'] == true, orElse: () => _terms.first)['id'];
+        // NOT: Dönem filtresi varsayılan olarak null bırakılıyor (TÜM kayıtlar görünsün)
+        // Kullanıcı üst filtreyi kullanarak döneme göre filtreleyebilir
+        // _selectedTermFilter = null; // = tümünü göster
       }
 
       // Load settings once and cache
       final settingsDoc = await FirebaseFirestore.instance.collection('preRegistrationSettings').doc(_institutionId).get();
-        setState(() => _cachedSettings = settingsDoc.data() ?? {});
+      if (settingsDoc.exists && settingsDoc.data() != null) {
+        setState(() => _cachedSettings = settingsDoc.data()!);
+      } else {
+        // Ayarlar dökümanı yoksa, sayfa yükleme döngüsünde kalmasın diye varsayılan ayarları atıyoruz
+        setState(() => _cachedSettings = {
+          'priceTypes': ['Eğitim', 'Yemek'],
+          'prices': {},
+          'discounts': [
+            {'id': 'early', 'name': 'Erken Kayıt', 'percentage': 10, 'enabled': true, 'applyTo': ['education']},
+            {'id': 'sibling', 'name': 'Kardeş', 'percentage': 12, 'enabled': true, 'applyTo': ['education']},
+            {'id': 'transfer', 'name': 'Geçiş', 'percentage': 20, 'enabled': true, 'applyTo': ['education']},
+            {'id': 'teacher', 'name': 'Öğretmen', 'percentage': 5, 'enabled': true, 'applyTo': ['education']},
+          ],
+          'paymentMethods': [
+            {'id': 'cash', 'name': 'Peşin', 'discount': 12},
+            {'id': 'credit_card', 'name': 'Tek Çekim', 'discount': 10},
+            {'id': 'installments', 'name': 'Taksit', 'discount': 0},
+            {'id': 'credit_card_installments', 'name': 'Taksitli Tek Çekim', 'discount': 8},
+          ]
+        });
+      }
 
       await _loadPreRegistrations();
     } catch (e) {
@@ -92,14 +115,26 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
   Future<void> _loadPreRegistrations() async {
     if (_institutionId == null) return;
 
+    // orderBy kaldırıldı — composite index gereksinimini önlemek için client-side sıralama yapıyoruz
     final query = await FirebaseFirestore.instance
         .collection('preRegistrations')
         .where('institutionId', isEqualTo: _institutionId)
-        .orderBy('meetingDate', descending: true)
         .get();
 
     setState(() {
       _preRegistrations = query.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
+      // Client-side sıralama: meetingDate'e göre azalan
+      _preRegistrations.sort((a, b) {
+        final aDate = a['meetingDate'];
+        final bDate = b['meetingDate'];
+        DateTime? aD, bD;
+        if (aDate is Timestamp) aD = aDate.toDate();
+        if (bDate is Timestamp) bD = bDate.toDate();
+        if (aD == null && bD == null) return 0;
+        if (aD == null) return 1;
+        if (bD == null) return -1;
+        return bD.compareTo(aD);
+      });
       _filterPreRegistrations();
       // CRITICAL: sync _selectedPreReg with fresh data from Firestore
       if (_selectedPreRegId != null) {
@@ -427,6 +462,9 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
                             _selectedPreReg = reg;
                             _selectedPreRegId = reg['id'];
                             _isAdding = false;
+                            // Fiyat robotu yeni öğrenci için sıfırla
+                            _perTypePaymentMethod = {};
+                            _lastPricedStudentId = null; // Fiyatları yeniden hesapla
                           });
                         },
                         borderRadius: BorderRadius.circular(12),
@@ -1092,9 +1130,70 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
     // Use cached settings — no Firestore call on every rebuild
     final settings = _cachedSettings;
     
-    // If settings not loaded yet, show spinner
+    // Ayarlar yüklenmediyse Firestore'dan çek ve tekrar spinner gösterme
     if (settings.isEmpty && _institutionId != null) {
-      return const Center(child: CircularProgressIndicator());
+      // Bir kere tetikle, sonra widget rebuild edildiğinde dolu gelir
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) return;
+        try {
+          final settingsDoc = await FirebaseFirestore.instance
+              .collection('preRegistrationSettings')
+              .doc(_institutionId)
+              .get();
+          if (mounted) {
+            setState(() {
+              if (settingsDoc.exists && settingsDoc.data() != null) {
+                _cachedSettings = settingsDoc.data()!;
+              } else {
+                // Varsayılan değerler — ayar yoksa bile fiyat robotu çalışsın
+                _cachedSettings = {
+                  'priceTypes': ['Eğitim', 'Yemek'],
+                  'prices': {},
+                  'discounts': [
+                    {'id': 'early', 'name': 'Erken Kayıt', 'percentage': 10, 'enabled': true, 'applyTo': ['education']},
+                    {'id': 'sibling', 'name': 'Kardeş', 'percentage': 12, 'enabled': true, 'applyTo': ['education']},
+                    {'id': 'transfer', 'name': 'Geçiş', 'percentage': 20, 'enabled': true, 'applyTo': ['education']},
+                    {'id': 'teacher', 'name': 'Öğretmen', 'percentage': 5, 'enabled': true, 'applyTo': ['education']},
+                  ],
+                  'paymentMethods': [
+                    {'id': 'cash', 'name': 'Peşin', 'discount': 12},
+                    {'id': 'credit_card', 'name': 'Tek Çekim', 'discount': 10},
+                    {'id': 'installments', 'name': 'Taksit', 'discount': 0},
+                    {'id': 'credit_card_installments', 'name': 'Taksitli Tek Çekim', 'discount': 8},
+                  ]
+                };
+              }
+            });
+          }
+        } catch (e) {
+          debugPrint('Settings reload error: $e');
+          // Hata durumunda da varsayılanlarla devam et
+          if (mounted) {
+            setState(() {
+              _cachedSettings = {
+                'priceTypes': ['Eğitim', 'Yemek'],
+                'prices': {},
+                'discounts': [],
+                'paymentMethods': [
+                  {'id': 'cash', 'name': 'Peşin', 'discount': 12},
+                  {'id': 'credit_card', 'name': 'Tek Çekim', 'discount': 10},
+                  {'id': 'installments', 'name': 'Taksit', 'discount': 0},
+                ],
+              };
+            });
+          }
+        }
+      });
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('Fiyat ayarları yükleniyor...', style: TextStyle(color: Color(0xFF94A3B8))),
+          ],
+        ),
+      );
     }
     
     final priceTypes = settings['priceTypes'] as List<dynamic>? ?? ['Eğitim', 'Yemek'];
@@ -1745,19 +1844,25 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
 
   Future<void> _generateOfferPdf() async {
     try {
-      final settingsDoc = await FirebaseFirestore.instance
-          .collection('preRegistrationSettings')
-          .doc(_institutionId)
-          .get();
+      Map<String, dynamic> settingsData = _cachedSettings;
       
-      if (!settingsDoc.exists) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ayarlar bulunamadı.')));
-        return;
+      // Bellekte önbelleğe alınmış ayar yoksa Firestore'dan çek (fallback)
+      if (settingsData.isEmpty) {
+        final settingsDoc = await FirebaseFirestore.instance
+            .collection('preRegistrationSettings')
+            .doc(_institutionId)
+            .get();
+        
+        if (!settingsDoc.exists || settingsDoc.data() == null) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ayarlar bulunamadı.')));
+          return;
+        }
+        settingsData = settingsDoc.data()!;
       }
 
       final pdfBytes = await PdfService().generatePreRegistrationOfferPdf(
         _selectedPreReg!,
-        settingsDoc.data()!,
+        settingsData,
       );
 
       await Printing.layoutPdf(onLayout: (format) async => pdfBytes);

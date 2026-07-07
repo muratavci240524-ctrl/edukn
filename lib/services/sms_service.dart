@@ -15,7 +15,7 @@ class SmsService {
       if (!doc.exists) return null;
       final data = doc.data()?['smsSettings'] as Map<String, dynamic>?;
       if (data == null) return null;
-      return SmsSettings.fromMap(data);
+      return SmsSettings.fromMap(data).copyWith(schoolId: schoolId);
     } catch (e) {
       debugPrint('SMS settings yüklenirken hata: $e');
       return null;
@@ -213,7 +213,9 @@ class SmsService {
 
   // ────────────── FIRESTORE SMS QUEUE (Cloud Function triggers) ─────────────
 
-  /// SMS'leri Firestore kuyruğuna yazar → Cloud Function gönderir
+  /// SMS'leri Firestore kuyruğuna yazar → Cloud Function gönderir.
+  /// GÜVENLİK: API key ve secret kuyruğa YAZILMAZ.
+  /// Cloud Function, key'i schools/{schoolId}.smsSettings'ten okur.
   Future<Map<String, dynamic>> _queueSmsViaFirestore(
     List<String> phones,
     String message,
@@ -228,10 +230,10 @@ class SmsService {
           'phone': _cleanPhone(phone),
           'message': message,
           'provider': providerCode,
-          'apiKey': settings.apiKey,
-          'apiSecret': settings.apiSecret,
-          'originator': settings.originator,
-          'apiUrl': settings.providerApiUrl,
+          // ✅ GÜVENLİK: API key buraya YAZILMIYOR
+          // Cloud Function schools/{schoolId}.smsSettings'ten okur
+          'schoolId': settings.schoolId,       // CF bu ID ile key'i bulur
+          'originator': settings.originator,   // Hassas değil
           'status': 'pending',
           'createdAt': FieldValue.serverTimestamp(),
         });
@@ -239,7 +241,7 @@ class SmsService {
       await batch.commit();
       return {
         'success': true,
-        'message': '${phones.length} SMS kuyruğa eklendi. Cloud Function ile gönderilecek.',
+        'message': '${phones.length} SMS kuyruğa eklendi. Gönderilecek.',
         'sentCount': phones.length,
         'queued': true,
       };

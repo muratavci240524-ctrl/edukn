@@ -133,7 +133,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen>
   }
 
   bool _canEditAnnouncements() {
-    return UserPermissionService.canEdit('genel_duyurular', userData);
+    return UserPermissionService.canEditSubModule('haberlesme', 'genel_duyurular', userData);
   }
 
   Future<void> _pickRange() async {

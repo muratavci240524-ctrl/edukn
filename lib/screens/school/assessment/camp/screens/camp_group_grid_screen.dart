@@ -97,9 +97,54 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
       });
       await _loadBranchStudentsForCycle(currentCycle);
       _calculateAbsentStudents(currentCycle);
+      
       if (mounted) {
         setState(() => _loading = false);
       }
+
+      // Check if we need to auto-assign special class
+      if (currentCycle.isSpecialClassActive && !currentCycle.specialClassGenerated && _allBranchStudents.isNotEmpty) {
+         final specialGroups = _groups.where((g) => g.isSpecial).toList();
+         if (specialGroups.isNotEmpty) {
+            await _autoAssignSpecialClassSilent(currentCycle, _groups, _allBranchStudents);
+         }
+      }
+    }
+  }
+
+  Future<void> _autoAssignSpecialClassSilent(CampCycle cycle, List<CampGroup> groups, List<Map<String, dynamic>> branchStudents) async {
+    setState(() => _loadingMessage = 'Özel sınıf otomatik yerleştiriliyor...');
+    final profiles = await _createStudentNeedProfiles(branchStudents, (s) {});
+    final engine = CampAssignmentEngine(cycleId: cycle.id, institutionId: cycle.institutionId);
+    final atamalar = engine.generateSpecialClassOnly(ogrenciProfiller: profiles, gruplar: groups, specialClassCriteria: cycle.specialClassCriteria);
+    if (atamalar.isNotEmpty) {
+       final specialGroupIds = groups.where((g) => g.isSpecial).map((e) => e.id).toSet();
+       final snap = await _db.collection('camp_assignments').where('cycleId', isEqualTo: cycle.id).get();
+       final refsToDelete = snap.docs.where((d) => specialGroupIds.contains(d.data()['groupId'] as String)).map((d) => d.reference).toList();
+       if (refsToDelete.isNotEmpty) {
+         await _repo.batchDeleteByRefs(refsToDelete);
+       }
+       
+       await _repo.batchWriteAssignments(atamalar);
+       final List<CampGroup> updatedGroups = [];
+       for (var g in groups) {
+          if (g.isSpecial) {
+             final assignedCount = atamalar.where((a) => a.groupId == g.id).length;
+             updatedGroups.add(g.copyWith(mevcutOgrenciSayisi: assignedCount, kazanimlar: ['Soru Çözüm']));
+          } else {
+             updatedGroups.add(g);
+          }
+       }
+       await _repo.batchUpdateGroups(updatedGroups.where((g) => g.isSpecial).toList());
+       
+       // Update cycle to mark special class as generated
+       await _db.collection('camp_cycles').doc(cycle.id).update({
+         'specialClassGenerated': true,
+       });
+
+       await _loadData(); // reload again
+    } else {
+       if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -731,10 +776,50 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                           Navigator.pop(ctx);
                           setState(() => _loading = true);
                           try {
+                            if (widget.cycle.isSpecialClassActive) {
+                              final specialGroupIds = _groups.where((g) => g.isSpecial).map((g) => g.id).toSet();
+                              final specialAssignments = _assignmentsByGroup.values
+                                  .expand((list) => list)
+                                  .where((a) => specialGroupIds.contains(a.groupId))
+                                  .toList();
+                              if (specialAssignments.isNotEmpty) {
+                                await _service.removeAssignments(specialAssignments);
+                              }
+                              
+                              final List<CampGroup> updatedGroups = [];
+                              for (var g in _groups) {
+                                 if (g.isSpecial) {
+                                    updatedGroups.add(g.copyWith(mevcutOgrenciSayisi: 0, kazanimlar: []));
+                                 }
+                              }
+                              if (updatedGroups.isNotEmpty) {
+                                await _repo.batchUpdateGroups(updatedGroups);
+                              }
+                            } else {
+                              final excludedAssignments = _assignmentsByGroup.values
+                                  .expand((list) => list)
+                                  .where((a) => tempExcluded.contains(a.ogrenciId))
+                                  .toList();
+                              if (excludedAssignments.isNotEmpty) {
+                                await _service.removeAssignments(excludedAssignments);
+                              }
+                            }
+
                             await _db.collection('camp_cycles').doc(widget.cycle.id).update({
                               'excludedStudentIds': tempExcluded.toList(),
+                              'specialClassGenerated': false,
                             });
+
                             await _loadData();
+
+                            if (widget.cycle.isSpecialClassActive) {
+                              final cycleDoc = await _db.collection('camp_cycles').doc(widget.cycle.id).get();
+                              final currentCycle = CampCycle.fromMap(cycleDoc.data()!, cycleDoc.id);
+                              
+                              final freshGroups = await _repo.getGroupsByCycle(widget.cycle.id);
+                              final filteredBranchStudents = _allBranchStudents.where((s) => !tempExcluded.contains(s['id'])).toList();
+                              await _autoAssignSpecialClassSilent(currentCycle, freshGroups, filteredBranchStudents);
+                            }
                           } catch (e) {
                             debugPrint('Hariç listesini güncellerken hata: $e');
                           } finally {
@@ -848,12 +933,20 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                         final resetGroups = groups.map((g) => g.copyWith(mevcutOgrenciSayisi: 0, kazanimlar: [])).toList();
                         await _repo.batchUpdateGroups(resetGroups);
                         await _db.collection('camp_cycles').doc(widget.cycle.id).update({
+                          'specialClassGenerated': false,
                           'unassignedStudentIds': [], 
                           'underAssignedStudentIds': [], 
                           'absentStudentIds': [], 
                           'unassignedReasons': {}
                         });
-                        await _loadData();
+                        
+                        if (widget.cycle.isSpecialClassActive) {
+                          final filteredStudents = _allBranchStudents.where((s) => !_excludedStudents.contains(s['id'])).toList();
+                          await _autoAssignSpecialClassSilent(widget.cycle, resetGroups, filteredStudents);
+                        } else {
+                          await _loadData();
+                        }
+                        
                         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tüm atamalar sıfırlandı.'), backgroundColor: Colors.green));
                       } catch (e) { 
                         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red)); 
@@ -925,34 +1018,206 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
   void _showMoveDialog(List<CampAssignment> assignments) {
     if (assignments.isEmpty) return;
     final firstAssign = assignments.first;
-    final currentGroup = _groups.firstWhere((g) => g.id == firstAssign.groupId);
+    final currentGroup = _groups.firstWhere((g) => g.id == firstAssign.groupId, orElse: () => _groups.first);
     final otherGroupsInSlot = _groups.where((g) => g.id != currentGroup.id && g.baslangicSaat == currentGroup.baslangicSaat && g.gun == currentGroup.gun).toList();
 
     if (otherGroupsInSlot.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Aynı saat diliminde başka grup bulunamadı.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Aynı saat diliminde başka grup bulunamadı.'), backgroundColor: Colors.orange),
+      );
       return;
     }
 
-    showDialog(
+    final studentNames = assignments.map((a) => a.ogrenciAdi).join(', ');
+
+    showModalBottomSheet(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Grubu Değiştir'),
-        content: SizedBox(
-          width: 300,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: otherGroupsInSlot.map((g) => ListTile(
-              title: Text(g.dersAdi),
-              subtitle: Text('${g.ogretmenAdi} (${g.mevcutOgrenciSayisi}/${g.kapasite})'),
-              onTap: () async {
-                Navigator.pop(ctx);
-                setState(() => _loading = true);
-                await _service.moveAssignments(assignments, g.id, '${g.dersAdi} - ${g.ogretmenAdi}');
-                _selectedStudentIds.clear();
-                await _loadData();
-              },
-            )).toList(),
-          ),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: EdgeInsets.fromLTRB(20, 12, 20, MediaQuery.of(ctx).viewInsets.bottom + 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(12)),
+                  child: const Icon(Icons.swap_horiz, color: Colors.orange),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Grubu Değiştir',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
+                      ),
+                      Text(
+                        '${currentGroup.gun} - ${currentGroup.baslangicSaat} Seansı',
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey.shade200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Taşınacak Öğrenci(ler):',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    studentNames,
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.black87),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Hedef Grup Seçin',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.grey),
+            ),
+            const SizedBox(height: 10),
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.4,
+              ),
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: otherGroupsInSlot.length,
+                itemBuilder: (context, index) {
+                  final g = otherGroupsInSlot[index];
+                  final isFull = g.mevcutOgrenciSayisi >= g.kapasite;
+                  final badgeColor = isFull ? Colors.red : Colors.green;
+                  
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.grey.shade200),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.02),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
+                        )
+                      ],
+                    ),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(16),
+                        onTap: () async {
+                          Navigator.pop(ctx);
+                          setState(() => _loading = true);
+                          await _service.moveAssignments(assignments, g.id, '${g.dersAdi} - ${g.ogretmenAdi}');
+                          _selectedStudentIds.clear();
+                          await _loadData();
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: Colors.orange.shade50,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Icon(Icons.school, color: Colors.orange),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      g.dersAdi,
+                                      style: const TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      g.ogretmenAdi,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: Colors.grey.shade600,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      children: [
+                                        Icon(Icons.meeting_room_outlined, size: 12, color: Colors.grey.shade400),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          g.derslikAdi ?? 'Derslik Belirtilmedi',
+                                          style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: badgeColor.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  '${g.mevcutOgrenciSayisi} / ${g.kapasite}',
+                                  style: TextStyle(
+                                    color: badgeColor,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1309,6 +1574,9 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
             if (occupiedTimeSlots.contains('${grup.baslangicSaat}-${grup.gun}')) continue; 
 
             final currentAssigns = _assignmentsByGroup[grup.id] ?? [];
+            if (widget.cycle.minimumGrupOgrenciSayisi != null && currentAssigns.length < widget.cycle.minimumGrupOgrenciSayisi!) {
+              continue;
+            }
             if (currentAssigns.length < grup.kapasite) {
               if (assignedGroupIds.contains(grup.id)) continue;
 
@@ -1870,9 +2138,9 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
       itemCount: sortedAssignments.length,
       itemBuilder: (context, index) {
         final s = sortedAssignments[index];
-        final isSelected = _selectedStudentIds.contains(s.ogrenciId);
+        final isSelected = _selectedStudentIds.contains(s.id);
         return InkWell(
-          onTap: () => setState(() { if (isSelected) _selectedStudentIds.remove(s.ogrenciId); else _selectedStudentIds.add(s.ogrenciId); }),
+          onTap: () => setState(() { if (isSelected) _selectedStudentIds.remove(s.id); else _selectedStudentIds.add(s.id); }),
           child: Container(
             color: isSelected ? Colors.orange.shade50.withOpacity(0.5) : null,
             child: ListTile(
@@ -1927,14 +2195,14 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
   }
 
   Widget _buildBulkActionBar() {
-    final selectedAssignments = _assignmentsByGroup.values.expand((list) => list).where((a) => _selectedStudentIds.contains(a.ogrenciId)).toList();
+    final selectedAssignments = _assignmentsByGroup.values.expand((list) => list).where((a) => _selectedStudentIds.contains(a.id)).toList();
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, -2))]),
       child: SafeArea(
         child: Row(
           children: [
-            Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [Text('${_selectedStudentIds.length} Öğrenci Seçildi', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)), Text('Toplu işlem yapabilirsiniz.', style: TextStyle(color: Colors.grey.shade600, fontSize: 11))]),
+            Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [Text('${_selectedStudentIds.length} Seçim Yapıldı', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)), Text('Toplu işlem yapabilirsiniz.', style: TextStyle(color: Colors.grey.shade600, fontSize: 11))]),
             const Spacer(),
             TextButton(onPressed: () => setState(() => _selectedStudentIds.clear()), child: const Text('İptal')),
             const SizedBox(width: 8),
@@ -2364,10 +2632,10 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
 
   void _showGenerateDraftSheet() {
     final subjects = _groups.where((g) => !g.isSpecial).map((g) => g.dersAdi).toSet().toList()..sort();
-    showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (ctx) => _DraftGenerateSheet(cycle: widget.cycle, availableSubjects: subjects, onGenerate: (esik, sadeceDusuk, dersBazli, minGrup, pastCycles) async { Navigator.pop(ctx); await _executeGenerate(esik, sadeceDusuk, dersBazli, minGrup, pastCycles); }));
+    showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (ctx) => _DraftGenerateSheet(cycle: widget.cycle, availableSubjects: subjects, onGenerate: (esik, sadeceDusuk, dersBazli, minGrup, pastCycles, soruCozumActive, soruCozumThreshold) async { Navigator.pop(ctx); await _executeGenerate(esik, sadeceDusuk, dersBazli, minGrup, pastCycles, soruCozumActive, soruCozumThreshold); }));
   }
 
-  Future<void> _executeGenerate(double esik, bool sadeceDusuk, Map<String, double> dersBazli, int minGrup, List<String> pastCycles) async {
+  Future<void> _executeGenerate(double esik, bool sadeceDusuk, Map<String, double> dersBazli, int minGrup, List<String> pastCycles, bool soruCozumActive, double soruCozumThreshold) async {
     setState(() => _generating = true);
     try {
       final students = await _fetchStudentsForCycle();
@@ -2397,21 +2665,52 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
         }
       }
       
-      final draftResult = await engine.generateDraft(ogrenciProfiller: profiles, gruplar: _groups, esikBasariOrani: esik, sadeceDusukBasari: sadeceDusuk, dersBazliEsikler: dersBazli, gecmisKatilimlar: gecmisKatilimlar);
+      final specialGroupIds = _groups.where((g) => g.isSpecial).map((e) => e.id).toSet();
+      final existingSpecialAssigns = _assignmentsByGroup.values.expand((a) => a).where((a) => specialGroupIds.contains(a.groupId) && !_excludedStudents.contains(a.ogrenciId)).toList();
+
+      final draftResult = await engine.generateDraft(
+        ogrenciProfiller: profiles, 
+        gruplar: _groups, 
+        esikBasariOrani: esik, 
+        sadeceDusukBasari: sadeceDusuk, 
+        dersBazliEsikler: dersBazli, 
+        gecmisKatilimlar: gecmisKatilimlar, 
+        specialClassCriteria: widget.cycle.specialClassCriteria,
+        mevcutAtamalar: existingSpecialAssigns,
+        highSuccessSoruCozumActive: soruCozumActive,
+        highSuccessSoruCozumThreshold: soruCozumThreshold,
+      );
       
       final Map<String, List<String>> allReasons = Map.from(draftResult.yerlesmemeNedenleri);
       for (final a in absent) allReasons.putIfAbsent(a['id'].toString(), () => []).add('Sınava girmedi, analiz verisi yok.');
       
-      await _repo.rollbackAssignments(widget.cycle.id);
-      await _repo.batchWriteAssignments(draftResult.atamalar);
+      // Özel sınıf atamalarını koruyarak silme işlemi yapalım
+      final snap = await _db.collection('camp_assignments').where('cycleId', isEqualTo: widget.cycle.id).get();
+      final refsToDelete = snap.docs.where((d) {
+         final gid = d.data()['groupId'] as String;
+         if (existingSpecialAssigns.isEmpty) return true;
+         return !specialGroupIds.contains(gid);
+      }).map((d) => d.reference).toList();
+      await _repo.batchDeleteByRefs(refsToDelete);
+
+      // Yeni atamaları yaz
+      final newAssignments = existingSpecialAssigns.isEmpty
+          ? draftResult.atamalar
+          : draftResult.atamalar.where((a) => !specialGroupIds.contains(a.groupId)).toList();
+      await _repo.batchWriteAssignments(newAssignments);
+      
       await _repo.batchUpdateGroups(draftResult.gruplar);
       
-      await _db.collection('camp_cycles').doc(widget.cycle.id).update({
+      final Map<String, dynamic> cycleUpdateData = {
         'unassignedStudentIds': draftResult.yerlesmeyenOgrenciIds, 
         'underAssignedStudentIds': draftResult.eksikAtananOgrenciIds, 
         'absentStudentIds': absent.map((a) => a['id'].toString()).toList(), 
         'unassignedReasons': allReasons
-      });
+      };
+      if (existingSpecialAssigns.isEmpty && widget.cycle.isSpecialClassActive) {
+        cycleUpdateData['specialClassGenerated'] = true;
+      }
+      await _db.collection('camp_cycles').doc(widget.cycle.id).update(cycleUpdateData);
       
       await _loadData();
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Dağıtım başarıyla tamamlandı!'), backgroundColor: Colors.green));
@@ -2444,6 +2743,7 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
     final List<String> examIds = widget.cycle.referansDenemeSinavIds.isNotEmpty ? widget.cycle.referansDenemeSinavIds : [widget.cycle.referansDenemeSinavId];
     final Map<String, Map<String, double>> studentSubjectSuccess = {}; 
     final Map<String, Map<String, Set<String>>> studentSubjectTopics = {};
+    final Map<String, List<double>> studentScoresList = {};
 
     for (var eid in examIds) {
       final doc = await _db.collection('trial_exams').doc(eid).get();
@@ -2465,6 +2765,8 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
               onStudentEntered(sr.systemStudentId!);
               final Map<String, double> successMap = studentSubjectSuccess.putIfAbsent(sr.systemStudentId!, () => {});
               final Map<String, Set<String>> topicMap = studentSubjectTopics.putIfAbsent(sr.systemStudentId!, () => {});
+              final scoreList = studentScoresList.putIfAbsent(sr.systemStudentId!, () => []);
+              scoreList.add(sr.score);
 
               sr.subjects.forEach((ders, stats) {
                 final totalQ = stats.correct + stats.wrong + stats.empty;
@@ -2497,7 +2799,9 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
       final sid = s['id'] as String;
       final success = studentSubjectSuccess[sid]!;
       final topics = studentSubjectTopics[sid] ?? {};
-      return StudentNeedProfile(ogrenciId: sid, ogrenciAdi: s['fullName'] ?? '${s['name']} ${s['surname']}', subeId: s['branchId'] ?? '', subeAdi: (s['className'] ?? s['branch'] ?? '').toString(), dersIhtiyaclari: success.map((k, v) => MapEntry(k, (1.0 - v).clamp(0.0, 1.0))), dersBasariOranlari: success, kazanimIhtiyaclari: topics);
+      final scores = studentScoresList[sid] ?? [];
+      final avgScore = scores.isEmpty ? 0.0 : scores.reduce((a, b) => a + b) / scores.length;
+      return StudentNeedProfile(ogrenciId: sid, ogrenciAdi: s['fullName'] ?? '${s['name']} ${s['surname']}', subeId: s['branchId'] ?? '', subeAdi: (s['className'] ?? s['branch'] ?? '').toString(), examScore: avgScore, dersIhtiyaclari: success.map((k, v) => MapEntry(k, (1.0 - v).clamp(0.0, 1.0))), dersBasariOranlari: success, kazanimIhtiyaclari: topics);
     }).toList();
   }
 }
@@ -2505,7 +2809,7 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
 class _DraftGenerateSheet extends StatefulWidget {
   final CampCycle cycle;
   final List<String> availableSubjects;
-  final Future<void> Function(double esik, bool sadeceDusuk, Map<String, double> dersBazli, int minGrup, List<String> pastCycles) onGenerate;
+  final Future<void> Function(double esik, bool sadeceDusuk, Map<String, double> dersBazli, int minGrup, List<String> pastCycles, bool soruCozumActive, double soruCozumThreshold) onGenerate;
   const _DraftGenerateSheet({required this.cycle, required this.availableSubjects, required this.onGenerate});
   @override
   State<_DraftGenerateSheet> createState() => _DraftGenerateSheetState();
@@ -2516,8 +2820,11 @@ class _DraftGenerateSheetState extends State<_DraftGenerateSheet> {
   bool _sadeceDusukBasari = true;
   bool _loading = false;
   bool _dersBazliAcik = false;
-  int _minGrupOgrenci = 5;
+  late int _minGrupOgrenci;
   final Map<String, double> _dersBazliEsikler = {};
+  
+  bool _soruCozumActive = true;
+  double _soruCozumThreshold = 0.95;
   
   bool _dengele = false;
   List<String> _selectedPastCycles = [];
@@ -2526,7 +2833,10 @@ class _DraftGenerateSheetState extends State<_DraftGenerateSheet> {
   @override
   void initState() { 
     super.initState(); 
+    _minGrupOgrenci = widget.cycle.minimumGrupOgrenciSayisi ?? 5;
     for (final sub in widget.availableSubjects) _dersBazliEsikler[sub] = _esikBasariOrani; 
+    _soruCozumActive = widget.cycle.highSuccessSoruCozumActive;
+    _soruCozumThreshold = widget.cycle.highSuccessSoruCozumThreshold;
     _fetchPastCycles();
   }
 
@@ -2588,6 +2898,13 @@ class _DraftGenerateSheetState extends State<_DraftGenerateSheet> {
             Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.blue.shade100)), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Icon(Icons.info_outline, color: Colors.blue.shade700, size: 18), const SizedBox(width: 8), const Expanded(child: Text('Mevcut sınav sonuçları analiz edilecek. Sınava girmeyen öğrenciler ayrı listede görünecek.', style: TextStyle(fontSize: 12, color: Colors.blue)))]))
           ]))),
           const SizedBox(height: 12),
+          SwitchListTile(contentPadding: EdgeInsets.zero, value: _soruCozumActive, onChanged: (v) => setState(() => _soruCozumActive = v), activeColor: Colors.orange, title: const Text('Başarılı Sınıfları Soru Çözüm Yap', style: TextStyle(fontWeight: FontWeight.w600)), subtitle: const Text('Başarılı sınıflara otomatik olarak Soru Çözüm atanır', style: TextStyle(fontSize: 11))),
+          if (_soruCozumActive) ...[
+             const SizedBox(height: 8),
+             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Soru Çözüm Eşiği', style: TextStyle(fontWeight: FontWeight.w600)), Text('%${(_soruCozumThreshold * 100).toStringAsFixed(0)}', style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 16))]),
+             Slider(value: _soruCozumThreshold, min: 0.0, max: 1.0, divisions: 20, activeColor: Colors.orange, onChanged: (v) => setState(() => _soruCozumThreshold = v)),
+          ],
+          const SizedBox(height: 12),
           SwitchListTile(contentPadding: EdgeInsets.zero, value: _dengele, onChanged: (v) => setState(() => _dengele = v), activeColor: Colors.teal, title: const Text('Geçmiş Katılımları Dengele', style: TextStyle(fontWeight: FontWeight.w600)), subtitle: const Text('Diğer programlardaki katılımları analiz eder', style: TextStyle(fontSize: 11))),
           if (_dengele && _availablePastCycles.isNotEmpty) ...[
              const SizedBox(height: 8),
@@ -2620,14 +2937,14 @@ class _DraftGenerateSheetState extends State<_DraftGenerateSheet> {
                          );
                        }).toList(),
                      ),
-                   )
+                   ),
                  ]
                )
              ),
              const SizedBox(height: 12),
           ],
           const SizedBox(height: 20),
-          SizedBox(width: double.infinity, child: ElevatedButton.icon(onPressed: _loading ? null : () async { setState(() => _loading = true); await widget.onGenerate(_esikBasariOrani, _sadeceDusukBasari, _dersBazliAcik ? _dersBazliEsikler : {}, _minGrupOgrenci, _dengele ? _selectedPastCycles : []); }, icon: _loading ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.play_arrow_rounded), label: const Text('Algoritmayı Çalıştır'), style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade700, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))))),
+          SizedBox(width: double.infinity, child: ElevatedButton.icon(onPressed: _loading ? null : () async { setState(() => _loading = true); await widget.onGenerate(_esikBasariOrani, _sadeceDusukBasari, _dersBazliAcik ? _dersBazliEsikler : {}, _minGrupOgrenci, _dengele ? _selectedPastCycles : [], _soruCozumActive, _soruCozumThreshold); }, icon: _loading ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.play_arrow_rounded), label: const Text('Algoritmayı Çalıştır'), style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade700, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))))),
         ],
       ),
     );

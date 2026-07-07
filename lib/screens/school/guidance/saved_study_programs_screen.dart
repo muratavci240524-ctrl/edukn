@@ -508,113 +508,219 @@ class _SavedStudyProgramsScreenState extends State<SavedStudyProgramsScreen> {
   }
 
   void _showStatsDialog() {
-    // 1. Group by Teacher (All Time vs Selected Month)
-    Map<String, int> teacherCounts = {};
-    Map<String, int> teacherCountsAllTime = {};
+    // 1. Group stats by teacher
+    // Map<TeacherName, { 'assigned': int, 'evaluated': int }>
+    Map<String, Map<String, int>> teacherFeedbackStats = {};
 
-    Map<String, int> studentCounts = {};
+    // 2. Group stats by student for risk analysis
+    // Map<StudentName, { 'totalTasks': int, 'completedTasks': int, 'missedTasks': int, 'incompleteTasks': int, 'branch': String }>
+    Map<String, Map<String, dynamic>> studentRiskStats = {};
 
-    // Filtered Stats
     for (var p in _filteredPrograms) {
+      // 1. Teacher feedback calculation
       String teacher = p['creatorName'] ?? 'Bilinmiyor';
-      teacherCounts[teacher] = (teacherCounts[teacher] ?? 0) + 1;
+      bool hasEvaluation = p['mentorEvaluation'] != null && p['mentorEvaluation'].toString().trim().isNotEmpty;
+      
+      teacherFeedbackStats.putIfAbsent(teacher, () => {'assigned': 0, 'evaluated': 0});
+      teacherFeedbackStats[teacher]!['assigned'] = teacherFeedbackStats[teacher]!['assigned']! + 1;
+      if (hasEvaluation) {
+        teacherFeedbackStats[teacher]!['evaluated'] = teacherFeedbackStats[teacher]!['evaluated']! + 1;
+      }
 
+      // 2. Student task completion calculation
       String student = p['studentName'] ?? 'Bilinmiyor';
-      studentCounts[student] = (studentCounts[student] ?? 0) + 1;
+      String branch = _getBranchName(p);
+      
+      int totalTasks = 0;
+      int completedTasks = 0;
+      int missedTasks = 0;
+      int incompleteTasks = 0;
+
+      if (p['executionStatus'] != null) {
+        final statusMap = p['executionStatus'] as Map<String, dynamic>;
+        statusMap.forEach((key, val) {
+          final list = List<int>.from(val as List);
+          totalTasks += list.length;
+          completedTasks += list.where((s) => s == 1).length;
+          incompleteTasks += list.where((s) => s == 2).length;
+          missedTasks += list.where((s) => s == 3).length;
+        });
+      }
+
+      studentRiskStats.putIfAbsent(student, () => {
+        'totalTasks': 0,
+        'completedTasks': 0,
+        'missedTasks': 0,
+        'incompleteTasks': 0,
+        'branch': branch,
+      });
+
+      studentRiskStats[student]!['totalTasks'] = studentRiskStats[student]!['totalTasks'] + totalTasks;
+      studentRiskStats[student]!['completedTasks'] = studentRiskStats[student]!['completedTasks'] + completedTasks;
+      studentRiskStats[student]!['incompleteTasks'] = studentRiskStats[student]!['incompleteTasks'] + incompleteTasks;
+      studentRiskStats[student]!['missedTasks'] = studentRiskStats[student]!['missedTasks'] + missedTasks;
     }
 
-    // All Time Stats
-    for (var p in _programs) {
-      String teacher = p['creatorName'] ?? 'Bilinmiyor';
-      teacherCountsAllTime[teacher] = (teacherCountsAllTime[teacher] ?? 0) + 1;
-    }
+    // Sort teachers by assigned programs descending
+    var sortedTeachers = teacherFeedbackStats.entries.toList()
+      ..sort((a, b) => b.value['assigned']!.compareTo(a.value['assigned']!));
 
-    // Sort logic
-    var sortedTeachers = teacherCounts.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-
-    var sortedStudents = studentCounts.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
+    // Sort students by missed/incomplete tasks descending (high-risk first)
+    var sortedStudents = studentRiskStats.entries.toList()
+      ..sort((a, b) {
+        int missedA = a.value['missedTasks'] + a.value['incompleteTasks'];
+        int missedB = b.value['missedTasks'] + b.value['incompleteTasks'];
+        return missedB.compareTo(missedA);
+      });
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(
-          "Detaylı İstatistikler (${DateFormat('MMMM yyyy', 'tr_TR').format(_selectedDate)})",
-        ),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildStatSectionHeader("Eğitmen Performansı (Bu Ay)"),
-                if (sortedTeachers.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: Text(
-                      "Bu ay kayıt bulunamadı.",
-                      style: TextStyle(color: Colors.grey),
-                    ),
+      builder: (ctx) {
+        return DefaultTabController(
+          length: 2,
+          child: AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            titlePadding: const EdgeInsets.all(0),
+            title: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              decoration: const BoxDecoration(
+                color: Colors.indigo,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "Mentör Çalışmaları Analiz Paneli",
+                    style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16),
                   ),
-                ...sortedTeachers.map(
-                  (e) => ListTile(
-                    dense: true,
-                    leading: CircleAvatar(
-                      backgroundColor: Colors.blue.shade50,
-                      child: Text(
-                        "${e.value}",
-                        style: TextStyle(
-                          color: Colors.blue,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    title: Text(e.key),
-                    subtitle: Text(
-                      "Toplam: ${teacherCountsAllTime[e.key] ?? 0} Program",
-                    ),
+                  const SizedBox(height: 4),
+                  Text(
+                    "${DateFormat('MMMM yyyy', 'tr_TR').format(_selectedDate)} İnceleme Dönemi",
+                    style: TextStyle(color: Colors.indigo.shade100, fontSize: 11),
                   ),
-                ),
-                Divider(),
-                _buildStatSectionHeader(
-                  "En Çok Program Alan Öğrenciler (Bu Ay)",
-                ),
-                if (sortedStudents.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: Text(
-                      "Bu ay kayıt bulunamadı.",
-                      style: TextStyle(color: Colors.grey),
-                    ),
+                  const SizedBox(height: 12),
+                  const TabBar(
+                    indicatorColor: Colors.white,
+                    indicatorWeight: 3,
+                    labelColor: Colors.white,
+                    unselectedLabelColor: Colors.white70,
+                    labelStyle: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                    tabs: [
+                      Tab(text: "Mentör Geri Bildirim Oranları"),
+                      Tab(text: "Riskli Öğrenci Analizi"),
+                    ],
                   ),
-                ...sortedStudents
-                    .take(10)
-                    .map(
-                      // Top 10
-                      (e) => ListTile(
-                        dense: true,
-                        leading: CircleAvatar(
-                          backgroundColor: Colors.orange.shade50,
-                          child: Text(
-                            "${e.value}",
-                            style: TextStyle(
-                              color: Colors.orange,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                        title: Text(e.key),
-                      ),
-                    ),
-              ],
+                ],
+              ),
             ),
+            content: SizedBox(
+              width: 600,
+              height: 400,
+              child: TabBarView(
+                children: [
+                  // Tab 1: Mentor Feedback Rate List
+                  sortedTeachers.isEmpty
+                      ? const Center(child: Text("Değerlendirilecek mentör verisi bulunamadı.", style: TextStyle(color: Colors.grey)))
+                      : ListView.builder(
+                          padding: const EdgeInsets.only(top: 8),
+                          itemCount: sortedTeachers.length,
+                          itemBuilder: (context, index) {
+                            final entry = sortedTeachers[index];
+                            final teacherName = entry.key;
+                            final assigned = entry.value['assigned']!;
+                            final evaluated = entry.value['evaluated']!;
+                            final rate = assigned > 0 ? ((evaluated / assigned) * 100).round() : 0;
+
+                            return Card(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              child: ListTile(
+                                leading: CircleAvatar(
+                                  backgroundColor: rate > 75 ? Colors.green.shade50 : (rate > 40 ? Colors.orange.shade50 : Colors.red.shade50),
+                                  child: Text(
+                                    "%$rate",
+                                    style: TextStyle(
+                                      color: rate > 75 ? Colors.green : (rate > 40 ? Colors.orange : Colors.red),
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ),
+                                title: Text(teacherName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                subtitle: Text("Oluşturulan: $assigned program • Geri Bildirim: $evaluated adet"),
+                                trailing: Icon(
+                                  rate > 75 ? Icons.check_circle : (rate > 40 ? Icons.warning : Icons.error),
+                                  color: rate > 75 ? Colors.green : (rate > 40 ? Colors.orange : Colors.red),
+                                  size: 20,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+
+                  // Tab 2: High Risk Students (Accruing missed tasks)
+                  sortedStudents.isEmpty
+                      ? const Center(child: Text("Değerlendirilecek öğrenci verisi bulunamadı.", style: TextStyle(color: Colors.grey)))
+                      : ListView.builder(
+                          padding: const EdgeInsets.only(top: 8),
+                          itemCount: sortedStudents.length,
+                          itemBuilder: (context, index) {
+                            final entry = sortedStudents[index];
+                            final studentName = entry.key;
+                            final total = entry.value['totalTasks'] as int;
+                            final completed = entry.value['completedTasks'] as int;
+                            final missed = entry.value['missedTasks'] as int;
+                            final incomplete = entry.value['incompleteTasks'] as int;
+                            final branch = entry.value['branch'] as String;
+
+                            final totalFailed = missed + incomplete;
+                            final failureRate = total > 0 ? ((totalFailed / total) * 100).round() : 0;
+
+                            return Card(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              child: ListTile(
+                                leading: CircleAvatar(
+                                  backgroundColor: failureRate > 30 ? Colors.red.shade50 : Colors.green.shade50,
+                                  child: Icon(
+                                    failureRate > 30 ? Icons.warning_amber_rounded : Icons.thumb_up_alt_rounded,
+                                    color: failureRate > 30 ? Colors.red : Colors.green,
+                                  ),
+                                ),
+                                title: Text(studentName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                subtitle: Text("Sınıf: $branch • Toplam Görev: $total\nTamamlanan: $completed • Aksatılan/Eksik: $totalFailed"),
+                                trailing: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Text(
+                                      "%$failureRate",
+                                      style: TextStyle(
+                                        color: failureRate > 30 ? Colors.red : Colors.green,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                    const Text("Aksatma Oranı", style: TextStyle(fontSize: 8, color: Colors.grey)),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text("Kapat", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
+              ),
+            ],
           ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: Text("Kapat")),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -887,7 +993,7 @@ class _SavedStudyProgramsScreenState extends State<SavedStudyProgramsScreen> {
         title: Text(
           _isSelectionMode
               ? '${_selectedProgramIds.length} Seçildi'
-              : 'Kayıtlı Çalışma Programları',
+              : 'Kayıtlı Mentör Çalışmaları',
         ),
         actions: [
           IconButton(
