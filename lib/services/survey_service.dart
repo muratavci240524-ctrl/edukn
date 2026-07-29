@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/survey_model.dart';
 import 'announcement_service.dart';
+import 'term_service.dart';
 
 class SurveyService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -11,13 +12,16 @@ class SurveyService {
   // Anket Oluştur
   Future<String> createSurvey(Survey survey) async {
     final ref = _firestore.collection('surveys').doc();
-    // ID'yi modeldeki ID yerine yeni oluşturulan ID ile güncelle
-    // Modelde zaten constructor var, ama ID'yi override etmemiz gerekebilir
-    // Aslında createSurvey çağrıldığında ID boş gelebilir, burada atarız.
-
     final payload = survey.toMap();
     payload['id'] = ref.id; // Override ID
     payload['createdAt'] = FieldValue.serverTimestamp();
+
+    if (payload['termId'] == null) {
+      final termId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
+      if (termId != null) {
+        payload['termId'] = termId;
+      }
+    }
 
     await ref.set(payload);
     return ref.id;
@@ -89,7 +93,7 @@ class SurveyService {
     });
   }
 
-  // Zamanlanmış anketleri kontrol et ve yayınla
+  // Zamanlanmış anketleri kontrol et, yayınla ve eski anketleri aktif döneme migrate et
   Future<void> checkScheduledSurveys(String institutionId) async {
     final now = DateTime.now();
     final snapshot = await _firestore
@@ -108,42 +112,70 @@ class SurveyService {
         });
       }
     }
+
+    // Eski anketleri aktif döneme otomatik aktar (migration)
+    try {
+      final activeTermId = await TermService().getActiveTermId();
+      if (activeTermId != null) {
+        final unmigrated = await _firestore
+            .collection('surveys')
+            .where('institutionId', isEqualTo: institutionId)
+            .get();
+
+        for (var doc in unmigrated.docs) {
+          final data = doc.data();
+          if (data['termId'] == null) {
+            await doc.reference.update({'termId': activeTermId});
+          }
+        }
+      }
+    } catch (e) {
+      print('Anket migration hatası: $e');
+    }
   }
 
-  // Anketleri Getir (Institution ID'ye göre)
-  // Stream içinde otomatik kontrol yok, UI tarafında initState'de çağrılmalı.
-  Stream<List<Survey>> getSurveys(String institutionId) {
+  // Anketleri Getir (Institution ID'ye göre ve Döneme göre)
+  Stream<List<Survey>> getSurveys(String institutionId, String? termId) {
     return _firestore
         .collection('surveys')
         .where('institutionId', isEqualTo: institutionId)
         .orderBy('createdAt', descending: true)
         .snapshots()
         .map(
-          (snapshot) => snapshot.docs
-              .map((doc) => Survey.fromMap(doc.data(), doc.id))
-              .toList(),
+          (snapshot) {
+            final list = snapshot.docs
+                .map((doc) => Survey.fromMap(doc.data() as Map<String, dynamic>, doc.id))
+                .toList();
+            if (termId != null && termId.isNotEmpty) {
+              return list.where((survey) => survey.termId == termId || survey.termId == null).toList();
+            }
+            return list;
+          },
         );
   }
 
-  // Anketleri Filtreli Getir (Öğretmenler için)
+  // Anketleri Filtreli Getir (Öğretmenler için ve Döneme göre)
   Stream<List<Survey>> getFilteredSurveys({
     required String institutionId,
     String? authorId,
     List<String>? targetedClassIds,
+    String? termId,
   }) {
-    // Firestore supports multiple 'where' but 'orderBy' must be consistent.
-    // Given the complexity of OR logic (author OR class), we'll do a broader fetch and filter in map.
     return _firestore
         .collection('surveys')
         .where('institutionId', isEqualTo: institutionId)
         .orderBy('createdAt', descending: true)
         .snapshots()
         .map((snapshot) {
-      final list = snapshot.docs.map((doc) => Survey.fromMap(doc.data(), doc.id)).toList();
+      final list = snapshot.docs.map((doc) => Survey.fromMap(doc.data() as Map<String, dynamic>, doc.id)).toList();
       
-      if (authorId == null && targetedClassIds == null) return list;
+      final termFiltered = (termId != null && termId.isNotEmpty)
+          ? list.where((survey) => survey.termId == termId || survey.termId == null).toList()
+          : list;
 
-      return list.where((survey) {
+      if (authorId == null && targetedClassIds == null) return termFiltered;
+
+      return termFiltered.where((survey) {
         // 1. I authored it
         if (authorId != null && survey.authorId == authorId) return true;
 
@@ -195,6 +227,9 @@ class SurveyService {
     final uid = _auth.currentUser?.uid;
     if (uid == null) throw Exception('Kullanıcı oturumu yok');
 
+    final survey = await getSurvey(surveyId);
+    final instId = survey?.institutionId;
+
     // Check if exists
     final existingParams = await _firestore
         .collection('survey_responses')
@@ -206,19 +241,26 @@ class SurveyService {
     if (existingParams.docs.isNotEmpty) {
       // Update
       final docId = existingParams.docs.first.id;
-      await _firestore.collection('survey_responses').doc(docId).update({
+      final updateData = <String, dynamic>{
         'answers': answers,
         'submittedAt': FieldValue.serverTimestamp(),
-      });
+      };
+      if (instId != null) {
+        updateData['institutionId'] = instId;
+      }
+      await _firestore.collection('survey_responses').doc(docId).update(updateData);
       // Do NOT increment responseCount again if updating
     } else {
       // Insert
-      final responsePayload = {
+      final responsePayload = <String, dynamic>{
         'surveyId': surveyId,
         'userId': uid,
         'answers': answers,
         'submittedAt': FieldValue.serverTimestamp(),
       };
+      if (instId != null) {
+        responsePayload['institutionId'] = instId;
+      }
 
       await _firestore.collection('survey_responses').add(responsePayload);
 

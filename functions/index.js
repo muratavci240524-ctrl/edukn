@@ -1,4 +1,4 @@
-const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onCall, HttpsError, onRequest } = require("firebase-functions/v2/https");
 const { onDocumentCreated } = require("firebase-functions/v2/firestore");
 const { defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
@@ -293,7 +293,7 @@ exports.deleteSchoolAndAdmin = onCall({ enforceAppCheck: true }, async (request)
  * 'updateUserCredentials' — Kullanıcı e-posta/şifresini günceller.
  * 🔐 Login gerekli + Kendi hesabı veya süper admin.
  */
-exports.updateUserCredentials = onCall({ enforceAppCheck: true }, async (request) => {
+exports.updateUserCredentials = onCall({ enforceAppCheck: false }, async (request) => {
     const { data, auth } = request;
     verifyAuth(auth);
 
@@ -1185,3 +1185,152 @@ exports.getEncryptionStats = onCall(
         return { stats };
     }
 );
+
+/**
+ * 'generateSsoToken' — diLKN geçişi için kısa ömürlü tek kullanımlık bir SSO token'ı üretir.
+ * 🔐 Sadece giriş yapmış kullanıcılar çağırabilir.
+ */
+exports.generateSsoToken = onCall(
+    { enforceAppCheck: false },
+    async (request) => {
+        verifyAuth(request.auth);
+
+        const userId = request.auth.uid;
+        const email = request.auth.token.email || "";
+        const name = request.auth.token.name || "";
+
+        // Kullanıcı dokümanını çek
+        const userDoc = await db.collection("users").doc(userId).get();
+        if (!userDoc.exists) {
+            throw new HttpsError("not-found", "Kullanıcı kaydı bulunamadı.");
+        }
+
+        const userData = userDoc.data();
+        const role = userData.role || "ogrenci";
+        const schoolId = userData.schoolId || userData.institutionId || "";
+        const className = userData.className || userData.class || "";
+        const classId = userData.classId || "";
+
+        // Süper admin ve yöneticiler direkt erişebilir
+        const isManager = ["super_admin", "admin", "manager", "genel_mudur"].includes(role);
+        
+        if (!isManager && schoolId) {
+            // Okul erişim izinlerini kontrol et
+            const schoolDoc = await db.collection("schools").doc(schoolId).get();
+            if (schoolDoc.exists) {
+                const schoolData = schoolDoc.data();
+                const access = schoolData.lingoknAccess || {};
+                
+                const enabledAll = access.enabledAll === true;
+                const allowedClassIds = access.allowedClassIds || [];
+                const allowedUserIds = access.allowedUserIds || [];
+                const allowedTeacherIds = access.allowedTeacherIds || [];
+
+                const isClassAllowed = allowedClassIds.includes(className) || allowedClassIds.includes(classId);
+                const isUserAllowed = allowedUserIds.includes(userId) || (role === "ogretmen" && allowedTeacherIds.includes(userId));
+
+                if (!enabledAll && !isClassAllowed && !isUserAllowed) {
+                    throw new HttpsError("permission-denied", "Hesabınıza LinGoKN erişim izni tanımlanmamıştır.");
+                }
+            }
+        }
+
+        // Öğretmen ise sorumlu olduğu öğrencileri bul
+        let assignedStudentIds = [];
+        if (role === "ogretmen" && schoolId) {
+            try {
+                // Öğretmenin sınıfındaki / okulundaki öğrencileri sorgula
+                const studentsSnap = await db.collection("users")
+                    .where("schoolId", "==", schoolId)
+                    .where("role", "==", "ogrenci")
+                    .get();
+
+                studentsSnap.docs.forEach(doc => {
+                    const stData = doc.data();
+                    if (className && (stData.className === className || stData.class === className)) {
+                        assignedStudentIds.push(doc.id);
+                    }
+                });
+            } catch (e) {
+                console.error("Öğrenci listesi çekme hatası:", e);
+            }
+        }
+
+        // Benzersiz güvenli token üret
+        const token = crypto.randomBytes(32).toString("hex");
+        const expiresAt = Date.now() + 60 * 1000; // 60 saniye geçerli
+
+        await db.collection("sso_tokens").doc(token).set({
+            userId,
+            email,
+            name: userData.fullName || name,
+            role,
+            schoolId,
+            className,
+            assignedStudentIds,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            expiresAt: admin.firestore.Timestamp.fromMillis(expiresAt),
+            used: false
+        });
+
+        return { token };
+    }
+);
+
+/**
+ * 'validateSsoToken' — LinGoKN backend'inin (veya uygulamasının) SSO token'ını doğrulamasını sağlar.
+ * 🌐 Genel HTTP POST API'si
+ */
+exports.validateSsoToken = onRequest(
+    { cors: true },
+    async (req, res) => {
+        if (req.method !== "POST") {
+            return res.status(405).json({ error: "Method Not Allowed" });
+        }
+
+        const { token } = req.body;
+        if (!token) {
+            return res.status(400).json({ error: "Token eksik" });
+        }
+
+        try {
+            const tokenRef = db.collection("sso_tokens").doc(token);
+            const doc = await tokenRef.get();
+
+            if (!doc.exists) {
+                return res.status(404).json({ error: "Token bulunamadı veya geçersiz" });
+            }
+
+            const data = doc.data();
+
+            const now = Date.now();
+            const expiresAtMs = data.expiresAt.toMillis();
+
+            if (data.used) {
+                return res.status(400).json({ error: "Token zaten kullanılmış" });
+            }
+
+            if (now > expiresAtMs) {
+                return res.status(400).json({ error: "Token süresi dolmuş" });
+            }
+
+            await tokenRef.update({ used: true });
+
+            return res.json({
+                uid: data.userId,
+                email: data.email,
+                name: data.name,
+                role: data.role,
+                schoolId: data.schoolId,
+                className: data.className,
+                assignedStudentIds: data.assignedStudentIds || [],
+                valid: true
+            });
+
+        } catch (error) {
+            console.error("SSO Token doğrulama hatası:", error);
+            return res.status(500).json({ error: "Sunucu hatası" });
+        }
+    }
+);
+

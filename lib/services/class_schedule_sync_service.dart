@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'term_service.dart';
 
 /// Service to sync class schedules to Firestore classSchedules collection
 ///
@@ -27,6 +28,8 @@ class ClassScheduleSyncService {
       final docId = '${periodId}_${classId}_${day}_$hourIndex';
       print('DEBUG SYNC: Writing to docId=$docId');
 
+      final termId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
+
       // Prepare data
       final data = {
         'institutionId': institutionId,
@@ -37,6 +40,7 @@ class ClassScheduleSyncService {
         'hourIndex': hourIndex,
         'lessonId': lessonId,
         'lessonName': lessonName,
+        'termId': termId,
         'isActive': true, // CRITICAL: Required for query filtering
         'updatedAt': FieldValue.serverTimestamp(),
       };
@@ -100,6 +104,8 @@ class ClassScheduleSyncService {
       final batch = _firestore.batch();
       int count = 0;
 
+      final termId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
+
       // schedule structure: {day: {hourIndex: {lessonData}}}
       for (var day in schedule.keys) {
         final daySchedule = schedule[day]!;
@@ -116,6 +122,7 @@ class ClassScheduleSyncService {
             'hourIndex': hourIndex,
             'lessonId': lessonData['lessonId'],
             'lessonName': lessonData['lessonName'],
+            'termId': termId,
             'updatedAt': FieldValue.serverTimestamp(),
           };
 

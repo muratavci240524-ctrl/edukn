@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart'; // Yeni fonksiyonlar için
 import 'package:intl/intl.dart'; // Tarih formatlamak için
@@ -25,11 +26,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   // Dar ekranlarda hangi sekme gösterilsin
   int _selectedTabIndex = 0; // 0: İstatistikler, 1: Okullar
 
-  void _logout() {
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => AdminLoginScreen()),
-    );
+  Future<void> _logout() async {
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (e) {
+      debugPrint('Logout error: $e');
+    }
+    if (mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const AdminLoginScreen()),
+      );
+    }
   }
 
   // --- HATA DÜZELTMESİ: EKSİK FONKSİYON EKLENDİ ---

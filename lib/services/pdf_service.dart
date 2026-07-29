@@ -14,7 +14,7 @@ class PdfService {
   static pw.Font? _cachedFontBold;
   static Uint8List? _cachedLogoBytes;
 
-  static Future<pw.Font> _getFont() async {
+  static Future<pw.Font> getFont() async {
     if (_cachedFont != null) return _cachedFont!;
     // Local TTF — internet gerekmez, anında yüklenir
     final fontData = await rootBundle.load('assets/fonts/Roboto-Regular.ttf');
@@ -22,7 +22,7 @@ class PdfService {
     return _cachedFont!;
   }
 
-  static Future<pw.Font> _getFontBold() async {
+  static Future<pw.Font> getFontBold() async {
     if (_cachedFontBold != null) return _cachedFontBold!;
     final fontData = await rootBundle.load('assets/fonts/Roboto-Bold.ttf');
     _cachedFontBold = pw.Font.ttf(fontData);
@@ -39,8 +39,8 @@ class PdfService {
 
   // PDF oluşturulmasını hızlandırmak için ön yükleme fonksiyonu
   static void preload() {
-    _getFont();
-    _getFontBold();
+    getFont();
+    getFontBold();
     _getLogo();
   }
 
@@ -52,8 +52,8 @@ class PdfService {
     
     // Font + logo paralel yükle (Future.wait ile aynı anda)
     final results = await Future.wait([
-      _getFont(),
-      _getFontBold(),
+      getFont(),
+      getFontBold(),
       _getLogo(),
     ]);
     final font = results[0] as pw.Font;

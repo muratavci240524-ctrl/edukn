@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import '../../services/term_service.dart';
+import '../../widgets/edukn_logo.dart';
 import 'etut_settings_screen.dart';
 import 'etut_guide_page.dart';
 
@@ -29,6 +30,8 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
   // Data Lists
   List<Map<String, dynamic>> _allStudents = [];
   List<Map<String, dynamic>> _allTeachers = [];
+  Map<String, String> _classNameMap = {};
+  Map<String, String> _lessonNameMap = {};
 
   // Selection
   Set<String> _selectedStudentIds = {};
@@ -39,6 +42,7 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
   String _teacherSearch = '';
   String? _selectedClassFilter;
   String? _selectedBranchFilter;
+  bool _showBranchSelection = false;
 
   bool _isLoading = true;
   DateTime _focusedDate = DateTime.now();
@@ -81,6 +85,42 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
           });
         }
       }
+
+      // Merge active days from Ders Programı
+      try {
+        final termId = await TermService().getActiveTermId();
+        var periodQuery = FirebaseFirestore.instance
+            .collection('workPeriods')
+            .where('institutionId', isEqualTo: widget.institutionId)
+            .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+            .where('isActive', isEqualTo: true);
+
+        if (termId != null) {
+          periodQuery = periodQuery.where('termId', isEqualTo: termId);
+        }
+
+        final periodSnap = await periodQuery.get();
+        if (periodSnap.docs.isNotEmpty) {
+          final periodData = periodSnap.docs.first.data();
+          final lessonHours = periodData['lessonHours'] as Map<String, dynamic>?;
+          if (lessonHours != null && lessonHours['selectedDays'] != null) {
+            final selectedDays = List<String>.from(lessonHours['selectedDays']);
+            final daysList = ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar'];
+            if (mounted) {
+              setState(() {
+                for (int i = 0; i < 7; i++) {
+                  final dayName = daysList[i];
+                  if (!selectedDays.contains(dayName)) {
+                    _activeDays[i] = false;
+                  }
+                }
+              });
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('Error loading schedule active days: $e');
+      }
     } catch (e) {
       debugPrint('Error loading etut settings: $e');
     }
@@ -108,11 +148,29 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
             .where('institutionId', isEqualTo: widget.institutionId)
             .limit(1)
             .get(),
+        FirebaseFirestore.instance
+            .collection('classes')
+            .where('institutionId', isEqualTo: widget.institutionId)
+            .get(),
+        FirebaseFirestore.instance
+            .collection('lessons')
+            .where('institutionId', isEqualTo: widget.institutionId)
+            .get(),
       ]);
 
       _allStudents = reqs[0].docs
           .map((doc) => {'id': doc.id, ...doc.data()})
           .toList();
+
+      _classNameMap = {
+        for (var doc in reqs[3].docs)
+          doc.id: (doc.data()['className'] ?? doc.data()['name'] ?? '').toString()
+      };
+
+      _lessonNameMap = {
+        for (var doc in reqs[4].docs)
+          doc.id: (doc.data()['lessonName'] ?? doc.data()['name'] ?? '').toString()
+      };
 
       if (widget.isTeacher && widget.teacherId != null) {
         // Teacher Mode: Filter students by assigned classes
@@ -156,6 +214,13 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
             .toList();
       }
 
+      // Turkish locale-aware sorting for teachers list
+      _allTeachers.sort((a, b) {
+        final nameA = (a['fullName'] ?? '').toString();
+        final nameB = (b['fullName'] ?? '').toString();
+        return _turkishCompare(nameA, nameB);
+      });
+
       if (reqs[2].docs.isNotEmpty) {
         _schoolId = reqs[2].docs.first.id;
       }
@@ -165,6 +230,27 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
       debugPrint('Error loading etut data: $e');
       setState(() => _isLoading = false);
     }
+  }
+
+  int _turkishCompare(String a, String b) {
+    const turkishChars = 'aâbcçdeefgğhıijlmnoöprsştuüvyz';
+    final lowerA = a.toLowerCase();
+    final lowerB = b.toLowerCase();
+    
+    int minLen = lowerA.length < lowerB.length ? lowerA.length : lowerB.length;
+    for (int i = 0; i < minLen; i++) {
+      final charA = lowerA[i];
+      final charB = lowerB[i];
+      if (charA != charB) {
+        final indexA = turkishChars.indexOf(charA);
+        final indexB = turkishChars.indexOf(charB);
+        if (indexA != -1 && indexB != -1) {
+          return indexA.compareTo(indexB);
+        }
+        return charA.compareTo(charB);
+      }
+    }
+    return lowerA.length.compareTo(lowerB.length);
   }
 
   List<Map<String, dynamic>> get _filteredStudents {
@@ -193,7 +279,7 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
   }
 
   List<Map<String, dynamic>> get _filteredTeachers {
-    return _allTeachers.where((t) {
+    final list = _allTeachers.where((t) {
       final name = (t['fullName'] ?? '').toString().toLowerCase();
       final branch = (t['branch'] ?? '').toString().toLowerCase();
       final matchesSearch =
@@ -203,6 +289,20 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
           _selectedBranchFilter == null || t['branch'] == _selectedBranchFilter;
       return matchesSearch && matchesBranch;
     }).toList();
+
+    // Sort by branch (Turkish A-Z) first, then by fullName (Turkish A-Z)
+    list.sort((a, b) {
+      final branchA = (a['branch'] ?? '').toString();
+      final branchB = (b['branch'] ?? '').toString();
+      final branchCmp = _turkishCompare(branchA, branchB);
+      if (branchCmp != 0) return branchCmp;
+
+      final nameA = (a['fullName'] ?? '').toString();
+      final nameB = (b['fullName'] ?? '').toString();
+      return _turkishCompare(nameA, nameB);
+    });
+
+    return list;
   }
 
   @override
@@ -263,7 +363,7 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: EduKnLoader(size: 80.0))
           : LayoutBuilder(
               builder: (context, constraints) {
                 // WEB & DESKTOP: 3 Column Layout
@@ -398,6 +498,41 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
     );
   }
 
+  List<String> get _allBranches {
+    final branches = _allStudents
+        .map((s) => s['className'] as String?)
+        .whereType<String>()
+        .toSet()
+        .toList();
+    branches.sort();
+    return branches;
+  }
+
+  bool _isBranchFullySelected(String branchName) {
+    final branchStudents = _allStudents.where((s) => s['className'] == branchName).toList();
+    if (branchStudents.isEmpty) return false;
+    return branchStudents.every((s) => _selectedStudentIds.contains(s['id']));
+  }
+
+  void _toggleBranchSelection(String branchName) {
+    final branchStudents = _allStudents.where((s) => s['className'] == branchName).toList();
+    if (branchStudents.isEmpty) return;
+
+    setState(() {
+      final isFullySelected = _isBranchFullySelected(branchName);
+      if (isFullySelected) {
+        for (var s in branchStudents) {
+          _selectedStudentIds.remove(s['id']);
+        }
+      } else {
+        for (var s in branchStudents) {
+          _selectedStudentIds.add(s['id'] as String);
+        }
+      }
+    });
+    _loadClashData(silent: true);
+  }
+
   Widget _buildStudentPanel() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -411,18 +546,18 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Icon(
-                Icons.school,
+                _showBranchSelection ? Icons.class_outlined : Icons.school,
                 color: Colors.indigo.shade700,
                 size: 20,
               ),
             ),
             const SizedBox(width: 8),
-            const Expanded(
+            Expanded(
               child: Text(
-                'Öğrenci Seçimi',
-                style: TextStyle(
+                _showBranchSelection ? 'Şube Seçimi' : 'Öğrenci Seçimi',
+                style: const TextStyle(
                   fontWeight: FontWeight.bold,
-                  fontSize: 14, // Slightly smaller
+                  fontSize: 14,
                   color: Colors.black87,
                 ),
                 maxLines: 1,
@@ -450,107 +585,276 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
           ],
         ),
         const SizedBox(height: 12),
-        TextField(
-          decoration: InputDecoration(
-            hintText: 'Öğrenci Ara...',
-            prefixIcon: const Icon(Icons.search, size: 18, color: Colors.grey),
-            isDense: true,
-            contentPadding: const EdgeInsets.symmetric(
-              vertical: 8,
-              horizontal: 10,
-            ),
-            filled: true,
-            fillColor: Colors.grey.shade50,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide(color: Colors.grey.shade200),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide(color: Colors.grey.shade200),
-            ),
+        // Premium Sliding Toggle
+        Container(
+          height: 38,
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(20),
           ),
-          style: const TextStyle(fontSize: 13),
-          onChanged: (v) => setState(() => _studentSearch = v),
-        ),
-        const SizedBox(height: 8),
-        Expanded(
-          child: ListView.builder(
-            itemCount: _filteredStudents.length,
-            itemBuilder: (context, index) {
-              final s = _filteredStudents[index];
-              final isSelected = _selectedStudentIds.contains(s['id']);
-              return Container(
-                margin: const EdgeInsets.only(bottom: 4),
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? Colors.indigo.shade50
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(8),
-                  border: isSelected
-                      ? Border.all(color: Colors.indigo.shade100)
-                      : null,
-                ),
-                child: ListTile(
-                  dense: true,
-                  visualDensity: VisualDensity.compact,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 0,
+          child: Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _showBranchSelection = false;
+                    });
+                  },
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: !_showBranchSelection ? Colors.white : Colors.transparent,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: !_showBranchSelection
+                          ? [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.08),
+                                blurRadius: 4,
+                                offset: const Offset(0, 2),
+                              )
+                            ]
+                          : null,
+                    ),
+                    alignment: Alignment.center,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.person_outline,
+                          size: 16,
+                          color: !_showBranchSelection ? Colors.indigo : Colors.grey,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Öğrenci',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: !_showBranchSelection ? Colors.indigo.shade900 : Colors.grey,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  leading: CircleAvatar(
-                    radius: 12,
-                    backgroundColor: isSelected
-                        ? Colors.indigo
-                        : Colors.grey.shade200,
-                    child: Text(
-                      (s['fullName'] ?? '?')[0],
-                      style: TextStyle(
-                        color: isSelected ? Colors.white : Colors.grey.shade700,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
+                ),
+              ),
+              Expanded(
+                child: GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _showBranchSelection = true;
+                    });
+                  },
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: _showBranchSelection ? Colors.white : Colors.transparent,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: _showBranchSelection
+                          ? [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.08),
+                                blurRadius: 4,
+                                offset: const Offset(0, 2),
+                              )
+                            ]
+                          : null,
+                    ),
+                    alignment: Alignment.center,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.class_outlined,
+                          size: 16,
+                          color: _showBranchSelection ? Colors.indigo : Colors.grey,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Şube',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: _showBranchSelection ? Colors.indigo.shade900 : Colors.grey,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (!_showBranchSelection) ...[
+          TextField(
+            decoration: InputDecoration(
+              hintText: 'Öğrenci Ara...',
+              prefixIcon: const Icon(Icons.search, size: 18, color: Colors.grey),
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(
+                vertical: 8,
+                horizontal: 10,
+              ),
+              filled: true,
+              fillColor: Colors.grey.shade50,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: Colors.grey.shade200),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: Colors.grey.shade200),
+              ),
+            ),
+            style: const TextStyle(fontSize: 13),
+            onChanged: (v) => setState(() => _studentSearch = v),
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: ListView.builder(
+              itemCount: _filteredStudents.length,
+              itemBuilder: (context, index) {
+                final s = _filteredStudents[index];
+                final isSelected = _selectedStudentIds.contains(s['id']);
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 4),
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? Colors.indigo.shade50
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(8),
+                    border: isSelected
+                        ? Border.all(color: Colors.indigo.shade100)
+                        : null,
+                  ),
+                  child: ListTile(
+                    dense: true,
+                    visualDensity: VisualDensity.compact,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 0,
+                    ),
+                    leading: CircleAvatar(
+                      radius: 12,
+                      backgroundColor: isSelected
+                          ? Colors.indigo
+                          : Colors.grey.shade200,
+                      child: Text(
+                        (s['fullName'] ?? '?')[0],
+                        style: TextStyle(
+                          color: isSelected ? Colors.white : Colors.grey.shade700,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
-                  ),
-                  title: Text(
-                    s['fullName'] ?? 'İsimsiz',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: isSelected
-                          ? FontWeight.bold
-                          : FontWeight.w500,
-                      color: isSelected
-                          ? Colors.indigo.shade900
-                          : Colors.black87,
+                    title: Text(
+                      s['fullName'] ?? 'İsimsiz',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: isSelected
+                            ? FontWeight.bold
+                            : FontWeight.w500,
+                        color: isSelected
+                            ? Colors.indigo.shade900
+                            : Colors.black87,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  subtitle: Text(
-                    s['className'] ?? 'Sınıfsız',
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: isSelected ? Colors.indigo.shade400 : Colors.grey,
+                    subtitle: Text(
+                      s['className'] ?? 'Sınıfsız',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: isSelected ? Colors.indigo.shade400 : Colors.grey,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                    onTap: () {
+                      setState(() {
+                        if (isSelected) {
+                          _selectedStudentIds.remove(s['id']);
+                        } else {
+                          _selectedStudentIds.add(s['id']);
+                        }
+                      });
+                      _loadClashData(silent: true);
+                    },
                   ),
-                  onTap: () {
-                    // Optimistic update: Don't trigger full loading overlay
-                    setState(() {
-                      if (isSelected) {
-                        _selectedStudentIds.remove(s['id']);
-                      } else {
-                        _selectedStudentIds.add(s['id']);
-                      }
-                    });
-                    _loadClashData(silent: true); // Load data silently
-                  },
-                ),
-              );
-            },
+                );
+              },
+            ),
           ),
-        ),
+        ] else ...[
+          Expanded(
+            child: ListView.builder(
+              itemCount: _allBranches.length,
+              itemBuilder: (context, index) {
+                final branchName = _allBranches[index];
+                final isFullySelected = _isBranchFullySelected(branchName);
+                
+                final branchStudents = _allStudents.where((s) => s['className'] == branchName).toList();
+                final selectedCount = branchStudents.where((s) => _selectedStudentIds.contains(s['id'])).length;
+
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 4),
+                  decoration: BoxDecoration(
+                    color: isFullySelected
+                        ? Colors.indigo.shade50
+                        : (selectedCount > 0 ? Colors.indigo.shade50.withOpacity(0.4) : Colors.transparent),
+                    borderRadius: BorderRadius.circular(8),
+                    border: (isFullySelected || selectedCount > 0)
+                        ? Border.all(color: Colors.indigo.shade100)
+                        : null,
+                  ),
+                  child: ListTile(
+                    dense: true,
+                    visualDensity: VisualDensity.compact,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 0,
+                    ),
+                    leading: CircleAvatar(
+                      radius: 12,
+                      backgroundColor: isFullySelected
+                          ? Colors.indigo
+                          : (selectedCount > 0 ? Colors.indigo.shade300 : Colors.grey.shade200),
+                      child: Icon(
+                        isFullySelected
+                            ? Icons.check
+                            : (selectedCount > 0 ? Icons.remove : Icons.class_outlined),
+                        color: isFullySelected || selectedCount > 0 ? Colors.white : Colors.grey.shade700,
+                        size: 12,
+                      ),
+                    ),
+                    title: Text(
+                      branchName,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: (isFullySelected || selectedCount > 0)
+                            ? FontWeight.bold
+                            : FontWeight.w500,
+                        color: (isFullySelected || selectedCount > 0)
+                            ? Colors.indigo.shade900
+                            : Colors.black87,
+                      ),
+                    ),
+                    subtitle: Text(
+                      '$selectedCount / ${branchStudents.length} Seçildi',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: (isFullySelected || selectedCount > 0) ? Colors.indigo.shade400 : Colors.grey,
+                      ),
+                    ),
+                    onTap: () => _toggleBranchSelection(branchName),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -842,6 +1146,82 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
         }
       }
 
+      // Merge Ders Programı closed slots into _currentTeacherUnavailableSlots
+      if (_selectedTeacherId != null) {
+        final scheduleSettings = periodData['scheduleSettings'] as Map<String, dynamic>?;
+        final closedSlotsMap = (scheduleSettings?['closedSlots'] ?? periodData['closedSlots']) as Map<String, dynamic>?;
+        if (closedSlotsMap != null) {
+          final teacherClosedList = closedSlotsMap['teacher_$_selectedTeacherId'] as List<dynamic>?;
+          if (teacherClosedList != null) {
+            final daysTr = ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar'];
+            final lessonTimesRaw = lessonHours?['lessonTimes'];
+
+            for (var rawSlot in teacherClosedList) {
+              final parts = rawSlot.toString().split('_');
+              if (parts.length == 2) {
+                final dayName = parts[0];
+                final hourIdx = int.tryParse(parts[1]);
+                if (hourIdx != null) {
+                  final dayIndex = daysTr.indexWhere(
+                    (d) => _normalizeDay(d) == _normalizeDay(dayName),
+                  );
+                  if (dayIndex != -1) {
+                    int? startH;
+                    int? startM;
+                    int? endH;
+                    int? endM;
+
+                    if (lessonTimesRaw is Map) {
+                      final dayData = lessonTimesRaw[dayName] ?? lessonTimesRaw[_normalizeDay(dayName)];
+                      if (dayData is List && hourIdx >= 0 && hourIdx < dayData.length) {
+                        final slotData = dayData[hourIdx];
+                        if (slotData is Map) {
+                          startH = slotData['startHour'] as int?;
+                          startM = slotData['startMinute'] as int?;
+                          endH = slotData['endHour'] as int?;
+                          endM = slotData['endMinute'] as int?;
+                        }
+                      } else {
+                        final slotData = lessonTimesRaw[hourIdx.toString()];
+                        if (slotData is Map) {
+                          startH = slotData['startHour'] as int?;
+                          startM = slotData['startMinute'] as int?;
+                          endH = slotData['endHour'] as int?;
+                          endM = slotData['endMinute'] as int?;
+                        }
+                      }
+                    } else if (lessonTimesRaw is List && hourIdx >= 0 && hourIdx < lessonTimesRaw.length) {
+                      final slotData = lessonTimesRaw[hourIdx];
+                      if (slotData is Map) {
+                        startH = slotData['startHour'] as int?;
+                        startM = slotData['startMinute'] as int?;
+                        endH = slotData['endHour'] as int?;
+                        endM = slotData['endMinute'] as int?;
+                      }
+                    }
+
+                    startH ??= 8 + hourIdx;
+                    startM ??= 0;
+                    endH ??= startH + 1;
+                    endM ??= 0;
+
+                    final startTotalMin = startH * 60 + startM;
+                    final endTotalMin = endH * 60 + endM;
+
+                    for (int totalM = startTotalMin; totalM < endTotalMin; totalM += 10) {
+                      final h = (totalM / 60).floor();
+                      final m = totalM % 60;
+                      _currentTeacherUnavailableSlots.add('$dayIndex-$h-$m');
+                      _currentTeacherUnavailableSlots.add('$dayIndex-$h');
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
       Map<String, List<Map<String, dynamic>>> newClashData = {};
 
       void addClash(
@@ -870,18 +1250,30 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
         if (classIdList.isNotEmpty) {
           for (var i = 0; i < classIdList.length; i += 30) {
             final chunk = classIdList.skip(i).take(30).toList();
-            final snap = await FirebaseFirestore.instance
+            var snap = await FirebaseFirestore.instance
                 .collection('classSchedules')
                 .where('institutionId', isEqualTo: widget.institutionId)
                 .where('periodId', isEqualTo: periodId)
                 .where('classId', whereIn: chunk)
                 .where('isActive', isEqualTo: true)
                 .get();
+
+            if (snap.docs.isEmpty) {
+              // Fallback: Query without periodId
+              snap = await FirebaseFirestore.instance
+                  .collection('classSchedules')
+                  .where('institutionId', isEqualTo: widget.institutionId)
+                  .where('classId', whereIn: chunk)
+                  .where('isActive', isEqualTo: true)
+                  .get();
+            }
+
             for (var doc in snap.docs) {
               final data = doc.data();
               final day = data['day']?.toString();
               final lessonIdx = data['hourIndex'] as int?;
-              final lessonName = data['lessonName']?.toString() ?? 'Ders';
+              final lessonId = data['lessonId']?.toString() ?? '';
+              final lessonName = _lessonNameMap[lessonId] ?? data['lessonName']?.toString() ?? 'Ders';
               if (day != null && lessonIdx != null) {
                 final startHour =
                     indexToHourMap['${_normalizeDay(day)}-$lessonIdx'];
@@ -905,43 +1297,67 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
 
       // 4. Get Teacher Schedule
       if (_selectedTeacherId != null) {
-        final teacherQueries = await Future.wait([
-          FirebaseFirestore.instance
+        var snap1 = await FirebaseFirestore.instance
+            .collection('classSchedules')
+            .where('institutionId', isEqualTo: widget.institutionId)
+            .where('periodId', isEqualTo: periodId)
+            .where('teacherId', isEqualTo: _selectedTeacherId)
+            .where('isActive', isEqualTo: true)
+            .get();
+
+        var snap2 = await FirebaseFirestore.instance
+            .collection('classSchedules')
+            .where('institutionId', isEqualTo: widget.institutionId)
+            .where('periodId', isEqualTo: periodId)
+            .where('teacherIds', arrayContains: _selectedTeacherId)
+            .where('isActive', isEqualTo: true)
+            .get();
+
+        if (snap1.docs.isEmpty && snap2.docs.isEmpty) {
+          // Fallback: Query without periodId
+          snap1 = await FirebaseFirestore.instance
               .collection('classSchedules')
               .where('institutionId', isEqualTo: widget.institutionId)
-              .where('periodId', isEqualTo: periodId)
               .where('teacherId', isEqualTo: _selectedTeacherId)
               .where('isActive', isEqualTo: true)
-              .get(),
-          FirebaseFirestore.instance
+              .get();
+
+          snap2 = await FirebaseFirestore.instance
               .collection('classSchedules')
               .where('institutionId', isEqualTo: widget.institutionId)
-              .where('periodId', isEqualTo: periodId)
               .where('teacherIds', arrayContains: _selectedTeacherId)
               .where('isActive', isEqualTo: true)
-              .get(),
-        ]);
+              .get();
+        }
 
-        for (final snap in teacherQueries) {
-          for (var doc in snap.docs) {
-            final data = doc.data();
-            final day = data['day']?.toString();
-            final lessonIdx = data['hourIndex'] as int?;
-            final className = data['className']?.toString() ?? 'Sınıf';
-            if (day != null && lessonIdx != null) {
-              final startHour =
-                  indexToHourMap['${_normalizeDay(day)}-$lessonIdx'];
-              if (startHour != null) {
-                final gridStartSlot = (startHour - 8) * 6;
-                // Standard lesson duration: 4 slots (40 minutes)
-                for (int j = 0; j < 4; j++) {
-                  addClash(
-                    '${_normalizeDay(day)}-${gridStartSlot + j}',
-                    'TR',
-                    label: className,
-                    details: {'type': 'Lesson', 'id': doc.id, ...data},
-                  );
-                }
+        final teacherDocs = [...snap1.docs, ...snap2.docs];
+        final seenDocIds = <String>{};
+
+        for (var doc in teacherDocs) {
+          if (seenDocIds.contains(doc.id)) continue;
+          seenDocIds.add(doc.id);
+
+          final data = doc.data();
+          final day = data['day']?.toString();
+          final lessonIdx = data['hourIndex'] as int?;
+          final classId = data['classId']?.toString() ?? '';
+          final className = _classNameMap[classId] ?? data['className']?.toString() ?? 'Sınıf';
+          final lessonId = data['lessonId']?.toString() ?? '';
+          final lessonName = _lessonNameMap[lessonId] ?? data['lessonName']?.toString() ?? 'Ders';
+
+          if (day != null && lessonIdx != null) {
+            final startHour =
+                indexToHourMap['${_normalizeDay(day)}-$lessonIdx'];
+            if (startHour != null) {
+              final gridStartSlot = (startHour - 8) * 6;
+              // Standard lesson duration: 4 slots (40 minutes)
+              for (int j = 0; j < 4; j++) {
+                addClash(
+                  '${_normalizeDay(day)}-${gridStartSlot + j}',
+                  'TR',
+                  label: '$className - $lessonName',
+                  details: {'type': 'Lesson', 'id': doc.id, ...data, 'className': className, 'lessonName': lessonName},
+                );
               }
             }
           }
@@ -973,6 +1389,14 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
                 .where('date', isLessThan: endTs)
                 .get(),
           );
+          etutQueries.add(
+            FirebaseFirestore.instance
+                .collection('etut_requests')
+                .where('institutionId', isEqualTo: widget.institutionId)
+                .where('teacherId', isEqualTo: _selectedTeacherId)
+                .where('isRecurring', isEqualTo: true)
+                .get(),
+          );
         }
         if (_selectedStudentIds.isNotEmpty) {
           final studentIdList = _selectedStudentIds.toList();
@@ -985,6 +1409,14 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
                   .where('studentIds', arrayContainsAny: chunk)
                   .where('date', isGreaterThanOrEqualTo: startTs)
                   .where('date', isLessThan: endTs)
+                  .get(),
+            );
+            etutQueries.add(
+              FirebaseFirestore.instance
+                  .collection('etut_requests')
+                  .where('institutionId', isEqualTo: widget.institutionId)
+                  .where('studentIds', arrayContainsAny: chunk)
+                  .where('isRecurring', isEqualTo: true)
                   .get(),
             );
           }
@@ -1001,56 +1433,70 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
           'Pazar',
         ];
 
+        final seenEtutIds = <String>{};
         for (final snap in etutSnaps) {
           for (var doc in snap.docs) {
+            if (seenEtutIds.contains(doc.id)) continue;
+            seenEtutIds.add(doc.id);
             final data = doc.data() as Map<String, dynamic>;
             final dateVal = data['date'];
             final startVal = data['startTime'];
             final endVal = data['endTime'];
+            final isRec = data['isRecurring'] == true;
 
-            if (dateVal != null) {
-              DateTime? date;
-              if (dateVal is Timestamp)
-                date = dateVal.toDate();
-              else if (dateVal is String)
-                date = DateTime.tryParse(dateVal);
+            DateTime? date;
+            if (isRec) {
+              final dayIndex = data['dayIndex'] as int? ?? 0;
+              date = DateTime(startOfWeek.year, startOfWeek.month, startOfWeek.day).add(Duration(days: dayIndex));
+              final cancelledDates = List<String>.from(data['cancelledDates'] ?? []);
+              final dateStr = DateFormat('yyyy-MM-dd').format(date);
+              if (cancelledDates.contains(dateStr)) {
+                continue; // Excluded for this week
+              }
+            } else {
+              if (dateVal != null) {
+                if (dateVal is Timestamp)
+                  date = dateVal.toDate();
+                else if (dateVal is String)
+                  date = DateTime.tryParse(dateVal);
+              }
+            }
 
-              if (date != null) {
-                final dayName = _normalizeDay(daysTr[date.weekday - 1]);
-                final isTeacherEtut = data['teacherId'] == _selectedTeacherId;
-                final etutStudentIds = List<String>.from(
-                  data['studentIds'] ?? [],
-                );
-                final isStudentEtut = _selectedStudentIds.any(
-                  (id) => etutStudentIds.contains(id),
-                );
+            if (date != null) {
+              final dayName = _normalizeDay(daysTr[date.weekday - 1]);
+              final isTeacherEtut = data['teacherId'] == _selectedTeacherId;
+              final etutStudentIds = List<String>.from(
+                data['studentIds'] ?? [],
+              );
+              final isStudentEtut = _selectedStudentIds.any(
+                (id) => etutStudentIds.contains(id),
+              );
 
-                String type = 'NONE';
-                if (isTeacherEtut && isStudentEtut)
-                  type = 'BOTH';
-                else if (isTeacherEtut)
-                  type = 'TR';
-                else if (isStudentEtut)
-                  type = 'ST';
+              String type = 'NONE';
+              if (isTeacherEtut && isStudentEtut)
+                type = 'BOTH';
+              else if (isTeacherEtut)
+                type = 'TR';
+              else if (isStudentEtut)
+                type = 'ST';
 
-                if (type == 'NONE') continue;
+              if (type == 'NONE') continue;
 
-                if (startVal is Timestamp && endVal is Timestamp) {
-                  final s = startVal.toDate();
-                  final e = endVal.toDate();
-                  int startMin = (s.hour - 8) * 60 + s.minute;
-                  int endMin = (e.hour - 8) * 60 + e.minute;
-                  int startSlot = (startMin / 10).floor();
-                  int endSlot = (endMin / 10).ceil();
-                  for (int slot = startSlot; slot < endSlot; slot++) {
-                    if (slot >= 0 && slot < 84) {
-                      addClash(
-                        '$dayName-$slot',
-                        type,
-                        label: 'ETÜT',
-                        details: {'type': 'Etut', 'id': doc.id, ...data},
-                      );
-                    }
+              if (startVal is Timestamp && endVal is Timestamp) {
+                final s = startVal.toDate();
+                final e = endVal.toDate();
+                int startMin = (s.hour - 8) * 60 + s.minute;
+                int endMin = (e.hour - 8) * 60 + e.minute;
+                int startSlot = (startMin / 10).floor();
+                int endSlot = (endMin / 10).ceil();
+                for (int slot = startSlot; slot < endSlot; slot++) {
+                  if (slot >= 0 && slot < 84) {
+                    addClash(
+                      '$dayName-$slot',
+                      type,
+                      label: 'ETÜT',
+                      details: {'type': 'Etut', 'id': doc.id, ...data},
+                    );
                   }
                 }
               }
@@ -1297,8 +1743,17 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
                             ),
                             child: InkWell(
                               onTap: () {
-                                if (!isDayActive || isTeacherUnavailable)
+                                if (!isDayActive) return;
+                                if (isTeacherUnavailable) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Bu saat öğretmen için ders programında veya ayarlarda kapatılmıştır. Ayarlar kısmından değiştirebilirsiniz.'),
+                                      backgroundColor: Colors.red,
+                                      behavior: SnackBarBehavior.floating,
+                                    ),
+                                  );
                                   return;
+                                }
 
                                 _handleTimeSlotClick(
                                   dayIndex,
@@ -1533,6 +1988,70 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
     return resolvedTopic.isNotEmpty ? resolvedTopic : 'Belirtilmemiş';
   }
 
+  Future<bool> _cancelEtutChoice(Map<String, dynamic> item) async {
+    final isRec = item['isRecurring'] == true;
+    if (!isRec) {
+      await _cancelEtut(item['id']);
+      return true;
+    }
+
+    final option = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sabit Etüt İptali'),
+        content: const Text(
+          'Bu etüt her hafta tekrarlanan sabit bir etüttür.\n\nNasıl iptal etmek istersiniz?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'cancel'),
+            child: const Text('Vazgeç', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, 'week'),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+            child: const Text('Sadece Bu Haftayı İptal Et'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, 'all'),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Tamamen Sil (Tüm Gelecek Haftalar)'),
+          ),
+        ],
+      ),
+    );
+
+    if (option == 'week') {
+      setState(() => _isLoading = true);
+      try {
+        final dayIndex = item['dayIndex'] as int? ?? 0;
+        final startOfWeek = _focusedDate.subtract(Duration(days: _focusedDate.weekday - 1));
+        final date = DateTime(startOfWeek.year, startOfWeek.month, startOfWeek.day).add(Duration(days: dayIndex));
+        final dateStr = DateFormat('yyyy-MM-dd').format(date);
+        await FirebaseFirestore.instance
+            .collection('etut_requests')
+            .doc(item['id'])
+            .update({
+              'cancelledDates': FieldValue.arrayUnion([dateStr]),
+            });
+        _loadClashData();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Bu haftalık etüt iptal edildi.')),
+        );
+        return true;
+      } catch (e) {
+        debugPrint('Error cancelling week: $e');
+        return false;
+      } finally {
+        setState(() => _isLoading = false);
+      }
+    } else if (option == 'all') {
+      await _cancelEtut(item['id']);
+      return true;
+    }
+    return false;
+  }
+
   void _showDetailedInfoDialog(
     String? title,
     Map<String, dynamic>? details,
@@ -1736,11 +2255,16 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
                                     trailing: IconButton(
                                       icon: const Icon(Icons.delete_outline, color: Colors.red, size: 18),
                                       onPressed: () async {
+                                        final isRec = item['isRecurring'] == true;
+                                        final msg = isRec
+                                            ? '${item['studentName']} için bu sabit etütü düzenlemek/silmek istiyor musunuz?'
+                                            : '${item['studentName']} etütten çıkarılsın mı?';
+                                        
                                         final confirmed = await showDialog<bool>(
                                           context: context,
                                           builder: (ctx) => AlertDialog(
-                                            title: const Text('Öğrenciyi Sil'),
-                                            content: Text('${item['studentName']} etütten çıkarılsın mı?'),
+                                            title: Text(isRec ? 'Sabit Etütü Sil' : 'Öğrenciyi Sil'),
+                                            content: Text(msg),
                                             actions: [
                                               TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Hayır')),
                                               TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Evet')),
@@ -1749,11 +2273,13 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
                                         );
 
                                         if (confirmed == true) {
-                                          await _cancelEtut(item['id']);
-                                          setDialogState(() {
-                                            etutList.removeAt(index);
-                                          });
-                                          if (etutList.isEmpty) Navigator.pop(context);
+                                          final didCancel = await _cancelEtutChoice(item);
+                                          if (didCancel) {
+                                            setDialogState(() {
+                                              etutList.removeAt(index);
+                                            });
+                                            if (etutList.isEmpty) Navigator.pop(context);
+                                          }
                                         }
                                       },
                                     ),
@@ -1801,11 +2327,16 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
                     children: [
                       TextButton(
                         onPressed: () async {
+                          final isRec = etutList.any((e) => e['isRecurring'] == true);
                           final confirmed = await showDialog<bool>(
                             context: context,
                             builder: (ctx) => AlertDialog(
-                              title: const Text('Tüm Etütü İptal Et'),
-                              content: const Text('Bu işlem tüm öğrenciler için etütü silecektir. Emin misiniz?'),
+                              title: Text(isRec ? 'Sabit Etütü İptal Et' : 'Tüm Etütü İptal Et'),
+                              content: Text(
+                                isRec
+                                    ? 'Bu sabit etütü tüm öğrenciler için iptal etmek/silmek istiyor musunuz?'
+                                    : 'Bu işlem tüm öğrenciler için etütü silecektir. Emin misiniz?',
+                              ),
                               actions: [
                                 TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Vazgeç')),
                                 TextButton(
@@ -1819,7 +2350,7 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
 
                           if (confirmed == true) {
                             for (var item in etutList) {
-                              await _cancelEtut(item['id']);
+                              await _cancelEtutChoice(item);
                             }
                             Navigator.pop(context);
                           }
@@ -1975,23 +2506,36 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
       'Cumartesi',
       'Pazar',
     ];
-    showDialog(
+    final startOfWeek = _focusedDate.subtract(
+      Duration(days: _focusedDate.weekday - 1),
+    );
+    final etutBaseDate = DateTime(
+      startOfWeek.year,
+      startOfWeek.month,
+      startOfWeek.day,
+    ).add(Duration(days: dayIndex));
+
+    showModalBottomSheet(
       context: context,
-      builder: (context) => _buildEtutDialog(
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _buildEtutBottomSheet(
         days[dayIndex],
         hour,
         branch,
         lessonIndex,
+        etutBaseDate,
         startMinute: startMinute,
       ),
     );
   }
 
-  Widget _buildEtutDialog(
+  Widget _buildEtutBottomSheet(
     String day,
     int hour,
     String branch,
-    int lessonIndex, {
+    int lessonIndex,
+    DateTime date, {
     int startMinute = 0,
   }) {
     String topic = '';
@@ -2003,21 +2547,91 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
       hour: (endTotalMinutes ~/ 60) % 24,
       minute: endTotalMinutes % 60,
     );
+    bool isRecurring = false;
 
     return StatefulBuilder(
-      builder: (context, setDialogState) => AlertDialog(
-        title: Text('$day - Etüt Planla'),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        content: SingleChildScrollView(
+      builder: (context, setDialogState) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: EdgeInsets.only(
+          left: 24,
+          right: 24,
+          top: 16,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+        ),
+        child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                'Branş: $branch',
-                style: const TextStyle(fontWeight: FontWeight.bold),
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 20),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
               ),
-              const SizedBox(height: 16),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    DateFormat('d MMMM yyyy', 'tr').format(date),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey.shade500,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        '$day - Etüt Planla',
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.indigo.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.school, color: Colors.indigo.shade700),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Branş: $branch',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.indigo.shade900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
               Row(
                 children: [
                   Expanded(
@@ -2029,12 +2643,26 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
                         );
                         if (t != null) setDialogState(() => startTime = t);
                       },
-                      child: InputDecorator(
-                        decoration: const InputDecoration(
-                          labelText: 'Başlangıç',
-                          isDense: true,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade300),
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                        child: Text(startTime.format(context)),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Başlangıç',
+                              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              startTime.format(context),
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -2048,55 +2676,124 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
                         );
                         if (t != null) setDialogState(() => endTime = t);
                       },
-                      child: InputDecorator(
-                        decoration: const InputDecoration(
-                          labelText: 'Bitiş',
-                          isDense: true,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade300),
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                        child: Text(endTime.format(context)),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Bitiş',
+                              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              endTime.format(context),
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 20),
               TextField(
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Konu',
                   hintText: 'Serbest metin...',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Colors.indigo, width: 2),
+                  ),
                 ),
                 onChanged: (v) => topic = v,
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 20),
               DropdownButtonFormField<String>(
                 value: selectedAction,
-                decoration: const InputDecoration(labelText: 'Yapılacaklar'),
+                decoration: InputDecoration(
+                  labelText: 'Yapılacaklar',
+                  labelStyle: TextStyle(color: Colors.grey.shade700),
+                  filled: true,
+                  fillColor: Colors.grey.shade50,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.grey.shade300),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.grey.shade300),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Colors.indigo, width: 2),
+                  ),
+                ),
+                dropdownColor: Colors.white,
+                style: const TextStyle(color: Colors.black87, fontSize: 15),
                 items: actions
                     .map((a) => DropdownMenuItem(value: a, child: Text(a)))
                     .toList(),
                 onChanged: (v) => selectedAction = v!,
               ),
+              const SizedBox(height: 16),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text(
+                  'Sabit Etüt',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                ),
+                subtitle: const Text(
+                  'Ben iptal edene kadar her hafta aynı gün aynı saatte tekrarlansın.',
+                  style: TextStyle(fontSize: 12),
+                ),
+                value: isRecurring,
+                activeColor: Colors.indigo,
+                onChanged: (val) {
+                  setDialogState(() {
+                    isRecurring = val;
+                  });
+                },
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.indigo,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 0,
+                ),
+                onPressed: () {
+                  _saveEtut(
+                    branch,
+                    topic,
+                    selectedAction,
+                    day,
+                    startTime,
+                    endTime,
+                    lessonIndex,
+                    isRecurring,
+                  );
+                },
+                child: const Text(
+                  'Etüt Oluştur',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
             ],
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('İptal'),
-          ),
-          ElevatedButton(
-            onPressed: () => _saveEtut(
-              branch,
-              topic,
-              selectedAction,
-              day,
-              startTime,
-              endTime,
-              lessonIndex,
-            ),
-            child: const Text('Kaydet'),
-          ),
-        ],
       ),
     );
   }
@@ -2109,6 +2806,7 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
     TimeOfDay startTime,
     TimeOfDay endTime,
     int lessonIndex,
+    bool isRecurring,
   ) async {
     setState(() => _isLoading = true);
     try {
@@ -2175,6 +2873,9 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
           'createdAt': Timestamp.fromDate(now),
           'status': 'pending',
           'lessonIndex': lessonIndex,
+          'isRecurring': isRecurring,
+          'dayIndex': dayOffset,
+          'cancelledDates': [],
         });
       }
       await batch.commit();

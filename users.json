@@ -1,0 +1,191 @@
+{"users": [
+{
+  "localId": "0CevCiMYgNbkwZwBHXZYsMDcDb52",
+  "email": "mustafaozyurtt@gmail.com",
+  "emailVerified": true,
+  "displayName": "Mustafa Özyurt",
+  "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocLeM0OMnkN-xPZCEYdGhPLV4QTqU-hGM0Wpv39kCzRcdLSfJZw=s96-c",
+  "lastSignedInAt": "1784884070810",
+  "createdAt": "1784883894406",
+  "providerUserInfo": [
+    {
+      "providerId": "google.com",
+      "rawId": "109145964176541623448",
+      "email": "mustafaozyurtt@gmail.com",
+      "displayName": "Mustafa Özyurt",
+      "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocLeM0OMnkN-xPZCEYdGhPLV4QTqU-hGM0Wpv39kCzRcdLSfJZw=s96-c"
+    }
+  ]
+},
+{
+  "localId": "4tMwghr3T6VRHDO5Oh9G0S917c13",
+  "email": "223344@abc06.edukn",
+  "emailVerified": false,
+  "passwordHash": "jAXrlBpG+au6gB7rCn195ZOZH5sjfEaOntFqyc5b2W8ubPEDGL76AuMKYscYFteZlFLFtOZRbSL4KcPFeJal4Q==",
+  "salt": "lZUNsfjU08iOzw==",
+  "lastSignedInAt": "1783418615744",
+  "createdAt": "1773580255258",
+  "providerUserInfo": []
+},
+{
+  "localId": "GoKfUKVcTEa7n0XkMRxhi9oFT1G2",
+  "email": "muratavci24052405@gmail.com",
+  "emailVerified": true,
+  "displayName": "Murat AVCI",
+  "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocJZMQbytUMOMcfPHpmrV-W3moUZ6A_umo_WgbnWo9i90BtR-Q=s96-c",
+  "lastSignedInAt": "1780304374625",
+  "createdAt": "1780304374625",
+  "providerUserInfo": [
+    {
+      "providerId": "google.com",
+      "rawId": "104044088220852699440",
+      "email": "muratavci24052405@gmail.com",
+      "displayName": "Murat AVCI",
+      "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocJZMQbytUMOMcfPHpmrV-W3moUZ6A_umo_WgbnWo9i90BtR-Q=s96-c"
+    }
+  ]
+},
+{
+  "localId": "Hpm7yVvI8CPsRS4nmlS4oJzOomX2",
+  "email": "superadmin@edukn.com",
+  "emailVerified": false,
+  "passwordHash": "sL0LpUWJ8qvYM4AOQPI5TY3OzZiNz3N1vA1ps8DjeHQPBfYjqP1+h7oscI5I6GiQm7EwYejV7MegVqPI089EYQ==",
+  "salt": "My7Z6nY1IuMAPw==",
+  "lastSignedInAt": "1784896531690",
+  "createdAt": "1761766564516",
+  "disabled": false,
+  "providerUserInfo": []
+},
+{
+  "localId": "PeUXnHg7JePcNrjFRrmIu2IfcHN2",
+  "email": "mavci@abc.k12.tr",
+  "emailVerified": true,
+  "passwordHash": "jasspeLFxqLSyGbhGrfUmfh9+CtdICNxT9fJiEs86Bk7+n1g/6wiCF9aXGUzLjrnIEZSYoqhko/O0/jQxJcpNw==",
+  "salt": "PjF0ZnCbfRnhgQ==",
+  "displayName": "Murat AVCI",
+  "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocIuqXtZxRf8g5AvxbN0PbsB-EMyUUnfY3oxrlOE2iubwl43klk=s96-c",
+  "lastSignedInAt": "1784896278654",
+  "createdAt": "1777907547288",
+  "providerUserInfo": []
+},
+{
+  "localId": "dNjhvV0TzwOH81hqeMtUn5j2Ah62",
+  "email": "zaferyaz@abc06.edukn",
+  "emailVerified": false,
+  "passwordHash": "N4fS5caW46Sh6zjKHIfw8O1yYDrYvy1PwbAZPxpzvfTPdch+lO5Gu+ZOfOdeDF2co0lnyay6aznJLiOWVyDZyA==",
+  "salt": "FKzbG2rV33F6cA==",
+  "lastSignedInAt": "1777908029708",
+  "createdAt": "1777908029708",
+  "providerUserInfo": []
+},
+{
+  "localId": "dm2Wf5kABOMBkUXhQ0i6Mk8eOE03",
+  "lastSignedInAt": "1782894504880",
+  "createdAt": "1782894504880"
+},
+{
+  "localId": "m5IaR0PdGjdshAm5Ga0QNfj3ZkD2",
+  "email": "muhuddinaniliyici@abc.k12.tr",
+  "emailVerified": true,
+  "displayName": "Muhuddin Anıl İyici",
+  "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocIwcmRJbnMVRlcLHLsWQpCenyug2gFH_0muEnCBlD5qHjCxk0E=s96-c",
+  "lastSignedInAt": "1780303398342",
+  "createdAt": "1780303398342",
+  "providerUserInfo": [
+    {
+      "providerId": "google.com",
+      "rawId": "100801135455059934135",
+      "email": "muhuddinaniliyici@abc.k12.tr",
+      "displayName": "Muhuddin Anıl İyici",
+      "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocIwcmRJbnMVRlcLHLsWQpCenyug2gFH_0muEnCBlD5qHjCxk0E=s96-c"
+    }
+  ]
+},
+{
+  "localId": "mKvAu1OVungRkCyHYCX9myNS0me2",
+  "email": "superadmin@edukn2.com",
+  "emailVerified": false,
+  "passwordHash": "Z34u6QawI867jdxSM7qazA/0ne3b+xmTrtZAA6ANuiPZQWNNj96NIRUWQ0o3gzlv0zi60DLb7F2sRW6alYoy6Q==",
+  "salt": "MR5W/d+SpJqllA==",
+  "lastSignedInAt": "1761772185525",
+  "createdAt": "1761772185525",
+  "providerUserInfo": []
+},
+{
+  "localId": "p2NVaieHJfWBI9mcUC3r3b6zxwY2",
+  "email": "mballi@balli06.edukn",
+  "emailVerified": false,
+  "passwordHash": "HyOlSZbOmgqYmjc0ZCpJVHYckIZza7X09rLq3ci8GHjBrU9Asz1+ymJ9FtnxsksBoeawfMd04ZSwJYVURTQugQ==",
+  "salt": "KAklWqWACHH4uA==",
+  "lastSignedInAt": "1765866342153",
+  "createdAt": "1765804612416",
+  "providerUserInfo": []
+},
+{
+  "localId": "pn0cirPhpWWyMiLz8meMWatUH9X2",
+  "email": "muratavci2405@gmail.com",
+  "emailVerified": true,
+  "displayName": "MURAT AVCI",
+  "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocLk1gZgyctD2P-TRZQfdRL4BzeW7_GuGtLulDct4slKX3ilVJYE=s96-c",
+  "lastSignedInAt": "1779223454499",
+  "createdAt": "1777895622080",
+  "providerUserInfo": [
+    {
+      "providerId": "google.com",
+      "rawId": "116791679823987986170",
+      "email": "muratavci2405@gmail.com",
+      "displayName": "MURAT AVCI",
+      "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocLk1gZgyctD2P-TRZQfdRL4BzeW7_GuGtLulDct4slKX3ilVJYE=s96-c"
+    }
+  ]
+},
+{
+  "localId": "rXm9jl3Bm4MFbSnruJb2sdwdS5H2",
+  "lastSignedInAt": "1782939997915",
+  "createdAt": "1782939997915"
+},
+{
+  "localId": "rtIS4Yn1MLMZph5ED383W7nBXbA3",
+  "email": "mustafa@balli06.edukn",
+  "emailVerified": false,
+  "passwordHash": "oepcLguD9XwPJDG38ThWrADptB65w0laUqeRoLDr1CZGfhG3e7zCKC/4KBT3HJKJRbCGLp+n/GoWBN7Ot57wZg==",
+  "salt": "i2gJsSfKkGs0Kg==",
+  "lastSignedInAt": "1765867888464",
+  "createdAt": "1765867888464",
+  "providerUserInfo": []
+},
+{
+  "localId": "ryP4OaitogPHEqWKhKwhiK4wBzp2",
+  "email": "hdemir@abc06.edukn",
+  "emailVerified": false,
+  "passwordHash": "4CCIpcZYQ21GLqR39y7wum2t6beWmuSRiUptx3Jme5qRX7eoX6MuQ8Zd7KmRLoc1Nk/0xGMipxr6nB//NC+pbA==",
+  "salt": "SzSRM5GWwumPVA==",
+  "lastSignedInAt": "1782906333605",
+  "createdAt": "1782821501185",
+  "providerUserInfo": []
+},
+{
+  "localId": "tGCKtXZ3ssXLfe6l3onNwlicd5f1",
+  "lastSignedInAt": "1782941502864",
+  "createdAt": "1782941502864"
+},
+{
+  "localId": "txAEGrJ12BOJMJVROao566uaqmj1",
+  "email": "superadmin2@edukn.com",
+  "emailVerified": false,
+  "passwordHash": "242W56FaZCUMPVD3AQnztoM0FhoejIW9+UgKX/4hqDdvHqsavmrYZNRSCRQVukZFjQ23r25F8KkePDy2Ufmm0g==",
+  "salt": "xxvTqHjPpBVRGA==",
+  "lastSignedInAt": "1761767098031",
+  "createdAt": "1761767098031",
+  "providerUserInfo": []
+},
+{
+  "localId": "z16NkZFOaqQT7Y8XAHkKx56haYk2",
+  "email": "serduran@abc06.edukn",
+  "emailVerified": false,
+  "passwordHash": "+FCk0N7nRpC7JcomKKdpn0iUjUCgbjVu0qlMCzcYUITpu0oarWGs7Lfjakte0rKloi7G1IaPJ508D6L+PhLnmw==",
+  "salt": "WHKeq/cvL11lig==",
+  "lastSignedInAt": "1777020004857",
+  "createdAt": "1771322637599",
+  "providerUserInfo": []
+}]}

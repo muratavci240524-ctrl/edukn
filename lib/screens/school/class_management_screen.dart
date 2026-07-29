@@ -33,10 +33,22 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
   bool _isViewingPastTerm = false; // Geçmiş dönem görüntüleniyor mu?
   Set<int> _schoolTypeLevels = {}; // Okul türüne tanımlı aktif seviyeler
   final ValueNotifier<List<int>> _availableLevelsNotifier = ValueNotifier<List<int>>([]); // Hem tanımdan hem veriden gelen tüm seviyeler
+  Stream<QuerySnapshot>? _classesStream;
+
+  void _updateClassesStream() {
+    _classesStream = FirebaseFirestore.instance
+        .collection('classes')
+        .where('institutionId', isEqualTo: widget.institutionId)
+        .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+        .where('termId', isEqualTo: _currentTermId ?? 'loading_term_id')
+        .where('isActive', isEqualTo: true)
+        .snapshots();
+  }
 
   @override
   void initState() {
     super.initState();
+    _updateClassesStream();
     _loadTermAndInitialize();
     _loadSchoolTypeLevels();
   }
@@ -51,10 +63,12 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
     final selectedTermId = await TermService().getSelectedTermId();
     final activeTermId = await TermService().getActiveTermId();
     final effectiveTermId = selectedTermId ?? activeTermId;
+    if (effectiveTermId == null) return;
     if (mounted && _currentTermId != effectiveTermId) {
       setState(() {
         _currentTermId = effectiveTermId;
         _isViewingPastTerm = selectedTermId != null && selectedTermId != activeTermId;
+        _updateClassesStream();
       });
     }
   }
@@ -67,6 +81,7 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
       setState(() {
         _currentTermId = effectiveTermId;
         _isViewingPastTerm = selectedTermId != null && selectedTermId != activeTermId;
+        _updateClassesStream();
       });
     }
     _initializeDefaultClassType();
@@ -187,13 +202,7 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
   }
 
   Stream<QuerySnapshot> _getClassesStream() {
-    // Tüm sınıfları çek, dönem filtresi client-side yapılacak
-    return FirebaseFirestore.instance
-        .collection('classes')
-        .where('institutionId', isEqualTo: widget.institutionId)
-        .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
-        .where('isActive', isEqualTo: true)
-        .snapshots();
+    return _classesStream ?? const Stream.empty();
   }
 
   List<ClassModel> _filterClasses(List<ClassModel> classes) {
@@ -209,7 +218,7 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
           _selectedLevels.isEmpty || _selectedLevels.contains(c.classLevel);
 
       // Dönem filtresi: sadece seçili döneme ait olanları göster
-      final matchesTerm = _currentTermId == null || 
+      final matchesTerm = _currentTermId != null && 
           c.termId == _currentTermId;
 
       return matchesSearch && matchesType && matchesLevel && matchesTerm;
@@ -512,6 +521,397 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
     );
   }
 
+  Future<void> _showCopyClassesFromTermDialog() async {
+    try {
+      // 1. Fetch terms
+      final termsSnapshot = await FirebaseFirestore.instance
+          .collection('terms')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .get();
+
+      final termsList = termsSnapshot.docs.map((doc) {
+        final data = doc.data();
+        data['id'] = doc.id;
+        return data;
+      }).toList();
+
+      // Filter out the current term
+      final targetTerms = termsList.where((t) => t['id'] != _currentTermId).toList();
+
+      if (targetTerms.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Kopyalama yapılabilecek başka bir dönem bulunamadı.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
+
+      String selectedSourceTermId = targetTerms.first['id'];
+      String selectedSourceTermName = targetTerms.first['name'] ?? '${targetTerms.first['startYear']}-${targetTerms.first['endYear']}';
+      bool copyLessons = true;
+      bool copyTeachers = false;
+
+      if (!mounted) return;
+
+      await showDialog(
+        context: context,
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              return AlertDialog(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                title: Row(
+                  children: [
+                    const Icon(Icons.copy_all, color: Colors.indigo),
+                    const SizedBox(width: 8),
+                    const Text('Dönemden Şube Kopyala'),
+                  ],
+                ),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Seçeceğiniz kaynak dönemdeki tüm aktif şubeler bu döneme kopyalanacaktır.',
+                      style: TextStyle(fontSize: 13, color: Colors.black54),
+                    ),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<String>(
+                      decoration: InputDecoration(
+                        labelText: 'Kaynak Dönem',
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        prefixIcon: const Icon(Icons.calendar_today),
+                      ),
+                      value: selectedSourceTermId,
+                      items: targetTerms.map((t) {
+                        final name = t['name'] ?? '${t['startYear']}-${t['endYear']}';
+                        return DropdownMenuItem(
+                          value: t['id'] as String,
+                          child: Text(name),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        if (val != null) {
+                          setDialogState(() {
+                            selectedSourceTermId = val;
+                            final term = targetTerms.firstWhere((t) => t['id'] == val);
+                            selectedSourceTermName = term['name'] ?? '${term['startYear']}-${term['endYear']}';
+                          });
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    SwitchListTile(
+                      title: const Text('Şubelere Atalı Dersleri Kopyala', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                      subtitle: const Text('Şubelerin haftalık ders atamalarını da yeni döneme geçirir.', style: TextStyle(fontSize: 12)),
+                      value: copyLessons,
+                      activeColor: Colors.indigo,
+                      onChanged: (val) {
+                        setDialogState(() {
+                          copyLessons = val;
+                          if (!copyLessons) {
+                            copyTeachers = false; // Disable teachers copy if lessons are disabled
+                          }
+                        });
+                      },
+                    ),
+                    SwitchListTile(
+                      title: const Text('Derslerin Öğretmen Atamalarını Kopyala', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                      subtitle: const Text('Derslere atalı öğretmenleri de yeni döneme tanımlar.', style: TextStyle(fontSize: 12)),
+                      value: copyTeachers,
+                      activeColor: Colors.indigo,
+                      onChanged: copyLessons
+                          ? (val) {
+                              setDialogState(() {
+                                copyTeachers = val;
+                              });
+                            }
+                          : null,
+                    ),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: const Text('İptal'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () async {
+                      Navigator.pop(dialogContext); // Close dialog
+                      await _executeCopyClasses(
+                        selectedSourceTermId,
+                        selectedSourceTermName,
+                        copyLessons: copyLessons,
+                        copyTeachers: copyTeachers,
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.indigo,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    child: const Text('Kopyala'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _executeCopyClasses(
+    String sourceTermId, 
+    String sourceTermName, {
+    required bool copyLessons,
+    required bool copyTeachers,
+  }) async {
+    // Show a loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final activeTermId = _currentTermId;
+      if (activeTermId == null) throw 'Aktif dönem yüklenemedi.';
+
+      // 1. Fetch all classes of the source term for this school type
+      final sourceClassesSnap = await FirebaseFirestore.instance
+          .collection('classes')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+          .where('termId', isEqualTo: sourceTermId)
+          .where('isActive', isEqualTo: true)
+          .get();
+
+      if (sourceClassesSnap.docs.isEmpty) {
+        Navigator.pop(context); // Close loader
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$sourceTermName döneminde kopyalanacak şube bulunamadı.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+
+      // 2. Fetch target classes & lessons to prevent duplicates and map ids
+      final targetClassesSnap = await FirebaseFirestore.instance
+          .collection('classes')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+          .where('termId', isEqualTo: activeTermId)
+          .where('isActive', isEqualTo: true)
+          .get();
+
+      // Maps className (lowercase) -> classId in target term
+      final targetClassMap = {
+        for (var doc in targetClassesSnap.docs)
+          (doc.data()['className'] ?? '').toString().trim().toLowerCase(): doc.id
+      };
+
+      // Fetch all lessons of source term
+      final sourceLessonsSnap = await FirebaseFirestore.instance
+          .collection('lessons')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+          .where('termId', isEqualTo: sourceTermId)
+          .where('isActive', isEqualTo: true)
+          .get();
+
+      // Fetch all lessons of target term
+      final targetLessonsSnap = await FirebaseFirestore.instance
+          .collection('lessons')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+          .where('termId', isEqualTo: activeTermId)
+          .where('isActive', isEqualTo: true)
+          .get();
+
+      // Maps lessonName (lowercase) -> lesson doc/id in target term
+      final targetLessonMap = {
+        for (var doc in targetLessonsSnap.docs)
+          (doc.data()['lessonName'] ?? '').toString().trim().toLowerCase(): doc.id
+      };
+
+      // Fetch all lessonAssignments of source term
+      final sourceAssignmentsSnap = await FirebaseFirestore.instance
+          .collection('lessonAssignments')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+          .where('termId', isEqualTo: sourceTermId)
+          .where('isActive', isEqualTo: true)
+          .get();
+
+      // Fetch target lessonAssignments to prevent duplicates
+      final targetAssignmentsSnap = await FirebaseFirestore.instance
+          .collection('lessonAssignments')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+          .where('termId', isEqualTo: activeTermId)
+          .where('isActive', isEqualTo: true)
+          .get();
+
+      final targetAssignmentSet = {
+        for (var doc in targetAssignmentsSnap.docs)
+          '${doc.data()['classId']}_${doc.data()['lessonId']}'
+      };
+
+      final batch = FirebaseFirestore.instance.batch();
+      int copiedClasses = 0;
+      int copiedLessons = 0;
+      int copiedAssignments = 0;
+
+      // First step: Copy or map classes
+      for (var doc in sourceClassesSnap.docs) {
+        final data = doc.data();
+        final className = (data['className'] ?? '').toString().trim();
+        final classNameLower = className.toLowerCase();
+
+        String targetClassId;
+        if (targetClassMap.containsKey(classNameLower)) {
+          targetClassId = targetClassMap[classNameLower]!;
+        } else {
+          // Create new class
+          final newClassRef = FirebaseFirestore.instance.collection('classes').doc();
+          targetClassId = newClassRef.id;
+
+          final classData = {
+            'className': className,
+            'shortName': (data['shortName'] ?? '').toString().trim(),
+            'classTypeId': data['classTypeId'],
+            'classTypeName': data['classTypeName'],
+            'classTeacherId': null,
+            'classTeacherName': null,
+            'classLevel': data['classLevel'],
+            'description': data['description'],
+            'schoolTypeId': widget.schoolTypeId,
+            'schoolTypeName': widget.schoolTypeName,
+            'institutionId': widget.institutionId,
+            'termId': activeTermId,
+            'createdAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+            'isActive': true,
+          };
+          batch.set(newClassRef, classData);
+          targetClassMap[classNameLower] = targetClassId;
+          copiedClasses++;
+        }
+
+        // Second step: If copyLessons is enabled, process lesson assignments for this class
+        if (copyLessons) {
+          final sourceClassId = doc.id;
+          final assignmentsForThisClass = sourceAssignmentsSnap.docs.where(
+            (aDoc) => aDoc.data()['classId'] == sourceClassId
+          ).toList();
+
+          for (var aDoc in assignmentsForThisClass) {
+            final aData = aDoc.data();
+            final sourceLessonId = aData['lessonId'] as String;
+
+            // Find source lesson name using safe type-safe iteration
+            QueryDocumentSnapshot<Map<String, dynamic>>? sourceLessonDoc;
+            for (final lDoc in sourceLessonsSnap.docs) {
+              if (lDoc.id == sourceLessonId) {
+                sourceLessonDoc = lDoc;
+                break;
+              }
+            }
+            if (sourceLessonDoc == null) continue;
+
+            final lessonData = sourceLessonDoc.data();
+            final lessonName = (lessonData['lessonName'] ?? '').toString().trim();
+            final lessonNameLower = lessonName.toLowerCase();
+
+            // Find or copy target lesson
+            String targetLessonId;
+            if (targetLessonMap.containsKey(lessonNameLower)) {
+              targetLessonId = targetLessonMap[lessonNameLower]!;
+            } else {
+              // Copy lesson
+              final newLessonRef = FirebaseFirestore.instance.collection('lessons').doc();
+              targetLessonId = newLessonRef.id;
+
+              final newLessonData = {
+                'lessonName': lessonName,
+                'shortName': (lessonData['shortName'] ?? '').toString().trim(),
+                'branchId': lessonData['branchId'],
+                'branchName': lessonData['branchName'],
+                'schoolTypeId': widget.schoolTypeId,
+                'institutionId': widget.institutionId,
+                'termId': activeTermId,
+                'createdAt': FieldValue.serverTimestamp(),
+                'updatedAt': FieldValue.serverTimestamp(),
+                'isActive': true,
+              };
+              batch.set(newLessonRef, newLessonData);
+              targetLessonMap[lessonNameLower] = targetLessonId;
+              copiedLessons++;
+            }
+
+            // Copy lesson assignment if it doesn't already exist in the target term
+            final assignmentKey = '${targetClassId}_$targetLessonId';
+            if (!targetAssignmentSet.contains(assignmentKey)) {
+              final newAssignmentRef = FirebaseFirestore.instance.collection('lessonAssignments').doc();
+              final newAssignmentData = {
+                'classId': targetClassId,
+                'className': className,
+                'lessonId': targetLessonId,
+                'lessonName': lessonName,
+                'weeklyHours': aData['weeklyHours'] ?? 0,
+                'teacherIds': copyTeachers ? (aData['teacherIds'] ?? []) : [],
+                'teacherNames': copyTeachers ? (aData['teacherNames'] ?? []) : [],
+                'schoolTypeId': widget.schoolTypeId,
+                'institutionId': widget.institutionId,
+                'termId': activeTermId,
+                'isActive': true,
+                'createdAt': FieldValue.serverTimestamp(),
+              };
+              batch.set(newAssignmentRef, newAssignmentData);
+              targetAssignmentSet.add(assignmentKey);
+              copiedAssignments++;
+            }
+          }
+        }
+      }
+
+      await batch.commit();
+
+      Navigator.pop(context); // Close loader
+      
+      String successMessage = '$copiedClasses adet şube kopyalandı.';
+      if (copyLessons) {
+        successMessage += '\n$copiedLessons adet ders ve $copiedAssignments adet ders ataması başarıyla aktarıldı.';
+      }
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('✓ $successMessage'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } catch (e) {
+      Navigator.pop(context); // Close loader
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('❌ Kopyalama hatası: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isWideScreen = MediaQuery.of(context).size.width > 900;
@@ -547,6 +947,27 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
             icon: Icon(Icons.category, size: 18),
             label: Text('Sınıf Tipi Tanımla'),
             style: TextButton.styleFrom(foregroundColor: Colors.indigo),
+          ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, color: Colors.indigo),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            onSelected: (value) {
+              if (value == 'copy_from_term') {
+                _showCopyClassesFromTermDialog();
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem<String>(
+                value: 'copy_from_term',
+                child: Row(
+                  children: [
+                    Icon(Icons.copy_all, size: 18, color: Colors.indigo),
+                    SizedBox(width: 8),
+                    Text('Dönemden Şube Kopyala'),
+                  ],
+                ),
+              ),
+            ],
           ),
           SizedBox(width: 8),
         ],
@@ -1211,6 +1632,7 @@ class _ClassDetailScreen extends StatelessWidget {
             className: classData['className'],
             schoolTypeId: classData['schoolTypeId'],
             institutionId: classData['institutionId'],
+            termId: classData['termId'],
           ),
         ],
       ),
@@ -1224,6 +1646,7 @@ class _ClassLessonListCard extends StatefulWidget {
   final String className;
   final String schoolTypeId;
   final String institutionId;
+  final String? termId;
 
   const _ClassLessonListCard({
     Key? key,
@@ -1231,6 +1654,7 @@ class _ClassLessonListCard extends StatefulWidget {
     required this.className,
     required this.schoolTypeId,
     required this.institutionId,
+    this.termId,
   }) : super(key: key);
 
   @override
@@ -1401,6 +1825,7 @@ class _ClassLessonListCardState extends State<_ClassLessonListCard> {
             className: widget.className,
             schoolTypeId: widget.schoolTypeId,
             institutionId: widget.institutionId,
+            termId: widget.termId,
             onLessonsChanged: _loadLessonData,
             onCopyLessons: _copyLessonsToOtherClasses,
           ),
@@ -1496,6 +1921,7 @@ class _LessonListDialog extends StatefulWidget {
   final String className;
   final String schoolTypeId;
   final String institutionId;
+  final String? termId;
   final VoidCallback onLessonsChanged;
   final VoidCallback onCopyLessons;
 
@@ -1504,6 +1930,7 @@ class _LessonListDialog extends StatefulWidget {
     required this.className,
     required this.schoolTypeId,
     required this.institutionId,
+    this.termId,
     required this.onLessonsChanged,
     required this.onCopyLessons,
   });
@@ -1608,13 +2035,18 @@ class _LessonListDialogState extends State<_LessonListDialog> {
     // Mevcut atanmış ders ID'lerini al
     final assignedLessonIds = _lessons.map((l) => l['lessonId'] as String).toSet();
 
-    // Tüm dersleri al
-    final lessonsSnapshot = await FirebaseFirestore.instance
+    // Tüm dersleri al (aktif dönemdekiler)
+    var query = FirebaseFirestore.instance
         .collection('lessons')
         .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
         .where('institutionId', isEqualTo: widget.institutionId)
-        .where('isActive', isEqualTo: true)
-        .get();
+        .where('isActive', isEqualTo: true);
+
+    if (widget.termId != null && widget.termId!.isNotEmpty) {
+      query = query.where('termId', isEqualTo: widget.termId);
+    }
+
+    final lessonsSnapshot = await query.get();
 
     final availableLessons = lessonsSnapshot.docs
         .where((doc) => !assignedLessonIds.contains(doc.id))
@@ -1650,6 +2082,7 @@ class _LessonListDialogState extends State<_LessonListDialog> {
           'teacherNames': [],
           'schoolTypeId': widget.schoolTypeId,
           'institutionId': widget.institutionId,
+          'termId': widget.termId,
           'isActive': true,
           'createdAt': FieldValue.serverTimestamp(),
         });

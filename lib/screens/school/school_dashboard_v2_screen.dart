@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import '../../widgets/edukn_logo.dart';
 import '../../widgets/web_image_renderer.dart';
 import '../../services/term_service.dart';
@@ -449,6 +452,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
           // Otomatik Senkronizasyon (Adminler için)
           if (currentUserData != null && (currentUserData['role'] == 'genel_mudur' || currentUserData['role'] == 'mudur' || currentUserData['role'] == 'admin')) {
             _syncAdminPermissions(data, currentUserData);
+            _termService.healDatabaseMismatches();
           }
 
           // Terminal Logları
@@ -1402,6 +1406,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
           ],
           onTap: () => _showEducationHub(),
         ),
+
       if (_hasModuleAccess('rehberlik'))
         _ModuleCardWidget(
           title: 'REHBERLİK İŞLEMLERİ',
@@ -1525,6 +1530,23 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
             if (_hasSubModuleAccess('kisisel_islemler', 'notlarim')) {'title': 'Notlarım', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PersonalNotesScreen()))},
           ],
           onTap: () => setState(() => _selectedCategory = 'Kişisel'),
+        ),
+      if (_hasLingoknAccess())
+        _ModuleCardWidget(
+          title: 'ONLİNE HİZMETLER',
+          badge: 'LinGoKN',
+          icon: Icons.translate_rounded,
+          color: Colors.teal,
+          cardWidth: cardWidth,
+          isMobile: isMobile,
+          category: 'Operasyon',
+          showAllItems: isFiltered,
+          items: [
+            {'title': 'LinGoKN Portalına Geçiş', 'onTap': () => _launchDilknSso()},
+            if (['super_admin', 'admin', 'manager', 'genel_mudur'].contains(userData?['role']?.toString().toLowerCase()))
+              {'title': 'LinGoKN İzin Yönetimi', 'onTap': () => _showLingoknAccessDialog()},
+          ],
+          onTap: () => _launchDilknSso(),
         ),
     ];
 
@@ -1754,6 +1776,210 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
   }
 
   // Removed _buildFeatureCards, _buildFeatureCard, _buildFooter, and _buildFooterLink, since we are using StylishBottomNav now.
+
+  bool _hasLingoknAccess() {
+    final role = userData?['role']?.toString().toLowerCase() ?? '';
+    // Yöneticiler her zaman erişebilir ve izinleri yönetebilir
+    if (['super_admin', 'admin', 'manager', 'genel_mudur'].contains(role)) {
+      return true;
+    }
+
+    if (schoolData == null) return false;
+    final access = schoolData!['lingoknAccess'] as Map<String, dynamic>?;
+    if (access == null) return false;
+
+    if (access['enabledAll'] == true) return true;
+
+    final userClass = userData?['className'] ?? userData?['class'] ?? '';
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+
+    final allowedClassIds = List<String>.from(access['allowedClassIds'] ?? []);
+    final allowedUserIds = List<String>.from(access['allowedUserIds'] ?? []);
+    final allowedTeacherIds = List<String>.from(access['allowedTeacherIds'] ?? []);
+
+    if (allowedClassIds.contains(userClass)) return true;
+    if (userId != null && allowedUserIds.contains(userId)) return true;
+    if (userId != null && role == 'ogretmen' && allowedTeacherIds.contains(userId)) return true;
+
+    return false;
+  }
+
+  void _showLingoknAccessDialog() async {
+    final schoolId = schoolData?['id'] ?? schoolData?['institutionId'];
+    if (schoolId == null) return;
+
+    Map<String, dynamic> access = Map<String, dynamic>.from(schoolData!['lingoknAccess'] ?? {});
+    bool enabledAll = access['enabledAll'] == true;
+    List<String> allowedClassIds = List<String>.from(access['allowedClassIds'] ?? []);
+
+    // Okulun sınıflarını çek
+    final classesSnap = await FirebaseFirestore.instance
+        .collection('classes')
+        .where('schoolId', isEqualTo: schoolId)
+        .get();
+
+    final classNames = classesSnap.docs
+        .map((d) => d.data()['className']?.toString() ?? d.data()['name']?.toString() ?? d.id)
+        .where((n) => n.isNotEmpty)
+        .toSet()
+        .toList();
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Row(
+                children: [
+                  Icon(Icons.translate_rounded, color: Colors.teal),
+                  SizedBox(width: 8),
+                  Text('LinGoKN Erişim Yönetimi'),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SwitchListTile(
+                      title: const Text('Tüm Okula Erişimi Aç'),
+                      subtitle: const Text('Tüm öğretmen ve öğrenciler LinGoKN portalına geçiş yapabilir.'),
+                      value: enabledAll,
+                      activeColor: Colors.teal,
+                      onChanged: (val) => setDialogState(() => enabledAll = val),
+                    ),
+                    const Divider(),
+                    if (!enabledAll) ...[
+                      const Text('Sınıf Bazlı İzinler:', style: TextStyle(fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 8),
+                      if (classNames.isEmpty)
+                        const Text('Kayıtlı sınıf bulunamadı.', style: TextStyle(color: Colors.grey))
+                      else
+                        Wrap(
+                          spacing: 8,
+                          children: classNames.map((className) {
+                            final isSelected = allowedClassIds.contains(className);
+                            return FilterChip(
+                              label: Text(className),
+                              selected: isSelected,
+                              selectedColor: Colors.teal.shade100,
+                              onSelected: (selected) {
+                                setDialogState(() {
+                                  if (selected) {
+                                    allowedClassIds.add(className);
+                                  } else {
+                                    allowedClassIds.remove(className);
+                                  }
+                                });
+                              },
+                            );
+                          }).toList(),
+                        ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('İptal'),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
+                  onPressed: () async {
+                    final updatedAccess = {
+                      'enabledAll': enabledAll,
+                      'allowedClassIds': allowedClassIds,
+                      'allowedUserIds': access['allowedUserIds'] ?? [],
+                      'allowedTeacherIds': access['allowedTeacherIds'] ?? [],
+                    };
+
+                    await FirebaseFirestore.instance
+                        .collection('schools')
+                        .doc(schoolId)
+                        .update({'lingoknAccess': updatedAccess});
+
+                    if (mounted) {
+                      setState(() {
+                        schoolData!['lingoknAccess'] = updatedAccess;
+                      });
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('LinGoKN erişim izinleri başarıyla güncellendi.')),
+                      );
+                    }
+                  },
+                  child: const Text('Kaydet', style: TextStyle(color: Colors.white)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _launchDilknSso() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: Card(
+          child: Padding(
+            padding: EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('LinGoKN Portalına güvenli yönlendirme yapılıyor...', style: TextStyle(fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    try {
+      final callable = FirebaseFunctions.instance.httpsCallable('generateSsoToken');
+      final result = await callable.call();
+      final token = result.data['token'] as String;
+
+      if (mounted) Navigator.pop(context);
+
+      final url = Uri.parse(kDebugMode 
+          ? 'http://localhost:5501/#/auth?token=$token' 
+          : 'https://lingokn.web.app/#/auth?token=$token');
+      
+      if (await canLaunchUrl(url)) {
+        await launchUrl(url, mode: LaunchMode.externalApplication);
+      } else {
+        throw Exception('LinGoKN adresi açılamadı.');
+      }
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Bağlantı Hatası'),
+            content: Text('LinGoKN portalına bağlanırken bir sorun oluştu: $e'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Tamam'),
+              ),
+            ],
+          ),
+        );
+      }
+    }
+  }
 }
 
 class _ModuleCardWidget extends StatefulWidget {

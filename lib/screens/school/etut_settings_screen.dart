@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:edukn/services/term_service.dart';
 
 class EtutSettingsScreen extends StatefulWidget {
   final String institutionId;
@@ -32,6 +33,8 @@ class _EtutSettingsScreenState extends State<EtutSettingsScreen>
   List<Map<String, dynamic>> _teachers = [];
   String? _selectedTeacherId;
   Set<String> _teacherUnavailableSlots = {}; // Format: "dayIndex-hour-minute"
+  bool _isTeacherListExpanded = false;
+  String _teacherSearchQuery = '';
 
   final List<String> _days = [
     'Pazartesi',
@@ -68,6 +71,38 @@ class _EtutSettingsScreenState extends State<EtutSettingsScreen>
         _endHour = data['endHour'] ?? 20;
       }
 
+      // 1b. Load active period to get selected days from Ders Programı
+      try {
+        final termId = await TermService().getActiveTermId();
+        var periodQuery = FirebaseFirestore.instance
+            .collection('workPeriods')
+            .where('institutionId', isEqualTo: widget.institutionId)
+            .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+            .where('isActive', isEqualTo: true);
+
+        if (termId != null) {
+          periodQuery = periodQuery.where('termId', isEqualTo: termId);
+        }
+
+        final periodSnap = await periodQuery.get();
+        if (periodSnap.docs.isNotEmpty) {
+          final periodData = periodSnap.docs.first.data();
+          final lessonHours = periodData['lessonHours'] as Map<String, dynamic>?;
+          if (lessonHours != null && lessonHours['selectedDays'] != null) {
+            final selectedDays = List<String>.from(lessonHours['selectedDays']);
+            // Update _activeDays based on Ders Programı selectedDays
+            for (int i = 0; i < 7; i++) {
+              final dayName = _days[i];
+              if (!selectedDays.contains(dayName)) {
+                _activeDays[i] = false; // Disable if not in Ders Programı
+              }
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('Error loading Ders Programı active days: $e');
+      }
+
       // 2. Load Teachers
       final teachersSnapshot = await FirebaseFirestore.instance
           .collection('users')
@@ -84,6 +119,13 @@ class _EtutSettingsScreenState extends State<EtutSettingsScreen>
           })
           .toList();
 
+      // Turkish locale-aware sorting
+      _teachers.sort((a, b) {
+        final nameA = (a['fullName'] ?? '').toString();
+        final nameB = (b['fullName'] ?? '').toString();
+        return _turkishCompare(nameA, nameB);
+      });
+
       setState(() => _isLoading = false);
     } catch (e) {
       debugPrint('Error loading settings: $e');
@@ -91,9 +133,143 @@ class _EtutSettingsScreenState extends State<EtutSettingsScreen>
     }
   }
 
+  int _turkishCompare(String a, String b) {
+    const turkishChars = 'aâbcçdeefgğhıijlmnoöprsştuüvyz';
+    final lowerA = a.toLowerCase();
+    final lowerB = b.toLowerCase();
+    
+    int minLen = lowerA.length < lowerB.length ? lowerA.length : lowerB.length;
+    for (int i = 0; i < minLen; i++) {
+      final charA = lowerA[i];
+      final charB = lowerB[i];
+      if (charA != charB) {
+        final indexA = turkishChars.indexOf(charA);
+        final indexB = turkishChars.indexOf(charB);
+        if (indexA != -1 && indexB != -1) {
+          return indexA.compareTo(indexB);
+        }
+        return charA.compareTo(charB);
+      }
+    }
+    return lowerA.length.compareTo(lowerB.length);
+  }
+
+  String _normalizeDay(String day) {
+    switch (day.toLowerCase()) {
+      case 'pazartesi':
+        return 'pazartesi';
+      case 'salı':
+      case 'sali':
+        return 'sali';
+      case 'çarşamba':
+      case 'carsamba':
+        return 'carsamba';
+      case 'perşembe':
+      case 'persembe':
+        return 'persembe';
+      case 'cuma':
+        return 'cuma';
+      case 'cumartesi':
+        return 'cumartesi';
+      case 'pazar':
+        return 'pazar';
+      default:
+        return day.toLowerCase();
+    }
+  }
+
   Future<void> _loadTeacherAvailability(String teacherId) async {
     setState(() => _isLoading = true);
     try {
+      // 1. Load active period to get closed slots from Ders Programı
+      List<String> programClosedSlots = [];
+      try {
+        final termId = await TermService().getActiveTermId();
+        var periodQuery = FirebaseFirestore.instance
+            .collection('workPeriods')
+            .where('institutionId', isEqualTo: widget.institutionId)
+            .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+            .where('isActive', isEqualTo: true);
+
+        if (termId != null) {
+          periodQuery = periodQuery.where('termId', isEqualTo: termId);
+        }
+
+        final periodSnap = await periodQuery.get();
+        if (periodSnap.docs.isNotEmpty) {
+          final periodDoc = periodSnap.docs.first;
+          final periodData = periodDoc.data();
+          final scheduleSettings = periodData['scheduleSettings'] as Map<String, dynamic>?;
+          final closedSlotsMap = (scheduleSettings?['closedSlots'] ?? periodData['closedSlots']) as Map<String, dynamic>?;
+          final lessonHours = periodData['lessonHours'] as Map<String, dynamic>?;
+
+          if (closedSlotsMap != null && lessonHours != null) {
+            final teacherClosedList = closedSlotsMap['teacher_$teacherId'] as List<dynamic>?;
+            final lessonTimesRaw = lessonHours['lessonTimes'];
+            final selectedDays = List<String>.from(lessonHours['selectedDays'] ?? []);
+
+            if (teacherClosedList != null && lessonTimesRaw != null) {
+              Map<String, int> indexToHourMap = {};
+              if (lessonTimesRaw is Map) {
+                final firstKey = lessonTimesRaw.keys.first;
+                if (int.tryParse(firstKey) != null) {
+                  lessonTimesRaw.forEach((key, value) {
+                    final idx = int.tryParse(key);
+                    if (idx != null && value is Map) {
+                      for (var day in selectedDays) {
+                        indexToHourMap['${_normalizeDay(day)}-$idx'] = value['startHour'] ?? 0;
+                      }
+                    }
+                  });
+                } else {
+                  lessonTimesRaw.forEach((day, dayData) {
+                    if (dayData is List) {
+                      for (int i = 0; i < dayData.length; i++) {
+                        final value = dayData[i];
+                        if (value is Map) {
+                          indexToHourMap['${_normalizeDay(day)}-$i'] = value['startHour'] ?? 0;
+                        }
+                      }
+                    }
+                  });
+                }
+              } else if (lessonTimesRaw is List) {
+                for (int i = 0; i < lessonTimesRaw.length; i++) {
+                  final value = lessonTimesRaw[i];
+                  if (value is Map) {
+                    for (var day in selectedDays) {
+                      indexToHourMap['${_normalizeDay(day)}-$i'] = value['startHour'] ?? 0;
+                    }
+                  }
+                }
+              }
+
+              final daysTr = ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar'];
+              for (var rawSlot in teacherClosedList) {
+                final parts = rawSlot.toString().split('_');
+                if (parts.length == 2) {
+                  final dayName = parts[0];
+                  final hourIdx = int.tryParse(parts[1]);
+                  if (hourIdx != null) {
+                    final dayIndex = daysTr.indexWhere(
+                      (d) => _normalizeDay(d) == _normalizeDay(dayName),
+                    );
+                    final startHour = indexToHourMap['${_normalizeDay(dayName)}-$hourIdx'];
+                    if (dayIndex != -1 && startHour != null) {
+                      for (int m = 0; m < 60; m += 10) {
+                        programClosedSlots.add('$dayIndex-$startHour-$m');
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('Error importing closed slots from Ders Programı: $e');
+      }
+
       final doc = await FirebaseFirestore.instance
           .collection('etut_teacher_availability')
           .doc(teacherId)
@@ -104,22 +280,22 @@ class _EtutSettingsScreenState extends State<EtutSettingsScreen>
         final data = doc.data()!;
         if (data['unavailableSlots'] != null) {
           final rawSlots = List<String>.from(data['unavailableSlots']);
-          // Migrate legacy keys (d-h) to granular keys (d-h-m)
           for (var slot in rawSlots) {
             final parts = slot.split('-');
             if (parts.length == 2) {
-              // Legacy format: day-hour. Expand to all 10-min slots for that hour.
               final d = parts[0];
               final h = parts[1];
               for (int m = 0; m < 60; m += 10) {
                 _teacherUnavailableSlots.add('$d-$h-$m');
               }
             } else {
-              // Correct format: day-hour-minute
               _teacherUnavailableSlots.add(slot);
             }
           }
         }
+      } else {
+        // Default to Ders Programı closed slots
+        _teacherUnavailableSlots.addAll(programClosedSlots);
       }
     } catch (e) {
       debugPrint('Error loading teacher availability: $e');
@@ -475,6 +651,13 @@ class _EtutSettingsScreenState extends State<EtutSettingsScreen>
   }
 
   Widget _buildTeacherSettingsTab() {
+    final filteredTeachers = _teachers.where((t) {
+      final fullName = (t['fullName'] ?? '').toString().toLowerCase();
+      final branch = (t['branch'] ?? '').toString().toLowerCase();
+      final query = _teacherSearchQuery.toLowerCase();
+      return fullName.contains(query) || branch.contains(query);
+    }).toList();
+
     return Column(
       children: [
         Container(
@@ -501,53 +684,149 @@ class _EtutSettingsScreenState extends State<EtutSettingsScreen>
                 ),
               ),
               const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                decoration: InputDecoration(
-                  hintText: 'Listeden bir öğretmen seçiniz...',
-                  prefixIcon: const Icon(
-                    Icons.person_search,
-                    color: Colors.indigo,
-                  ),
-                  border: OutlineInputBorder(
+              InkWell(
+                onTap: () {
+                  setState(() {
+                    _isTeacherListExpanded = !_isTeacherListExpanded;
+                  });
+                },
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: Colors.grey.shade300),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: Colors.grey.shade300),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(
-                      color: Colors.indigo,
-                      width: 2,
+                    border: Border.all(
+                      color: _isTeacherListExpanded ? Colors.indigo : Colors.grey.shade300,
+                      width: _isTeacherListExpanded ? 2 : 1,
                     ),
                   ),
-                  filled: true,
-                  fillColor: Colors.grey.shade50,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 16,
+                  child: Row(
+                    children: [
+                      const Icon(Icons.person_search, color: Colors.indigo),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          _selectedTeacherId == null
+                              ? 'Listeden bir öğretmen seçiniz...'
+                              : (() {
+                                  final t = _teachers.firstWhere(
+                                    (t) => t['id'] == _selectedTeacherId,
+                                    orElse: () => <String, dynamic>{},
+                                  );
+                                  if (t.isEmpty) return 'Öğretmen Seçildi';
+                                  return '${t['fullName']} (${t['branch'] ?? '-'})';
+                                })(),
+                          style: TextStyle(
+                            color: _selectedTeacherId == null ? Colors.grey.shade600 : Colors.black87,
+                            fontSize: 15,
+                            fontWeight: _selectedTeacherId == null ? FontWeight.normal : FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      Icon(
+                        _isTeacherListExpanded ? Icons.arrow_drop_up : Icons.arrow_drop_down,
+                        color: Colors.grey,
+                      ),
+                    ],
                   ),
                 ),
-                value: _selectedTeacherId,
-                isExpanded: true,
-                items: _teachers.map((t) {
-                  return DropdownMenuItem(
-                    value: t['id'] as String,
-                    child: Text(
-                      '${t['fullName']} (${t['branch'] ?? '-'})',
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  );
-                }).toList(),
-                onChanged: (val) {
-                  if (val != null) {
-                    setState(() => _selectedTeacherId = val);
-                    _loadTeacherAvailability(val);
-                  }
-                },
               ),
+              if (_isTeacherListExpanded) ...[
+                const SizedBox(height: 8),
+                Container(
+                  constraints: const BoxConstraints(maxHeight: 300),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.indigo.shade100, width: 1.5),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 8,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(8.0),
+                        child: TextField(
+                          decoration: InputDecoration(
+                            hintText: 'Öğretmen adı veya branş ara...',
+                            prefixIcon: const Icon(Icons.search, size: 18, color: Colors.indigo),
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          style: const TextStyle(fontSize: 13),
+                          onChanged: (val) {
+                            setState(() {
+                              _teacherSearchQuery = val;
+                            });
+                          },
+                        ),
+                      ),
+                      const Divider(height: 1),
+                      Flexible(
+                        child: filteredTeachers.isEmpty
+                            ? const Padding(
+                                padding: EdgeInsets.all(16.0),
+                                child: Text('Eşleşen öğretmen bulunamadı.', style: TextStyle(fontSize: 13, color: Colors.grey)),
+                              )
+                            : ListView.builder(
+                                shrinkWrap: true,
+                                itemCount: filteredTeachers.length,
+                                itemBuilder: (context, index) {
+                                  final t = filteredTeachers[index];
+                                  final name = t['fullName'] ?? 'İsimsiz';
+                                  final branch = t['branch'] ?? '-';
+                                  final isSelected = _selectedTeacherId == t['id'];
+
+                                  return ListTile(
+                                    dense: true,
+                                    selected: isSelected,
+                                    selectedTileColor: Colors.indigo.shade50.withOpacity(0.5),
+                                    leading: CircleAvatar(
+                                      radius: 14,
+                                      backgroundColor: isSelected ? Colors.indigo : Colors.indigo.shade50,
+                                      child: Text(
+                                        name.isNotEmpty ? name[0] : '?',
+                                        style: TextStyle(
+                                          color: isSelected ? Colors.white : Colors.indigo.shade900,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ),
+                                    title: Text(
+                                      name,
+                                      style: TextStyle(
+                                        fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                    subtitle: Text(branch, style: const TextStyle(fontSize: 11)),
+                                    onTap: () {
+                                      setState(() {
+                                        _selectedTeacherId = t['id'];
+                                        _isTeacherListExpanded = false;
+                                        _teacherSearchQuery = '';
+                                      });
+                                      _loadTeacherAvailability(t['id']);
+                                    },
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ],
           ),
         ),

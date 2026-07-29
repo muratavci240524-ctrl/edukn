@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'class_lesson_hub_screen.dart';
 import '../../services/term_service.dart';
 import '../../services/user_permission_service.dart';
+import '../../widgets/edukn_logo.dart';
 
 class TeacherScheduleViewScreen extends StatefulWidget {
   final String schoolTypeId;
@@ -38,15 +39,18 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
   Map<String, int> _dailyLessonCounts = {};
   Map<String, List<Map<String, dynamic>>> _dayLessonTimes = {};
   bool _isLoading = true;
+  bool _isScheduleLoading = false;
   String? _activePeriodId;
   bool _showTableViewWide = true;
   DateTime _weekStart = DateTime.now();
   int _currentTabIndex = 0; // 0: Program, 1: Etütler
   List<Map<String, dynamic>> _weeklyEtuts = [];
+  List<Map<String, dynamic>> _teacherAssignments = [];
   String? _resolvedSchoolTypeName;
 
   // Öğretmen ders sayıları
   Map<String, int> _teacherLessonCounts = {};
+  List<Map<String, dynamic>> _lessonClassMerges = [];
 
   // Filtre değişkenleri
   String? _selectedBranch;
@@ -57,6 +61,77 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
   String _searchQuery = '';
 
   bool _hasAutoOpenedEtut = false;
+
+  String _sortBy = 'name'; // 'name' veya 'branch'
+
+  int compareTurkishStrings(String a, String b) {
+    final aLower = a.toLowerCase();
+    final bLower = b.toLowerCase();
+
+    final maxLen = aLower.length < bLower.length ? aLower.length : bLower.length;
+    for (int i = 0; i < maxLen; i++) {
+      final charA = aLower[i];
+      final charB = bLower[i];
+      if (charA != charB) {
+        final indexA = _getTurkishCharOrder(charA);
+        final indexB = _getTurkishCharOrder(charB);
+        if (indexA != indexB) {
+          return indexA.compareTo(indexB);
+        }
+        return charA.compareTo(charB);
+      }
+    }
+    return aLower.length.compareTo(bLower.length);
+  }
+
+  int _getTurkishCharOrder(String char) {
+    switch (char) {
+      case 'a': return 1;
+      case 'b': return 2;
+      case 'c': return 3;
+      case 'ç': return 4;
+      case 'd': return 5;
+      case 'e': return 6;
+      case 'f': return 7;
+      case 'g': return 8;
+      case 'ğ': return 9;
+      case 'h': return 10;
+      case 'ı': return 11;
+      case 'i': return 12;
+      case 'j': return 13;
+      case 'k': return 14;
+      case 'l': return 15;
+      case 'm': return 16;
+      case 'n': return 17;
+      case 'o': return 18;
+      case 'ö': return 19;
+      case 'p': return 20;
+      case 'r': return 21;
+      case 's': return 22;
+      case 'ş': return 23;
+      case 't': return 24;
+      case 'u': return 25;
+      case 'ü': return 26;
+      case 'v': return 27;
+      case 'y': return 28;
+      case 'z': return 29;
+      default: return 100 + (char.isNotEmpty ? char.codeUnitAt(0) : 0);
+    }
+  }
+
+  int compareClassNames(String nameA, String nameB) {
+    final reg = RegExp(r'\d+');
+    final matchA = reg.firstMatch(nameA);
+    final matchB = reg.firstMatch(nameB);
+
+    final int numA = matchA != null ? int.parse(matchA.group(0)!) : 0;
+    final int numB = matchB != null ? int.parse(matchB.group(0)!) : 0;
+
+    if (numA != numB) {
+      return numA.compareTo(numB);
+    }
+    return compareTurkishStrings(nameA, nameB);
+  }
 
   @override
   void initState() {
@@ -156,8 +231,12 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
     return '${start.day} ${_monthNameTr(start.month)} - ${end.day} ${_monthNameTr(end.month)} ${end.year}';
   }
 
-  Future<void> _loadData() async {
-    setState(() => _isLoading = true);
+  Future<void> _loadData({bool reloadSidebar = true}) async {
+    if (reloadSidebar) {
+      setState(() => _isLoading = true);
+    } else {
+      setState(() => _isScheduleLoading = true);
+    }
     
     if (widget.initialEtutId != null) {
       try {
@@ -227,10 +306,38 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
             .get();
       }
 
+      _days = [];
+      _dailyLessonCounts = {};
+      _dayLessonTimes = {};
+      _activePeriodId = null;
+      _scheduleData = {};
+
       if (periodsSnapshot.docs.isNotEmpty) {
-        final periodDoc = periodsSnapshot.docs.first;
-        _activePeriodId = periodDoc.id;
-        final periodData = periodDoc.data();
+        QueryDocumentSnapshot? activePeriodDoc;
+        final targetDate = _weekStart;
+
+        for (var doc in periodsSnapshot.docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          final start = (data['startDate'] as Timestamp?)?.toDate();
+          final end = (data['endDate'] as Timestamp?)?.toDate();
+
+          if (start != null && end != null) {
+            if (targetDate.isAfter(start.subtract(const Duration(days: 1))) &&
+                targetDate.isBefore(end.add(const Duration(days: 1)))) {
+              activePeriodDoc = doc;
+              break;
+            }
+          }
+        }
+
+        if (activePeriodDoc != null) {
+          final periodDoc = activePeriodDoc;
+          _activePeriodId = periodDoc.id;
+          final periodData = periodDoc.data() as Map<String, dynamic>;
+          final mergesRaw = periodData['lessonClassMerges'] as List<dynamic>?;
+          _lessonClassMerges = mergesRaw != null
+              ? mergesRaw.map((e) => Map<String, dynamic>.from(e)).toList()
+              : [];
 
         // Ders saatlerini yükle
         final lessonHoursData =
@@ -292,6 +399,18 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
           }
         }
       } else {
+          _activePeriodId = null;
+          _scheduleData = {};
+          _dayLessonTimes = {};
+          _days = [];
+          _lessonClassMerges = [];
+        }
+      } else {
+        _activePeriodId = null;
+        _scheduleData = {};
+        _dayLessonTimes = {};
+        _days = [];
+        _lessonClassMerges = [];
         debugPrint('❌ Aktif veya yayınlanmış dönem bulunamadı. Inst: $instId, Type: $schoolTypeId');
       }
 
@@ -381,9 +500,15 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
 
       // Branş sırasına göre sırala, sonra ada göre
       teachers.sort((a, b) {
-        final branchCompare = (a['branch'] ?? '').compareTo(b['branch'] ?? '');
+        final branchCompare = compareTurkishStrings(
+          (a['branch'] ?? '').toString(),
+          (b['branch'] ?? '').toString(),
+        );
         if (branchCompare != 0) return branchCompare;
-        return (a['name'] ?? '').compareTo(b['name'] ?? '');
+        return compareTurkishStrings(
+          (a['name'] ?? '').toString(),
+          (b['name'] ?? '').toString(),
+        );
       });
 
       // Branşları topla
@@ -398,20 +523,23 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
       final effectiveTermId = selectedTermId ?? activeTermId;
 
       final Map<String, int> lessonCounts = {};
-      final assignQueries = [
-        FirebaseFirestore.instance.collection('lessonAssignments')
-            .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
-            .where('institutionId', isEqualTo: instId)
-            .where('isActive', isEqualTo: true).get(),
-        FirebaseFirestore.instance.collection('lessonAssignments')
-            .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
-            .where('institutionId', isEqualTo: instId.toLowerCase())
-            .where('isActive', isEqualTo: true).get(),
-      ];
-      final assignSnaps = await Future.wait(assignQueries);
-      final assignmentsDocs = assignSnaps.expand((s) => s.docs).toList();
+      final instIds = [instId, instId.toLowerCase()].toSet().toList();
 
-      for (final doc in assignmentsDocs) {
+      final assignSnap = await FirebaseFirestore.instance
+          .collection('lessonAssignments')
+          .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+          .where('institutionId', whereIn: instIds)
+          .where('isActive', isEqualTo: true)
+          .get();
+
+      final Set<String> processedDocIds = {};
+      final Set<String> seenClassLessonTeacherKeys = {};
+      final Map<String, Set<String>> countedMergesPerTeacher = {};
+
+      for (final doc in assignSnap.docs) {
+        if (processedDocIds.contains(doc.id)) continue;
+        processedDocIds.add(doc.id);
+
         final data = doc.data();
 
         // Dönem kontrolünü biraz esnetelim: 
@@ -423,27 +551,44 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
           continue;
         }
 
-        final lessonId = (data['lessonId'] ?? '').toString();
-        // Saat hesaplamasında ders aktiflik kontrolünü biraz esnetelim (Atama varsa saat vardır)
-        if (lessonId.isEmpty) {
-          continue;
-        }
+        final cid = (data['classId'] ?? '').toString();
+        final lid = (data['lessonId'] ?? '').toString();
 
-        final dynamic weeklyHoursRaw = data['weeklyHours'];
-        final int weeklyHours = weeklyHoursRaw is int
-            ? weeklyHoursRaw
-            : int.tryParse((weeklyHoursRaw ?? '').toString()) ?? 0;
+        final tIds = (data['teacherIds'] as List<dynamic>?)
+            ?.map((e) => e.toString())
+            .toList();
 
-        if (weeklyHours <= 0) continue;
+        if (tIds != null && tIds.isNotEmpty) {
+          final count = data['weeklyHours'] as int? ?? 1;
+          for (final tId in tIds) {
+            Map<String, dynamic>? matchingMerge;
+            for (var merge in _lessonClassMerges) {
+              final classIdsList = (merge['classIds'] as List?)?.map((e) => e.toString()).toList() ?? [];
+              final mergeLessonId = (merge['lessonId'] ?? '').toString();
+              if (classIdsList.contains(cid) && mergeLessonId == lid) {
+                matchingMerge = merge;
+                break;
+              }
+            }
 
-        final dynamic teacherIdsRaw = data['teacherIds'];
-        if (teacherIdsRaw is! List) continue;
-
-        final uniqueTeacherIds = teacherIdsRaw.map((e) => e.toString()).toSet();
-        for (final teacherId in uniqueTeacherIds) {
-          if (teacherId.isEmpty) continue;
-          lessonCounts[teacherId] =
-              (lessonCounts[teacherId] ?? 0) + weeklyHours;
+            if (matchingMerge != null) {
+              final mergeId = matchingMerge['id']?.toString() ?? '';
+              final teacherMerges = countedMergesPerTeacher.putIfAbsent(tId, () => {});
+              if (teacherMerges.contains(mergeId)) {
+                continue;
+              }
+              teacherMerges.add(mergeId);
+              final mergeHours = matchingMerge['weeklyHours'] as int? ?? count;
+              lessonCounts[tId] = (lessonCounts[tId] ?? 0) + mergeHours;
+            } else {
+              final key = '$cid|$lid|$tId';
+              if (seenClassLessonTeacherKeys.contains(key)) {
+                continue;
+              }
+              seenClassLessonTeacherKeys.add(key);
+              lessonCounts[tId] = (lessonCounts[tId] ?? 0) + count;
+            }
+          }
         }
       }
 
@@ -452,10 +597,11 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
         _availableBranches = branches;
         _teacherLessonCounts = lessonCounts;
         
-        // Mevcut kullanıcı bir öğretmen ise otomatik seç
         final resolvedTeacherId = userData?['id'] ?? userData?['teacherId'] ?? currentUid;
         
-        if (resolvedTeacherId != null && _selectedTeacher == null) {
+        if (_selectedTeacher != null && _selectedTeacher!['id'] != null) {
+          _loadTeacherSchedule(_selectedTeacher!['id']);
+        } else if (resolvedTeacherId != null && _selectedTeacher == null) {
           try {
             final self = _allTeachers.firstWhere(
               (t) => t['id'] == resolvedTeacherId || t['id'] == currentUid,
@@ -479,16 +625,25 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
         }
 
         _isLoading = false;
+        _isScheduleLoading = false;
       });
     } catch (e) {
       debugPrint('Veri yükleme hatası: $e');
-      setState(() => _isLoading = false);
+      setState(() {
+        _isLoading = false;
+        _isScheduleLoading = false;
+      });
     }
   }
 
   Future<void> _loadTeacherSchedule(String teacherId) async {
     if (_activePeriodId == null) {
-      debugPrint('⚠️ Aktif dönem ID bulunamadı, ders programı atlanıyor ama diğer veriler (etüt vb.) yüklenecek.');
+      setState(() {
+        _scheduleData = {};
+        _weeklyEtuts = [];
+      });
+      debugPrint('⚠️ Aktif dönem ID bulunamadı, ders programı sıfırlandı.');
+      return;
     }
 
     final instId = widget.institutionId.toUpperCase();
@@ -497,68 +652,46 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
     try {
       debugPrint('🔍 Program Verileri Yükleniyor - Teacher: $teacherId, Inst: $instId, Type: $schoolTypeId');
       
-      // 1. Önce öğretmenin ders atamalarını bul (GENİŞLETİLMİŞ ARAMA)
-      final assignQueries = [
-        FirebaseFirestore.instance.collection('lessonAssignments')
-            .where('institutionId', isEqualTo: instId)
-            .where('schoolTypeId', isEqualTo: schoolTypeId)
-            .where('teacherIds', arrayContains: teacherId).get(),
-        FirebaseFirestore.instance.collection('lessonAssignments')
-            .where('institutionId', isEqualTo: instId.toLowerCase())
-            .where('schoolTypeId', isEqualTo: schoolTypeId)
-            .where('teacherIds', arrayContains: teacherId).get(),
-      ];
+      final instIds = [instId, instId.toLowerCase()].toSet().toList();
 
-      final assignSnaps = await Future.wait(assignQueries);
-      
-      // (classId|lessonId) -> assignment info
+      // 1. Önce öğretmenin ders atamalarını tek sorguyla bul
+      final assignSnap = await FirebaseFirestore.instance
+          .collection('lessonAssignments')
+          .where('institutionId', whereIn: instIds)
+          .where('schoolTypeId', isEqualTo: schoolTypeId)
+          .where('teacherIds', arrayContains: teacherId)
+          .get();
+
       final Map<String, Map<String, dynamic>> assignmentMap = {};
       final Set<String> classIds = {};
-      
-      debugPrint('   DEBUG: Atama sorguları tamamlandı. Toplam snap: ${assignSnaps.length}');
+      final List<Map<String, dynamic>> teacherAssignments = [];
+      final Set<String> seenAssignmentKeys = {};
 
-      for (var snap in assignSnaps) {
-        for (var doc in snap.docs) {
-          final data = doc.data();
-          final cid = (data['classId'] ?? '').toString();
-          final lid = (data['lessonId'] ?? '').toString();
-          
-          final docInstId = (data['institutionId'] ?? "").toString().toUpperCase();
-          final docTypeId = (data['schoolTypeId'] ?? "").toString();
-          final docIsActive = data['isActive'] ?? true;
+      for (var doc in assignSnap.docs) {
+        final data = doc.data();
+        data['id'] = doc.id;
+        final cid = (data['classId'] ?? '').toString();
+        final lid = (data['lessonId'] ?? '').toString();
+        final docIsActive = data['isActive'] ?? true;
 
-          debugPrint('   DEBUG: Atama Kontrol - ID: ${doc.id}, Class: $cid, Lesson: $lid, Inst: $docInstId, Type: $docTypeId, Active: $docIsActive');
+        final assignmentKey = '$cid|$lid';
 
-          if (cid.isEmpty || lid.isEmpty) {
-             debugPrint('     ⚠️ CID veya LID boş, atlanıyor.');
-             continue;
-          }
-
-          // Seçili okul türü ve kurum kontrolü (Boşsa veya eşleşiyorsa al)
-          bool instMatch = instId.isEmpty || docInstId == instId || docInstId == instId.toLowerCase();
-          bool typeMatch = schoolTypeId.isEmpty || docTypeId == schoolTypeId;
-
-          if (instMatch && typeMatch && docIsActive) {
-            classIds.add(cid);
-            assignmentMap['$cid|$lid'] = {
-              'lessonName': (data['lessonName'] ?? '').toString(),
-              'className': (data['className'] ?? '').toString(),
-            };
-            debugPrint('     ✅ Atama eklendi.');
-          } else {
-            debugPrint('     ❌ Filtreye takıldı: InstMatch: $instMatch, TypeMatch: $typeMatch, ActiveMatch: $docIsActive');
-          }
+        if (cid.isNotEmpty && lid.isNotEmpty && docIsActive) {
+          classIds.add(cid);
+          assignmentMap[assignmentKey] = {
+            'lessonName': (data['lessonName'] ?? '').toString(),
+            'className': (data['className'] ?? '').toString(),
+          };
+          teacherAssignments.add(data);
         }
       }
-
-      debugPrint('   - Final atama haritası: ${assignmentMap.length}, Benzersiz sınıf: ${classIds.length}');
 
       final List<String> classIdList = classIds.toList();
 
       // Şube adlarını tamamlamak için classes dokümanlarını batch + paralel çek
       final Map<String, String?> classNameById = {};
       final List<Future<QuerySnapshot<Map<String, dynamic>>>> classFetches = [];
-      
+
       if (classIdList.isNotEmpty) {
         for (int i = 0; i < classIdList.length; i += 10) {
           final batch = classIdList.skip(i).take(10).toList();
@@ -573,93 +706,196 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
 
       // Bu öğretmenin ders verdiği şubelerin programını batch + paralel çek
       final List<Future<QuerySnapshot<Map<String, dynamic>>>> scheduleFetches = [];
-      
-      if (_activePeriodId != null) {
-        // 1. Sınıf bazlı aramalar
-        if (classIdList.isNotEmpty) {
-          for (int i = 0; i < classIdList.length; i += 10) {
-            final batch = classIdList.skip(i).take(10).toList();
-            scheduleFetches.add(
-              FirebaseFirestore.instance
-                  .collection('classSchedules')
-                  .where('periodId', isEqualTo: _activePeriodId)
-                  .where('classId', whereIn: batch)
-                  .where('isActive', isEqualTo: true)
-                  .get(),
-            );
-          }
-        }
 
-        // 2. Doğrudan öğretmen bazlı arama (Failsafe)
-        scheduleFetches.add(
-          FirebaseFirestore.instance
-              .collection('classSchedules')
-              .where('institutionId', isEqualTo: instId)
-              .where('periodId', isEqualTo: _activePeriodId)
-              .where('teacherIds', arrayContains: teacherId)
-              .where('isActive', isEqualTo: true)
-              .get(),
-        );
-        scheduleFetches.add(
-          FirebaseFirestore.instance
-              .collection('classSchedules')
-              .where('institutionId', isEqualTo: instId.toLowerCase())
-              .where('periodId', isEqualTo: _activePeriodId)
-              .where('teacherIds', arrayContains: teacherId)
-              .where('isActive', isEqualTo: true)
-              .get(),
-        );
+      // 1. Sınıf bazlı aramalar
+      if (classIdList.isNotEmpty) {
+        for (int i = 0; i < classIdList.length; i += 10) {
+          final batch = classIdList.skip(i).take(10).toList();
+          scheduleFetches.add(
+            FirebaseFirestore.instance
+                .collection('classSchedules')
+                .where('classId', whereIn: batch)
+                .get(),
+          );
+        }
       }
+
+      // 2. Doğrudan öğretmen bazlı aramalar (Failsafe)
+      scheduleFetches.add(
+        FirebaseFirestore.instance
+            .collection('classSchedules')
+            .where('institutionId', whereIn: instIds)
+            .where('teacherIds', arrayContains: teacherId)
+            .get(),
+      );
+      scheduleFetches.add(
+        FirebaseFirestore.instance
+            .collection('classSchedules')
+            .where('institutionId', whereIn: instIds)
+            .where('teacherId', isEqualTo: teacherId)
+            .get(),
+      );
 
       final classSnapshots = await Future.wait(classFetches);
       final scheduleSnapshots = await Future.wait(scheduleFetches);
 
       for (final snap in classSnapshots) {
         for (final doc in snap.docs) {
-          classNameById[doc.id] = (doc.data()['className'] ?? '').toString();
+          classNameById[doc.id] = (doc.data()['className'] ?? doc.data()['name'] ?? '').toString();
         }
       }
 
-      final Map<String, Map<String, dynamic>> scheduleData = {};
+      final Map<String, Map<String, dynamic>> updatedSchedule = {};
+      final Set<String> processedScheduleDocIds = {};
+
       for (final scheduleSnapshot in scheduleSnapshots) {
         for (var doc in scheduleSnapshot.docs) {
+          if (processedScheduleDocIds.contains(doc.id)) continue;
+          processedScheduleDocIds.add(doc.id);
+
           final data = doc.data();
-          final classId = (data['classId'] ?? '').toString();
-          final lessonId = (data['lessonId'] ?? '').toString();
-          if (classId.isEmpty || lessonId.isEmpty) continue;
+          if (data['isActive'] == false) continue;
 
-          // Bu hücre, seçili öğretmenin atanmış olduğu bir derse mi ait?
-          final assignmentKey = '${classId}|${lessonId}';
+          final slotPeriodId = (data['periodId'] ?? '').toString();
+          if (_activePeriodId != null &&
+              slotPeriodId.isNotEmpty &&
+              slotPeriodId != _activePeriodId) {
+            continue;
+          }
+
+          final cid = (data['classId'] ?? '').toString();
+          final lid = (data['lessonId'] ?? '').toString();
+          final assignmentKey = '$cid|$lid';
           final hasAssignment = assignmentMap.containsKey(assignmentKey);
-          
-          // EĞER assignmentMap'te yoksa ama dokumanın kendisinde bu öğretmen varsa yine de ekle (Failsafe)
-          final lessonTeacherIds = List<String>.from(data['teacherIds'] ?? []);
-          final isAssignedDirectly = lessonTeacherIds.contains(teacherId);
 
-          if (!hasAssignment && !isAssignedDirectly) continue;
+          final slotTeacherId = (data['teacherId'] ?? '').toString();
+          final lessonTeacherIds = (data['teacherIds'] as List<dynamic>?)
+                  ?.map((e) => e.toString())
+                  .toList() ??
+              [];
+          if (slotTeacherId.isNotEmpty && !lessonTeacherIds.contains(slotTeacherId)) {
+            lessonTeacherIds.add(slotTeacherId);
+          }
 
-          final key = '${data['day']}_${data['hourIndex']}';
+          // Eğer saat diliminde öğretmen ID(leri) tanımlıysa, hedef öğretmen ID'si bulunmalı!
+          if (lessonTeacherIds.isNotEmpty) {
+            if (!lessonTeacherIds.contains(teacherId)) continue;
+          } else {
+            // Eğer saat diliminde öğretmen ID'si hiç yazılmamışsa, atama haritasına bak
+            if (!hasAssignment) continue;
+          }
 
-          // className ve lessonName'i assignment verisiyle tamamla
-          final assignmentInfo = hasAssignment ? assignmentMap[assignmentKey]! : null;
-          final className = assignmentInfo != null 
-              ? (classNameById[classId] ?? assignmentInfo['className'])
-              : (classNameById[classId] ?? data['className'] ?? 'Sınıf');
+          final day = data['day'] as String?;
+          final hourIndex = data['hourIndex'] as int?;
+          if (day == null || hourIndex == null) continue;
+
+          final key = '${day}_$hourIndex';
+
+          final assignmentInfo = hasAssignment ? assignmentMap[assignmentKey] : null;
+          final className = assignmentInfo != null
+              ? (classNameById[cid] ?? assignmentInfo['className'])
+              : (classNameById[cid] ?? data['className'] ?? 'Sınıf');
           final lessonName = assignmentInfo != null
               ? (assignmentInfo['lessonName'] ?? data['lessonName'])
               : (data['lessonName'] ?? 'Ders');
 
-          scheduleData[key] = {
+          final newSlotData = {
             ...data,
             'id': doc.id,
             'className': className,
             'lessonName': lessonName,
           };
+
+          if (updatedSchedule.containsKey(key)) {
+            final existing = updatedSchedule[key]!;
+            final existingLName = existing['lessonName']?.toString();
+            if (existingLName == lessonName) {
+              final existingClassNames = existing['classNames'] != null 
+                  ? List<String>.from(existing['classNames']) 
+                  : [existing['className']?.toString() ?? 'Sınıf'];
+              
+              final existingClassIds = existing['classIds'] != null 
+                  ? List<String>.from(existing['classIds']) 
+                  : [existing['classId']?.toString() ?? ''];
+
+              final existingDocIds = existing['scheduleDocIds'] != null 
+                  ? List<String>.from(existing['scheduleDocIds']) 
+                  : [existing['id']?.toString() ?? ''];
+
+              if (!existingClassIds.contains(cid)) {
+                existingClassNames.add(className.toString());
+                existingClassIds.add(cid);
+                existingDocIds.add(doc.id);
+              }
+
+              existingClassNames.sort((a, b) => compareClassNames(a, b));
+
+              existing['className'] = existingClassNames.join('/');
+              existing['classNames'] = existingClassNames;
+              existing['classIds'] = existingClassIds;
+              existing['scheduleDocIds'] = existingDocIds;
+              existing['isCombined'] = true;
+            } else {
+              updatedSchedule[key] = newSlotData;
+            }
+          } else {
+            updatedSchedule[key] = {
+              ...newSlotData,
+              'classNames': [className.toString()],
+              'classIds': [cid],
+              'scheduleDocIds': [doc.id],
+            };
+          }
         }
       }
 
+      // Her atama dokümanı için ders programındaki işlenme durumunu hesapla
+      final Map<String, int> assignmentPlacedSlotsCount = {};
+      final Set<String> assignedDocIdsPlaced = {};
+
+      for (final slot in updatedSchedule.values) {
+        final slotAssignmentId = (slot['assignmentId'] ?? '').toString();
+        final slotCid = (slot['classId'] ?? '').toString();
+        final slotLid = (slot['lessonId'] ?? '').toString();
+
+        if (slotAssignmentId.isNotEmpty) {
+          assignedDocIdsPlaced.add(slotAssignmentId);
+          assignmentPlacedSlotsCount[slotAssignmentId] = (assignmentPlacedSlotsCount[slotAssignmentId] ?? 0) + 1;
+        } else if (slotCid.isNotEmpty && slotLid.isNotEmpty) {
+          final matchKey = '$slotCid|$slotLid';
+          assignmentPlacedSlotsCount[matchKey] = (assignmentPlacedSlotsCount[matchKey] ?? 0) + 1;
+        }
+      }
+
+      final Set<String> consumedMatchKeys = {};
+
+      for (var assignment in teacherAssignments) {
+        final docId = (assignment['id'] ?? '').toString();
+        final cid = (assignment['classId'] ?? '').toString();
+        final lid = (assignment['lessonId'] ?? '').toString();
+        final matchKey = '$cid|$lid';
+
+        int placed = 0;
+        if (assignedDocIdsPlaced.contains(docId)) {
+          placed = assignmentPlacedSlotsCount[docId] ?? 0;
+        } else if (assignmentPlacedSlotsCount.containsKey(matchKey) && !consumedMatchKeys.contains(matchKey)) {
+          placed = assignmentPlacedSlotsCount[matchKey] ?? 0;
+          consumedMatchKeys.add(matchKey);
+        }
+
+        assignment['placedHours'] = placed;
+        assignment['isPlaced'] = placed > 0;
+      }
+
+      teacherAssignments.sort((a, b) {
+        final classNameA = (a['className'] ?? '').toString();
+        final classNameB = (b['className'] ?? '').toString();
+        return compareClassNames(classNameA, classNameB);
+      });
+
       setState(() {
-        _scheduleData = scheduleData;
+        _scheduleData = updatedSchedule;
+        _teacherAssignments = teacherAssignments;
       });
 
       // ---------------------------------------------------------
@@ -953,7 +1189,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
         ),
       ),
       body: _isLoading
-          ? Center(child: CircularProgressIndicator())
+          ? Center(child: EduKnLoader(size: 80.0))
           : _buildMainContent(),
     );
   }
@@ -965,7 +1201,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              CircularProgressIndicator(),
+              EduKnLoader(size: 80.0),
               SizedBox(height: 16),
               Text('Ders programınız hazırlanıyor...'),
             ],
@@ -1157,6 +1393,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                     ),
                   ),
                   SizedBox(width: 8),
+                  SizedBox(width: 8),
                   Expanded(
                     flex: 2,
                     child: PopupMenuButton<String>(
@@ -1209,6 +1446,65 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                               PopupMenuItem(value: branch, child: Text(branch)),
                         ),
                       ],
+                    ),
+                  ),
+                  SizedBox(width: 6),
+                  PopupMenuButton<String>(
+                    onSelected: (val) {
+                      setState(() {
+                        _sortBy = val;
+                      });
+                    },
+                    itemBuilder: (context) => [
+                      PopupMenuItem(
+                        value: 'name',
+                        child: Row(
+                          children: [
+                            Icon(Icons.sort_by_alpha, size: 16, color: _sortBy == 'name' ? Colors.blue : Colors.grey),
+                            SizedBox(width: 8),
+                            Text('A-Z İsim', style: TextStyle(fontWeight: _sortBy == 'name' ? FontWeight.bold : FontWeight.normal)),
+                          ],
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'branch',
+                        child: Row(
+                          children: [
+                            Icon(Icons.category_outlined, size: 16, color: _sortBy == 'branch' ? Colors.blue : Colors.grey),
+                            SizedBox(width: 8),
+                            Text('Branşa Göre', style: TextStyle(fontWeight: _sortBy == 'branch' ? FontWeight.bold : FontWeight.normal)),
+                          ],
+                        ),
+                      ),
+                    ],
+                    child: Container(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.sort,
+                            size: 14,
+                            color: Colors.white,
+                          ),
+                          SizedBox(width: 4),
+                          Text(
+                            _sortBy == 'name' ? 'A-Z' : 'Branş',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ],
@@ -1356,21 +1652,59 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
 
   Widget _buildNoPublishedSchedule() {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.calendar_today, size: 64, color: Colors.grey.shade400),
-          SizedBox(height: 16),
-          Text(
-            'Yayınlanmış ders programı bulunamadı',
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 16),
-          ),
-          SizedBox(height: 8),
-          Text(
-            'Ders programı yönetici tarafından yayınlandığında burada görünecektir',
-            style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
-          ),
-        ],
+      child: Container(
+        margin: const EdgeInsets.all(32),
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.blue.shade900.withOpacity(0.04),
+              blurRadius: 20,
+              offset: const Offset(0, 8),
+            ),
+          ],
+          border: Border.all(color: Colors.blue.shade50),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.calendar_month_outlined,
+                size: 48,
+                color: Colors.blue.shade400,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Bu Tarihte Ders Programı Bulunmamaktadır',
+              style: TextStyle(
+                color: Colors.blue.shade900,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Seçilen tarih aktif çalışma dönemi aralığı dışında kaldığı için veya henüz program yayınlanmadığı için gösterilecek ders bulunmuyor.',
+              style: TextStyle(
+                color: Colors.grey.shade600,
+                fontSize: 13,
+                height: 1.4,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1383,17 +1717,21 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
     return Column(
       children: [
         _buildTabToggle(),
-        _buildDateSelectorRow(),
+        if (_currentTabIndex != 2) _buildDateSelectorRow(),
         Expanded(
           child: _currentTabIndex == 0
-              ? (_activePeriodId == null
-                  ? _buildNoPublishedSchedule()
-                  : (_days.isEmpty
-                      ? Center(child: const Text('Ders saati tanımlanmamış'))
-                      : (_showTableViewWide
-                          ? _buildTableScheduleWide(maxHours)
-                          : _buildCardScheduleWide())))
-              : _buildEtutListView(),
+              ? (_isScheduleLoading
+                  ? const Center(child: EduKnLoader(size: 80.0))
+                  : (_activePeriodId == null
+                      ? _buildNoPublishedSchedule()
+                      : (_days.isEmpty
+                          ? Center(child: const Text('Ders saati tanımlanmamış'))
+                          : (_showTableViewWide
+                              ? _buildTableScheduleWide(maxHours)
+                              : _buildCardScheduleWide()))))
+              : (_currentTabIndex == 1
+                  ? _buildEtutListView()
+                  : _buildAssignedLessonsView()),
         ),
       ],
     );
@@ -1426,7 +1764,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                   setState(() {
                     _weekStart = _weekStart.subtract(Duration(days: 7));
                   });
-                  _loadTeacherSchedule(_selectedTeacher!['id']);
+                  _loadData(reloadSidebar: false);
                 },
                 icon: Icon(Icons.arrow_back_ios_new, size: 14, color: Colors.blue.shade700),
                 style: IconButton.styleFrom(
@@ -1466,7 +1804,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                   setState(() {
                     _weekStart = _weekStart.add(Duration(days: 7));
                   });
-                  _loadTeacherSchedule(_selectedTeacher!['id']);
+                  _loadData(reloadSidebar: false);
                 },
                 icon: Icon(Icons.arrow_forward_ios, size: 14, color: Colors.blue.shade700),
                 style: IconButton.styleFrom(
@@ -1522,7 +1860,8 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
         final a = _scheduleData[checkKey];
         final aClassId = (a?['classId'] ?? '').toString();
         final aLessonId = (a?['lessonId'] ?? '').toString();
-        if (aClassId == classId && aLessonId == lessonId) {
+        final aClassIds = a?['classIds'] != null ? List<String>.from(a?['classIds']) : [aClassId];
+        if (aClassIds.contains(classId) && aLessonId == lessonId) {
             availableLessonHours.add(i + 1);
         }
     }
@@ -1541,6 +1880,8 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                 initialDate: initialDate,
                 initialLessonHour: hourIndex + 1,
                 availableLessonHours: availableLessonHours,
+                combinedClassIds: assignment['classIds'] != null ? List<String>.from(assignment['classIds']) : null,
+                combinedClassNames: assignment['classNames'] != null ? List<String>.from(assignment['classNames']) : null,
             ),
         ),
     );
@@ -1548,8 +1889,8 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
 
   Widget _buildTabToggle() {
     return Container(
-      margin: EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-      padding: EdgeInsets.all(4),
+      margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+      padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
         color: Colors.blue.withOpacity(0.08),
         borderRadius: BorderRadius.circular(12),
@@ -1559,6 +1900,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
         children: [
           _tabButton(0, 'Program', Icons.grid_on),
           _tabButton(1, 'Etütler', Icons.list_alt),
+          _tabButton(2, 'Atalı Dersler', Icons.assignment_ind),
         ],
       ),
     );
@@ -1788,6 +2130,442 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildAssignedLessonsView() {
+    if (_teacherAssignments.isEmpty) {
+      return Center(
+        child: Container(
+          margin: const EdgeInsets.all(32),
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.blue.shade900.withOpacity(0.04),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
+            border: Border.all(color: Colors.blue.shade50),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.assignment_late_outlined,
+                  size: 48,
+                  color: Colors.blue.shade400,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Atanmış Ders Bulunmuyor',
+                style: TextStyle(
+                  color: Colors.blue.shade900,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Bu öğretmene ait aktif müfredat ders ataması bulunmamaktadır.',
+                style: TextStyle(
+                  color: Colors.grey.shade600,
+                  fontSize: 13,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final hasUnplacedDuplicates = _teacherAssignments.any((a) => a['isPlaced'] == false);
+
+    return Column(
+      children: [
+        // Bilgilendirme ve Hızlı Temizleme Çubuğu
+        Container(
+          margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: Colors.blue.shade50.withOpacity(0.7),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.blue.shade100),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.info_outline, size: 20, color: Colors.blue.shade700),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Programda işli olan atamalar yeşil (✓), boşta kalanlar turuncu (⚠️) rozetle gösterilir.',
+                  style: TextStyle(fontSize: 12, color: Colors.blue.shade900, fontWeight: FontWeight.w500),
+                ),
+              ),
+              if (hasUnplacedDuplicates) ...[
+                const SizedBox(width: 8),
+                ElevatedButton.icon(
+                  onPressed: _cleanUpUnplacedDuplicates,
+                  icon: const Icon(Icons.cleaning_services, size: 14, color: Colors.white),
+                  label: const Text(
+                    'Boştakileri Temizle',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange.shade800,
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    visualDensity: VisualDensity.compact,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+            itemCount: _teacherAssignments.length,
+            itemBuilder: (context, index) {
+              final assignment = _teacherAssignments[index];
+              final className = (assignment['className'] ?? 'Sınıf').toString();
+              final lessonName = (assignment['lessonName'] ?? 'Ders').toString();
+              final weeklyHours = assignment['weeklyHours'] as int? ?? 0;
+              final isPlaced = assignment['isPlaced'] as bool? ?? false;
+              final placedHours = assignment['placedHours'] as int? ?? 0;
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: isPlaced ? Colors.blue.shade100 : Colors.orange.shade200,
+                    width: isPlaced ? 1 : 1.5,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.blue.shade900.withOpacity(0.04),
+                      blurRadius: 8,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: isPlaced
+                              ? [Colors.blue.shade400, Colors.blue.shade700]
+                              : [Colors.orange.shade400, Colors.orange.shade700],
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Center(
+                        child: Icon(
+                          isPlaced ? Icons.class_outlined : Icons.event_busy,
+                          color: Colors.white,
+                          size: 22,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.blue.shade50,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  className,
+                                  style: TextStyle(
+                                    color: Colors.blue.shade800,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.blue.shade50,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  '$weeklyHours saat/hafta',
+                                  style: TextStyle(
+                                    color: Colors.blue.shade900,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              // PROGRAMDA İŞLİ Mİ / BOŞTA MI ROZETİ
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: isPlaced ? Colors.green.shade50 : Colors.orange.shade50,
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                    color: isPlaced ? Colors.green.shade200 : Colors.orange.shade300,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      isPlaced ? Icons.check_circle : Icons.warning_amber_rounded,
+                                      size: 12,
+                                      color: isPlaced ? Colors.green.shade700 : Colors.orange.shade900,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      isPlaced
+                                          ? 'Programda Var ($placedHours Saat)'
+                                          : 'Boşta / Programda Yok',
+                                      style: TextStyle(
+                                        color: isPlaced ? Colors.green.shade800 : Colors.orange.shade900,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            lessonName,
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.grey.shade900,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      onPressed: () => _confirmCancelAssignment(assignment),
+                      icon: const Icon(Icons.delete_outline, size: 16, color: Colors.red),
+                      label: const Text(
+                        'İptal Et',
+                        style: TextStyle(color: Colors.red, fontSize: 12, fontWeight: FontWeight.bold),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: Colors.red.shade200),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _cleanUpUnplacedDuplicates() async {
+    final unplaced = _teacherAssignments.where((a) => a['isPlaced'] == false).toList();
+    if (unplaced.isEmpty) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.cleaning_services, color: Colors.orange.shade800, size: 24),
+            ),
+            const SizedBox(width: 10),
+            const Text('Boştaki Atamaları Temizle', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Text(
+          'Ders programında yer almayan (${unplaced.length} adet) boştaki atamaları topluca pasife almak istediğinize emin misiniz?\n\nProgramda işli olan derslerinize hiçbir zarar gelmeyecektir.',
+          style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Vazgeç', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange.shade800,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Evet, Temizle', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      final batch = FirebaseFirestore.instance.batch();
+      for (final assignment in unplaced) {
+        final docId = (assignment['id'] ?? '').toString();
+        if (docId.isNotEmpty) {
+          final docRef = FirebaseFirestore.instance.collection('lessonAssignments').doc(docId);
+          batch.update(docRef, {'isActive': false});
+        }
+      }
+      await batch.commit();
+
+      setState(() {
+        _teacherAssignments.removeWhere((a) => a['isPlaced'] == false);
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${unplaced.length} adet boştaki atama başarıyla temizlendi.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+
+      if (_selectedTeacher != null && _selectedTeacher!['id'] != null) {
+        await _loadTeacherSchedule(_selectedTeacher!['id']);
+      }
+      await _loadData(reloadSidebar: false);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Temizleme sırasında hata oluştu: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _confirmCancelAssignment(Map<String, dynamic> assignment) {
+    final docId = (assignment['id'] ?? '').toString();
+    final className = (assignment['className'] ?? 'Sınıf').toString();
+    final lessonName = (assignment['lessonName'] ?? 'Ders').toString();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.warning_amber_rounded, color: Colors.red.shade600, size: 24),
+            ),
+            const SizedBox(width: 10),
+            const Text('Atamayı İptal Et', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Text(
+          '"$className - $lessonName" ders atamasını bu öğretmen için iptal etmek istediğinize emin misiniz?',
+          style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Vazgeç', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.shade600,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                final docSnap = await FirebaseFirestore.instance.collection('lessonAssignments').doc(docId).get();
+                if (docSnap.exists) {
+                  final data = docSnap.data();
+                  final tIds = List<String>.from(data?['teacherIds'] ?? []);
+                  final tNames = List<String>.from(data?['teacherNames'] ?? []);
+                  
+                  if (tIds.length > 1 && _selectedTeacher != null) {
+                    tIds.remove(_selectedTeacher!['id']);
+                    if (tNames.isNotEmpty && _selectedTeacher!['name'] != null) {
+                      tNames.removeWhere((n) => n.contains(_selectedTeacher!['name'].toString()));
+                    }
+                    await FirebaseFirestore.instance.collection('lessonAssignments').doc(docId).update({
+                      'teacherIds': tIds,
+                      'teacherNames': tNames,
+                    });
+                  } else {
+                    await FirebaseFirestore.instance.collection('lessonAssignments').doc(docId).update({
+                      'isActive': false,
+                    });
+                  }
+                }
+
+                setState(() {
+                  _teacherAssignments.removeWhere((a) => a['id'] == docId);
+                });
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Ders ataması başarıyla iptal edildi.'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+
+                if (_selectedTeacher != null && _selectedTeacher!['id'] != null) {
+                  await _loadTeacherSchedule(_selectedTeacher!['id']);
+                }
+                await _loadData(reloadSidebar: false);
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Atama iptal edilirken hata oluştu: $e'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            },
+            child: const Text('Evet, İptal Et', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
     );
   }
 
@@ -3023,6 +3801,75 @@ class _TeacherScheduleDetailViewState
     return colors[hash.abs() % colors.length];
   }
 
+  int compareTurkishStrings(String a, String b) {
+    final aLower = a.toLowerCase();
+    final bLower = b.toLowerCase();
+
+    final maxLen = aLower.length < bLower.length ? aLower.length : bLower.length;
+    for (int i = 0; i < maxLen; i++) {
+      final charA = aLower[i];
+      final charB = bLower[i];
+      if (charA != charB) {
+        final indexA = _getTurkishCharOrder(charA);
+        final indexB = _getTurkishCharOrder(charB);
+        if (indexA != indexB) {
+          return indexA.compareTo(indexB);
+        }
+        return charA.compareTo(charB);
+      }
+    }
+    return aLower.length.compareTo(bLower.length);
+  }
+
+  int _getTurkishCharOrder(String char) {
+    switch (char) {
+      case 'a': return 1;
+      case 'b': return 2;
+      case 'c': return 3;
+      case 'ç': return 4;
+      case 'd': return 5;
+      case 'e': return 6;
+      case 'f': return 7;
+      case 'g': return 8;
+      case 'ğ': return 9;
+      case 'h': return 10;
+      case 'ı': return 11;
+      case 'i': return 12;
+      case 'j': return 13;
+      case 'k': return 14;
+      case 'l': return 15;
+      case 'm': return 16;
+      case 'n': return 17;
+      case 'o': return 18;
+      case 'ö': return 19;
+      case 'p': return 20;
+      case 'r': return 21;
+      case 's': return 22;
+      case 'ş': return 23;
+      case 't': return 24;
+      case 'u': return 25;
+      case 'ü': return 26;
+      case 'v': return 27;
+      case 'y': return 28;
+      case 'z': return 29;
+      default: return 100 + (char.isNotEmpty ? char.codeUnitAt(0) : 0);
+    }
+  }
+
+  int compareClassNames(String nameA, String nameB) {
+    final reg = RegExp(r'\d+');
+    final matchA = reg.firstMatch(nameA);
+    final matchB = reg.firstMatch(nameB);
+
+    final int numA = matchA != null ? int.parse(matchA.group(0)!) : 0;
+    final int numB = matchB != null ? int.parse(matchB.group(0)!) : 0;
+
+    if (numA != numB) {
+      return numA.compareTo(numB);
+    }
+    return compareTurkishStrings(nameA, nameB);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -3087,7 +3934,8 @@ class _TeacherScheduleDetailViewState
         final a = _scheduleData[checkKey];
         final aClassId = (a?['classId'] ?? '').toString();
         final aLessonId = (a?['lessonId'] ?? '').toString();
-        if (aClassId == classId && aLessonId == lessonId) {
+        final aClassIds = a?['classIds'] != null ? List<String>.from(a?['classIds']) : [aClassId];
+        if (aClassIds.contains(classId) && aLessonId == lessonId) {
             availableLessonHours.add(i + 1);
         }
     }
@@ -3106,6 +3954,8 @@ class _TeacherScheduleDetailViewState
                 initialDate: initialDate,
                 initialLessonHour: hourIndex + 1,
                 availableLessonHours: availableLessonHours,
+                combinedClassIds: assignment['classIds'] != null ? List<String>.from(assignment['classIds']) : null,
+                combinedClassNames: assignment['classNames'] != null ? List<String>.from(assignment['classNames']) : null,
             ),
         ),
     );
@@ -3174,12 +4024,53 @@ class _TeacherScheduleDetailViewState
 
           final key = '${data['day']}_${data['hourIndex']}';
           final assignmentInfo = assignmentMap[assignmentKey]!;
-          scheduleData[key] = {
+          final newSlotData = {
             ...data,
             'id': doc.id,
             'className': assignmentInfo['className'],
             'lessonName': assignmentInfo['lessonName'],
           };
+
+          if (scheduleData.containsKey(key)) {
+            final existing = scheduleData[key]!;
+            final existingLName = existing['lessonName']?.toString();
+            if (existingLName == assignmentInfo['lessonName']) {
+              final existingClassNames = existing['classNames'] != null 
+                  ? List<String>.from(existing['classNames']) 
+                  : [existing['className']?.toString() ?? 'Sınıf'];
+              
+              final existingClassIds = existing['classIds'] != null 
+                  ? List<String>.from(existing['classIds']) 
+                  : [existing['classId']?.toString() ?? ''];
+
+              final existingDocIds = existing['scheduleDocIds'] != null 
+                  ? List<String>.from(existing['scheduleDocIds']) 
+                  : [existing['id']?.toString() ?? ''];
+
+              if (!existingClassIds.contains(classId)) {
+                existingClassNames.add(assignmentInfo['className'].toString());
+                existingClassIds.add(classId);
+                existingDocIds.add(doc.id);
+              }
+
+              existingClassNames.sort((a, b) => compareClassNames(a, b));
+
+              existing['className'] = existingClassNames.join('/');
+              existing['classNames'] = existingClassNames;
+              existing['classIds'] = existingClassIds;
+              existing['scheduleDocIds'] = existingDocIds;
+              existing['isCombined'] = true;
+            } else {
+              scheduleData[key] = newSlotData;
+            }
+          } else {
+            scheduleData[key] = {
+              ...newSlotData,
+              'classNames': [assignmentInfo['className'].toString()],
+              'classIds': [classId],
+              'scheduleDocIds': [doc.id],
+            };
+          }
         }
       }
 
@@ -3495,7 +4386,7 @@ class _TeacherScheduleDetailViewState
                 if (_isLoading)
                   Container(
                     color: Colors.white70,
-                    child: const Center(child: CircularProgressIndicator()),
+                    child: const Center(child: EduKnLoader(size: 80.0)),
                   ),
               ],
             ),

@@ -5,6 +5,7 @@ import '../../../services/survey_service.dart';
 import 'create_survey_screen.dart';
 import 'survey_stats_screen.dart';
 import 'survey_guide_page.dart';
+import '../../../services/term_service.dart';
 
 class SurveyListScreen extends StatefulWidget {
   final String institutionId;
@@ -32,42 +33,120 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
 
   List<String> _classIds = [];
   bool _isInitLoading = false;
+  String? _currentTermId;
+  String _selectedStatusFilter = 'published'; // 'published' or 'other'
 
   @override
   void initState() {
     super.initState();
     _surveyService.checkScheduledSurveys(widget.institutionId);
-    if (widget.isTeacher && widget.teacherId != null) {
-      _loadTeacherClasses();
+    _loadTermAndClasses();
+  }
+
+  Future<void> _loadTermAndClasses() async {
+    setState(() => _isInitLoading = true);
+    try {
+      _currentTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
+      if (widget.isTeacher && widget.teacherId != null) {
+        await _loadTeacherClassesInternal();
+      }
+    } catch (e) {
+      debugPrint('Error loading term/classes: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isInitLoading = false);
+      }
     }
   }
 
-  Future<void> _loadTeacherClasses() async {
-    setState(() => _isInitLoading = true);
-    try {
-      final snap = await FirebaseFirestore.instance
-          .collection('lessonAssignments')
-          .where('institutionId', isEqualTo: widget.institutionId)
-          .where('teacherIds', arrayContains: widget.teacherId)
-          .where('isActive', isEqualTo: true)
-          .get();
+  Future<void> _loadTeacherClassesInternal() async {
+    final snap = await FirebaseFirestore.instance
+        .collection('lessonAssignments')
+        .where('institutionId', isEqualTo: widget.institutionId)
+        .where('teacherIds', arrayContains: widget.teacherId)
+        .where('isActive', isEqualTo: true)
+        .get();
 
-      final ids = snap.docs
-          .map((doc) => doc.data()['classId']?.toString())
-          .whereType<String>()
-          .toSet()
-          .toList();
+    final ids = snap.docs
+        .map((doc) => doc.data()['classId']?.toString())
+        .whereType<String>()
+        .toSet()
+        .toList();
 
-      if (mounted) {
-        setState(() {
-          _classIds = ids;
-          _isInitLoading = false;
-        });
-      }
-    } catch (e) {
-      debugPrint('Error loading teacher classes for surveys: $e');
-      if (mounted) setState(() => _isInitLoading = false);
+    if (mounted) {
+      setState(() {
+        _classIds = ids;
+      });
     }
+  }
+
+  Widget _buildStatusFilterSelector() {
+    bool isPublished = _selectedStatusFilter == 'published';
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 800),
+          child: Row(
+            children: [
+              Expanded(
+                child: InkWell(
+                  onTap: () => setState(() => _selectedStatusFilter = 'published'),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    height: 40,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: isPublished ? Colors.blue.shade700.withOpacity(0.08) : Colors.transparent,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isPublished ? Colors.blue.shade700 : Colors.grey.withOpacity(0.3),
+                        width: isPublished ? 1.8 : 1.0,
+                      ),
+                    ),
+                    child: Text(
+                      'Yayında',
+                      style: TextStyle(
+                        color: isPublished ? Colors.blue.shade700 : Colors.grey.shade600,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: InkWell(
+                  onTap: () => setState(() => _selectedStatusFilter = 'other'),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    height: 40,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: !isPublished ? Colors.blue.shade700.withOpacity(0.08) : Colors.transparent,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: !isPublished ? Colors.blue.shade700 : Colors.grey.withOpacity(0.3),
+                        width: !isPublished ? 1.8 : 1.0,
+                      ),
+                    ),
+                    child: Text(
+                      'Yayından Kaldırılanlar',
+                      style: TextStyle(
+                        color: !isPublished ? Colors.blue.shade700 : Colors.grey.shade600,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -90,75 +169,116 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
           const SizedBox(width: 8),
         ],
       ),
-      body: Align(
-        alignment: Alignment.topCenter,
-        child: _isInitLoading
-            ? const Center(child: CircularProgressIndicator())
-            : ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 800),
-                child: StreamBuilder<List<Survey>>(
-                  stream: widget.isTeacher
-                      ? _surveyService.getFilteredSurveys(
-                          institutionId: widget.institutionId,
-                          authorId: widget.teacherId,
-                          targetedClassIds: _classIds,
-                        )
-                      : _surveyService.getSurveys(widget.institutionId),
-                  builder: (context, snapshot) {
-              if (snapshot.hasError) {
-                return Center(child: Text('Hata: ${snapshot.error}'));
-              }
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
+      body: Column(
+        children: [
+          _buildStatusFilterSelector(),
+          Expanded(
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: _isInitLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 800),
+                      child: StreamBuilder<List<Survey>>(
+                        stream: widget.isTeacher
+                            ? _surveyService.getFilteredSurveys(
+                                institutionId: widget.institutionId,
+                                authorId: widget.teacherId,
+                                targetedClassIds: _classIds,
+                                termId: _currentTermId,
+                              )
+                            : _surveyService.getSurveys(widget.institutionId, _currentTermId),
+                        builder: (context, snapshot) {
+                          if (snapshot.hasError) {
+                            return Center(child: Text('Hata: ${snapshot.error}'));
+                          }
+                          if (snapshot.connectionState == ConnectionState.waiting) {
+                            return const Center(child: CircularProgressIndicator());
+                          }
 
-              final surveys = snapshot.data ?? [];
+                          final allSurveys = snapshot.data ?? [];
+                          final surveys = allSurveys.where((survey) {
+                            if (_selectedStatusFilter == 'published') {
+                              return survey.status == SurveyStatus.published;
+                            } else {
+                              return survey.status != SurveyStatus.published;
+                            }
+                          }).toList();
 
-              if (surveys.isEmpty) {
-                return Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.poll_outlined,
-                        size: 80,
-                        color: Colors.grey.shade300,
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Henüz anket oluşturulmamış',
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      ElevatedButton.icon(
-                        onPressed: () => _navigateToCreate(context),
-                        icon: const Icon(Icons.add),
-                        label: const Text('Yeni Anket Oluştur'),
-                      ),
-                    ],
-                  ),
-                );
-              }
+                          if (surveys.isEmpty) {
+                            return Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.poll_outlined,
+                                    size: 80,
+                                    color: Colors.grey.shade300,
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    _selectedStatusFilter == 'published'
+                                        ? 'Yayında anket bulunmamış'
+                                        : 'Yayından kaldırılan veya taslak anket bulunmamış',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 24),
+                                  ElevatedButton.icon(
+                                    onPressed: () => _navigateToCreate(context),
+                                    icon: const Icon(Icons.add),
+                                    label: const Text('Yeni Anket Oluştur'),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }
 
-              return ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: surveys.length,
-                itemBuilder: (context, index) {
-                  final survey = surveys[index];
-                  return _buildSurveyCard(context, survey);
-                },
-              );
-            },
+                          return ListView.builder(
+                            padding: const EdgeInsets.all(16),
+                            itemCount: surveys.length,
+                            itemBuilder: (context, index) {
+                              final survey = surveys[index];
+                              return _buildSurveyCard(context, survey);
+                            },
+                          );
+                        },
+                      ),
+                    ),
+            ),
           ),
-        ),
+        ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _navigateToCreate(context),
-        child: const Icon(Icons.add),
-        tooltip: 'Yeni Anket',
+      floatingActionButton: Container(
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Colors.indigo, Colors.indigoAccent],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(30),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.indigo.withOpacity(0.3),
+              blurRadius: 10,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: FloatingActionButton.extended(
+          onPressed: () => _navigateToCreate(context),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          highlightElevation: 0,
+          icon: const Icon(Icons.add_rounded, color: Colors.white),
+          label: const Text(
+            'Yeni Anket',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+          tooltip: 'Yeni Anket Oluştur',
+        ),
       ),
     );
   }

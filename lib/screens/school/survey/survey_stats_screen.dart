@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../models/survey_model.dart';
 import '../../../services/survey_service.dart';
@@ -292,27 +293,88 @@ class _SurveyStatsScreenState extends State<SurveyStatsScreen>
           ),
         ],
         bottom: PreferredSize(
-          preferredSize: Size.fromHeight(60),
-          child: Container(
-            margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.grey[200],
-              borderRadius: BorderRadius.circular(25),
-            ),
-            child: TabBar(
-              controller: _tabController,
-              labelColor: Colors.white,
-              unselectedLabelColor: Colors.grey[700],
-              indicator: BoxDecoration(
-                color: Colors.indigo,
-                borderRadius: BorderRadius.circular(25),
+          preferredSize: const Size.fromHeight(60),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 800),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: InkWell(
+                        onTap: () {
+                          _tabController.animateTo(0);
+                          setState(() {});
+                        },
+                        borderRadius: BorderRadius.circular(12),
+                        child: AnimatedBuilder(
+                          animation: _tabController,
+                          builder: (context, _) {
+                            bool isSelected = _tabController.index == 0;
+                            return Container(
+                              height: 40,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: isSelected ? Colors.blue.shade700.withOpacity(0.08) : Colors.transparent,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: isSelected ? Colors.blue.shade700 : Colors.grey.withOpacity(0.3),
+                                  width: isSelected ? 1.8 : 1.0,
+                                ),
+                              ),
+                              child: Text(
+                                'Özet & Grafikler',
+                                style: TextStyle(
+                                  color: isSelected ? Colors.blue.shade700 : Colors.grey.shade600,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            );
+                          }
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: InkWell(
+                        onTap: () {
+                          _tabController.animateTo(1);
+                          setState(() {});
+                        },
+                        borderRadius: BorderRadius.circular(12),
+                        child: AnimatedBuilder(
+                          animation: _tabController,
+                          builder: (context, _) {
+                            bool isSelected = _tabController.index == 1;
+                            return Container(
+                              height: 40,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: isSelected ? Colors.blue.shade700.withOpacity(0.08) : Colors.transparent,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: isSelected ? Colors.blue.shade700 : Colors.grey.withOpacity(0.3),
+                                  width: isSelected ? 1.8 : 1.0,
+                                ),
+                              ),
+                              child: Text(
+                                'Katılımcı Listesi',
+                                style: TextStyle(
+                                  color: isSelected ? Colors.blue.shade700 : Colors.grey.shade600,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            );
+                          }
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              indicatorSize: TabBarIndicatorSize.tab,
-              dividerColor: Colors.transparent,
-              tabs: [
-                Tab(text: 'Özet & Grafikler'),
-                Tab(text: 'Katılımcı Listesi'),
-              ],
             ),
           ),
         ),
@@ -322,7 +384,7 @@ class _SurveyStatsScreenState extends State<SurveyStatsScreen>
           : Align(
               alignment: Alignment.topCenter,
               child: ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: 1000),
+                constraints: BoxConstraints(maxWidth: double.infinity),
                 child: TabBarView(
                   controller: _tabController,
                   physics: NeverScrollableScrollPhysics(), // Scroll inside tabs
@@ -966,62 +1028,65 @@ class _SurveyStatsScreenState extends State<SurveyStatsScreen>
 
     return SingleChildScrollView(
       scrollDirection: Axis.vertical,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: DataTable(
-          headingRowColor: MaterialStateProperty.all(Colors.grey[100]),
-          columns: [
-            DataColumn(
-              label: Text(
-                'İsim Soyisim',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-            ...allQuestions.map(
-              (q) => DataColumn(
-                label: Container(
-                  width: 150,
-                  child: Text(
-                    q.text,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
+      child: ScrollConfiguration(
+        behavior: MyCustomScrollBehavior(),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: DataTable(
+            headingRowColor: MaterialStateProperty.all(Colors.grey[100]),
+            columns: [
+              DataColumn(
+                label: Text(
+                  'İsim Soyisim',
+                  style: TextStyle(fontWeight: FontWeight.bold),
                 ),
               ),
-            ),
-          ],
-          rows: _responses.map((resp) {
-            final uid = resp['userId'].toString();
-            final name = _userNames[uid] ?? 'Bilinmeyen Kullanıcı';
-            final answers = resp['answers'] as Map<String, dynamic>? ?? {};
-
-            return DataRow(
-              cells: [
-                DataCell(
-                  Text(
-                    widget.survey.isAnonymous ? '**** ****' : name,
-                    style: TextStyle(fontWeight: FontWeight.w500),
-                  ),
-                ),
-                ...allQuestions.map((q) {
-                  var ans = answers[q.id];
-                  String display = '-';
-                  if (ans != null) {
-                    if (ans is List)
-                      display = ans.join(', ');
-                    else
-                      display = ans.toString();
-                  }
-                  return DataCell(
-                    Container(
-                      width: 150,
-                      child: Text(display, overflow: TextOverflow.ellipsis),
+              ...allQuestions.map(
+                (q) => DataColumn(
+                  label: Container(
+                    width: 150,
+                    child: Text(
+                      q.text,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontWeight: FontWeight.bold),
                     ),
-                  );
-                }),
-              ],
-            );
-          }).toList(),
+                  ),
+                ),
+              ),
+            ],
+            rows: _responses.map((resp) {
+              final uid = resp['userId'].toString();
+              final name = _userNames[uid] ?? 'Bilinmeyen Kullanıcı';
+              final answers = resp['answers'] as Map<String, dynamic>? ?? {};
+  
+              return DataRow(
+                cells: [
+                  DataCell(
+                    Text(
+                      widget.survey.isAnonymous ? '**** ****' : name,
+                      style: TextStyle(fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                  ...allQuestions.map((q) {
+                    var ans = answers[q.id];
+                    String display = '-';
+                    if (ans != null) {
+                      if (ans is List)
+                        display = ans.join(', ');
+                      else
+                        display = ans.toString();
+                    }
+                    return DataCell(
+                      Container(
+                        width: 150,
+                        child: Text(display, overflow: TextOverflow.ellipsis),
+                      ),
+                    );
+                  }),
+                ],
+              );
+            }).toList(),
+          ),
         ),
       ),
     );
@@ -1048,4 +1113,13 @@ class _SurveyStatsScreenState extends State<SurveyStatsScreen>
       },
     );
   }
+}
+
+class MyCustomScrollBehavior extends MaterialScrollBehavior {
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+        PointerDeviceKind.touch,
+        PointerDeviceKind.mouse,
+        PointerDeviceKind.trackpad,
+      };
 }

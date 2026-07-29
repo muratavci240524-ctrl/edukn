@@ -28,6 +28,9 @@ class ClassLessonAttendanceScreen extends StatefulWidget {
   final int? initialLessonHour;
   final List<int>? availableLessonHours;
 
+  final List<String>? combinedClassIds;
+  final List<String>? combinedClassNames;
+
   const ClassLessonAttendanceScreen({
     super.key,
     required this.institutionId,
@@ -40,6 +43,8 @@ class ClassLessonAttendanceScreen extends StatefulWidget {
     this.initialDate,
     this.initialLessonHour,
     this.availableLessonHours,
+    this.combinedClassIds,
+    this.combinedClassNames,
   });
 
   @override
@@ -95,39 +100,93 @@ class _ClassLessonAttendanceScreenState extends State<ClassLessonAttendanceScree
       final activeTermId = await TermService().getActiveTermId();
       final effectiveTermId = selectedTermId ?? activeTermId;
 
-      final snapshotById = await FirebaseFirestore.instance
-          .collection('students')
-          .where('classId', isEqualTo: widget.classId)
-          .get();
+      List<Map<String, dynamic>> students = [];
 
-      final snapshotByName = await FirebaseFirestore.instance
-          .collection('students')
-          .where('className', isEqualTo: widget.className)
-          .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
-          .get();
+      if (widget.combinedClassIds != null && widget.combinedClassIds!.isNotEmpty) {
+        final fetches = widget.combinedClassIds!.map((cId) async {
+          final snapById = await FirebaseFirestore.instance
+              .collection('students')
+              .where('classId', isEqualTo: cId)
+              .get();
 
-      final allDocs = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
-      for (final doc in snapshotById.docs) {
-        allDocs[doc.id] = doc;
+          final classDoc = await FirebaseFirestore.instance.collection('classes').doc(cId).get();
+          final className = classDoc.exists ? (classDoc.data()?['className'] ?? classDoc.data()?['name'])?.toString() : null;
+          
+          final localDocs = <String, Map<String, dynamic>>{};
+          for (final doc in snapById.docs) {
+            final data = doc.data();
+            data['id'] = doc.id;
+            localDocs[doc.id] = data;
+          }
+          if (className != null) {
+            final snapByName = await FirebaseFirestore.instance
+                .collection('students')
+                .where('className', isEqualTo: className)
+                .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+                .get();
+            for (final doc in snapByName.docs) {
+              final data = doc.data();
+              data['id'] = doc.id;
+              localDocs[doc.id] = data;
+            }
+          }
+          return localDocs.values.toList();
+        });
+
+        final results = await Future.wait(fetches);
+        for (var list in results) {
+          students.addAll(list);
+        }
+      } else {
+        final snapshotById = await FirebaseFirestore.instance
+            .collection('students')
+            .where('classId', isEqualTo: widget.classId)
+            .get();
+
+        final snapshotByName = await FirebaseFirestore.instance
+            .collection('students')
+            .where('className', isEqualTo: widget.className)
+            .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+            .get();
+
+        final allDocs = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+        for (final doc in snapshotById.docs) {
+          allDocs[doc.id] = doc;
+        }
+        for (final doc in snapshotByName.docs) {
+          allDocs[doc.id] = doc;
+        }
+        students = allDocs.values.map((doc) {
+          final data = doc.data();
+          data['id'] = doc.id;
+          return data;
+        }).toList();
       }
-      for (final doc in snapshotByName.docs) {
-        allDocs[doc.id] = doc;
+
+      final Map<String, Map<String, dynamic>> uniqueStudentsMap = {};
+      for (final s in students) {
+        final id = s['id']?.toString() ?? '';
+        if (id.isNotEmpty) {
+          uniqueStudentsMap[id] = s;
+        }
       }
 
-      final students = allDocs.values.map((doc) {
-        final data = doc.data();
-        data['id'] = doc.id;
-        return data;
-      }).where((s) {
+      final filteredStudents = uniqueStudentsMap.values.where((s) {
         final studentTermId = s['termId'] as String?;
         return effectiveTermId == null || studentTermId == effectiveTermId || studentTermId == null;
       }).toList();
 
-      students.sort((a, b) => (a['fullName']?.toString() ?? '').compareTo(b['fullName']?.toString() ?? ''));
+      filteredStudents.sort((a, b) {
+        final classA = (a['className'] ?? '').toString();
+        final classB = (b['className'] ?? '').toString();
+        final classComp = classA.compareTo(classB);
+        if (classComp != 0) return classComp;
+        return (a['fullName']?.toString() ?? '').compareTo(b['fullName']?.toString() ?? '');
+      });
 
       if (!mounted) return;
       setState(() {
-        _students = students;
+        _students = filteredStudents;
         for (final s in students) {
           final id = (s['id'] ?? '').toString();
           if (id.isNotEmpty) {
@@ -178,31 +237,36 @@ class _ClassLessonAttendanceScreenState extends State<ClassLessonAttendanceScree
         return;
       }
 
-      final docId = '${periodId!}_${widget.classId}_${widget.lessonId}_${dateStr}_${_selectedLessonHour}';
-      final doc = await FirebaseFirestore.instance.collection('lessonAttendance').doc(docId).get();
-      if (!doc.exists) {
-        _loadedExisting = true;
-        return;
-      }
+      final List<String> targetClassIds = widget.combinedClassIds != null && widget.combinedClassIds!.isNotEmpty
+          ? widget.combinedClassIds!
+          : [widget.classId];
 
-      final data = doc.data();
-      if (data == null) {
-        _loadedExisting = true;
-        return;
-      }
+      final Map<String, AttendanceStatus> loadedStatuses = {};
 
-      final raw = data['studentStatuses'];
-      if (raw is Map) {
-        final map = Map<String, dynamic>.from(raw);
-        if (!mounted) return;
-        setState(() {
-          map.forEach((k, v) {
-            final id = k.toString();
-            final st = _stringToStatus((v ?? '').toString());
-            if (id.isNotEmpty && st != null) {
-              _statusByStudentId[id] = st;
+      for (var cId in targetClassIds) {
+        final docId = '${periodId!}_${cId}_${widget.lessonId}_${dateStr}_${_selectedLessonHour}';
+        final doc = await FirebaseFirestore.instance.collection('lessonAttendance').doc(docId).get();
+        if (doc.exists) {
+          final data = doc.data();
+          if (data != null) {
+            final raw = data['studentStatuses'];
+            if (raw is Map) {
+              final map = Map<String, dynamic>.from(raw);
+              map.forEach((k, v) {
+                final id = k.toString();
+                final st = _stringToStatus((v ?? '').toString());
+                if (id.isNotEmpty && st != null) {
+                  loadedStatuses[id] = st;
+                }
+              });
             }
-          });
+          }
+        }
+      }
+
+      if (loadedStatuses.isNotEmpty && mounted) {
+        setState(() {
+          _statusByStudentId.addAll(loadedStatuses);
         });
       }
     } catch (_) {
@@ -294,33 +358,56 @@ class _ClassLessonAttendanceScreenState extends State<ClassLessonAttendanceScree
         throw Exception('Aktif dönem bulunamadı. Yoklama sadece aktif dönemde kaydedilebilir.');
       }
 
-      final docId = '${periodId!}_${widget.classId}_${widget.lessonId}_${dateStr}_${_selectedLessonHour}';
+      final List<String> targetClassIds = widget.combinedClassIds != null && widget.combinedClassIds!.isNotEmpty
+          ? widget.combinedClassIds!
+          : [widget.classId];
 
-      final Map<String, String> statuses = {};
-      for (final s in _students) {
-        final id = (s['id'] ?? '').toString();
-        if (id.isEmpty) continue;
-        final st = _statusByStudentId[id] ?? AttendanceStatus.present;
-        statuses[id] = _statusToString(st);
+      final Map<String, String> classNameMap = {};
+      if (widget.combinedClassIds != null && widget.combinedClassIds!.isNotEmpty) {
+        for (var cId in targetClassIds) {
+          final classDoc = await FirebaseFirestore.instance.collection('classes').doc(cId).get();
+          final className = classDoc.exists ? (classDoc.data()?['className'] ?? classDoc.data()?['name'] ?? 'Sınıf').toString() : 'Sınıf';
+          classNameMap[cId] = className;
+        }
+      } else {
+        classNameMap[widget.classId] = widget.className;
       }
 
-      await FirebaseFirestore.instance.collection('lessonAttendance').doc(docId).set({
-        'id': docId,
-        'institutionId': widget.institutionId,
-        'schoolTypeId': widget.schoolTypeId,
-        'periodId': periodId,
-        'classId': widget.classId,
-        'className': widget.className,
-        'lessonId': widget.lessonId,
-        'lessonName': widget.lessonName,
-        'date': dateStr,
-        'lessonHour': _selectedLessonHour,
-        'allowedLessonHours': _allowedLessonHours,
-        'studentStatuses': statuses,
-        'method': kIsWeb ? 'web' : 'mobile',
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      final List<Future<void>> saveTasks = [];
+
+      for (var cId in targetClassIds) {
+        final docId = '${periodId!}_${cId}_${widget.lessonId}_${dateStr}_${_selectedLessonHour}';
+        
+        final Map<String, String> classStatuses = {};
+        for (final s in _students) {
+          if ((s['classId']?.toString() ?? '') == cId) {
+            final id = (s['id'] ?? '').toString();
+            if (id.isEmpty) continue;
+            final st = _statusByStudentId[id] ?? AttendanceStatus.present;
+            classStatuses[id] = _statusToString(st);
+          }
+        }
+
+        saveTasks.add(FirebaseFirestore.instance.collection('lessonAttendance').doc(docId).set({
+          'id': docId,
+          'institutionId': widget.institutionId,
+          'schoolTypeId': widget.schoolTypeId,
+          'periodId': periodId,
+          'classId': cId,
+          'className': classNameMap[cId] ?? widget.className,
+          'lessonId': widget.lessonId,
+          'lessonName': widget.lessonName,
+          'date': dateStr,
+          'lessonHour': _selectedLessonHour,
+          'allowedLessonHours': _allowedLessonHours,
+          'studentStatuses': classStatuses,
+          'method': kIsWeb ? 'web' : 'mobile',
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true)));
+      }
+
+      await Future.wait(saveTasks);
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Yoklama kaydedildi')));
@@ -367,12 +454,21 @@ class _ClassLessonAttendanceScreenState extends State<ClassLessonAttendanceScree
                           final id = (s['id'] ?? '').toString();
                           final name = (s['fullName'] ?? s['name'] ?? 'İsimsiz').toString();
                           final no = (s['studentNo'] ?? s['studentNumber'] ?? '').toString();
+                          String subtitleText = '';
+                          if (no.isNotEmpty) {
+                            subtitleText += 'No: $no';
+                          }
+                          final studentClassName = (s['className'] ?? s['class'] ?? '').toString();
+                          if (studentClassName.isNotEmpty) {
+                            if (subtitleText.isNotEmpty) subtitleText += ' • ';
+                            subtitleText += 'Sınıf: $studentClassName';
+                          }
 
                           final status = _statusByStudentId[id] ?? AttendanceStatus.present;
 
                           return _StudentAttendanceCard(
                             title: name,
-                            subtitle: no.isEmpty ? null : 'No: $no',
+                            subtitle: subtitleText.isEmpty ? null : subtitleText,
                             status: status,
                             onPickStatus: () async {
                               final selected = await showModalBottomSheet<AttendanceStatus>(

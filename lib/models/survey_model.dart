@@ -33,8 +33,8 @@ class Survey {
   final bool isAnonymous;
   final String? guidanceTemplateId; // Links to a predefined test definition
   final List<String> targetNames; // Display names for target groups
-  final int
-  totalTargetCount; // Denominator for completion rate (e.g., 14 in 12/14)
+  final int totalTargetCount; // Denominator for completion rate (e.g., 14 in 12/14)
+  final String? termId;
 
   // Ranking configuration (for project assignment surveys)
   final int? maxProjectsPerStudent; // Öğrenci kaç proje alacak
@@ -66,6 +66,7 @@ class Survey {
     this.maxChoicesPerSubject,
     this.targetNames = const [],
     this.totalTargetCount = 0,
+    this.termId,
   });
 
   factory Survey.fromMap(Map<String, dynamic> map, String id) {
@@ -109,6 +110,7 @@ class Survey {
       maxChoicesPerSubject: map['maxChoicesPerSubject'],
       targetNames: List<String>.from(map['targetNames'] ?? []),
       totalTargetCount: map['totalTargetCount'] ?? 0,
+      termId: map['termId'],
     );
   }
 
@@ -142,6 +144,7 @@ class Survey {
         'maxChoicesPerSubject': maxChoicesPerSubject,
       'targetNames': targetNames,
       'totalTargetCount': totalTargetCount,
+      if (termId != null) 'termId': termId,
     };
   }
 }

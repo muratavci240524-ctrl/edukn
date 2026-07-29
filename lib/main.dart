@@ -31,7 +31,9 @@ import 'screens/school/registration/pre_registration_screen.dart';
 import 'screens/school/accounting/accounting_dashboard_screen.dart';
 // --- 1. FIREBASE CORE PAKETLERİNİ IMPORT ET ---
 import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_options.dart'; // FlutterFire CLI'nin oluşturduğu dosya
+import 'services/term_service.dart';
 import 'services/notification_service.dart';
 // --- BİTTİ ---
 
@@ -80,6 +82,17 @@ void main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
     print('✅ Firebase başarıyla başlatıldı!');
+
+    if (kIsWeb) {
+      try {
+        FirebaseFirestore.instance.settings = const Settings(
+          persistenceEnabled: true,
+        );
+        print('✅ Firestore Web Offline Persistence etkinleştirildi.');
+      } catch (e) {
+        print('⚠️ Firestore Persistence hatası: $e');
+      }
+    }
 
     // 🔐 Firebase App Check — Bot ve yetkisiz erişime karşı koruma
     // TODO: Firebase Console → App Check → Web'i reCAPTCHA v3 ile kaydet

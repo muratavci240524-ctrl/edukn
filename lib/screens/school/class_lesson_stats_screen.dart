@@ -399,6 +399,7 @@ class _ClassLessonStatsScreenState extends State<ClassLessonStatsScreen> {
 
         final plansQuery = await FirebaseFirestore.instance
             .collection('yearlyPlans')
+            .where('institutionId', isEqualTo: widget.institutionId)
             .where('isActive', isEqualTo: true)
             .where('lessonId', isEqualTo: widget.lessonId)
             .get();
@@ -407,11 +408,6 @@ class _ClassLessonStatsScreenState extends State<ClassLessonStatsScreen> {
 
         for (final planDoc in plansQuery.docs) {
           final data = planDoc.data();
-          final planInstitutionId = (data['institutionId'] ?? '').toString();
-          if (planInstitutionId.isNotEmpty &&
-              planInstitutionId != widget.institutionId) {
-            continue;
-          }
 
           final planSchoolTypeId = (data['schoolTypeId'] ?? '').toString();
           if (planSchoolTypeId.isNotEmpty &&

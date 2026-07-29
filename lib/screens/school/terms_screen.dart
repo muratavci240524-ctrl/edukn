@@ -15,6 +15,7 @@ class TermsScreen extends StatefulWidget {
 class _TermsScreenState extends State<TermsScreen> {
   String? _institutionId;
   List<Map<String, dynamic>> _terms = [];
+  List<Map<String, dynamic>> _schoolTypes = [];
   bool _isLoading = true;
   String? _selectedTermId; // Seçilen dönem (görüntüleme için)
 
@@ -42,6 +43,11 @@ class _TermsScreenState extends State<TermsScreen> {
       final profileData = await UserPermissionService.loadUserData();
       final email = user.email!;
       _institutionId = await UserPermissionService.resolveInstitutionId(email, userData: profileData);
+
+      final schoolTypesQuery = await FirebaseFirestore.instance
+          .collection('schoolTypes')
+          .where('institutionId', isEqualTo: _institutionId)
+          .get();
 
       final snapshot = await FirebaseFirestore.instance
           .collection('terms')
@@ -81,6 +87,11 @@ class _TermsScreenState extends State<TermsScreen> {
       }
 
       setState(() {
+        _schoolTypes = schoolTypesQuery.docs.map((doc) {
+          final data = doc.data();
+          data['id'] = doc.id;
+          return data;
+        }).toList();
         _terms = termsList;
         _selectedTermId = effectiveSelectedTermId;
         _isLoading = false;

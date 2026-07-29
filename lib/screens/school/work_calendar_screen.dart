@@ -887,6 +887,7 @@ class _YearlyPlansCardState extends State<_YearlyPlansCard> {
           StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance
                 .collection('yearlyPlans')
+                .where('institutionId', isEqualTo: widget.institutionId)
                 .where('periodId', isEqualTo: widget.periodId)
                 .where('isActive', isEqualTo: true)
                 .snapshots(),

@@ -7,6 +7,11 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:excel/excel.dart' hide Border;
 import 'package:file_saver/file_saver.dart';
 import 'dart:typed_data';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+import 'package:intl/intl.dart';
+import '../../services/pdf_service.dart';
 import '../../services/user_permission_service.dart';
 import '../../services/term_service.dart';
 import 'student_bulk_upload_dialog.dart';
@@ -549,6 +554,1471 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
     }
   }
 
+  String getBranchName(String? className, String? classLevel) {
+    if (className == null || className.isEmpty) return '';
+    return className.trim();
+  }
+
+  String getMotherName(Map<String, dynamic> student) {
+    final parents = student['parents'] as List? ?? [];
+    for (final p in parents) {
+      if (p is Map) {
+        final relation = (p['relation'] ?? '').toString().toLowerCase();
+        if (relation == 'anne' || relation.contains('anne')) {
+          return (p['fullName'] ?? '').toString();
+        }
+      }
+    }
+    return '';
+  }
+
+  String getFatherName(Map<String, dynamic> student) {
+    final parents = student['parents'] as List? ?? [];
+    for (final p in parents) {
+      if (p is Map) {
+        final relation = (p['relation'] ?? '').toString().toLowerCase();
+        if (relation == 'baba' || relation.contains('baba')) {
+          return (p['fullName'] ?? '').toString();
+        }
+      }
+    }
+    return '';
+  }
+
+  Map<String, dynamic>? getPrimaryParent(Map<String, dynamic> student) {
+    final parents = student['parents'] as List? ?? [];
+    if (parents.isNotEmpty && parents.first is Map) {
+      return Map<String, dynamic>.from(parents.first as Map);
+    }
+    return null;
+  }
+
+  void _showExcelOperationsDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(Icons.table_view, color: Colors.green.shade700),
+            SizedBox(width: 10),
+            Text('Excel İşlemleri'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(Icons.download, color: Colors.blue),
+              title: Text('Örnek Şablon İndir'),
+              subtitle: Text('Öğrenci yüklemek için Excel şablonunu indirin.'),
+              onTap: () {
+                Navigator.pop(context);
+                _downloadExcelTemplate();
+              },
+            ),
+            Divider(),
+            ListTile(
+              leading: Icon(Icons.backup_table, color: Colors.indigo),
+              title: Text('Excel\'den Toplu Yükleme'),
+              subtitle: Text('Excel şablonundaki öğrencileri toplu olarak yükleyin.'),
+              onTap: () {
+                Navigator.pop(context);
+                _showExcelUploadDialog();
+              },
+            ),
+            if (_canEditStudents()) ...[
+              Divider(),
+              ListTile(
+                leading: Icon(Icons.delete_forever, color: Colors.red),
+                title: Text('TÜMÜNÜ SİL (DEBUG)', style: TextStyle(color: Colors.red)),
+                subtitle: Text('Tüm öğrenci verilerini kalıcı olarak siler.'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _deleteAllStudents();
+                },
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Kapat'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showPrintExportDialog() {
+    final levels = _students
+        .map((s) => (s['classLevel'] ?? '').toString())
+        .where((l) => l.isNotEmpty)
+        .toSet()
+        .toList();
+    levels.sort((a, b) {
+      final intA = int.tryParse(a.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+      final intB = int.tryParse(b.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+      return intA.compareTo(intB);
+    });
+    if (levels.isEmpty) {
+      levels.addAll(['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']);
+    }
+
+    final Map<String, String> fieldLabels = {
+      // Öğrenci Bilgileri
+      'fullName': 'Ad Soyad',
+      'studentNo': 'Okul No',
+      'tcNo': 'TC Kimlik No',
+      'classInfo': 'Sınıf/Şube',
+      'gender': 'Cinsiyet',
+      'birthDate': 'Doğum Tarihi',
+      'birthPlace': 'Doğum Yeri',
+      'phone': 'Öğrenci Telefonu',
+      'email': 'Öğrenci E-posta',
+      'address': 'Adres',
+      'registrationDate': 'Kayıt Tarihi',
+      'registrationType': 'Kayıt Türü',
+      'previousSchool': 'Geldiği Okul',
+      'educationType': 'Öğrenim Türü',
+      'foreignLanguage': 'Yabancı Dil',
+      'reference': 'Referans',
+      'hearSource': 'Tanıtım Kaynağı',
+      'username': 'Kullanıcı Adı',
+      'password': 'Şifre',
+      
+      // Veli Bilgileri
+      'parentName': 'Veli Adı Soyadı',
+      'parentPhone': 'Veli Telefonu',
+      'parentRelation': 'Veli Yakınlığı',
+      'parentTc': 'Veli TC Kimlik No',
+      'parentEmail': 'Veli E-posta',
+      'parentAddress': 'Veli Adresi',
+      'parentJob': 'Veli Mesleği',
+      'parentWorkplace': 'Veli İşyeri',
+      'parentUsername': 'Veli Kullanıcı Adı',
+      'parentPassword': 'Veli Şifre',
+    };
+
+    final studentFields = [
+      'fullName',
+      'studentNo',
+      'tcNo',
+      'classInfo',
+      'gender',
+      'birthDate',
+      'birthPlace',
+      'phone',
+      'email',
+      'address',
+      'registrationDate',
+      'registrationType',
+      'previousSchool',
+      'educationType',
+      'foreignLanguage',
+      'reference',
+      'hearSource',
+      'username',
+      'password',
+    ];
+
+    final veliFields = [
+      'parentName',
+      'parentPhone',
+      'parentRelation',
+      'parentTc',
+      'parentEmail',
+      'parentAddress',
+      'parentJob',
+      'parentWorkplace',
+      'parentUsername',
+      'parentPassword',
+    ];
+
+    final selectedLevels = <String>[];
+    final selectedBranches = <String>[];
+    final selectedFields = <String>['fullName', 'studentNo', 'classInfo'];
+    bool isLandscape = false;
+    bool showVeliFieldsTab = false;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        final isMobile = MediaQuery.of(context).size.width <= 600;
+
+        return StatefulBuilder(
+          builder: (context, setState) {
+            // 1. Seçili sınıf seviyelerine uygun öğrencileri belirle
+            final levelFilteredStudents = _students.where((student) {
+              if (selectedLevels.isEmpty) return true;
+              final sLevel = (student['classLevel'] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '');
+              return selectedLevels.any((l) => sLevel == l.replaceAll(RegExp(r'[^0-9]'), ''));
+            }).toList();
+
+            // 2. Bu öğrencilerden benzersiz şubeleri çıkar
+            final branches = <String>{};
+            for (final s in levelFilteredStudents) {
+              final cName = s['className'] as String?;
+              if (cName != null && cName.isNotEmpty) {
+                final bName = getBranchName(cName, s['classLevel']?.toString());
+                if (bName.isNotEmpty) {
+                  branches.add(bName);
+                }
+              }
+            }
+            final branchList = branches.toList();
+            branchList.sort();
+
+            // 3. Geçersiz şubeleri temizle
+            selectedBranches.removeWhere((b) => !branchList.contains(b));
+
+            // 4. Filtrelenmiş nihai öğrenci sayısını hesapla
+            final reportStudents = getFilteredStudentsForReport(
+              selectedLevels: selectedLevels,
+              selectedBranches: selectedBranches,
+            );
+            final filteredCount = reportStudents.length;
+
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+              title: Row(
+                children: [
+                  Icon(Icons.print, color: Colors.indigo.shade800),
+                  SizedBox(width: 12),
+                  Text(
+                    'Öğrenci Raporu Yazdır / İndir',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey.shade900,
+                    ),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: isMobile ? double.maxFinite : 650,
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Sınıf Seviyesi
+                      Text(
+                        '1. Sınıf Seviyesi Seçin',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.indigo.shade800),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          ChoiceChip(
+                            showCheckmark: false,
+                            label: Text('Tümü'),
+                            selected: selectedLevels.isEmpty,
+                            selectedColor: Colors.indigo,
+                            backgroundColor: Colors.grey.shade100,
+                            labelStyle: TextStyle(
+                              color: selectedLevels.isEmpty ? Colors.white : Colors.grey.shade800,
+                              fontWeight: selectedLevels.isEmpty ? FontWeight.bold : FontWeight.normal,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              side: BorderSide(
+                                color: selectedLevels.isEmpty ? Colors.indigo : Colors.grey.shade300,
+                              ),
+                            ),
+                            onSelected: (selected) {
+                              if (selected) {
+                                setState(() {
+                                  selectedLevels.clear();
+                                });
+                              }
+                            },
+                          ),
+                          ...levels.map((level) {
+                            final isSelected = selectedLevels.contains(level);
+                            return FilterChip(
+                              showCheckmark: false,
+                              label: Text(level),
+                              selected: isSelected,
+                              selectedColor: Colors.indigo,
+                              backgroundColor: Colors.grey.shade100,
+                              labelStyle: TextStyle(
+                                color: isSelected ? Colors.white : Colors.grey.shade800,
+                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                side: BorderSide(
+                                  color: isSelected ? Colors.indigo : Colors.grey.shade300,
+                                ),
+                              ),
+                              onSelected: (selected) {
+                                setState(() {
+                                  if (selected) {
+                                    selectedLevels.add(level);
+                                  } else {
+                                    selectedLevels.remove(level);
+                                  }
+                                });
+                              },
+                            );
+                          }),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+
+                      // Şube Seçimi
+                      Text(
+                        '2. Şube Seçin',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.indigo.shade800),
+                      ),
+                      const SizedBox(height: 8),
+                      branchList.isEmpty
+                          ? Text('Seçili seviyede şube bulunmuyor.', style: TextStyle(color: Colors.grey.shade500, fontSize: 12))
+                          : Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                ChoiceChip(
+                                  showCheckmark: false,
+                                  label: Text('Tümü'),
+                                  selected: selectedBranches.isEmpty,
+                                  selectedColor: Colors.indigo,
+                                  backgroundColor: Colors.grey.shade100,
+                                  labelStyle: TextStyle(
+                                    color: selectedBranches.isEmpty ? Colors.white : Colors.grey.shade800,
+                                    fontWeight: selectedBranches.isEmpty ? FontWeight.bold : FontWeight.normal,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    side: BorderSide(
+                                      color: selectedBranches.isEmpty ? Colors.indigo : Colors.grey.shade300,
+                                    ),
+                                  ),
+                                  onSelected: (selected) {
+                                    if (selected) {
+                                      setState(() {
+                                        selectedBranches.clear();
+                                      });
+                                    }
+                                  },
+                                ),
+                                ...branchList.map((branch) {
+                                  final isSelected = selectedBranches.contains(branch);
+                                  return FilterChip(
+                                    showCheckmark: false,
+                                    label: Text(branch),
+                                    selected: isSelected,
+                                    selectedColor: Colors.indigo,
+                                    backgroundColor: Colors.grey.shade100,
+                                    labelStyle: TextStyle(
+                                      color: isSelected ? Colors.white : Colors.grey.shade800,
+                                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                      side: BorderSide(
+                                        color: isSelected ? Colors.indigo : Colors.grey.shade300,
+                                      ),
+                                    ),
+                                    onSelected: (selected) {
+                                      setState(() {
+                                        if (selected) {
+                                          selectedBranches.add(branch);
+                                        } else {
+                                          selectedBranches.remove(branch);
+                                        }
+                                      });
+                                    },
+                                  );
+                                }),
+                              ],
+                            ),
+                      const SizedBox(height: 20),
+
+                      // Sütun Seçimi
+                      Text(
+                        '3. Raporda Olacak Bilgileri Seçin',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.indigo.shade800),
+                      ),
+                      const SizedBox(height: 8),
+                      // Tab seçimi
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ChoiceChip(
+                              showCheckmark: false,
+                              label: Center(
+                                child: Text(
+                                  'Öğrenci Bilgileri',
+                                  style: TextStyle(
+                                    color: !showVeliFieldsTab ? Colors.white : Colors.grey.shade800,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                              selected: !showVeliFieldsTab,
+                              selectedColor: Colors.indigo.shade800,
+                              backgroundColor: Colors.grey.shade100,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                side: BorderSide(
+                                  color: !showVeliFieldsTab ? Colors.indigo.shade800 : Colors.grey.shade300,
+                                ),
+                              ),
+                              onSelected: (selected) {
+                                if (selected) {
+                                  setState(() {
+                                    showVeliFieldsTab = false;
+                                  });
+                                }
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: ChoiceChip(
+                              showCheckmark: false,
+                              label: Center(
+                                child: Text(
+                                  'Veli Bilgileri',
+                                  style: TextStyle(
+                                    color: showVeliFieldsTab ? Colors.white : Colors.grey.shade800,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                              selected: showVeliFieldsTab,
+                              selectedColor: Colors.indigo.shade800,
+                              backgroundColor: Colors.grey.shade100,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                side: BorderSide(
+                                  color: showVeliFieldsTab ? Colors.indigo.shade800 : Colors.grey.shade300,
+                                ),
+                              ),
+                              onSelected: (selected) {
+                                if (selected) {
+                                  setState(() {
+                                    showVeliFieldsTab = true;
+                                  });
+                                }
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+
+                      // Seçilen Taba Göre Kolonları Göster
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final activeFields = showVeliFieldsTab ? veliFields : studentFields;
+                          final count = activeFields.length;
+                          final half = (count / 2).ceil();
+
+                          return Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  children: activeFields.take(half).map((field) {
+                                    final label = fieldLabels[field] ?? '';
+                                    final isCompulsory = field == 'fullName';
+                                    return CheckboxListTile(
+                                      title: Text(label, style: const TextStyle(fontSize: 12)),
+                                      value: selectedFields.contains(field),
+                                      activeColor: Colors.indigo.shade800,
+                                      dense: true,
+                                      controlAffinity: ListTileControlAffinity.leading,
+                                      contentPadding: EdgeInsets.zero,
+                                      onChanged: isCompulsory
+                                          ? null
+                                          : (val) {
+                                              setState(() {
+                                                if (val == true) {
+                                                  selectedFields.add(field);
+                                                } else {
+                                                  selectedFields.remove(field);
+                                                }
+                                              });
+                                            },
+                                    );
+                                  }).toList(),
+                                ),
+                              ),
+                              Expanded(
+                                child: Column(
+                                  children: activeFields.skip(half).map((field) {
+                                    final label = fieldLabels[field] ?? '';
+                                    return CheckboxListTile(
+                                      title: Text(label, style: const TextStyle(fontSize: 12)),
+                                      value: selectedFields.contains(field),
+                                      activeColor: Colors.indigo.shade800,
+                                      dense: true,
+                                      controlAffinity: ListTileControlAffinity.leading,
+                                      contentPadding: EdgeInsets.zero,
+                                      onChanged: (val) {
+                                        setState(() {
+                                          if (val == true) {
+                                            selectedFields.add(field);
+                                          } else {
+                                            selectedFields.remove(field);
+                                          }
+                                        });
+                                      },
+                                    );
+                                  }).toList(),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 20),
+
+                      // Sayfa Düzeni (Yönü)
+                      Text(
+                        '4. Sayfa Yönü',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.indigo.shade800),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: RadioListTile<bool>(
+                              title: const Text('Dikey (Portrait)', style: TextStyle(fontSize: 13)),
+                              value: false,
+                              groupValue: isLandscape,
+                              onChanged: (val) {
+                                setState(() {
+                                  isLandscape = val ?? false;
+                                });
+                              },
+                            ),
+                          ),
+                          Expanded(
+                            child: RadioListTile<bool>(
+                              title: const Text('Yatay (Landscape)', style: TextStyle(fontSize: 13)),
+                              value: true,
+                              groupValue: isLandscape,
+                              onChanged: (val) {
+                                setState(() {
+                                  isLandscape = val ?? true;
+                                });
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Divider(color: Colors.grey.shade300),
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Kriterlere Uyan Öğrenci Sayısı:',
+                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade700),
+                          ),
+                          Text(
+                            '$filteredCount',
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo.shade800),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actionsPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text('İptal', style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.bold)),
+                ),
+                if (isMobile) ...[
+                  Container(
+                    decoration: BoxDecoration(
+                      color: filteredCount == 0 ? Colors.grey.shade100 : Colors.indigo.shade50,
+                      shape: BoxShape.circle,
+                    ),
+                    child: IconButton(
+                      icon: Icon(Icons.print, color: filteredCount == 0 ? Colors.grey : Colors.indigo),
+                      onPressed: filteredCount == 0
+                          ? null
+                          : () async {
+                              Navigator.pop(context);
+                              final bytes = await _generatePdfReport(
+                                reportStudents: reportStudents,
+                                selectedFields: selectedFields,
+                                isLandscape: isLandscape,
+                                fieldLabels: fieldLabels,
+                                selectedLevels: selectedLevels,
+                                selectedBranches: selectedBranches,
+                              );
+                              await Printing.layoutPdf(
+                                onLayout: (_) async => bytes,
+                                name: 'Ogrenci_Listesi_Raporu',
+                              );
+                            },
+                      tooltip: 'Yazdır',
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: filteredCount == 0 ? Colors.grey.shade100 : Colors.blue.shade50,
+                      shape: BoxShape.circle,
+                    ),
+                    child: IconButton(
+                      icon: Icon(Icons.picture_as_pdf, color: filteredCount == 0 ? Colors.grey : Colors.blue.shade800),
+                      onPressed: filteredCount == 0
+                          ? null
+                          : () async {
+                              Navigator.pop(context);
+                              final bytes = await _generatePdfReport(
+                                reportStudents: reportStudents,
+                                selectedFields: selectedFields,
+                                isLandscape: isLandscape,
+                                fieldLabels: fieldLabels,
+                                selectedLevels: selectedLevels,
+                                selectedBranches: selectedBranches,
+                              );
+                              await FileSaver.instance.saveFile(
+                                name: 'Ogrenci_Listesi_${DateFormat('dd_MM_yyyy').format(DateTime.now())}',
+                                bytes: bytes,
+                                ext: 'pdf',
+                                mimeType: MimeType.pdf,
+                              );
+                            },
+                      tooltip: 'PDF İndir',
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: filteredCount == 0 ? Colors.grey.shade100 : Colors.green.shade50,
+                      shape: BoxShape.circle,
+                    ),
+                    child: IconButton(
+                      icon: Icon(Icons.table_view, color: filteredCount == 0 ? Colors.grey : Colors.green.shade800),
+                      onPressed: filteredCount == 0
+                          ? null
+                          : () async {
+                              Navigator.pop(context);
+                              await _generateExcelReport(
+                                reportStudents: reportStudents,
+                                selectedFields: selectedFields,
+                                fieldLabels: fieldLabels,
+                                selectedLevels: selectedLevels,
+                                selectedBranches: selectedBranches,
+                              );
+                            },
+                      tooltip: 'Excel İndir',
+                    ),
+                  ),
+                ] else ...[
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.print, size: 16),
+                    label: const Text('Yazdır'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.indigo.shade800,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    onPressed: filteredCount == 0
+                        ? null
+                        : () async {
+                            Navigator.pop(context);
+                            final bytes = await _generatePdfReport(
+                              reportStudents: reportStudents,
+                              selectedFields: selectedFields,
+                              isLandscape: isLandscape,
+                              fieldLabels: fieldLabels,
+                              selectedLevels: selectedLevels,
+                              selectedBranches: selectedBranches,
+                            );
+                            await Printing.layoutPdf(
+                              onLayout: (_) async => bytes,
+                              name: 'Ogrenci_Listesi_Raporu',
+                            );
+                          },
+                  ),
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.picture_as_pdf, size: 16),
+                    label: const Text('PDF İndir'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue.shade700,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    onPressed: filteredCount == 0
+                        ? null
+                        : () async {
+                            Navigator.pop(context);
+                            final bytes = await _generatePdfReport(
+                              reportStudents: reportStudents,
+                              selectedFields: selectedFields,
+                              isLandscape: isLandscape,
+                              fieldLabels: fieldLabels,
+                              selectedLevels: selectedLevels,
+                              selectedBranches: selectedBranches,
+                            );
+                            await FileSaver.instance.saveFile(
+                              name: 'Ogrenci_Listesi_${DateFormat('dd_MM_yyyy').format(DateTime.now())}',
+                              bytes: bytes,
+                              ext: 'pdf',
+                              mimeType: MimeType.pdf,
+                            );
+                          },
+                  ),
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.table_view, size: 16),
+                    label: const Text('Excel İndir'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green.shade700,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    onPressed: filteredCount == 0
+                        ? null
+                        : () async {
+                            Navigator.pop(context);
+                            await _generateExcelReport(
+                              reportStudents: reportStudents,
+                              selectedFields: selectedFields,
+                              fieldLabels: fieldLabels,
+                              selectedLevels: selectedLevels,
+                              selectedBranches: selectedBranches,
+                            );
+                          },
+                  ),
+                ],
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  List<Map<String, dynamic>> getFilteredStudentsForReport({
+    required List<String> selectedLevels,
+    required List<String> selectedBranches,
+  }) {
+    return _filteredStudents.where((student) {
+      if (selectedLevels.isNotEmpty) {
+        final sLevel = (student['classLevel'] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '');
+        bool levelMatch = selectedLevels.any((l) {
+          final lDigits = l.replaceAll(RegExp(r'[^0-9]'), '');
+          return sLevel == lDigits;
+        });
+        if (!levelMatch) return false;
+      }
+
+      if (selectedBranches.isNotEmpty) {
+        final cName = student['className'] as String?;
+        final sLevel = student['classLevel']?.toString();
+        final sBranch = getBranchName(cName, sLevel);
+        bool branchMatch = selectedBranches.any((b) => sBranch.toLowerCase() == b.toLowerCase());
+        if (!branchMatch) return false;
+      }
+
+      return true;
+    }).toList();
+  }
+
+  Future<Uint8List> _generatePdfReport({
+    required List<Map<String, dynamic>> reportStudents,
+    required List<String> selectedFields,
+    required bool isLandscape,
+    required Map<String, String> fieldLabels,
+    required List<String> selectedLevels,
+    required List<String> selectedBranches,
+  }) async {
+    final pdf = pw.Document();
+    final font = await PdfService.getFont();
+    final fontBold = await PdfService.getFontBold();
+
+    final pageFormat = isLandscape ? PdfPageFormat.a4.landscape : PdfPageFormat.a4;
+    final headers = ['Sıra No', ...selectedFields.map((f) => fieldLabels[f] ?? '')];
+    final tableData = <List<String>>[];
+
+    int index = 1;
+    for (final student in reportStudents) {
+      final row = <String>[];
+      row.add(index.toString()); // Sıra No
+      
+      final parent = getPrimaryParent(student);
+      
+      for (final field in selectedFields) {
+        String val = '';
+        switch (field) {
+          case 'fullName':
+            val = student['fullName'] ?? '';
+            break;
+          case 'studentNo':
+            val = student['studentNo'] ?? student['studentNumber'] ?? '';
+            break;
+          case 'tcNo':
+            val = student['tcNo'] ?? '';
+            break;
+          case 'classInfo':
+            val = student['className'] ?? student['classLevel']?.toString() ?? '';
+            break;
+          case 'gender':
+            val = student['gender'] ?? '';
+            break;
+          case 'birthDate':
+            val = student['birthDate'] ?? '';
+            break;
+          case 'birthPlace':
+            val = student['birthPlace'] ?? '';
+            break;
+          case 'phone':
+            val = student['phone'] ?? '';
+            break;
+          case 'email':
+            val = student['email'] ?? '';
+            break;
+          case 'address':
+            val = student['address'] ?? '';
+            break;
+          case 'registrationDate':
+            val = student['registrationDate'] ?? '';
+            break;
+          case 'registrationType':
+            val = student['registrationType'] ?? '';
+            break;
+          case 'previousSchool':
+            val = student['previousSchool'] ?? '';
+            break;
+          case 'educationType':
+            val = student['educationType'] ?? '';
+            break;
+          case 'foreignLanguage':
+            val = student['foreignLanguage'] ?? '';
+            break;
+          case 'reference':
+            val = student['reference'] ?? '';
+            break;
+          case 'hearSource':
+            val = student['hearSource'] ?? '';
+            break;
+          case 'username':
+            val = student['username'] ?? '';
+            break;
+          case 'password':
+            val = student['password'] ?? '';
+            break;
+          case 'parentName':
+            val = parent != null ? (parent['fullName'] ?? '') : '';
+            break;
+          case 'parentPhone':
+            val = parent != null ? (parent['phone'] ?? '') : '';
+            break;
+          case 'parentRelation':
+            val = parent != null ? (parent['relation'] ?? '') : '';
+            break;
+          case 'parentTc':
+            val = parent != null ? (parent['tcNo'] ?? '') : '';
+            break;
+          case 'parentEmail':
+            val = parent != null ? (parent['email'] ?? '') : '';
+            break;
+          case 'parentAddress':
+            val = parent != null ? (parent['address'] ?? '') : '';
+            break;
+          case 'parentJob':
+            val = parent != null ? (parent['occupation'] ?? '') : '';
+            break;
+          case 'parentWorkplace':
+            val = parent != null ? (parent['workplace'] ?? '') : '';
+            break;
+          case 'parentUsername':
+            val = parent != null ? (parent['username'] ?? '') : '';
+            break;
+          case 'parentPassword':
+            val = parent != null ? (parent['password'] ?? '') : '';
+            break;
+        }
+        row.add(val.isEmpty ? '-' : val);
+      }
+      tableData.add(row);
+      index++;
+    }
+
+    double fontSize = 9.0;
+    final totalCols = selectedFields.length + 1;
+    if (totalCols > 8) {
+      fontSize = 6.0;
+    } else if (totalCols > 5) {
+      fontSize = 8.0;
+    }
+
+    String filterTitle;
+    if (selectedLevels.isEmpty && selectedBranches.isEmpty) {
+      filterTitle = 'Tüm Öğrenciler Raporu';
+    } else {
+      final levelsStr = selectedLevels.isEmpty ? 'Tüm Seviyeler' : 'Seviye: ' + selectedLevels.join(', ');
+      final branchesStr = selectedBranches.isEmpty ? 'Tüm Sınıflar' : 'Sınıf: ' + selectedBranches.join(', ');
+      filterTitle = '$levelsStr | $branchesStr';
+    }
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: pageFormat,
+        margin: const pw.EdgeInsets.all(24),
+        theme: pw.ThemeData.withFont(base: font, bold: fontBold),
+        header: (pw.Context context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        widget.fixedSchoolTypeName != null
+                            ? '${widget.fixedSchoolTypeName} Öğrenci Listesi'
+                            : 'Öğrenci Listesi',
+                        style: pw.TextStyle(
+                          fontSize: 14,
+                          fontWeight: pw.FontWeight.bold,
+                          color: PdfColors.indigo900,
+                        ),
+                      ),
+                      pw.SizedBox(height: 2),
+                      pw.Text(
+                        'Rapor Türü: $filterTitle',
+                        style: const pw.TextStyle(
+                          fontSize: 10,
+                          color: PdfColors.indigo700,
+                        ),
+                      ),
+                    ],
+                  ),
+                  pw.Text(
+                    'Tarih: ${DateFormat('dd.MM.yyyy HH:mm').format(DateTime.now())}',
+                    style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 5),
+              pw.Divider(thickness: 1, color: PdfColors.indigo100),
+              pw.SizedBox(height: 10),
+            ],
+          );
+        },
+        footer: (pw.Context context) {
+          return pw.Column(
+            children: [
+              pw.Divider(thickness: 0.5, color: PdfColors.grey300),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text(
+                    'Toplam Öğrenci: ${reportStudents.length}',
+                    style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
+                  ),
+                  pw.Text(
+                    'Sayfa ${context.pageNumber} / ${context.pagesCount}',
+                    style: const pw.TextStyle(fontSize: 9),
+                  ),
+                ],
+              ),
+            ],
+          );
+        },
+        build: (pw.Context context) {
+          return [
+            pw.TableHelper.fromTextArray(
+              headers: headers,
+              data: tableData,
+              border: pw.TableBorder.all(
+                color: PdfColors.grey300,
+                width: 0.5,
+              ),
+              headerStyle: pw.TextStyle(
+                font: fontBold,
+                fontSize: fontSize + 1,
+                color: PdfColors.white,
+                fontWeight: pw.FontWeight.bold,
+              ),
+              headerDecoration: const pw.BoxDecoration(
+                color: PdfColors.indigo900,
+              ),
+              cellStyle: pw.TextStyle(
+                font: font,
+                fontSize: fontSize,
+              ),
+              cellAlignment: pw.Alignment.centerLeft,
+              rowDecoration: const pw.BoxDecoration(
+                border: pw.Border(
+                  bottom: pw.BorderSide(
+                    color: PdfColors.grey200,
+                    width: 0.5,
+                  ),
+                ),
+              ),
+            ),
+          ];
+        },
+      ),
+    );
+
+    return pdf.save();
+  }
+
+  Future<void> _generateExcelReport({
+    required List<Map<String, dynamic>> reportStudents,
+    required List<String> selectedFields,
+    required Map<String, String> fieldLabels,
+    required List<String> selectedLevels,
+    required List<String> selectedBranches,
+  }) async {
+    try {
+      final excel = Excel.createExcel();
+      Sheet sheet = excel['Öğrenci Raporu'];
+      excel.delete('Sheet1');
+
+      CellStyle titleStyle = CellStyle(
+        bold: true,
+        fontSize: 14,
+        fontColorHex: ExcelColor.fromHexString("#1A237E"),
+      );
+
+      CellStyle headerStyle = CellStyle(
+        fontColorHex: ExcelColor.fromHexString("#FFFFFF"),
+        backgroundColorHex: ExcelColor.fromHexString("#1A237E"),
+        bold: true,
+        horizontalAlign: HorizontalAlign.Center,
+      );
+
+      String filterTitle;
+      if (selectedLevels.isEmpty && selectedBranches.isEmpty) {
+        filterTitle = 'Tüm Öğrenciler Raporu';
+      } else {
+        final levelsStr = selectedLevels.isEmpty ? 'Tüm Seviyeler' : 'Seviye: ' + selectedLevels.join(', ');
+        final branchesStr = selectedBranches.isEmpty ? 'Tüm Sınıflar' : 'Sınıf: ' + selectedBranches.join(', ');
+        filterTitle = '$levelsStr | $branchesStr';
+      }
+
+      var titleCell = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 0));
+      titleCell.value = TextCellValue('ÖĞRENCİ RAPORU - $filterTitle');
+      titleCell.cellStyle = titleStyle;
+
+      var noCell = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 2));
+      noCell.value = TextCellValue('Sıra No');
+      noCell.cellStyle = headerStyle;
+      sheet.setColumnWidth(0, 10.0);
+
+      for (int i = 0; i < selectedFields.length; i++) {
+        var cell = sheet.cell(CellIndex.indexByColumnRow(columnIndex: i + 1, rowIndex: 2));
+        cell.value = TextCellValue(fieldLabels[selectedFields[i]] ?? '');
+        cell.cellStyle = headerStyle;
+        sheet.setColumnWidth(i + 1, 20.0);
+      }
+
+      for (int r = 0; r < reportStudents.length; r++) {
+        final student = reportStudents[r];
+        final parent = getPrimaryParent(student);
+
+        var rowNoCell = sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: r + 3));
+        rowNoCell.value = TextCellValue((r + 1).toString());
+
+        for (int c = 0; c < selectedFields.length; c++) {
+          final field = selectedFields[c];
+          String val = '';
+          switch (field) {
+            case 'fullName':
+              val = student['fullName'] ?? '';
+              break;
+            case 'studentNo':
+              val = student['studentNo'] ?? student['studentNumber'] ?? '';
+              break;
+            case 'tcNo':
+              val = student['tcNo'] ?? '';
+              break;
+            case 'classInfo':
+              val = student['className'] ?? student['classLevel']?.toString() ?? '';
+              break;
+            case 'gender':
+              val = student['gender'] ?? '';
+              break;
+            case 'birthDate':
+              val = student['birthDate'] ?? '';
+              break;
+            case 'birthPlace':
+              val = student['birthPlace'] ?? '';
+              break;
+            case 'phone':
+              val = student['phone'] ?? '';
+              break;
+            case 'email':
+              val = student['email'] ?? '';
+              break;
+            case 'address':
+              val = student['address'] ?? '';
+              break;
+            case 'registrationDate':
+              val = student['registrationDate'] ?? '';
+              break;
+            case 'registrationType':
+              val = student['registrationType'] ?? '';
+              break;
+            case 'previousSchool':
+              val = student['previousSchool'] ?? '';
+              break;
+            case 'educationType':
+              val = student['educationType'] ?? '';
+              break;
+            case 'foreignLanguage':
+              val = student['foreignLanguage'] ?? '';
+              break;
+            case 'reference':
+              val = student['reference'] ?? '';
+              break;
+            case 'hearSource':
+              val = student['hearSource'] ?? '';
+              break;
+            case 'username':
+              val = student['username'] ?? '';
+              break;
+            case 'password':
+              val = student['password'] ?? '';
+              break;
+            case 'parentName':
+              val = parent != null ? (parent['fullName'] ?? '') : '';
+              break;
+            case 'parentPhone':
+              val = parent != null ? (parent['phone'] ?? '') : '';
+              break;
+            case 'parentRelation':
+              val = parent != null ? (parent['relation'] ?? '') : '';
+              break;
+            case 'parentTc':
+              val = parent != null ? (parent['tcNo'] ?? '') : '';
+              break;
+            case 'parentEmail':
+              val = parent != null ? (parent['email'] ?? '') : '';
+              break;
+            case 'parentAddress':
+              val = parent != null ? (parent['address'] ?? '') : '';
+              break;
+            case 'parentJob':
+              val = parent != null ? (parent['occupation'] ?? '') : '';
+              break;
+            case 'parentWorkplace':
+              val = parent != null ? (parent['workplace'] ?? '') : '';
+              break;
+            case 'parentUsername':
+              val = parent != null ? (parent['username'] ?? '') : '';
+              break;
+            case 'parentPassword':
+              val = parent != null ? (parent['password'] ?? '') : '';
+              break;
+          }
+          var cell = sheet.cell(CellIndex.indexByColumnRow(columnIndex: c + 1, rowIndex: r + 3));
+          cell.value = TextCellValue(val.isEmpty ? '-' : val);
+        }
+      }
+
+      List<int>? fileBytes = excel.save();
+      if (fileBytes != null) {
+        await FileSaver.instance.saveFile(
+          name: 'Ogrenci_Raporu_${DateFormat('dd_MM_yyyy_HH_mm').format(DateTime.now())}',
+          bytes: Uint8List.fromList(fileBytes),
+          ext: 'xlsx',
+          mimeType: MimeType.microsoftExcel,
+        );
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('✓ Excel raporu başarıyla indirildi.')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  Future<void> _printSingleStudentReport(Map<String, dynamic>? student) async {
+    if (student == null) return;
+
+    try {
+      final pdf = pw.Document();
+      final font = await PdfService.getFont();
+      final fontBold = await PdfService.getFontBold();
+
+      pw.Widget buildSectionHeader(String title) {
+        return pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.SizedBox(height: 12),
+            pw.Text(
+              title,
+              style: pw.TextStyle(
+                font: fontBold,
+                fontSize: 11,
+                color: PdfColors.indigo900,
+                fontWeight: pw.FontWeight.bold,
+              ),
+            ),
+            pw.SizedBox(height: 3),
+            pw.Container(height: 1, color: PdfColors.indigo200),
+            pw.SizedBox(height: 6),
+          ],
+        );
+      }
+
+      pw.Widget buildDetailRow(String label, String value) {
+        return pw.Padding(
+          padding: const pw.EdgeInsets.symmetric(vertical: 2.0),
+          child: pw.Row(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.SizedBox(
+                width: 120,
+                child: pw.Text(
+                  label,
+                  style: pw.TextStyle(font: fontBold, fontSize: 9, color: PdfColors.grey800),
+                ),
+              ),
+              pw.Expanded(
+                child: pw.Text(
+                  value.isEmpty ? '-' : value,
+                  style: pw.TextStyle(font: font, fontSize: 9),
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+
+      final parents = student['parents'] as List? ?? [];
+
+      pdf.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(32),
+          theme: pw.ThemeData.withFont(base: font, bold: fontBold),
+          header: (pw.Context context) {
+            return pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Text(
+                      'ÖĞRENCİ BİLGİ FORMU',
+                      style: pw.TextStyle(
+                        fontSize: 16,
+                        fontWeight: pw.FontWeight.bold,
+                        color: PdfColors.indigo900,
+                      ),
+                    ),
+                    pw.Text(
+                      'Tarih: ${DateFormat('dd.MM.yyyy').format(DateTime.now())}',
+                      style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
+                    ),
+                  ],
+                ),
+                pw.SizedBox(height: 8),
+                pw.Divider(thickness: 1.5, color: PdfColors.indigo900),
+              ],
+            );
+          },
+          footer: (pw.Context context) {
+            return pw.Column(
+              children: [
+                pw.Divider(thickness: 0.5, color: PdfColors.grey300),
+                pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Text('eduKN Eğitim Yönetim Sistemi', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
+                    pw.Text('Sayfa ${context.pageNumber} / ${context.pagesCount}', style: const pw.TextStyle(fontSize: 8)),
+                  ],
+                ),
+              ],
+            );
+          },
+          build: (pw.Context context) {
+            return [
+              pw.SizedBox(height: 12),
+              
+              pw.Container(
+                padding: const pw.EdgeInsets.all(12),
+                decoration: pw.BoxDecoration(
+                  color: PdfColors.grey100,
+                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+                  border: pw.Border.all(color: PdfColors.grey300, width: 0.5),
+                ),
+                child: pw.Row(
+                  children: [
+                    pw.Expanded(
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text(
+                            (student['fullName'] ?? '').toString().toUpperCase(),
+                            style: pw.TextStyle(
+                              font: fontBold,
+                              fontSize: 14,
+                              color: PdfColors.indigo900,
+                            ),
+                          ),
+                          pw.SizedBox(height: 4),
+                          pw.Text(
+                            'Sınıf: ${student['className'] ?? student['classLevel']?.toString() ?? '-'}  •  No: ${student['studentNo'] ?? student['studentNumber'] ?? '-'}',
+                            style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey800),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              
+              pw.SizedBox(height: 8),
+              
+              buildSectionHeader('Kişisel Bilgiler'),
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Expanded(
+                    child: pw.Column(
+                      children: [
+                        buildDetailRow('T.C. Kimlik No:', student['tcNo'] ?? '-'),
+                        buildDetailRow('Doğum Tarihi:', student['birthDate'] ?? '-'),
+                        buildDetailRow('Doğum Yeri:', student['birthPlace'] ?? '-'),
+                        buildDetailRow('Cinsiyet:', student['gender'] ?? '-'),
+                      ],
+                    ),
+                  ),
+                  pw.SizedBox(width: 16),
+                  pw.Expanded(
+                    child: pw.Column(
+                      children: [
+                        buildDetailRow('Uyruk:', student['nationality'] ?? 'T.C.'),
+                        buildDetailRow('Kan Grubu:', student['bloodType'] ?? '-'),
+                        buildDetailRow('Telefon (Cep):', student['phone'] ?? '-'),
+                        buildDetailRow('E-posta:', student['personalEmail'] ?? student['email'] ?? '-'),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              
+              buildDetailRow('Açık Adres:', '${student['city'] ?? '-'} / ${student['district'] ?? '-'} \n${student['address'] ?? '-'}'),
+              
+              buildSectionHeader('Okul Bilgileri'),
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Expanded(
+                    child: pw.Column(
+                      children: [
+                        buildDetailRow('Kayıt Tarihi:', student['registrationDate'] ?? '-'),
+                        buildDetailRow('Kayıt Türü:', student['registrationType'] ?? '-'),
+                        buildDetailRow('Giriş Türü:', student['entryType'] ?? '-'),
+                      ],
+                    ),
+                  ),
+                  pw.SizedBox(width: 16),
+                  pw.Expanded(
+                    child: pw.Column(
+                      children: [
+                        buildDetailRow('Okul Seviyesi:', _getSchoolTypeName(student['schoolTypeId']) ?? '-'),
+                        buildDetailRow('Eğitim Türü:', student['educationType'] ?? '-'),
+                        buildDetailRow('Yabancı Dil:', student['foreignLanguage'] ?? '-'),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              
+              buildSectionHeader('Veli Bilgileri'),
+              if (parents.isEmpty)
+                pw.Padding(
+                  padding: const pw.EdgeInsets.symmetric(vertical: 8.0),
+                  child: pw.Text('Kayıtlı veli bulunmamaktadır.', style: pw.TextStyle(font: font, fontSize: 9, color: PdfColors.grey600)),
+                )
+              else
+                ...parents.asMap().entries.map((entry) {
+                  final index = entry.key;
+                  final parent = entry.value;
+                  return pw.Container(
+                    margin: const pw.EdgeInsets.only(bottom: 12),
+                    padding: const pw.EdgeInsets.all(8),
+                    decoration: pw.BoxDecoration(
+                      borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+                      border: pw.Border.all(color: PdfColors.grey300, width: 0.5),
+                    ),
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text(
+                          '${index + 1}. Veli: ${parent['fullName'] ?? '-'} (${parent['relation'] ?? 'Veli'})',
+                          style: pw.TextStyle(font: fontBold, fontSize: 10, color: PdfColors.indigo900),
+                        ),
+                        pw.SizedBox(height: 4),
+                        pw.Row(
+                          crossAxisAlignment: pw.CrossAxisAlignment.start,
+                          children: [
+                            pw.Expanded(
+                              child: pw.Column(
+                                children: [
+                                  buildDetailRow('Veli T.C. No:', parent['tcNo'] ?? '-'),
+                                  buildDetailRow('Telefon:', parent['phone'] ?? '-'),
+                                  buildDetailRow('E-posta:', parent['email'] ?? '-'),
+                                ],
+                              ),
+                            ),
+                            pw.SizedBox(width: 16),
+                            pw.Expanded(
+                              child: pw.Column(
+                                children: [
+                                  buildDetailRow('Meslek / İş Yeri:', '${parent['occupation'] ?? '-'} / ${parent['workplace'] ?? '-'}'),
+                                  buildDetailRow('Adres:', parent['address'] ?? '-'),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+            ];
+          },
+        ),
+      );
+
+      final bytes = await pdf.save();
+      await Printing.layoutPdf(
+        onLayout: (_) async => bytes,
+        name: '${student['fullName'] ?? 'Ogrenci'}_bilgi_formu',
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Yazdırma sırasında hata oluştu: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
   Future<void> _loadData() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -875,51 +2345,39 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
               onPressed: () => _showNewStudentDialog(),
               tooltip: 'Yeni Öğrenci',
             ),
-          if (_canEditStudents())
-            PopupMenuButton<String>(
-              icon: Icon(Icons.more_vert),
-              onSelected: (value) {
-                if (value == 'excel_template') {
-                  _downloadExcelTemplate();
-                } else if (value == 'excel_upload') {
-                  _showExcelUploadDialog();
-                } else if (value == 'delete_all') {
-                  _deleteAllStudents();
-                }
-              },
-              itemBuilder: (context) => [
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            onSelected: (value) {
+              if (value == 'report') {
+                _showPrintExportDialog();
+              } else if (value == 'excel') {
+                _showExcelOperationsDialog();
+              }
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 'report',
+                child: Row(
+                  children: [
+                    Icon(Icons.print, size: 20, color: Colors.indigo),
+                    SizedBox(width: 8),
+                    Text('Yazdır / Rapor Al'),
+                  ],
+                ),
+              ),
+              if (_canEditStudents())
                 PopupMenuItem(
-                  value: 'excel_template',
+                  value: 'excel',
                   child: Row(
                     children: [
-                      Icon(Icons.download, size: 20, color: Colors.blue),
+                      Icon(Icons.table_view, size: 20, color: Colors.green),
                       SizedBox(width: 8),
-                      Text('Örnek Şablon İndir'),
+                      Text('Excel İşlemleri'),
                     ],
                   ),
                 ),
-                PopupMenuItem(
-                  value: 'excel_upload',
-                  child: Row(
-                    children: [
-                      Icon(Icons.backup_table, size: 20, color: Colors.indigo),
-                      SizedBox(width: 8),
-                      Text('Excel\'den Toplu Yükleme'),
-                    ],
-                  ),
-                ),
-                PopupMenuItem(
-                  value: 'delete_all',
-                  child: Row(
-                    children: [
-                      Icon(Icons.delete_forever, size: 20, color: Colors.red),
-                      SizedBox(width: 8),
-                      Text('TÜMÜNÜ SİL (DEBUG)'),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+            ],
+          ),
         ],
       ),
       body: Padding(
@@ -1836,41 +3294,27 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
             ],
           ),
           actions: [
-            if (_canEditStudents())
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final isMobile = MediaQuery.of(context).size.width <= 900;
-                  return Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Yazdır butonu
-                      isMobile
-                          ? IconButton(
-                              icon: Icon(Icons.print),
-                              onPressed: () {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('Yazdırma yakında eklenecek'),
-                                  ),
-                                );
-                              },
-                              tooltip: 'Yazdır / Dışa Aktar',
-                            )
-                          : TextButton.icon(
-                              onPressed: () {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('Yazdırma yakında eklenecek'),
-                                  ),
-                                );
-                              },
-                              icon: Icon(Icons.print, size: 18),
-                              label: Text('Yazdır'),
-                              style: TextButton.styleFrom(
-                                foregroundColor: Colors.indigo,
-                              ),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final isMobile = MediaQuery.of(context).size.width <= 900;
+                return Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    isMobile
+                        ? IconButton(
+                            icon: Icon(Icons.print),
+                            onPressed: () => _printSingleStudentReport(_selectedStudent),
+                            tooltip: 'Yazdır / Dışa Aktar',
+                          )
+                        : TextButton.icon(
+                            onPressed: () => _printSingleStudentReport(_selectedStudent),
+                            icon: Icon(Icons.print, size: 18),
+                            label: Text('Yazdır'),
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.indigo,
                             ),
-                      // Sil butonu
+                          ),
+                    if (_canEditStudents())
                       isMobile
                           ? IconButton(
                               icon: Icon(
@@ -1892,10 +3336,10 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
                                 foregroundColor: Colors.red,
                               ),
                             ),
-                    ],
-                  );
-                },
-              ),
+                  ],
+                );
+              },
+            ),
           ],
           bottom: TabBar(
             labelColor: Colors.indigo,
@@ -5526,7 +6970,7 @@ class __StudentRegistrationFormScreenState
                     'classLevel': _selectedClassLevel,
                     'classId': _selectedClassId,
                     'className': _selectedClassName,
-                    'termId': activeTermId,
+                    'termId': _selectedTermId ?? activeTermId,
                     'subTermId': _selectedSubTermId,
                     'tcNo': CryptoService.encrypt(_tcController.text, institutionId: _institutionId),
                     'phone': CryptoService.encrypt(_phoneController.text, institutionId: _institutionId),

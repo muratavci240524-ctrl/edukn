@@ -630,7 +630,7 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
 
       // Kullanıcı adı ve kurum ID'den benzersiz email oluştur
       final username = _adminUsernameController.text.trim().toLowerCase();
-      final institutionId = _institutionIdController.text.trim(); // DÜZELTİLDİ: toUpperCase() kaldırıldı
+      final institutionId = _institutionIdController.text.trim().toUpperCase();
       final generatedEmail = '$username@$institutionId.edukn'.toLowerCase();
       final adminEmail = _adminEmailController.text.trim().isNotEmpty 
           ? _adminEmailController.text.trim() 
@@ -823,12 +823,26 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
               );
             }
           } else {
-            print('⚠️ Şifre güncellenemedi');
+            print('⚠️ Şifre güncellenemedi, Firestore _tempPassword fallback deneniyor...');
+            bool fallbackSaved = false;
+            try {
+              await FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(currentAuthId)
+                  .update({'_tempPassword': newPass});
+              fallbackSaved = true;
+              print('💾 Şifre geçici olarak Firestore\'a kaydedildi (_tempPassword)');
+            } catch (e) {
+              print('❌ Geçici şifre Firestore\'a kaydedilemedi: $e');
+            }
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('⚠️ Şifre güncellenemedi. Lütfen tekrar deneyin.'),
+                SnackBar(
+                  content: Text(fallbackSaved 
+                      ? '⚠️ Şifre Auth sunucusunda güncellenemedi ama geçici şifre olarak kaydedildi.' 
+                      : '⚠️ Şifre güncellenemedi. Lütfen tekrar deneyin.'),
                   backgroundColor: Colors.orange,
+                  duration: const Duration(seconds: 4),
                 ),
               );
             }
@@ -876,7 +890,7 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
           'schoolId': docRef.id, // Yeni oluşturulan okul ID'si
           'fullName': _adminFullNameController.text.trim(),
           'username': username,
-          'email': generatedEmail,
+          'email': adminEmail,
           'phone': _adminPhoneController.text.trim(),
           'role': 'genel_mudur', // DÜZELTİLDİ: 'admin' yerine 'genel_mudur'
           'isActive': true,

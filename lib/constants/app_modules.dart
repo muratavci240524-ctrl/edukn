@@ -17,6 +17,8 @@ class AppModules {
         'on_kayit': 'Ön Kayıt',
         'ogrenci_kaydi': 'Öğrenci Kaydı',
         'okul_turleri': 'Okul Türleri',
+        'sinif_atlatma': 'Sınıf Atlatma İşlemleri',
+        'nakil_islemleri': 'Nakil İşlemleri',
       },
     ),
 

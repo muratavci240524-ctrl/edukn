@@ -25,6 +25,9 @@ class ClassLessonHubScreen extends StatefulWidget {
   final int? initialLessonHour;
   final List<int>? availableLessonHours;
 
+  final List<String>? combinedClassIds;
+  final List<String>? combinedClassNames;
+
   const ClassLessonHubScreen({
     super.key,
     required this.institutionId,
@@ -37,6 +40,8 @@ class ClassLessonHubScreen extends StatefulWidget {
     this.initialDate,
     this.initialLessonHour,
     this.availableLessonHours,
+    this.combinedClassIds,
+    this.combinedClassNames,
   });
 
   @override
@@ -129,6 +134,8 @@ class _ClassLessonHubScreenState extends State<ClassLessonHubScreen> {
                                     initialLessonHour: widget.initialLessonHour,
                                     availableLessonHours:
                                         widget.availableLessonHours,
+                                    combinedClassIds: widget.combinedClassIds,
+                                    combinedClassNames: widget.combinedClassNames,
                                   ),
                                 ),
                               );
@@ -149,6 +156,8 @@ class _ClassLessonHubScreenState extends State<ClassLessonHubScreen> {
                                   classId: widget.classId,
                                   lessonId: widget.lessonId,
                                   lessonName: widget.lessonName,
+                                  combinedClassIds: widget.combinedClassIds,
+                                  combinedClassNames: widget.combinedClassNames,
                                 ),
                               );
                             },
@@ -234,7 +243,7 @@ class _ClassLessonHubScreenState extends State<ClassLessonHubScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '${widget.className} • ${widget.lessonName}',
+                '${widget.combinedClassNames != null ? widget.combinedClassNames!.join('/') : widget.className} • ${widget.lessonName}',
                 style: TextStyle(
                   color: Colors.grey.shade900,
                   fontSize: 17,

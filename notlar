@@ -18,3 +18,12 @@ firebase deploy --only hosting
 logo indiricim. 
 
 file:///C:/Users/user/Desktop/eduKN/edukn/edukn21.11.2025/edukn/scratch/logo_exporter.html
+
+# ----------------------------------------------------
+# 🔒 CANLIYA ALIM VE GÜVENLİK (APP CHECK & RECAPTCHA) NOTLARI
+# ----------------------------------------------------
+# Canlı yayın (Production / Satış Denetimi) öncesi yapılması gerekenler:
+# 1. Firebase Console > App Check ekranından reCAPTCHA v3 (veya Enterprise) kurulmalı.
+# 2. functions/index.js içerisindeki 'updateUserCredentials' fonksiyonunda 'enforceAppCheck: true' yapılmalı.
+# 3. Lokal geliştirme ortamı (localhost) için Firebase Console > App Check > Debug Tokens alanına geliştirici anahtarı eklenmeli.
+# 4. Mevcut Güvenlik Durumu: Fonksiyon içerisinde 'verifyAuth' ve Role-Based Access Control (RBAC - super_admin/admin/genel_mudur kontrolü) %100 aktiftir. Bot koruması (App Check) canlı yayın öncesi aktifleşecektir.

@@ -7,11 +7,14 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:edukn/services/user_permission_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:flutter/foundation.dart';
 import '../../../services/term_service.dart';
 import 'school_type_announcements_screen.dart';
 import 'school_type_social_media_screen.dart';
 import '../student_registration_screen.dart';
+import 'student_promotion_transfer_screens.dart';
 import '../../hr/staff/staff_list_screen.dart';
 import '../class_management_screen.dart';
 import '../lesson_management_screen.dart';
@@ -21,6 +24,7 @@ import '../lesson_hours_screen.dart';
 import '../class_schedule_screen.dart';
 import '../class_schedule_view_screen.dart';
 import '../teacher_schedule_view_screen.dart';
+import '../curriculum_tracking_screen.dart';
 import '../user_profile_screen.dart';
 import '../attendance_operations_screen.dart';
 import '../survey/survey_list_screen.dart';
@@ -43,6 +47,7 @@ import '../activity/activity_list_screen.dart';
 import '../assessment/agm/screens/agm_teacher_timetable_screen.dart';
 import '../../../../widgets/recipient_selector_field.dart';
 import '../../../../widgets/edukn_logo.dart';
+import '../../../../widgets/premium_app_bar.dart';
 import '../../../../widgets/web_image_renderer.dart';
 import '../profile_settings_screen.dart';
 import '../../teacher/teacher_qr_scan_screen.dart';
@@ -155,9 +160,27 @@ class _SchoolTypeDetailScreenState extends State<SchoolTypeDetailScreen> {
     ];
 
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: pages,
+      body: Column(
+        children: [
+          PremiumAppBar(
+            schoolTypeId: widget.schoolTypeId,
+            schoolTypeName: widget.schoolTypeName,
+            institutionId: widget.institutionId,
+            subtitle: _currentIndex == 0
+                ? 'Haberleşme'
+                : _currentIndex == 1
+                    ? 'Dashboard'
+                    : 'İşlemler Merkezi',
+            showSearch: true,
+            showBackButton: true,
+          ),
+          Expanded(
+            child: IndexedStack(
+              index: _currentIndex,
+              children: pages,
+            ),
+          ),
+        ],
       ),
       bottomNavigationBar: Column(
         mainAxisSize: MainAxisSize.min,
@@ -647,97 +670,258 @@ class _OperationsTabState extends State<_OperationsTab> {
   void _showTermSelector() {
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (context) => Container(
-        padding: const EdgeInsets.all(16),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+        ),
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
             Row(
               children: [
-                Icon(Icons.calendar_month, color: Colors.blue),
-                const SizedBox(width: 8),
+                Icon(Icons.calendar_month_rounded, color: Colors.indigo.shade900, size: 28),
+                const SizedBox(width: 12),
                 const Text(
-                  'Dönem Seç',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  'Dönem Yönetimi',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF1E293B),
+                  ),
                 ),
               ],
             ),
-            const Divider(height: 24),
+            const SizedBox(height: 24),
             if (_terms.isEmpty)
               const Padding(
-                padding: EdgeInsets.all(16),
+                padding: EdgeInsets.symmetric(vertical: 24),
                 child: Center(child: Text('Henüz dönem tanımlanmamış')),
               )
             else
-              ...(_terms.map((term) {
-                final isActive = term['isActive'] == true;
-                final isSelected = _selectedTerm?['id'] == term['id'];
-                return ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: isActive
-                        ? Colors.green[100]
-                        : Colors.grey[100],
-                    child: Icon(
-                      isActive ? Icons.check_circle : Icons.calendar_today,
-                      color: isActive ? Colors.green : Colors.grey,
-                    ),
+              Flexible(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: 242,
                   ),
-                  title: Text(
-                    '${term['startYear']}-${term['endYear']}',
-                    style: TextStyle(
-                      fontWeight: isSelected
-                          ? FontWeight.bold
-                          : FontWeight.normal,
-                    ),
-                  ),
-                  subtitle: isActive
-                      ? const Text(
-                          'Aktif Dönem',
-                          style: TextStyle(color: Colors.green),
-                        )
-                      : null,
-                  trailing: isSelected
-                      ? const Icon(
-                          Icons.radio_button_checked,
-                          color: Colors.blue,
-                        )
-                      : const Icon(Icons.radio_button_off),
-                  onTap: () async {
-                    // TermService üzerinden dönem değişikliğini yap (cache'i de günceller)
-                    final isActive = term['isActive'] == true;
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: _terms.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (context, index) {
+                      final term = _terms[index];
+                      final isActive = term['isActive'] == true;
+                      final isSelected = _selectedTerm == null
+                          ? isActive
+                          : _selectedTerm!['id'] == term['id'];
+                      return InkWell(
+                        onTap: () async {
+                          final isActive = term['isActive'] == true;
 
-                    if (isActive) {
-                      // Aktif döneme dönüyorsa, seçili dönemi temizle
-                      await TermService().clearSelectedTerm();
-                    } else {
-                      // Geçmiş döneme geçiyorsa, kaydet
-                      await TermService().setSelectedTerm(
-                        term['id'],
-                        term['name'],
-                      );
-                    }
+                          if (isActive) {
+                            await TermService().clearSelectedTerm();
+                          } else {
+                            await TermService().setSelectedTerm(
+                              term['id'],
+                              term['name'] ?? '${term['startYear']}-${term['endYear']}',
+                            );
+                          }
 
-                    setState(() => _selectedTerm = term);
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          isActive
-                              ? '✓ Aktif döneme geri dönüldü'
-                              : '✓ ${term['startYear']}-${term['endYear']} dönemine geçildi',
+                          setState(() => _selectedTerm = term);
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                isActive
+                                    ? '✓ Aktif döneme geri dönüldü'
+                                    : '✓ ${term['startYear']}-${term['endYear']} dönemine geçildi',
+                              ),
+                              backgroundColor: isActive ? Colors.blue : Colors.green,
+                              duration: const Duration(seconds: 2),
+                            ),
+                          );
+                        },
+                        borderRadius: BorderRadius.circular(16),
+                        child: Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: isSelected ? Colors.indigo.shade50 : Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: isSelected ? Colors.indigo.shade200 : Colors.grey.shade200,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              CircleAvatar(
+                                backgroundColor: isActive
+                                    ? Colors.green.shade100
+                                    : (isSelected ? Colors.indigo.shade100 : Colors.grey.shade100),
+                                child: Icon(
+                                  isActive
+                                      ? Icons.check_circle_rounded
+                                      : (isSelected ? Icons.visibility : Icons.history),
+                                  color: isActive
+                                      ? Colors.green.shade700
+                                      : (isSelected ? Colors.indigo : Colors.blueGrey.shade400),
+                                  size: 20,
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      term['name'] ?? '${term['startYear']}-${term['endYear']}',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                        color: isSelected
+                                            ? Colors.indigo.shade900
+                                            : Colors.blueGrey.shade900,
+                                      ),
+                                    ),
+                                    Text(
+                                      isActive ? 'Aktif Dönem' : 'Geçmiş Dönem',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: isActive
+                                            ? Colors.green.shade700
+                                            : Colors.blueGrey.shade400,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Icon(
+                                isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
+                                color: isSelected ? Colors.indigo.shade700 : Colors.blueGrey.shade300,
+                              ),
+                            ],
+                          ),
                         ),
-                        backgroundColor: isActive ? Colors.blue : Colors.green,
-                        duration: const Duration(seconds: 2),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            const SizedBox(height: 24),
+            if (_hasSubModuleAccess('egitim', 'sinif_atlatma') &&
+                UserPermissionService.hasSubModuleAccess('egitim', 'sinif_atlatma', userData)) ...[
+              _buildSelectorAction(
+                icon: Icons.upgrade_rounded,
+                title: 'Sınıf Atlatma İşlemleri',
+                subtitle: 'Seçili öğrencileri bir üst sınıf seviyesine geçirir.',
+                color: Colors.indigo,
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ClassPromotionScreen(
+                        schoolTypeId: widget.schoolTypeId,
+                        schoolTypeName: widget.schoolTypeName,
+                        institutionId: widget.institutionId,
                       ),
-                    );
-                  },
-                );
-              }).toList()),
-            const SizedBox(height: 8),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+            if (_hasSubModuleAccess('egitim', 'nakil_islemleri') &&
+                UserPermissionService.hasSubModuleAccess('egitim', 'nakil_islemleri', userData)) ...[
+              _buildSelectorAction(
+                icon: Icons.transfer_within_a_station_rounded,
+                title: 'Nakil İşlemleri',
+                subtitle: 'Seçili öğrencileri farklı bir okul türüne aktarır.',
+                color: Colors.teal,
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => StudentTransferScreen(
+                        sourceSchoolTypeId: widget.schoolTypeId,
+                        sourceSchoolTypeName: widget.schoolTypeName,
+                        institutionId: widget.institutionId,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSelectorAction({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey.shade100),
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              backgroundColor: color.withOpacity(0.1),
+              child: Icon(icon, color: color, size: 20),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                      color: Color(0xFF1E293B),
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.blueGrey.shade400,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: Colors.blueGrey.shade300,
+            ),
           ],
         ),
       ),
@@ -1352,130 +1536,9 @@ class _OperationsTabState extends State<_OperationsTab> {
   @override
   Widget build(BuildContext context) {
     final bool isMobile = MediaQuery.of(context).size.width < 1100;
-    String currentTermName = _selectedTerm != null ? (_selectedTerm!['termName'] ?? '${_selectedTerm!['startYear']}-${_selectedTerm!['endYear']}') : (_activeTerm != null ? (_activeTerm!['termName'] ?? 'Aktif Dönem') : 'Dönem Seçin');
 
     return Column(
       children: [
-        // Clean Header (AppBar Style)
-        Container(
-          height: kToolbarHeight + MediaQuery.of(context).padding.top,
-          padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.95),
-            border: Border(bottom: BorderSide(color: Colors.indigo.withOpacity(0.05))),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                if (_isMobileSearchActive) ...[
-                  Expanded(child: _buildMobileSearchInput()),
-                ] else ...[
-                  if (userData == null || 
-                      UserPermissionService.hasAnyMainModuleAccess(userData) || 
-                      (userData!['schoolTypes'] as List<dynamic>? ?? []).length > 1)
-                    IconButton(
-                      icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.indigo),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                  const SizedBox(width: 8),
-                  // Logo on left (Premium branding)
-                  const EduKnLogo(iconSize: 28, type: EduKnLogoType.iconOnly),
-                  const SizedBox(width: 8),
-                  if (!isMobile) ...[
-                    Text(
-                      'eduKN',
-                      style: TextStyle(
-                        color: Colors.indigo.shade900,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: -0.5,
-                        fontSize: 20,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Container(width: 1, height: 24, color: Colors.indigo.withOpacity(0.1)),
-                    const SizedBox(width: 16),
-                  ] else ...[
-                    const SizedBox(width: 4),
-                  ],
-                  if (isMobile) ...[
-                    Expanded(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            widget.schoolTypeName,
-                            style: TextStyle(
-                              color: Colors.indigo.shade900,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w900,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          Text(
-                            'İşlemler Merkezi',
-                            style: TextStyle(
-                              color: Colors.indigo.shade400,
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ] else ...[
-                    Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.schoolTypeName,
-                          style: TextStyle(
-                            color: Colors.indigo.shade900,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w900,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        Text(
-                          'İşlemler Merkezi',
-                          style: TextStyle(
-                            color: Colors.indigo.shade400,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                  if (!isMobile) ...[
-                    const Spacer(),
-                    _buildSearchBar(isMobile),
-                    const Spacer(),
-                  ],
-                  if (isMobile) ...[
-                    IconButton(
-                      icon: const Icon(Icons.search, color: Colors.indigo),
-                      onPressed: () {
-                        setState(() => _isMobileSearchActive = true);
-                        _searchFocusNode.requestFocus();
-                      },
-                    ),
-                    const SizedBox(width: 4),
-                    _buildProfileButton(),
-                  ] else ...[
-                    _buildTermSelectorButton(currentTermName, isMobile),
-                    const SizedBox(width: 8),
-                    _buildProfileButton(),
-                  ],
-                ],
-              ],
-            ),
-          ),
-        ),
         // Main Content
         Expanded(
           child: Column(
@@ -1574,8 +1637,7 @@ class _OperationsTabState extends State<_OperationsTab> {
             {'title': 'Ders Programı', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ClassScheduleScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
             {'title': 'Şube Ders Programı', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ClassScheduleViewScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
             {'title': 'Öğretmen Ders Programı', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => TeacherScheduleViewScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
-            {'title': 'Günlük Ders Planları', 'onTap': () => print('Ders Planları')},
-            {'title': 'Kazanım Takip Sistemi', 'onTap': () => print('Kazanımlar')},
+            {'title': 'Kazanım Takip Sistemi', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => CurriculumTrackingScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
             {'title': 'Anket İşlemleri', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => SurveyListScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
             {'title': 'Etüt İşlemleri', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => EtutProcessScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
           ],
@@ -1744,6 +1806,24 @@ class _OperationsTabState extends State<_OperationsTab> {
           ],
           onTap: () => setState(() => _selectedCategory = 'Kişisel'),
         ),
+      if (_hasLingoknAccess())
+        _ModuleCardWidget(
+          key: const ValueKey('online_hizmetler'),
+          title: 'ONLİNE HİZMETLER',
+          badge: 'LinGoKN',
+          icon: Icons.translate_rounded,
+          color: Colors.teal,
+          cardWidth: currentCardWidth,
+          isMobile: isMobile,
+          category: 'Destek',
+          showAllItems: isFiltered,
+          items: [
+            {'title': 'LinGoKN Portalına Geçiş', 'onTap': () => _launchDilknSso()},
+            if (['super_admin', 'admin', 'manager', 'genel_mudur'].contains(userData?['role']?.toString().toLowerCase()))
+              {'title': 'LinGoKN İzin Yönetimi', 'onTap': () => _showLingoknAccessDialog()},
+          ],
+          onTap: () => _launchDilknSso(),
+        ),
     ];
 
     final filteredModules = isFiltered ? allModules.where((m) => m.category == _selectedCategory).toList() : allModules;
@@ -1771,8 +1851,7 @@ class _OperationsTabState extends State<_OperationsTab> {
         items: [
           {'title': 'Haftalık Ders Programım', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => TeacherScheduleViewScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
           {'title': 'Yoklama Girişi', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => AttendanceOperationsScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
-          {'title': 'Günlük Ders Planları', 'onTap': () => print('Ders Planları')},
-          {'title': 'Kazanım Takip', 'onTap': () => print('Kazanımlar')},
+          {'title': 'Kazanım Takip', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => CurriculumTrackingScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
           {'title': 'Ödev Takibi', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => HomeworkOperationsScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
           {'title': 'Etütlerim', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => EtutProcessScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
           {'title': 'AGM Ders Programım', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => AgmDashboardScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
@@ -1837,6 +1916,24 @@ class _OperationsTabState extends State<_OperationsTab> {
         ],
         onTap: () => setState(() => _selectedCategory = 'Kişisel'),
       ),
+      if (_hasLingoknAccess())
+        _ModuleCardWidget(
+          key: const ValueKey('t_online_hizmetler'),
+          title: 'ONLİNE HİZMETLER',
+          badge: 'LinGoKN',
+          icon: Icons.translate_rounded,
+          color: Colors.teal,
+          cardWidth: currentCardWidth,
+          isMobile: isMobile,
+          category: 'Kişisel',
+          showAllItems: isFiltered,
+          items: [
+            {'title': 'LinGoKN Portalına Geçiş', 'onTap': () => _launchDilknSso()},
+            if (['super_admin', 'admin', 'manager', 'genel_mudur'].contains(userData?['role']?.toString().toLowerCase()))
+              {'title': 'LinGoKN İzin Yönetimi', 'onTap': () => _showLingoknAccessDialog()},
+          ],
+          onTap: () => _launchDilknSso(),
+        ),
     ];
 
     final filteredModules = teacherModules.where((m) => _selectedCategory == 'Tümü' || m.category == _selectedCategory).toList();
@@ -1937,6 +2034,208 @@ class _OperationsTabState extends State<_OperationsTab> {
         ),
       ),
     );
+  }
+
+  bool _hasLingoknAccess() {
+    final role = userData?['role']?.toString().toLowerCase() ?? '';
+    if (['super_admin', 'admin', 'manager', 'genel_mudur'].contains(role)) {
+      return true;
+    }
+
+    if (schoolData == null) return false;
+    final access = schoolData!['lingoknAccess'] as Map<String, dynamic>?;
+    if (access == null) return false;
+
+    if (access['enabledAll'] == true) return true;
+
+    final userClass = userData?['className'] ?? userData?['class'] ?? '';
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+
+    final allowedClassIds = List<String>.from(access['allowedClassIds'] ?? []);
+    final allowedUserIds = List<String>.from(access['allowedUserIds'] ?? []);
+    final allowedTeacherIds = List<String>.from(access['allowedTeacherIds'] ?? []);
+
+    if (allowedClassIds.contains(userClass)) return true;
+    if (userId != null && allowedUserIds.contains(userId)) return true;
+    if (userId != null && role == 'ogretmen' && allowedTeacherIds.contains(userId)) return true;
+
+    return false;
+  }
+
+  void _showLingoknAccessDialog() async {
+    final schoolId = schoolData?['id'] ?? schoolData?['institutionId'] ?? widget.institutionId;
+    if (schoolId == null) return;
+
+    Map<String, dynamic> access = Map<String, dynamic>.from(schoolData?['lingoknAccess'] ?? {});
+    bool enabledAll = access['enabledAll'] == true;
+    List<String> allowedClassIds = List<String>.from(access['allowedClassIds'] ?? []);
+
+    final classesSnap = await FirebaseFirestore.instance
+        .collection('classes')
+        .where('schoolId', isEqualTo: schoolId)
+        .get();
+
+    final classNames = classesSnap.docs
+        .map((d) => d.data()['className']?.toString() ?? d.data()['name']?.toString() ?? d.id)
+        .where((n) => n.isNotEmpty)
+        .toSet()
+        .toList();
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Row(
+                children: [
+                  Icon(Icons.translate_rounded, color: Colors.teal),
+                  SizedBox(width: 8),
+                  Text('LinGoKN Erişim Yönetimi'),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SwitchListTile(
+                      title: const Text('Tüm Okula Erişimi Aç'),
+                      subtitle: const Text('Tüm öğretmen ve öğrenciler LinGoKN portalına geçiş yapabilir.'),
+                      value: enabledAll,
+                      activeColor: Colors.teal,
+                      onChanged: (val) => setDialogState(() => enabledAll = val),
+                    ),
+                    const Divider(),
+                    if (!enabledAll) ...[
+                      const Text('Sınıf Bazlı İzinler:', style: TextStyle(fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 8),
+                      if (classNames.isEmpty)
+                        const Text('Kayıtlı sınıf bulunamadı.', style: TextStyle(color: Colors.grey))
+                      else
+                        Wrap(
+                          spacing: 8,
+                          children: classNames.map((className) {
+                            final isSelected = allowedClassIds.contains(className);
+                            return FilterChip(
+                              label: Text(className),
+                              selected: isSelected,
+                              selectedColor: Colors.teal.shade100,
+                              onSelected: (selected) {
+                                setDialogState(() {
+                                  if (selected) {
+                                    allowedClassIds.add(className);
+                                  } else {
+                                    allowedClassIds.remove(className);
+                                  }
+                                });
+                              },
+                            );
+                          }).toList(),
+                        ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('İptal'),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
+                  onPressed: () async {
+                    final updatedAccess = {
+                      'enabledAll': enabledAll,
+                      'allowedClassIds': allowedClassIds,
+                      'allowedUserIds': access['allowedUserIds'] ?? [],
+                      'allowedTeacherIds': access['allowedTeacherIds'] ?? [],
+                    };
+
+                    final schoolDocRef = FirebaseFirestore.instance.collection('schools').doc(schoolId);
+                    await schoolDocRef.set({'lingoknAccess': updatedAccess}, SetOptions(merge: true));
+
+                    if (mounted) {
+                      setState(() {
+                        if (schoolData != null) {
+                          schoolData!['lingoknAccess'] = updatedAccess;
+                        }
+                      });
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('LinGoKN erişim izinleri başarıyla güncellendi.')),
+                      );
+                    }
+                  },
+                  child: const Text('Kaydet', style: TextStyle(color: Colors.white)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _launchDilknSso() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: Card(
+          child: Padding(
+            padding: EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('LinGoKN Portalına güvenli yönlendirme yapılıyor...', style: TextStyle(fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    try {
+      final callable = FirebaseFunctions.instance.httpsCallable('generateSsoToken');
+      final result = await callable.call();
+      final token = result.data['token'] as String;
+
+      if (mounted) Navigator.pop(context);
+
+      final url = Uri.parse(kDebugMode 
+          ? 'http://localhost:5501/#/auth?token=$token' 
+          : 'https://lingokn.web.app/#/auth?token=$token');
+      
+      if (await canLaunchUrl(url)) {
+        await launchUrl(url, mode: LaunchMode.externalApplication);
+      } else {
+        throw Exception('LinGoKN adresi açılamadı.');
+      }
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Bağlantı Hatası'),
+            content: Text('LinGoKN portalına bağlanırken bir sorun oluştu: $e'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Tamam'),
+              ),
+            ],
+          ),
+        );
+      }
+    }
   }
 
 }
@@ -2105,6 +2404,17 @@ class SharedNotificationSection extends StatelessWidget {
                 final filteredDocs = docs.where((doc) {
                   final data = doc.data() as Map<String, dynamic>;
                   
+                  // Zaman filtresi: 48 saatten eski olanları gösterme
+                  final createdAtTs = data['createdAt'] as Timestamp?;
+                  if (createdAtTs != null) {
+                    final difference = DateTime.now().difference(createdAtTs.toDate());
+                    if (difference.inHours > 48) {
+                      return false;
+                    }
+                  } else {
+                    return false; // Oluşturulma tarihi yoksa gösterme
+                  }
+
                   // Okul Türü Filtresi: Sadece bu okul türüne ait olanlar VEYA genel olanlar (null)
                   final sId = data['schoolTypeId'] as String?;
                   if (schoolTypeId.isNotEmpty && sId != null && sId != schoolTypeId) {
@@ -2754,168 +3064,165 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
 
     return Stack(
       children: [
-        Container(
-          margin: EdgeInsets.all(isWideScreen ? 24 : 16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(24),
-            boxShadow: isWideScreen
-                ? [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.03),
-                      spreadRadius: 5,
-                      blurRadius: 20,
-                      offset: Offset(0, 10),
-                    ),
-                  ]
-                : null,
-          ),
-          child: Column(
-            children: [
-              // Takvim Başlığı
-              Padding(
-                padding: EdgeInsets.fromLTRB(isWideScreen ? 24 : 16, 24, isWideScreen ? 24 : 8, 16),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          FittedBox(
-                            fit: BoxFit.scaleDown,
-                            alignment: Alignment.centerLeft,
-                            child: Text(
-                              '${_months[_focusedDay.month - 1]} ${_focusedDay.year}',
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.grey.shade900,
+        Align(
+          alignment: isWideScreen ? Alignment.centerRight : Alignment.center,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: isWideScreen ? 750 : double.infinity),
+            child: Container(
+              margin: EdgeInsets.all(isWideScreen ? 24 : 16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: isWideScreen
+                    ? [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.03),
+                          spreadRadius: 5,
+                          blurRadius: 20,
+                          offset: Offset(0, 10),
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Column(
+                children: [
+                  // Takvim Başlığı
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(isWideScreen ? 24 : 16, 24, isWideScreen ? 24 : 8, 16),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  '${_months[_focusedDay.month - 1]} ${_focusedDay.year}',
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.grey.shade900,
+                                  ),
+                                ),
                               ),
-                            ),
+                              if (_isLoading)
+                                Padding(
+                                  padding: EdgeInsets.only(top: 4),
+                                  child: SizedBox(
+                                    width: 60,
+                                    height: 2,
+                                    child: LinearProgressIndicator(
+                                      backgroundColor: Colors.blue.withOpacity(0.1),
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.blue,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
-                          if (_isLoading)
-                            Padding(
-                              padding: EdgeInsets.only(top: 4),
-                              child: SizedBox(
-                                width: 60,
-                                height: 2,
-                                child: LinearProgressIndicator(
-                                  backgroundColor: Colors.blue.withOpacity(0.1),
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                    Colors.blue,
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            setState(() {
+                              _focusedDay = DateTime.now();
+                              _selectedDay = DateTime.now();
+                            });
+                            _loadEvents();
+                          },
+                          child: Text('Bugün'),
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.blue,
+                            padding: EdgeInsets.symmetric(horizontal: 12),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () {
+                            setState(() {
+                              if (_isWeeklyView) {
+                                _selectedDay = _selectedDay.subtract(Duration(days: 7));
+                                _focusedDay = _selectedDay;
+                              } else {
+                                _focusedDay = DateTime(
+                                  _focusedDay.year,
+                                  _focusedDay.month - 1,
+                                );
+                              }
+                            });
+                            _loadEvents();
+                          },
+                          icon: Icon(Icons.chevron_left_rounded),
+                          splashRadius: 24,
+                        ),
+                        IconButton(
+                          onPressed: () {
+                            setState(() {
+                              if (_isWeeklyView) {
+                                _selectedDay = _selectedDay.add(Duration(days: 7));
+                                _focusedDay = _selectedDay;
+                              } else {
+                                _focusedDay = DateTime(
+                                  _focusedDay.year,
+                                  _focusedDay.month + 1,
+                                );
+                              }
+                            });
+                            _loadEvents();
+                          },
+                          icon: Icon(Icons.chevron_right_rounded),
+                          splashRadius: 24,
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Gün İsimleri
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: Row(
+                      children: _daysOfWeek
+                          .map(
+                            (day) => Expanded(
+                              child: Center(
+                                child: Text(
+                                  day,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.blueGrey.shade300,
                                   ),
                                 ),
                               ),
                             ),
-                        ],
-                      ),
+                          )
+                          .toList(),
                     ),
-                    TextButton(
-                      onPressed: () {
-                        setState(() {
-                          _focusedDay = DateTime.now();
-                          _selectedDay = DateTime.now();
-                        });
-                        _loadEvents();
-                      },
-                      child: Text('Bugün'),
-                      style: TextButton.styleFrom(
-                        foregroundColor: Colors.blue,
-                        padding: EdgeInsets.symmetric(horizontal: 12),
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () {
-                        setState(() {
-                          if (_isWeeklyView) {
-                            _selectedDay = _selectedDay.subtract(Duration(days: 7));
-                            _focusedDay = _selectedDay;
-                          } else {
-                            _focusedDay = DateTime(
-                              _focusedDay.year,
-                              _focusedDay.month - 1,
-                            );
-                          }
-                        });
-                        _loadEvents();
-                      },
-                      icon: Icon(Icons.chevron_left_rounded),
-                      splashRadius: 24,
-                    ),
-                    IconButton(
-                      onPressed: () {
-                        setState(() {
-                          if (_isWeeklyView) {
-                            _selectedDay = _selectedDay.add(Duration(days: 7));
-                            _focusedDay = _selectedDay;
-                          } else {
-                            _focusedDay = DateTime(
-                              _focusedDay.year,
-                              _focusedDay.month + 1,
-                            );
-                          }
-                        });
-                        _loadEvents();
-                      },
-                      icon: Icon(Icons.chevron_right_rounded),
-                      splashRadius: 24,
-                    ),
-                  ],
-                ),
-              ),
-              // Gün İsimleri
-              Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  children: _daysOfWeek
-                      .map(
-                        (day) => Expanded(
-                          child: Center(
-                            child: Text(
-                              day,
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.blueGrey.shade300,
-                              ),
-                            ),
-                          ),
-                        ),
-                      )
-                      .toList(),
-                ),
-              ),
-              SizedBox(height: 8),
-              // Günler Grid
-              if (_isWeeklyView)
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: _buildCalendarGrid(),
-                )
-              else
-                Flexible(
-                  flex: 5,
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+                  ),
+                  SizedBox(height: 8),
+                  // Günler Grid (Clipped view fixed by removing Flexible and using NeverScrollableScrollPhysics)
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: _isWeeklyView ? 8 : 4),
                     child: _buildCalendarGrid(),
                   ),
-                ),
-              // Seçili Gün Etkinlikleri
-              Expanded(
-                flex: 6,
-                child: Container(
-                  padding: EdgeInsets.symmetric(horizontal: 24),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade50,
-                    borderRadius: BorderRadius.only(
-                      bottomLeft: Radius.circular(24),
-                      bottomRight: Radius.circular(24),
+                  SizedBox(height: 8),
+                  // Seçili Gün Etkinlikleri
+                  Expanded(
+                    child: Container(
+                      padding: EdgeInsets.symmetric(horizontal: 24),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        borderRadius: BorderRadius.only(
+                          bottomLeft: Radius.circular(24),
+                          bottomRight: Radius.circular(24),
+                        ),
+                      ),
+                      child: _buildEventList(),
                     ),
                   ),
-                  child: _buildEventList(),
-                ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
         // Ekleme FAB (Google Calendar Style)
@@ -2946,7 +3253,7 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
 
     return GridView.builder(
       shrinkWrap: true,
-      physics: BouncingScrollPhysics(),
+      physics: const NeverScrollableScrollPhysics(),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 7,
         mainAxisSpacing: 2,

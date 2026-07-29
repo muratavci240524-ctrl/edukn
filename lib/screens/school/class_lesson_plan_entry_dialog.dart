@@ -15,6 +15,8 @@ class ClassLessonPlanEntryDialog extends StatefulWidget {
   final String lessonName;
   final String? existingPlanId;
   final Map<String, dynamic>? existingPlanData;
+  final List<String>? combinedClassIds;
+  final List<String>? combinedClassNames;
 
   const ClassLessonPlanEntryDialog({
     Key? key,
@@ -26,6 +28,8 @@ class ClassLessonPlanEntryDialog extends StatefulWidget {
     required this.lessonName,
     this.existingPlanId,
     this.existingPlanData,
+    this.combinedClassIds,
+    this.combinedClassNames,
   }) : super(key: key);
 
   @override
@@ -291,35 +295,55 @@ class _ClassLessonPlanEntryDialogState
       final batch = FirebaseFirestore.instance.batch();
 
       // 2. Create or Update Class Lesson Plan
-      final docRef = widget.existingPlanId != null
-          ? FirebaseFirestore.instance
-                .collection('classLessonPlans')
-                .doc(widget.existingPlanId)
-          : FirebaseFirestore.instance.collection('classLessonPlans').doc();
-
-      final data = {
-        'institutionId': widget.institutionId,
-        'schoolTypeId': widget.schoolTypeId,
-        'periodId': widget.periodId,
-        'classId': widget.classId,
-        'lessonId': widget.lessonId,
-        'lessonName': widget.lessonName,
-        'teacherId': user.uid,
-        'title': _titleController.text,
-        'content': _contentController.text, // İşleniş / Konu
-        'outcome': _outcomeController.text, // Kazanım
-        'yearlyPlanId': _selectedYearlyPlanId,
-        'weeklyPlanId': _selectedWeekId,
-        'isFromYearlyPlan': _useYearlyPlan,
-        'updatedAt': FieldValue.serverTimestamp(),
-        'attachments': finalAttachments,
-      };
+      final targetClassIds = widget.combinedClassIds != null && widget.combinedClassIds!.isNotEmpty
+          ? widget.combinedClassIds!
+          : [widget.classId];
 
       if (widget.existingPlanId == null) {
-        data['date'] = FieldValue.serverTimestamp();
-        data['createdAt'] = FieldValue.serverTimestamp();
-        batch.set(docRef, data);
+        for (var cId in targetClassIds) {
+          final docRef = FirebaseFirestore.instance.collection('classLessonPlans').doc();
+          final data = {
+            'institutionId': widget.institutionId,
+            'schoolTypeId': widget.schoolTypeId,
+            'periodId': widget.periodId,
+            'classId': cId,
+            'lessonId': widget.lessonId,
+            'lessonName': widget.lessonName,
+            'teacherId': user.uid,
+            'title': _titleController.text,
+            'content': _contentController.text, // İşleniş / Konu
+            'outcome': _outcomeController.text, // Kazanım
+            'yearlyPlanId': _selectedYearlyPlanId,
+            'weeklyPlanId': _selectedWeekId,
+            'isFromYearlyPlan': _useYearlyPlan,
+            'updatedAt': FieldValue.serverTimestamp(),
+            'attachments': finalAttachments,
+            'date': FieldValue.serverTimestamp(),
+            'createdAt': FieldValue.serverTimestamp(),
+          };
+          batch.set(docRef, data);
+        }
       } else {
+        final docRef = FirebaseFirestore.instance
+            .collection('classLessonPlans')
+            .doc(widget.existingPlanId);
+        final data = {
+          'institutionId': widget.institutionId,
+          'schoolTypeId': widget.schoolTypeId,
+          'periodId': widget.periodId,
+          'classId': widget.classId,
+          'lessonId': widget.lessonId,
+          'lessonName': widget.lessonName,
+          'teacherId': user.uid,
+          'title': _titleController.text,
+          'content': _contentController.text, // İşleniş / Konu
+          'outcome': _outcomeController.text, // Kazanım
+          'yearlyPlanId': _selectedYearlyPlanId,
+          'weeklyPlanId': _selectedWeekId,
+          'isFromYearlyPlan': _useYearlyPlan,
+          'updatedAt': FieldValue.serverTimestamp(),
+          'attachments': finalAttachments,
+        };
         batch.update(docRef, data);
       }
 
@@ -334,7 +358,7 @@ class _ClassLessonPlanEntryDialogState
             .doc(_selectedWeekId);
 
         batch.update(weekRef, {
-          'coveredClassIds': FieldValue.arrayUnion([widget.classId]),
+          'coveredClassIds': FieldValue.arrayUnion(targetClassIds),
         });
       }
 

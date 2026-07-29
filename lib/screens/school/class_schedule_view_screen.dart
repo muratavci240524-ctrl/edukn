@@ -30,6 +30,7 @@ class _ClassScheduleViewScreenState extends State<ClassScheduleViewScreen> {
   Map<String, int> _dailyLessonCounts = {};
   Map<String, List<Map<String, dynamic>>> _dayLessonTimes = {};
   bool _isLoading = true;
+  bool _isScheduleLoading = false;
   String? _activePeriodId;
   bool _showTableViewWide = true;
   DateTime _weekStart = DateTime.now();
@@ -112,160 +113,230 @@ class _ClassScheduleViewScreenState extends State<ClassScheduleViewScreen> {
     return '${start.day} ${_monthNameTr(start.month)} - ${end.day} ${_monthNameTr(end.month)} ${end.year}';
   }
 
-  Future<void> _loadData() async {
-    setState(() => _isLoading = true);
+  Future<void> _loadData({bool reloadSidebar = true}) async {
+    if (reloadSidebar) {
+      setState(() => _isLoading = true);
+    } else {
+      setState(() => _isScheduleLoading = true);
+    }
 
     try {
-      // Yayınlanmış aktif dönemi bul
+      final instIds = [
+        widget.institutionId.toUpperCase(),
+        widget.institutionId.toLowerCase()
+      ].toSet().toList();
+
+      // Yayınlanmış aktif dönemleri bul
       final periodsSnapshot = await FirebaseFirestore.instance
           .collection('workPeriods')
           .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
-          .where('institutionId', isEqualTo: widget.institutionId)
+          .where('institutionId', whereIn: instIds)
           .where('isActive', isEqualTo: true)
           .where('schedulePublished', isEqualTo: true)
           .get();
 
-      if (periodsSnapshot.docs.isEmpty) {
-        setState(() => _isLoading = false);
-        return;
-      }
+      _days = [];
+      _dailyLessonCounts = {};
+      _dayLessonTimes = {};
+      _activePeriodId = null;
+      _scheduleData = {};
 
-      // En son dönemi al
-      final periodDoc = periodsSnapshot.docs.first;
-      _activePeriodId = periodDoc.id;
-      final periodData = periodDoc.data();
+      if (periodsSnapshot.docs.isNotEmpty) {
+        // Seçili haftaya uygun dönemi bul
+        QueryDocumentSnapshot? activePeriodDoc;
+        final targetDate = _weekStart;
 
-      // Ders saatlerini yükle
-      final lessonHoursData =
-          periodData['lessonHours'] as Map<String, dynamic>?;
-      if (lessonHoursData != null) {
-        _days = List<String>.from(lessonHoursData['selectedDays'] ?? []);
+        for (var doc in periodsSnapshot.docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          final start = (data['startDate'] as Timestamp?)?.toDate();
+          final end = (data['endDate'] as Timestamp?)?.toDate();
 
-        final dailyCountsRaw =
-            lessonHoursData['dailyLessonCounts'] as Map<String, dynamic>?;
-        if (dailyCountsRaw != null) {
-          _dailyLessonCounts = dailyCountsRaw.map(
-            (k, v) =>
-                MapEntry(k, v is int ? v : int.tryParse(v.toString()) ?? 0),
-          );
+          if (start != null && end != null) {
+            if (targetDate.isAfter(start.subtract(const Duration(days: 1))) &&
+                targetDate.isBefore(end.add(const Duration(days: 1)))) {
+              activePeriodDoc = doc;
+              break;
+            }
+          }
         }
 
-        // Ders saatlerini parse et
-        final lessonTimesRaw = lessonHoursData['lessonTimes'];
-        if (lessonTimesRaw != null && lessonTimesRaw is Map) {
-          final lessonTimesMap = Map<String, dynamic>.from(lessonTimesRaw);
-          final firstKey = lessonTimesMap.keys.first;
-          final isNumericKey = int.tryParse(firstKey) != null;
+        if (activePeriodDoc != null) {
+          final periodDoc = activePeriodDoc;
+          _activePeriodId = periodDoc.id;
+          final periodData = periodDoc.data() as Map<String, dynamic>;
 
-          if (isNumericKey) {
-            final sortedKeys = lessonTimesMap.keys.toList()
-              ..sort((a, b) => int.parse(a).compareTo(int.parse(b)));
+          // Ders saatlerini yükle
+          final lessonHoursData =
+              periodData['lessonHours'] as Map<String, dynamic>?;
+          if (lessonHoursData != null) {
+            _days = List<String>.from(lessonHoursData['selectedDays'] ?? []);
 
-            final hours = sortedKeys.map((key) {
-              final time = Map<String, dynamic>.from(lessonTimesMap[key]);
-              return {
-                'hourNumber': int.parse(key) + 1,
-                'startTime':
-                    '${(time['startHour'] ?? 0).toString().padLeft(2, '0')}:${(time['startMinute'] ?? 0).toString().padLeft(2, '0')}',
-                'endTime':
-                    '${(time['endHour'] ?? 0).toString().padLeft(2, '0')}:${(time['endMinute'] ?? 0).toString().padLeft(2, '0')}',
-              };
-            }).toList();
-
-            for (var day in _days) {
-              _dayLessonTimes[day] = List.from(hours);
+            final dailyCountsRaw =
+                lessonHoursData['dailyLessonCounts'] as Map<String, dynamic>?;
+            if (dailyCountsRaw != null) {
+              _dailyLessonCounts = dailyCountsRaw.map(
+                (k, v) =>
+                    MapEntry(k, v is int ? v : int.tryParse(v.toString()) ?? 0),
+              );
             }
-          } else {
-            for (var day in _days) {
-              final dayData = lessonTimesMap[day];
-              if (dayData != null && dayData is List) {
-                _dayLessonTimes[day] = dayData.asMap().entries.map((entry) {
-                  final time = Map<String, dynamic>.from(entry.value);
+
+            // Ders saatlerini parse et
+            final lessonTimesRaw = lessonHoursData['lessonTimes'];
+            if (lessonTimesRaw != null && lessonTimesRaw is Map) {
+              final lessonTimesMap = Map<String, dynamic>.from(lessonTimesRaw);
+              final firstKey = lessonTimesMap.keys.first;
+              final isNumericKey = int.tryParse(firstKey) != null;
+
+              if (isNumericKey) {
+                final sortedKeys = lessonTimesMap.keys.toList()
+                  ..sort((a, b) => int.parse(a).compareTo(int.parse(b)));
+
+                final hours = sortedKeys.map((key) {
+                  final time = Map<String, dynamic>.from(lessonTimesMap[key]);
                   return {
-                    'hourNumber': entry.key + 1,
+                    'hourNumber': int.parse(key) + 1,
                     'startTime':
                         '${(time['startHour'] ?? 0).toString().padLeft(2, '0')}:${(time['startMinute'] ?? 0).toString().padLeft(2, '0')}',
                     'endTime':
                         '${(time['endHour'] ?? 0).toString().padLeft(2, '0')}:${(time['endMinute'] ?? 0).toString().padLeft(2, '0')}',
                   };
                 }).toList();
+
+                for (var day in _days) {
+                  _dayLessonTimes[day] = List.from(hours);
+                }
+              } else {
+                for (var day in _days) {
+                  final dayData = lessonTimesMap[day];
+                  if (dayData != null && dayData is List) {
+                    _dayLessonTimes[day] = dayData.asMap().entries.map((entry) {
+                      final time = Map<String, dynamic>.from(entry.value);
+                      return {
+                        'hourNumber': entry.key + 1,
+                        'startTime':
+                            '${(time['startHour'] ?? 0).toString().padLeft(2, '0')}:${(time['startMinute'] ?? 0).toString().padLeft(2, '0')}',
+                        'endTime':
+                            '${(time['endHour'] ?? 0).toString().padLeft(2, '0')}:${(time['endMinute'] ?? 0).toString().padLeft(2, '0')}',
+                      };
+                    }).toList();
+                  }
+                }
               }
             }
           }
+        } else {
+          _activePeriodId = null;
+          _scheduleData = {};
+          _days = [];
+          _dailyLessonCounts = {};
+          _dayLessonTimes = {};
         }
+      } else {
+        _activePeriodId = null;
+        _scheduleData = {};
+        _days = [];
+        _dailyLessonCounts = {};
+        _dayLessonTimes = {};
       }
 
       // Şubeleri yükle
-      final classesSnapshot = await FirebaseFirestore.instance
-          .collection('classes')
-          .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
-          .where('institutionId', isEqualTo: widget.institutionId)
-          .where('isActive', isEqualTo: true)
-          .get();
+      if (reloadSidebar || _allClasses.isEmpty) {
+        final classesSnapshot = await FirebaseFirestore.instance
+            .collection('classes')
+            .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+            .where('institutionId', whereIn: instIds)
+            .where('isActive', isEqualTo: true)
+            .get();
 
-      final classes = classesSnapshot.docs.map((doc) {
-        final data = doc.data();
-        data['id'] = doc.id;
-        return data;
-      }).toList();
+        final classes = classesSnapshot.docs.map((doc) {
+          final data = doc.data();
+          data['id'] = doc.id;
+          return data;
+        }).toList();
 
-      classes.sort((a, b) {
-        final levelA = (a['classLevel'] ?? 0) is int
-            ? a['classLevel']
-            : int.tryParse(a['classLevel'].toString()) ?? 0;
-        final levelB = (b['classLevel'] ?? 0) is int
-            ? b['classLevel']
-            : int.tryParse(b['classLevel'].toString()) ?? 0;
-        final levelCompare = levelA.compareTo(levelB);
-        if (levelCompare != 0) return levelCompare;
-        return (a['className'] ?? '').toString().compareTo(
-          (b['className'] ?? '').toString(),
-        );
-      });
-
-      // Filtre seçeneklerini topla
-      final Set<int> classLevels = {};
-      final Set<String> classTypes = {};
-      for (var c in classes) {
-        final level = c['classLevel'];
-        if (level != null) {
-          classLevels.add(
-            level is int ? level : int.tryParse(level.toString()) ?? 0,
+        classes.sort((a, b) {
+          final levelA = (a['classLevel'] ?? 0) is int
+              ? a['classLevel']
+              : int.tryParse(a['classLevel'].toString()) ?? 0;
+          final levelB = (b['classLevel'] ?? 0) is int
+              ? b['classLevel']
+              : int.tryParse(b['classLevel'].toString()) ?? 0;
+          final levelCompare = levelA.compareTo(levelB);
+          if (levelCompare != 0) return levelCompare;
+          return (a['className'] ?? '').toString().compareTo(
+            (b['className'] ?? '').toString(),
           );
-        }
-        final type = c['classTypeName'] as String?;
-        if (type != null && type.isNotEmpty) {
-          classTypes.add(type);
-        }
-      }
+        });
 
-      setState(() {
+        // Filtre seçeneklerini topla
+        final Set<int> classLevels = {};
+        final Set<String> classTypes = {};
+        for (var c in classes) {
+          final level = c['classLevel'];
+          if (level != null) {
+            classLevels.add(
+              level is int ? level : int.tryParse(level.toString()) ?? 0,
+            );
+          }
+          final type = c['classTypeName'] as String?;
+          if (type != null && type.isNotEmpty) {
+            classTypes.add(type);
+          }
+        }
+
         _allClasses = classes;
         _classes = classes;
         _availableClassLevels = classLevels;
         _availableClassTypes = classTypes;
+
+        if (_selectedClass == null && _classes.isNotEmpty) {
+          _selectedClass = _classes.first;
+        }
+      }
+
+      if (_selectedClass != null && _activePeriodId != null) {
+        _loadClassSchedule(_selectedClass!['id']);
+      } else {
+        _scheduleData = {};
+      }
+
+      setState(() {
         _isLoading = false;
+        _isScheduleLoading = false;
       });
     } catch (e) {
       print('Veri yükleme hatası: $e');
-      setState(() => _isLoading = false);
+      setState(() {
+        _isLoading = false;
+        _isScheduleLoading = false;
+      });
     }
   }
 
   Future<void> _loadClassSchedule(String classId) async {
-    if (_activePeriodId == null) return;
+    setState(() => _isScheduleLoading = true);
+    if (_activePeriodId == null) {
+      _scheduleData = {};
+      setState(() => _isScheduleLoading = false);
+      return;
+    }
 
     try {
+      final instIds = [
+        widget.institutionId.toUpperCase(),
+        widget.institutionId.toLowerCase()
+      ].toSet().toList();
+
       // Paralel olarak hem schedule hem lessonAssignments çek
       final results = await Future.wait([
         FirebaseFirestore.instance
             .collection('classSchedules')
             .where('periodId', isEqualTo: _activePeriodId)
             .where('classId', isEqualTo: classId)
-            .where('isActive', isEqualTo: true)
             .get(),
         FirebaseFirestore.instance
             .collection('lessonAssignments')
+            .where('institutionId', whereIn: instIds)
             .where('classId', isEqualTo: classId)
             .where('isActive', isEqualTo: true)
             .get(),
@@ -283,16 +354,23 @@ class _ClassScheduleViewScreenState extends State<ClassScheduleViewScreen> {
         if (lessonId != null &&
             teacherNames != null &&
             teacherNames.isNotEmpty) {
-          teacherNameMap[lessonId] = teacherNames.first?.toString() ?? '';
+          teacherNameMap[lessonId] = teacherNames.join(', ');
         }
       }
 
       final Map<String, Map<String, dynamic>> scheduleData = {};
       for (var doc in scheduleSnapshot.docs) {
         final data = doc.data();
-        final key = '${data['classId']}_${data['day']}_${data['hourIndex']}';
+        if (data['isActive'] == false) continue;
 
-        // teacherName boş veya "Öğretmen" ise map'ten al
+        final day = data['day'] as String?;
+        final hourIndex = data['hourIndex'] as int?;
+
+        if (day == null || hourIndex == null) continue;
+
+        final key = '${classId}_${day}_$hourIndex';
+
+        // Eğer ders programı kaydında teacherName eksikse, lessonAssignments'dan tamamla
         String? teacherName = data['teacherName'] as String?;
         if (teacherName == null ||
             teacherName.isEmpty ||
@@ -308,9 +386,11 @@ class _ClassScheduleViewScreenState extends State<ClassScheduleViewScreen> {
 
       setState(() {
         _scheduleData = scheduleData;
+        _isScheduleLoading = false;
       });
     } catch (e) {
       print('Program yükleme hatası: $e');
+      setState(() => _isScheduleLoading = false);
     }
   }
 
@@ -400,9 +480,7 @@ class _ClassScheduleViewScreenState extends State<ClassScheduleViewScreen> {
         ],
       ),
       body: _isLoading
-          ? Center(child: CircularProgressIndicator())
-          : _activePeriodId == null
-          ? _buildNoPublishedSchedule()
+          ? const Center(child: CircularProgressIndicator())
           : _buildMainContent(),
     );
   }
@@ -429,25 +507,27 @@ class _ClassScheduleViewScreenState extends State<ClassScheduleViewScreen> {
         ),
         // Sağ panel - Program görünümü
         Expanded(
-          child: _selectedClass == null
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.touch_app,
-                        size: 64,
-                        color: Colors.grey.shade400,
+          child: _isScheduleLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _selectedClass == null
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.touch_app,
+                            size: 64,
+                            color: Colors.grey.shade400,
+                          ),
+                          SizedBox(height: 16),
+                          Text(
+                            'Programı görmek için bir şube seçin',
+                            style: TextStyle(color: Colors.grey.shade600),
+                          ),
+                        ],
                       ),
-                      SizedBox(height: 16),
-                      Text(
-                        'Programı görmek için bir şube seçin',
-                        style: TextStyle(color: Colors.grey.shade600),
-                      ),
-                    ],
-                  ),
-                )
-              : _buildScheduleView(),
+                    )
+                  : _buildScheduleView(),
         ),
       ],
     );
@@ -780,30 +860,64 @@ class _ClassScheduleViewScreenState extends State<ClassScheduleViewScreen> {
 
   Widget _buildNoPublishedSchedule() {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.calendar_today, size: 64, color: Colors.grey.shade400),
-          SizedBox(height: 16),
-          Text(
-            'Yayınlanmış ders programı bulunamadı',
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 16),
-          ),
-          SizedBox(height: 8),
-          Text(
-            'Ders programı yönetici tarafından yayınlandığında burada görünecektir',
-            style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
-          ),
-        ],
+      child: Container(
+        margin: const EdgeInsets.all(32),
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.purple.shade900.withOpacity(0.04),
+              blurRadius: 20,
+              offset: const Offset(0, 8),
+            ),
+          ],
+          border: Border.all(color: Colors.purple.shade50),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.purple.shade50,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.calendar_month_outlined,
+                size: 48,
+                color: Colors.purple.shade400,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Bu Tarihte Ders Programı Bulunmamaktadır',
+              style: TextStyle(
+                color: Colors.purple.shade900,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Seçilen tarih aktif çalışma dönemi aralığı dışında kaldığı için veya henüz program yayınlanmadığı için gösterilecek ders bulunmuyor.',
+              style: TextStyle(
+                color: Colors.grey.shade600,
+                fontSize: 13,
+                height: 1.4,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildScheduleView() {
-    if (_days.isEmpty) {
-      return Center(child: Text('Ders saati tanımlanmamış'));
-    }
-
     final maxHours = _dailyLessonCounts.values.isNotEmpty
         ? _dailyLessonCounts.values.reduce((a, b) => a > b ? a : b)
         : 8;
@@ -812,9 +926,13 @@ class _ClassScheduleViewScreenState extends State<ClassScheduleViewScreen> {
       children: [
         _buildDateSelectorRow(),
         Expanded(
-          child: _showTableViewWide
-              ? _buildTableScheduleWide(maxHours)
-              : _buildCardScheduleWide(),
+          child: _activePeriodId == null
+              ? _buildNoPublishedSchedule()
+              : _days.isEmpty
+                  ? const Center(child: Text('Ders saati tanımlanmamış'))
+                  : (_showTableViewWide
+                      ? _buildTableScheduleWide(maxHours)
+                      : _buildCardScheduleWide()),
         ),
       ],
     );
@@ -845,7 +963,12 @@ class _ClassScheduleViewScreenState extends State<ClassScheduleViewScreen> {
                 visualDensity: VisualDensity.compact,
                 onPressed: () {
                   setState(() {
-                    _weekStart = _weekStart.subtract(Duration(days: 7));
+                    _weekStart = _weekStart.subtract(const Duration(days: 7));
+                  });
+                  _loadData(reloadSidebar: false).then((_) {
+                    if (_selectedClass != null) {
+                      _loadClassSchedule(_selectedClass!['id']);
+                    }
                   });
                 },
                 icon: Icon(Icons.arrow_back_ios_new, size: 14, color: Colors.purple.shade700),
@@ -884,7 +1007,12 @@ class _ClassScheduleViewScreenState extends State<ClassScheduleViewScreen> {
                 visualDensity: VisualDensity.compact,
                 onPressed: () {
                   setState(() {
-                    _weekStart = _weekStart.add(Duration(days: 7));
+                    _weekStart = _weekStart.add(const Duration(days: 7));
+                  });
+                  _loadData(reloadSidebar: false).then((_) {
+                    if (_selectedClass != null) {
+                      _loadClassSchedule(_selectedClass!['id']);
+                    }
                   });
                 },
                 icon: Icon(Icons.arrow_forward_ios, size: 14, color: Colors.purple.shade700),

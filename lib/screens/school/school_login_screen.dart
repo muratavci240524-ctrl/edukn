@@ -215,18 +215,28 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         }
       }
 
-      // Okul kontrolü
-      final schoolQuery = await FirebaseFirestore.instance
-          .collection('schools')
-          .where('institutionId', isEqualTo: institutionId)
-          .limit(1)
-          .get()
-          .timeout(const Duration(seconds: 15), onTimeout: () => throw 'Okul bilgileri alınırken zaman aşımı oluştu.');
+      // Okul kontrolü (Pre-login - Yetki varsa çalışır, yoksa post-login aşamasına bırakılır)
+      Map<String, dynamic>? schoolData;
+      try {
+        final schoolQuery = await FirebaseFirestore.instance
+            .collection('schools')
+            .where('institutionId', isEqualTo: institutionId)
+            .limit(1)
+            .get()
+            .timeout(const Duration(seconds: 15));
 
-      if (schoolQuery.docs.isEmpty) throw 'Bu kurum ID ile kayıtlı okul bulunamadı!';
-
-      final schoolData = schoolQuery.docs.first.data();
-      if (schoolData['isActive'] != true) throw 'Bu okul şu an pasif durumda!';
+        if (schoolQuery.docs.isNotEmpty) {
+          schoolData = schoolQuery.docs.first.data();
+          if (schoolData['isActive'] != true) throw 'Bu okul şu an pasif durumda!';
+        } else {
+          throw 'Bu kurum ID ile kayıtlı okul bulunamadı!';
+        }
+      } catch (e) {
+        print('⚠️ Giriş öncesi okul kontrolü atlandı (Auth sonrasında yapılacak): $e');
+        if (e.toString().contains('pasif') || e.toString().contains('bulunamadı')) {
+          rethrow;
+        }
+      }
 
       // 2. Firebase Auth ile Giriş Yap
       // Strateji: Firestore'daki email → başarısız olursa generate format → temp şifre ile de dene
@@ -323,6 +333,38 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       NotificationService().initialize(uid: uid).catchError((e) {
         print('⚠️ FCM init hatası (kritik değil): $e');
       });
+
+      // Giriş Sonrası Okul Doğrulaması (Pre-login aşamasında yetki hatası alındıysa)
+      if (schoolData == null) {
+        print('🔍 Giriş sonrası okul doğrulaması yapılıyor...');
+        try {
+          final schoolQueryPost = await FirebaseFirestore.instance
+              .collection('schools')
+              .where('institutionId', isEqualTo: institutionId)
+              .limit(1)
+              .get()
+              .timeout(const Duration(seconds: 15));
+
+          if (schoolQueryPost.docs.isEmpty) {
+            await FirebaseAuth.instance.signOut();
+            throw 'Bu kurum ID ile kayıtlı okul bulunamadı!';
+          }
+
+          schoolData = schoolQueryPost.docs.first.data();
+          if (schoolData['isActive'] != true) {
+            await FirebaseAuth.instance.signOut();
+            throw 'Bu okul şu an pasif durumda!';
+          }
+          print('✅ Giriş sonrası okul doğrulandı.');
+        } catch (e) {
+          print('❌ Giriş sonrası okul doğrulama hatası: $e');
+          await FirebaseAuth.instance.signOut();
+          if (e.toString().contains('pasif') || e.toString().contains('bulunamadı')) {
+            rethrow;
+          }
+          throw 'Okul doğrulaması başarısız oldu: $e';
+        }
+      }
 
       final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get()
           .timeout(const Duration(seconds: 15), onTimeout: () => throw 'Kullanıcı verisi alınırken zaman aşımı oluştu.');

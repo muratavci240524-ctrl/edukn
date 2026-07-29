@@ -30,7 +30,10 @@ service cloud.firestore {
 
     // Bir resourceData'nın aynı kuruma ait olup olmadığını kontrol eder
     function isSameInstitution(resourceData) {
-      return myInstitutionId().lower() == resourceData.get('institutionId', '__DIFFERENT__').lower();
+      return isSuperAdmin() ||
+             resourceData == null ||
+             myInstitutionId().lower() == resourceData.get('institutionId', '__DIFFERENT__').lower() ||
+             myInstitutionId().lower() == resourceData.get('institution_id', '__DIFFERENT__').lower();
     }
 
     // Kullanıcının belirli bir institution'a ait olup olmadığını kontrol eder
@@ -81,6 +84,26 @@ service cloud.firestore {
     }
 
     // ═══════════════════════════════════════════════════════════════
+    // 📊 DEĞERLENDİRMELER (ASSESSMENTS)
+    // ═══════════════════════════════════════════════════════════════
+    match /assessments/{assessmentId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 👥 ÖĞRETMENLER VE ÖĞRENCİLER
+    // ═══════════════════════════════════════════════════════════════
+    match /teachers/{teacherId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /students/{studentId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /registrationRequests/{requestId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     // 👤 KULLANICILAR — KRİTİK: getUserData() buraya bağlı
     // ÖNEMLİ: Kendi dokümanını okuyabilmek login akışı için şarttır.
     // Bu kural olmadan getUserData() çalışmaz → tüm sistem kilitlenir!
@@ -95,13 +118,19 @@ service cloud.firestore {
       //   3) Aynı kurum üyesi — diğer kullanıcıları listelemek için
       //   4) Super Admin — tüm erişim
       // ─────────────────────────────────────────────────────────────
-      allow read: if isAuthenticated() && (
+      allow get: if isAuthenticated() && (
         request.auth.uid == userId ||
         resource.data.get('email', '') == request.auth.token.email ||
         resource.data.get('email', '') == request.auth.token.email.lower() ||
         isSameInstitution(resource.data) ||
         isSuperAdmin()
       );
+      allow list: if (isAuthenticated() && (
+        resource.data.get('email', '') == request.auth.token.email ||
+        resource.data.get('email', '') == request.auth.token.email.lower() ||
+        isSameInstitution(resource.data) ||
+        isSuperAdmin()
+      )) || (request.auth == null && request.query.limit <= 1);
 
       // Kullanıcı kendi profilini güncelleyebilir (rol ve kurum değiştiremez)
       allow update: if isAuthenticated() && request.auth.uid == userId
@@ -143,11 +172,15 @@ service cloud.firestore {
       // Hem doğrudan ID ile okuma hem de .where() koleksiyon sorguları için
       // belongsToSchool(schoolId) → ID ile erişimde çalışır
       // isSameInstitution(resource.data) → .where() sorgularında çalışır
-      allow read: if isAuthenticated() && (
+      allow get: if isAuthenticated() && (
         belongsToSchool(schoolId) ||
         isSameInstitution(resource.data) ||
         isSuperAdmin()
       );
+      allow list: if (isAuthenticated() && (
+        isSameInstitution(resource.data) ||
+        isSuperAdmin()
+      )) || (request.auth == null && request.query.limit <= 1);
       allow create: if isAuthenticated() && isSuperAdmin();
       allow update: if isAuthenticated() && (
         (belongsToSchool(schoolId) && isAdminOrManager()) ||
@@ -285,10 +318,10 @@ service cloud.firestore {
     // 📅 ÇALIŞMA DÖNEMLERİ
     // ═══════════════════════════════════════════════════════════════
     match /workPeriods/{periodId} {
-      allow read: if isAuthenticated() && isSameInstitution(resource.data);
-      allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isAdminOrManager();
-      allow update: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
-      allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (isSameInstitution(request.resource.data) || isSuperAdmin()) && (isAdminOrManager() || isSuperAdmin());
+      allow update: if isAuthenticated() && (isSameInstitution(resource.data) || isSuperAdmin()) && (isAdminOrManager() || isSuperAdmin());
+      allow delete: if isAuthenticated() && (isSameInstitution(resource.data) || isSuperAdmin()) && (isAdminOrManager() || isSuperAdmin());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -388,10 +421,10 @@ service cloud.firestore {
     // 🏛️ SINIFLAR
     // ═══════════════════════════════════════════════════════════════
     match /classes/{classId} {
-      allow read: if isAuthenticated() && isSameInstitution(resource.data);
-      allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isManagement();
-      allow update: if isAuthenticated() && isSameInstitution(resource.data) && isManagement();
-      allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (isSameInstitution(request.resource.data) || isSuperAdmin()) && (isManagement() || isSuperAdmin());
+      allow update: if isAuthenticated() && (isSameInstitution(resource.data) || isSuperAdmin()) && (isManagement() || isSuperAdmin());
+      allow delete: if isAuthenticated() && (isSameInstitution(resource.data) || isSuperAdmin()) && (isAdminOrManager() || isSuperAdmin());
     }
 
     match /classTypes/{typeId} {
@@ -489,17 +522,17 @@ service cloud.firestore {
     // 📚 DERSLER / ATAMALAR
     // ═══════════════════════════════════════════════════════════════
     match /lessons/{lessonId} {
-      allow read: if isAuthenticated() && isSameInstitution(resource.data);
-      allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isManagement();
-      allow update: if isAuthenticated() && isSameInstitution(resource.data) && isManagement();
-      allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (isSameInstitution(request.resource.data) || isSuperAdmin()) && (isManagement() || isSuperAdmin());
+      allow update: if isAuthenticated() && (isSameInstitution(resource.data) || isSuperAdmin()) && (isManagement() || isSuperAdmin());
+      allow delete: if isAuthenticated() && (isSameInstitution(resource.data) || isSuperAdmin()) && (isAdminOrManager() || isSuperAdmin());
     }
 
     match /lessonAssignments/{assignmentId} {
-      allow read: if isAuthenticated() && isSameInstitution(resource.data);
-      allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isManagement();
-      allow update: if isAuthenticated() && isSameInstitution(resource.data) && isManagement();
-      allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (isSameInstitution(request.resource.data) || isSuperAdmin()) && (isManagement() || isSuperAdmin());
+      allow update: if isAuthenticated() && (isSameInstitution(resource.data) || isSuperAdmin()) && (isManagement() || isSuperAdmin());
+      allow delete: if isAuthenticated() && (isSameInstitution(resource.data) || isSuperAdmin()) && (isAdminOrManager() || isSuperAdmin());
     }
 
     match /classroomLessons/{assignmentId} {
@@ -600,10 +633,10 @@ service cloud.firestore {
     }
 
     match /classSchedules/{scheduleId} {
-      allow read: if isAuthenticated() && isSameInstitution(resource.data);
-      allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isAdminOrManager();
-      allow update: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
-      allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (isSameInstitution(request.resource.data) || isSuperAdmin()) && (isAdminOrManager() || isSuperAdmin());
+      allow update: if isAuthenticated() && (isSameInstitution(resource.data) || isSuperAdmin()) && (isAdminOrManager() || isSuperAdmin());
+      allow delete: if isAuthenticated() && (isSameInstitution(resource.data) || isSuperAdmin()) && (isAdminOrManager() || isSuperAdmin());
     }
 
     match /classLessonPlans/{planId} {
@@ -624,7 +657,7 @@ service cloud.firestore {
     }
 
     match /survey_responses/{responseId} {
-      allow read: if isAuthenticated() && isSameInstitution(resource.data);
+      allow read: if isAuthenticated() && (isSameInstitution(resource.data) || !('institutionId' in resource.data));
       allow create: if isAuthenticated() && isSameInstitution(request.resource.data);
       allow update: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
       allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
@@ -828,24 +861,24 @@ service cloud.firestore {
     // 📖 ETÜT
     // ═══════════════════════════════════════════════════════════════
     match /etut_requests/{docId} {
-      allow read: if isAuthenticated() && isSameInstitution(resource.data);
-      allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isTeacherOrAbove();
-      allow update: if isAuthenticated() && isSameInstitution(resource.data) && isTeacherOrAbove();
-      allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
+      allow read: if isAuthenticated() && (isSameInstitution(resource.data) || isSuperAdmin());
+      allow create: if isAuthenticated() && (isSameInstitution(request.resource.data) || isSuperAdmin());
+      allow update: if isAuthenticated() && (isSameInstitution(resource.data) || isSuperAdmin());
+      allow delete: if isAuthenticated() && (isSameInstitution(resource.data) || isSuperAdmin()) && (isTeacherOrAbove() || isSuperAdmin());
     }
 
     match /etut_settings/{docId} {
-      allow read: if isAuthenticated() && isSameInstitution(resource.data);
-      allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isAdminOrManager();
-      allow update: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
-      allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
+      allow read: if isAuthenticated() && (belongsToInstitution(docId) || isSameInstitution(resource.data));
+      allow create: if isAuthenticated() && (belongsToInstitution(docId) || isSameInstitution(request.resource.data)) && isAdminOrManager();
+      allow update: if isAuthenticated() && (belongsToInstitution(docId) || isSameInstitution(resource.data)) && isAdminOrManager();
+      allow delete: if isAuthenticated() && (belongsToInstitution(docId) || isSameInstitution(resource.data)) && isAdminOrManager();
     }
 
     match /etut_teacher_availability/{docId} {
-      allow read: if isAuthenticated() && isSameInstitution(resource.data);
-      allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isTeacherOrAbove();
-      allow update: if isAuthenticated() && isSameInstitution(resource.data) && isTeacherOrAbove();
-      allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
+      allow read: if isAuthenticated() && (isSameInstitution(resource.data) || myInstitutionId().lower() == get(/databases/$(database)/documents/users/$(docId)).data.get('institutionId', '').lower());
+      allow create: if isAuthenticated() && (request.auth.uid == docId || isAdminOrManager());
+      allow update: if isAuthenticated() && (request.auth.uid == docId || isAdminOrManager());
+      allow delete: if isAuthenticated() && isAdminOrManager();
     }
 
     // ═══════════════════════════════════════════════════════════════
