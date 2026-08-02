@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/announcement_service.dart';
+import '../../widgets/custom_date_range_picker.dart';
 
 class AnnouncementFormSheet extends StatefulWidget {
   final String? announcementId;
@@ -177,12 +178,7 @@ class _AnnouncementFormSheetState extends State<AnnouncementFormSheet> {
   }
 
   Future<void> _pickDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      firstDate: DateTime(DateTime.now().year - 1),
-      lastDate: DateTime(DateTime.now().year + 2),
-      initialDate: _publishDate,
-    );
+    final picked = await CustomDateRangePicker.showSingle(context, initialDate: _publishDate);
     if (picked != null) setState(() => _publishDate = picked);
   }
 
@@ -195,12 +191,7 @@ class _AnnouncementFormSheetState extends State<AnnouncementFormSheet> {
   }
 
   Future<void> _pickRepeatUntil() async {
-    final picked = await showDatePicker(
-      context: context,
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
-      initialDate: _repeatUntil,
-    );
+    final picked = await CustomDateRangePicker.showSingle(context, initialDate: _repeatUntil);
     if (picked != null) setState(() => _repeatUntil = picked);
   }
 

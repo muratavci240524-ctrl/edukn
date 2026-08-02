@@ -1,19 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/announcement_service.dart';
+import '../services/user_permission_service.dart';
+import '../services/role_permission_service.dart';
 
 class AliciSecimi extends StatefulWidget {
   final List<String> selectedRecipients;
-  final Map<String, String> initialRecipientNames; // NEW: Initial names
+  final Map<String, String> initialRecipientNames;
   final List<String> savedGroups;
   final Function(List<String>)? onRecipientsUpdated;
   final Function(String) onSaveGroup;
-  final String? schoolTypeId; // NEW: Optional context
-  final Function(Map<String, String>)?
-  onRecipientNamesUpdated; // NEW: Return names
-  final Function(List<String>, Map<String, String>)?
-  onConfirmed; // NEW: Unified callback
-  final bool isPage; // NEW: Display as a full page Scaffold
+  final String? schoolTypeId;
+  final String? institutionId; // Genel hesap için doğrudan kurum ID
+  final Function(Map<String, String>)? onRecipientNamesUpdated;
+  final Function(List<String>, Map<String, String>)? onConfirmed;
+  final bool isPage;
 
   const AliciSecimi({
     Key? key,
@@ -23,6 +26,7 @@ class AliciSecimi extends StatefulWidget {
     this.onRecipientsUpdated,
     required this.onSaveGroup,
     this.schoolTypeId,
+    this.institutionId,
     this.onRecipientNamesUpdated,
     this.onConfirmed,
     this.isPage = false,
@@ -41,6 +45,8 @@ class _AliciSecimiState extends State<AliciSecimi> {
   String _selectedTargetType = '';
   String _selectedSchoolType = '';
   String _selectedClassLevel = '';
+  List<String> _selectedClassLevels = [];
+  bool _isClassDropdownOpen = false;
 
   // Firebase'den gelecek veriler
   List<Map<String, dynamic>> _allUsers = [];
@@ -59,6 +65,24 @@ class _AliciSecimiState extends State<AliciSecimi> {
   // Map to store display names for recipients (ID -> Name)
   Map<String, String> _recipientNames = {};
 
+  /// Türkçe locale-aware küçük harfe çevirme.
+  /// Dart'ın standart toLowerCase() Türkçe'de yanlış sonuç üretir:
+  ///   'I'.toLowerCase() => 'i'  (doğrusu 'ı')
+  ///   'İ'.toLowerCase() => 'i'  (doğru)
+  /// Bu fonksiyon Türkçe'ye özel I→ı ve İ→i dönüşümünü yapar.
+  static String _trLower(String s) {
+    // Önce Türkçe özel karakterleri düzelt, sonra standart toLowerCase()
+    return s
+        .replaceAll('I', 'ı')
+        .replaceAll('İ', 'i')
+        .replaceAll('Ş', 'ş')
+        .replaceAll('Ğ', 'ğ')
+        .replaceAll('Ü', 'ü')
+        .replaceAll('Ö', 'ö')
+        .replaceAll('Ç', 'ç')
+        .toLowerCase();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -71,39 +95,150 @@ class _AliciSecimiState extends State<AliciSecimi> {
     _loadData();
   }
 
+  /// Geçerli kullanıcının institutionId'sini doğrudan Firestore'dan çöz.
+  /// Widget parametrelerine güvenmez — her zaman doğrudan Firebase Auth + Firestore kullanır.
+  Future<String?> _resolveInstitutionId() async {
+    // 1. Widget parametresi varsa ve geçerliyse onu kullan
+    final widgetId = widget.institutionId;
+    if (widgetId != null && widgetId.isNotEmpty && widgetId.toUpperCase() != 'GMAIL') {
+      return widgetId;
+    }
+
+    // 2. schoolTypeId varsa, o dokümanın institutionId'sini al
+    if (widget.schoolTypeId != null && widget.schoolTypeId!.isNotEmpty) {
+      try {
+        final stDoc = await FirebaseFirestore.instance
+            .collection('schoolTypes')
+            .doc(widget.schoolTypeId!)
+            .get();
+        final id = stDoc.data()?['institutionId']?.toString();
+        if (id != null && id.isNotEmpty) return id;
+      } catch (_) {}
+    }
+
+    // 3. Mevcut kullanıcının UID'si ile Firestore dokümanına bak
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    if (firebaseUser == null) return null;
+
+    try {
+      final uidDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(firebaseUser.uid)
+          .get();
+      final id = uidDoc.data()?['institutionId']?.toString();
+      if (id != null && id.isNotEmpty && id.toUpperCase() != 'GMAIL') return id;
+    } catch (_) {}
+
+    // 4. Email ile ara
+    try {
+      if (firebaseUser.email != null && firebaseUser.email!.isNotEmpty) {
+        final q = await FirebaseFirestore.instance
+            .collection('users')
+            .where('email', isEqualTo: firebaseUser.email!.toLowerCase())
+            .limit(3)
+            .get();
+        for (final doc in q.docs) {
+          final id = doc.data()['institutionId']?.toString();
+          if (id != null && id.isNotEmpty && id.toUpperCase() != 'GMAIL') return id;
+        }
+      }
+    } catch (_) {}
+
+    // 5. UserPermissionService üzerinden dene
+    try {
+      final ud = await UserPermissionService.loadUserData();
+      final resolved = await UserPermissionService.resolveInstitutionId(
+        firebaseUser.email ?? '', userData: ud);
+      if (resolved.isNotEmpty && resolved.toUpperCase() != 'GMAIL') return resolved;
+    } catch (_) {}
+
+    // 6. Son çare: schoolTypes koleksiyonunda uid/email ile ara
+    //    Genel Müdür hesabı users koleksiyonunda yoksa bu fallback devreye girer
+    try {
+      final schoolTypesSnap = await FirebaseFirestore.instance
+          .collection('schoolTypes')
+          .limit(1)
+          .get();
+      if (schoolTypesSnap.docs.isNotEmpty) {
+        final id = schoolTypesSnap.docs.first.data()['institutionId']?.toString();
+        if (id != null && id.isNotEmpty && id.toUpperCase() != 'GMAIL') {
+          debugPrint('⚠️ _resolveInstitutionId: Fallback to schoolTypes collection → $id');
+          return id;
+        }
+      }
+    } catch (_) {}
+
+    debugPrint('❌ _resolveInstitutionId: Could not resolve institutionId for uid=${firebaseUser.uid}');
+    return null;
+  }
+
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
-      // If schoolTypeId is provided, use the school-type-specific method to get students
+      // Her durumda güvenilir institutionId çöz
+      final resolvedInstId = await _resolveInstitutionId();
+      debugPrint('🔑 AliciSecimi._loadData: institutionId=$resolvedInstId, schoolTypeId=${widget.schoolTypeId}');
+
+      // Hem null hem de boş string kontrolü
+      final hasSchoolType = widget.schoolTypeId != null && widget.schoolTypeId!.isNotEmpty;
+
+      // Kullanıcıları yükle
       List<Map<String, dynamic>> users;
-      if (widget.schoolTypeId != null) {
-        users = await _announcementService.getUsersBySchoolType(
-          widget.schoolTypeId!,
-        );
+      if (hasSchoolType) {
+        // Okul türü bağlamı: o okul türüne ait öğrenci+öğretmen+personel
+        users = await _announcementService.getUsersBySchoolType(widget.schoolTypeId!);
       } else {
-        users = await _announcementService.getAllUsers(
-          schoolTypeId: widget.schoolTypeId,
+        // Genel hesap: tüm koleksiyonlardan kullanıcı çek
+        users = await _announcementService.getAllUsersIncludingStudents(
+          institutionId: resolvedInstId,
         );
       }
 
-      final units = await _announcementService.getAllUnits();
-      final schoolTypes = await _announcementService.getSchoolTypes();
-      final classLevels = await _announcementService.getClassLevels();
+      // Birimleri (roller) yükle
+      final Map<String, String> mergedRoles = Map.from(RolePermissionService.builtInRoles);
+      if (resolvedInstId != null && resolvedInstId.isNotEmpty) {
+        try {
+          final customTemplates = await RolePermissionService().getAllTemplates(resolvedInstId);
+          customTemplates.forEach((key, value) {
+            if (!mergedRoles.containsKey(key)) {
+              mergedRoles[key] = value['roleName'] ?? key;
+            }
+          });
+        } catch (e) {
+          debugPrint('Error loading custom roles in AliciSecimi: $e');
+        }
+      }
+
+      final List<Map<String, dynamic>> units = mergedRoles.entries.map((e) {
+        return {'id': e.key, 'name': e.value};
+      }).toList();
+
+      // Okul türleri — resolvedInstId ile çek
+      final schoolTypes = await _announcementService.getSchoolTypes(
+        institutionId: resolvedInstId,
+      );
+      // Sınıf seviyeleri — resolvedInstId ile çek
+      final classLevels = await _announcementService.getClassLevels(
+        institutionId: resolvedInstId,
+      );
       final groups = await _announcementService.getGroups();
 
-      // Filter school types if context provided
+      debugPrint('📋 Yüklendi: ${users.length} kullanıcı, ${schoolTypes.length} okul türü, ${classLevels.length} sınıf seviyesi');
+
+      // Okul türü filtresi: schoolTypeId varsa sadece o okul türü gösterilir
       List<Map<String, dynamic>> filteredSchoolTypes;
-      if (widget.schoolTypeId != null) {
+      if (hasSchoolType) {
         filteredSchoolTypes = schoolTypes
             .where((s) => s['id'] == widget.schoolTypeId)
             .toList();
       } else {
-        filteredSchoolTypes = schoolTypes;
+        filteredSchoolTypes = schoolTypes; // Genel hesap: tüm okul türleri
       }
 
+      _sortUsersList(users);
       setState(() {
         _allUsers = users;
-        _displayedUsers = users;
+        _displayedUsers = List.from(users);
         _units = units;
         _schoolTypes = filteredSchoolTypes;
         _classLevels = classLevels;
@@ -111,9 +246,13 @@ class _AliciSecimiState extends State<AliciSecimi> {
         _isLoading = false;
       });
 
-      // Load branches AFTER schoolTypes have been set
-      if (widget.schoolTypeId != null) {
+      // Şubeleri yükle — schoolTypeId varsa sadece o okul türünün şubeleri
+      if (hasSchoolType) {
         await _loadBranchesForSchoolType(widget.schoolTypeId!);
+      }
+      // Genel hesap için tüm okul türlerinin şubelerini çek
+      else if (resolvedInstId != null) {
+        await _loadAllBranches();
       }
     } catch (e) {
       setState(() => _isLoading = false);
@@ -124,6 +263,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
       }
     }
   }
+
 
   Widget _buildClassSelection() {
     if (_isLoading) {
@@ -140,7 +280,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
                 l['schoolType'] == _getSchoolTypeName(_selectedSchoolType),
           )
           .toList();
-    } else if (widget.schoolTypeId != null) {
+    } else if (widget.schoolTypeId != null && widget.schoolTypeId!.isNotEmpty) {
       filteredLevels = _classLevels
           .where(
             (l) =>
@@ -150,10 +290,14 @@ class _AliciSecimiState extends State<AliciSecimi> {
           .toList();
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (widget.schoolTypeId == null)
+    final hasSchoolTypeCtx = widget.schoolTypeId != null && widget.schoolTypeId!.isNotEmpty;
+
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+        if (!hasSchoolTypeCtx)
           DropdownButtonFormField<String>(
             value: _selectedSchoolType.isEmpty ? null : _selectedSchoolType,
             decoration: const InputDecoration(
@@ -171,66 +315,160 @@ class _AliciSecimiState extends State<AliciSecimi> {
             onChanged: (val) {
               setState(() {
                 _selectedSchoolType = val ?? '';
-                _selectedClassLevel = '';
+                _selectedClassLevels.clear();
               });
             },
           ),
 
-        if (widget.schoolTypeId == null) const SizedBox(height: 16),
+        if (!hasSchoolTypeCtx) const SizedBox(height: 16),
 
-        DropdownButtonFormField<String>(
-          value: _selectedClassLevel.isEmpty ? null : _selectedClassLevel,
-          decoration: const InputDecoration(
-            labelText: 'Sınıf Seviyesi Seç',
-            border: OutlineInputBorder(),
-          ),
-          items: filteredLevels
-              .map(
-                (level) => DropdownMenuItem<String>(
-                  value: level['id'] as String,
+        // Premium Multi-Select Dropdown Field
+        GestureDetector(
+          onTap: () {
+            setState(() {
+              _isClassDropdownOpen = !_isClassDropdownOpen;
+            });
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: _isClassDropdownOpen ? Colors.indigo : Colors.grey.shade400,
+                width: _isClassDropdownOpen ? 1.5 : 1.0,
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
                   child: Text(
-                    _selectedSchoolType.isNotEmpty ||
-                            widget.schoolTypeId != null
-                        ? level['name']
-                        : '${level['name']} (${level['schoolType']})',
+                    _selectedClassLevels.isEmpty
+                        ? 'Sınıf Seviyesi Seç'
+                        : _selectedClassLevels.map((id) => _getClassName(id)).join(', '),
+                    style: TextStyle(
+                      color: _selectedClassLevels.isEmpty ? Colors.grey.shade600 : Colors.grey.shade900,
+                      fontSize: 14,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-              )
-              .toList(),
-          onChanged: (value) {
-            setState(() => _selectedClassLevel = value ?? '');
-          },
+                Icon(
+                  _isClassDropdownOpen ? Icons.arrow_drop_up : Icons.arrow_drop_down,
+                  color: Colors.grey.shade700,
+                ),
+              ],
+            ),
+          ),
         ),
 
-        if (_selectedClassLevel.isNotEmpty) ...[
-          const SizedBox(height: 16),
+        if (_isClassDropdownOpen) ...[
+          const SizedBox(height: 4),
+          Container(
+            constraints: const BoxConstraints(maxHeight: 220),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.grey.shade300),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Scrollbar(
+              thumbVisibility: true,
+              child: ListView(
+                shrinkWrap: true,
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                children: [
+                  ...filteredLevels.map((level) {
+                    final id = (level['id'] ?? '').toString();
+                    final name = _selectedSchoolType.isNotEmpty || (widget.schoolTypeId != null && widget.schoolTypeId!.isNotEmpty)
+                        ? level['name']
+                        : '${level['name']} (${level['schoolType']})';
+                    final isChecked = _selectedClassLevels.contains(id);
+
+                    return CheckboxListTile(
+                      title: Text(name, style: const TextStyle(fontSize: 13)),
+                      dense: true,
+                      value: isChecked,
+                      activeColor: Colors.indigo,
+                      onChanged: (val) {
+                        setState(() {
+                          if (val == true) {
+                            _selectedClassLevels.add(id);
+                          } else {
+                            _selectedClassLevels.remove(id);
+                          }
+                        });
+                      },
+                    );
+                  }).toList(),
+                ],
+              ),
+            ),
+          ),
+        ],
+
+        if (_selectedClassLevels.isNotEmpty) ...[
+          const SizedBox(height: 24),
           const Text(
             'Alıcı Türü Seç',
-            style: TextStyle(fontWeight: FontWeight.bold),
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
           ),
           const SizedBox(height: 8),
           ..._recipientTypes.map((type) {
-            final recipientId = 'class:$_selectedClassLevel:$type';
-            final className = _getClassName(_selectedClassLevel);
-            final displayName = '$className-$type';
+            final isAllSelected = _selectedClassLevels.every((clId) => _selectedRecipients.contains('class:$clId:$type'));
+            
             return CheckboxListTile(
               title: Text(type),
-              subtitle: Text('$className $type'),
-              value: _selectedRecipients.contains(recipientId),
+              subtitle: Text('Seçili tüm sınıflardaki $type'),
+              value: isAllSelected,
               onChanged: (value) {
-                if (value == true) {
-                  _addRecipients(
-                    [recipientId],
-                    names: {recipientId: displayName},
-                  );
-                } else {
-                  _removeRecipient(recipientId);
-                }
+                setState(() {
+                  for (final clId in _selectedClassLevels) {
+                    final recipientId = 'class:$clId:$type';
+                    final className = _getClassName(clId);
+                    final displayName = '$className-$type';
+
+                    if (value == true) {
+                      if (!_selectedRecipients.contains(recipientId)) {
+                        _selectedRecipients.add(recipientId);
+                        _recipientNames[recipientId] = displayName;
+                      }
+                      // Öğrenci seçilince Veli de otomatik ekle
+                      if (type == 'Öğrenciler') {
+                        final veliId = 'class:$clId:Veliler';
+                        final veliName = '$className-Veliler';
+                        if (!_selectedRecipients.contains(veliId)) {
+                          _selectedRecipients.add(veliId);
+                          _recipientNames[veliId] = veliName;
+                        }
+                      }
+                    } else {
+                      _selectedRecipients.remove(recipientId);
+                      _recipientNames.remove(recipientId);
+                      // Öğrenci kaldırılınca Veli de kaldır
+                      if (type == 'Öğrenciler') {
+                        final veliId = 'class:$clId:Veliler';
+                        _selectedRecipients.remove(veliId);
+                        _recipientNames.remove(veliId);
+                      }
+                    }
+                  }
+                });
+                widget.onRecipientsUpdated?.call(_selectedRecipients);
+                widget.onRecipientNamesUpdated?.call(_recipientNames);
               },
             );
           }),
         ],
       ],
+    ),
     );
   }
 
@@ -762,6 +1000,49 @@ class _AliciSecimiState extends State<AliciSecimi> {
   }
 
   Widget _buildBranchSelection() {
+    final hasSchoolTypeCtx = widget.schoolTypeId != null && widget.schoolTypeId!.isNotEmpty;
+    // Genel hesapta okul türü seçilmemişse önce okul türü seç
+    if (!hasSchoolTypeCtx && _selectedSchoolType.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.school_rounded, size: 56, color: Colors.indigo.shade200),
+              const SizedBox(height: 16),
+              Text(
+                'Önce Okul Türü Seçin',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade700,
+                ),
+              ),
+              const SizedBox(height: 20),
+              DropdownButtonFormField<String>(
+                decoration: InputDecoration(
+                  labelText: 'Okul Türü',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  prefixIcon: const Icon(Icons.school_rounded, color: Colors.indigo),
+                ),
+                items: _schoolTypes.map((type) => DropdownMenuItem<String>(
+                  value: type['id'] as String,
+                  child: Text(type['name'] as String),
+                )).toList(),
+                onChanged: (val) {
+                  if (val != null) {
+                    setState(() => _selectedSchoolType = val);
+                    _loadBranchesForSchoolType(val);
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     if (_loadingBranches) {
       return Center(
         child: Column(
@@ -823,110 +1104,160 @@ class _AliciSecimiState extends State<AliciSecimi> {
           ),
         ),
         SizedBox(height: 12),
+        // Table Header
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade50,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.grey.shade200),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                flex: 3,
+                child: Text(
+                  'Şube Adı',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey.shade700),
+                ),
+              ),
+              SizedBox(
+                width: 48,
+                child: Text(
+                  'Öğr.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.blue.shade700),
+                ),
+              ),
+              SizedBox(width: 8),
+              SizedBox(
+                width: 48,
+                child: Text(
+                  'Veli',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.orange.shade700),
+                ),
+              ),
+              SizedBox(width: 8),
+              SizedBox(
+                width: 48,
+                child: Text(
+                  'Öğrt.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.purple.shade700),
+                ),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(height: 8),
         Expanded(
           child: ListView.builder(
             itemCount: _branches.length,
             itemBuilder: (context, index) {
               final branch = _branches[index];
+              final branchName = branch['name'] ?? 'Şube';
+              final classLevel = branch['classLevel']?.toString() ?? '';
+
+              final studentId = 'branch:${branch['id']}:Öğrenciler';
+              final parentId = 'branch:${branch['id']}:Veliler';
+              final teacherId = 'branch:${branch['id']}:Öğretmenler';
+
+              final isStudentSelected = _selectedRecipients.contains(studentId);
+              final isParentSelected = _selectedRecipients.contains(parentId);
+              final isTeacherSelected = _selectedRecipients.contains(teacherId);
+
               return Container(
-                margin: EdgeInsets.only(bottom: 8),
+                margin: EdgeInsets.only(bottom: 6),
+                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(10),
                   border: Border.all(color: Colors.grey.shade200),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.03),
-                      blurRadius: 8,
-                      offset: Offset(0, 2),
+                      color: Colors.black.withOpacity(0.01),
+                      blurRadius: 4,
+                      offset: Offset(0, 1),
                     ),
                   ],
                 ),
-                child: Theme(
-                  data: Theme.of(
-                    context,
-                  ).copyWith(dividerColor: Colors.transparent),
-                  child: ExpansionTile(
-                    tilePadding: EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 4,
-                    ),
-                    leading: Container(
-                      padding: EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.green.shade100,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(
-                        Icons.class_,
-                        color: Colors.green.shade700,
-                        size: 20,
-                      ),
-                    ),
-                    title: Text(
-                      branch['name'],
-                      style: TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    subtitle: Text(
-                      '${branch['classLevel']}. Sınıf',
-                      style: TextStyle(
-                        color: Colors.grey.shade600,
-                        fontSize: 12,
-                      ),
-                    ),
-                    children: _recipientTypes.map((type) {
-                      final rId = 'branch:${branch['id']}:$type';
-                      final isSelected = _selectedRecipients.contains(rId);
-                      final branchName = branch['name'] ?? 'Şube';
-                      final displayName = '$branchName-$type';
-
-                      Color typeColor = _getTypeColor(type);
-
-                      return Container(
-                        margin: EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? typeColor.withOpacity(0.1)
-                              : Colors.grey.shade50,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: isSelected
-                                ? typeColor
-                                : Colors.grey.shade200,
+                child: Row(
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            branchName,
+                            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
                           ),
-                        ),
-                        child: CheckboxListTile(
-                          title: Text(
-                            type,
-                            style: TextStyle(
-                              fontWeight: isSelected
-                                  ? FontWeight.w600
-                                  : FontWeight.normal,
-                              color: isSelected
-                                  ? typeColor
-                                  : Colors.grey.shade700,
+                          if (classLevel.isNotEmpty)
+                            Text(
+                              '$classLevel. Sınıf seviyesi',
+                              style: TextStyle(color: Colors.grey.shade500, fontSize: 10),
                             ),
-                          ),
-                          value: isSelected,
-                          activeColor: typeColor,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          onChanged: (val) {
-                            if (val == true) {
-                              _addRecipients([rId], names: {rId: displayName});
-                            } else {
-                              _removeRecipient(rId);
+                        ],
+                      ),
+                    ),
+                    SizedBox(
+                      width: 48,
+                      child: Checkbox(
+                        value: isStudentSelected,
+                        activeColor: Colors.blue,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                        onChanged: (val) {
+                          if (val == true) {
+                            _addRecipients([studentId], names: {studentId: '$branchName-Öğrenciler'});
+                            // Öğrenci seçilince Veli de otomatik ekle
+                            if (!_selectedRecipients.contains(parentId)) {
+                              _addRecipients([parentId], names: {parentId: '$branchName-Veliler'});
                             }
-                            setState(() {});
-                          },
-                        ),
-                      );
-                    }).toList(),
-                  ),
+                          } else {
+                            _removeRecipient(studentId);
+                            // Öğrenci kaldırılınca Veli de kaldır
+                            _removeRecipient(parentId);
+                          }
+                          setState(() {});
+                        },
+                      ),
+                    ),
+                    SizedBox(width: 8),
+                    SizedBox(
+                      width: 48,
+                      child: Checkbox(
+                        value: isParentSelected,
+                        activeColor: Colors.orange,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                        onChanged: (val) {
+                          if (val == true) {
+                            _addRecipients([parentId], names: {parentId: '$branchName-Veliler'});
+                          } else {
+                            _removeRecipient(parentId);
+                          }
+                          setState(() {});
+                        },
+                      ),
+                    ),
+                    SizedBox(width: 8),
+                    SizedBox(
+                      width: 48,
+                      child: Checkbox(
+                        value: isTeacherSelected,
+                        activeColor: Colors.purple,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                        onChanged: (val) {
+                          if (val == true) {
+                            _addRecipients([teacherId], names: {teacherId: '$branchName-Öğretmenler'});
+                          } else {
+                            _removeRecipient(teacherId);
+                          }
+                          setState(() {});
+                        },
+                      ),
+                    ),
+                  ],
                 ),
               );
             },
@@ -954,7 +1285,9 @@ class _AliciSecimiState extends State<AliciSecimi> {
     try {
       List<Map<String, dynamic>> all = [];
 
-      if (widget.schoolTypeId != null) {
+      final hasSchoolTypeCtx = widget.schoolTypeId != null && widget.schoolTypeId!.isNotEmpty;
+
+      if (hasSchoolTypeCtx) {
         var b = await _announcementService.getBranches(widget.schoolTypeId!);
         all.addAll(b);
       } else {
@@ -1129,23 +1462,25 @@ class _AliciSecimiState extends State<AliciSecimi> {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.search, size: 64, color: Colors.grey.shade300),
+                      Icon(Icons.people_alt_rounded, size: 64, color: Colors.grey.shade300),
                       SizedBox(height: 16),
                       Text(
-                        'Arama yapınız',
+                        _isLoading ? 'Yükleniyor...' : 'Kullanıcı bulunamadı',
                         style: TextStyle(
                           fontSize: 16,
                           color: Colors.grey.shade600,
                         ),
                       ),
-                      SizedBox(height: 4),
-                      Text(
-                        'En az 3 karakter yazınız',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade400,
+                      if (!_isLoading) ...[  
+                        SizedBox(height: 4),
+                        Text(
+                          'Arama kutusuna en az 3 karakter yazın',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade400,
+                          ),
                         ),
-                      ),
+                      ],
                     ],
                   ),
                 )
@@ -1196,7 +1531,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
                         leading: CircleAvatar(
                           backgroundColor: avatarColor.withOpacity(0.2),
                           child: Text(
-                            (user['name'] ?? 'U')[0].toUpperCase(),
+                            (_getUserDisplayName(user))[0].toUpperCase(),
                             style: TextStyle(
                               color: avatarColor,
                               fontWeight: FontWeight.bold,
@@ -1204,7 +1539,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
                           ),
                         ),
                         title: Text(
-                          user['name'] ?? 'İsimsiz',
+                          _getUserDisplayName(user),
                           style: TextStyle(fontWeight: FontWeight.w600),
                         ),
                         subtitle: Text(
@@ -1235,7 +1570,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
                           if (isSelected) {
                             _removeRecipient(userId);
                           } else {
-                            final name = user['name'] ?? 'İsimsiz';
+                            final name = _getUserDisplayName(user);
                             final branch = user['branch']?.toString() ?? '';
                             final displayName = branch.isNotEmpty
                                 ? '$name ($branch)'
@@ -1263,7 +1598,31 @@ class _AliciSecimiState extends State<AliciSecimi> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Text('Birim Seç', style: TextStyle(fontWeight: FontWeight.bold)),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.blue.shade50,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.business, color: Colors.blue.shade700, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'Birim Seç',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blue.shade700,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '${_units.length} birim',
+                style: TextStyle(color: Colors.blue.shade600, fontSize: 12),
+              ),
+            ],
+          ),
+        ),
         const SizedBox(height: 12),
         Expanded(
           child: _units.isEmpty
@@ -1274,25 +1633,76 @@ class _AliciSecimiState extends State<AliciSecimi> {
                     final unit = _units[index];
                     final unitId = 'unit:${unit['id']}';
                     final isSelected = _selectedRecipients.contains(unitId);
-                    return ListTile(
-                      leading: const Icon(Icons.business),
-                      title: Text(unit['name']),
-                      subtitle: Text('Tüm ${unit['name']} personeli'),
-                      trailing: isSelected
-                          ? const Icon(Icons.check, color: Colors.green)
-                          : const Icon(Icons.add),
-                      onTap: () {
-                        final displayName = unit['name'] ?? 'Birim';
-                        if (isSelected) {
-                          _removeRecipient(unitId);
-                        } else {
-                          _addRecipients(
-                            [unitId],
-                            names: {unitId: displayName},
-                          );
-                        }
-                      },
-                      selected: isSelected,
+                    final roleColor = RolePermissionService.getRoleColor(unit['id'] as String);
+                    final roleIcon = RolePermissionService.getRoleIcon(unit['id'] as String);
+
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      decoration: BoxDecoration(
+                        color: isSelected ? roleColor.withOpacity(0.05) : Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isSelected ? roleColor : Colors.grey.shade200,
+                          width: isSelected ? 1.5 : 1.0,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.02),
+                            blurRadius: 4,
+                            offset: const Offset(0, 1),
+                          ),
+                        ],
+                      ),
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                        leading: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: roleColor.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(
+                            roleIcon,
+                            color: roleColor,
+                            size: 20,
+                          ),
+                        ),
+                        title: Text(
+                          unit['name'],
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: isSelected ? roleColor : Colors.grey.shade800,
+                          ),
+                        ),
+                        subtitle: Text(
+                          'Tüm ${unit['name']} personeli',
+                          style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                        ),
+                        trailing: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: isSelected ? Colors.green : Colors.grey.shade100,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            isSelected ? Icons.check : Icons.add,
+                            color: isSelected ? Colors.white : Colors.grey.shade600,
+                            size: 18,
+                          ),
+                        ),
+                        onTap: () {
+                          final displayName = unit['name'] ?? 'Birim';
+                          if (isSelected) {
+                            _removeRecipient(unitId);
+                          } else {
+                            _addRecipients(
+                              [unitId],
+                              names: {unitId: displayName},
+                            );
+                          }
+                        },
+                      ),
                     );
                   },
                 ),
@@ -1313,17 +1723,23 @@ class _AliciSecimiState extends State<AliciSecimi> {
       return;
     }
 
-    final lowerQuery = query.toLowerCase();
+    // Türkçe-farkında büyük/küçük harf duyarsız arama
+    final lowerQuery = _trLower(query);
     final results = _allUsers.where((user) {
-      final name = (user['name'] ?? '').toString().toLowerCase();
-      final email = (user['email'] ?? '').toString().toLowerCase();
-      final role = (user['role'] ?? '').toString().toLowerCase();
+      final name = _trLower((user['name'] ?? '').toString());
+      final email = _trLower((user['email'] ?? '').toString());
+      final role = _trLower((user['role'] ?? '').toString());
+      final username = _trLower((user['username'] ?? '').toString());
+      final branch = _trLower((user['branch'] ?? '').toString());
 
       return name.contains(lowerQuery) ||
           email.contains(lowerQuery) ||
-          role.contains(lowerQuery);
+          role.contains(lowerQuery) ||
+          username.contains(lowerQuery) ||
+          branch.contains(lowerQuery);
     }).toList();
 
+    _sortUsersList(results);
     setState(() {
       _displayedUsers = results;
       _isLoading = false;
@@ -1335,93 +1751,82 @@ class _AliciSecimiState extends State<AliciSecimi> {
       return const Center(child: CircularProgressIndicator());
     }
 
+    // Auto-select school type if we have it from context (null ve boş olmayan)
+    final hasSchoolTypeCtx = widget.schoolTypeId != null && widget.schoolTypeId!.isNotEmpty;
+    if (hasSchoolTypeCtx && _selectedSchoolType.isEmpty) {
+      _selectedSchoolType = widget.schoolTypeId!;
+    }
+
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          DropdownButtonFormField<String>(
-            value: _selectedSchoolType.isEmpty ? null : _selectedSchoolType,
-            decoration: const InputDecoration(
-              labelText: 'Okul Türü Seç',
-              border: OutlineInputBorder(),
-            ),
-            items: _schoolTypes
-                .map(
-                  (type) => DropdownMenuItem<String>(
-                    value: type['id'] as String,
-                    child: Text(type['name'] as String),
-                  ),
-                )
-                .toList(),
-            onChanged: (value) {
-              setState(() {
-                _selectedSchoolType = value ?? '';
-                _selectedBranchId = '';
-                _branches = [];
-              });
-              if (value != null) _loadBranches(value);
-            },
-          ),
-
-          if (_selectedSchoolType.isNotEmpty) ...[
-            const SizedBox(height: 16),
-
-            if (_loadingBranches)
-              LinearProgressIndicator()
-            else if (_branches.isNotEmpty)
-              DropdownButtonFormField<String>(
-                value: _selectedBranchId.isEmpty ? null : _selectedBranchId,
-                decoration: const InputDecoration(
-                  labelText: 'Şube Seç (İsteğe Bağlı)',
-                  border: OutlineInputBorder(),
-                  helperText: 'Belirli bir şubeye göndermek için seçiniz',
-                ),
-                items: [
-                  DropdownMenuItem(
-                    value: '',
-                    child: Text('Tüm Şubeler (Seçim Yok)'),
-                  ),
-                  ..._branches.map(
-                    (b) => DropdownMenuItem(
-                      value: b['id'] as String,
-                      child: Text(b['name']),
+          if (hasSchoolTypeCtx)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(
+                color: Colors.indigo.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.indigo.shade100),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.school, color: Colors.indigo.shade700, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Seçili Okul Türü',
+                          style: TextStyle(fontSize: 11, color: Colors.indigo, fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          _getSchoolTypeName(_selectedSchoolType),
+                          style: TextStyle(fontSize: 14, color: Colors.indigo.shade900, fontWeight: FontWeight.w600),
+                        ),
+                      ],
                     ),
                   ),
                 ],
-                onChanged: (val) {
-                  setState(() => _selectedBranchId = val ?? '');
-                },
               ),
+            )
+          else
+            DropdownButtonFormField<String>(
+              value: _selectedSchoolType.isEmpty ? null : _selectedSchoolType,
+              decoration: const InputDecoration(
+                labelText: 'Okul Türü Seç',
+                border: OutlineInputBorder(),
+              ),
+              items: _schoolTypes
+                  .map(
+                    (type) => DropdownMenuItem<String>(
+                      value: type['id'] as String,
+                      child: Text(type['name'] as String),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (value) {
+                setState(() {
+                  _selectedSchoolType = value ?? '';
+                });
+              },
+            ),
 
+          if (_selectedSchoolType.isNotEmpty) ...[
             const SizedBox(height: 16),
             const Text(
               'Alıcı Türü Seç',
-              style: TextStyle(fontWeight: FontWeight.bold),
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
             ),
             const SizedBox(height: 8),
 
             ..._recipientTypes.map((type) {
-              final isBranchSelected = _selectedBranchId.isNotEmpty;
-              final prefix = isBranchSelected
-                  ? 'branch:$_selectedBranchId'
-                  : 'school:$_selectedSchoolType';
-              final recipientId = '$prefix:$type';
-
-              String displayName;
-              if (isBranchSelected) {
-                final branch = _branches.firstWhere(
-                  (b) => b['id'] == _selectedBranchId,
-                  orElse: () => {'name': 'Şube'},
-                );
-                displayName = '${branch['name']}-$type';
-              } else {
-                final schoolTypeName = _getSchoolTypeName(_selectedSchoolType);
-                displayName = '$schoolTypeName-$type';
-              }
-
-              final subtitle = isBranchSelected
-                  ? 'Seçili şubedeki $type'
-                  : '${_getSchoolTypeName(_selectedSchoolType)} - tüm $type';
+              final recipientId = 'school:$_selectedSchoolType:$type';
+              final schoolTypeName = _getSchoolTypeName(_selectedSchoolType);
+              final displayName = '$schoolTypeName-$type';
+              final subtitle = '$schoolTypeName - tüm $type';
 
               return CheckboxListTile(
                 title: Text(type),
@@ -1966,5 +2371,89 @@ class _AliciSecimiState extends State<AliciSecimi> {
     if (id.startsWith('unit:')) return 'Birim';
     if (id.startsWith('group:')) return 'Grup';
     return 'Diğer';
+  }
+
+  String _getUserDisplayName(Map<String, dynamic> user) {
+    final name = (user['fullName'] ?? user['name'] ?? user['displayName'] ?? '').toString().trim();
+    if (name.isNotEmpty && name != 'null' && name != 'İsimsiz') return name;
+
+    final first = (user['firstName'] ?? user['first_name'] ?? user['studentName'] ?? user['teacherName'] ?? user['parentName'] ?? '').toString().trim();
+    final last = (user['lastName'] ?? user['last_name'] ?? user['surname'] ?? '').toString().trim();
+    if (first.isNotEmpty || last.isNotEmpty) {
+      return '$first $last'.trim();
+    }
+
+    final email = (user['email'] ?? user['username'] ?? '').toString().trim();
+    if (email.isNotEmpty && email != 'null') return email;
+
+    return 'Kullanıcı';
+  }
+
+  static const String _trAlphabet = 'aabccçdeefgğhıijklmnoöprsştuüvyzAABCCÇDEEFGĞHIİJKLMNOÖPRSŞTUÜVYZ0123456789';
+
+  static int _trCompare(String str1, String str2) {
+    final s1 = str1.trim();
+    final s2 = str2.trim();
+    final len = s1.length < s2.length ? s1.length : s2.length;
+
+    for (int i = 0; i < len; i++) {
+      final c1 = s1[i];
+      final c2 = s2[i];
+      if (c1 == c2) continue;
+
+      final idx1 = _trAlphabet.indexOf(c1);
+      final idx2 = _trAlphabet.indexOf(c2);
+
+      if (idx1 != -1 && idx2 != -1) {
+        if (idx1 != idx2) return idx1.compareTo(idx2);
+      } else {
+        final cmp = c1.compareTo(c2);
+        if (cmp != 0) return cmp;
+      }
+    }
+    return s1.length.compareTo(s2.length);
+  }
+
+  int _getRolePriority(String roleStr) {
+    final r = roleStr.toLowerCase().trim();
+    if (r.contains('genel_mudur') || r.contains('genel müdür') || r.contains('kurucu') || r.contains('admin') || r.contains('yönetici')) {
+      return 0; // Genel Müdür / Kurucu / Admin
+    }
+    if (r.contains('müdür') || r.contains('mudur') || r.contains('director')) {
+      if (r.contains('yardımcı') || r.contains('yardimci') || r.contains('vice')) {
+        return 2; // Müdür Yardımcısı
+      }
+      return 1; // Müdür
+    }
+    if (r.contains('öğretmen') || r.contains('ogretmen') || r.contains('teacher')) {
+      return 3; // Öğretmen
+    }
+    if (r.contains('personel') || r.contains('muhasebe') || r.contains('idari') || r.contains('rehberlik') || r.contains('psikolojik')) {
+      return 4; // Personel / İdari
+    }
+    if (r.contains('veli') || r.contains('parent')) {
+      return 5; // Veli
+    }
+    if (r.contains('öğrenci') || r.contains('ogrenci') || r.contains('student')) {
+      return 6; // Öğrenci
+    }
+    return 7;
+  }
+
+  void _sortUsersList(List<Map<String, dynamic>> users) {
+    users.sort((a, b) {
+      final roleA = (a['role'] ?? '').toString();
+      final roleB = (b['role'] ?? '').toString();
+      final priorityA = _getRolePriority(roleA);
+      final priorityB = _getRolePriority(roleB);
+
+      if (priorityA != priorityB) {
+        return priorityA.compareTo(priorityB);
+      }
+
+      final nameA = _getUserDisplayName(a);
+      final nameB = _getUserDisplayName(b);
+      return _trCompare(nameA, nameB);
+    });
   }
 }

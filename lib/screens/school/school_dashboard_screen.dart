@@ -15,6 +15,9 @@ import 'assessment/assessment_dashboard_screen.dart';
 import 'assessment/assessment_reports_screen.dart';
 import '../../services/announcement_service.dart';
 import 'dart:async';
+import 'school_types/chat/call/call_service.dart';
+import 'school_types/chat/call/call_screen_dialog.dart';
+import 'school_types/chat/call/call_models.dart';
 
 class SchoolDashboardScreen extends StatefulWidget {
   const SchoolDashboardScreen({Key? key}) : super(key: key);
@@ -37,12 +40,31 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
   Timer? _announcementTimer;
   final AnnouncementService _announcementService = AnnouncementService();
 
+  StreamSubscription<List<CallSession>>? _incomingCallSubscription;
+
+  void _listenForIncomingCalls() {
+    CallService().registerFcmToken();
+    _incomingCallSubscription?.cancel();
+    _incomingCallSubscription =
+        CallService().listenForIncomingCalls().listen((incomingCalls) {
+      if (incomingCalls.isNotEmpty && mounted) {
+        final activeCall = incomingCalls.first;
+        CallScreenDialog.showCall(
+          context: context,
+          callSession: activeCall,
+          isIncoming: true,
+        );
+      }
+    });
+  }
+
   @override
   void initState() {
     super.initState();
     _loadUserPermissions();
     _loadSchoolData();
     _startAnnouncementCheck();
+    _listenForIncomingCalls();
   }
 
   Future<void> _loadUserPermissions() async {
@@ -55,8 +77,8 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
   void _startAnnouncementCheck() {
     // Hemen bir kontrol yap
     _announcementService.checkAndPublishScheduledAnnouncements();
-    // Her 5 dakikada bir kontrol et
-    _announcementTimer = Timer.periodic(const Duration(minutes: 5), (_) {
+    // Her 1 dakikada bir kontrol et (hatırlatmalar zamanında gelsin)
+    _announcementTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       _announcementService.checkAndPublishScheduledAnnouncements();
     });
   }
@@ -64,6 +86,7 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
   @override
   void dispose() {
     _announcementTimer?.cancel();
+    _incomingCallSubscription?.cancel();
     super.dispose();
   }
 

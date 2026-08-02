@@ -1,5 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/custom_date_range_picker.dart';
+import 'package:intl/intl.dart';
+import 'package:syncfusion_flutter_datepicker/datepicker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -8,7 +11,7 @@ import '../../services/user_permission_service.dart';
 import '../../services/term_service.dart';
 import 'sent_announcements_screen.dart';
 import 'announcement_detail_screen.dart';
-import 'create_announcement_screen.dart';
+import 'create_announcement_screen_v2.dart';
 import 'announcement_card.dart';
 
 class AnnouncementsScreen extends StatefulWidget {
@@ -137,35 +140,37 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen>
   }
 
   Future<void> _pickRange() async {
-    final now = DateTime.now();
-    final picked = await showDateRangePicker(
-      context: context,
-      firstDate: DateTime(now.year - 2),
-      lastDate: DateTime(now.year + 2),
-      initialDateRange: _range,
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: ColorScheme.light(
-              primary: Theme.of(context).primaryColor,
-              onPrimary: Colors.white,
-              surface: Colors.white,
-              onSurface: Colors.black,
-            ),
-          ),
-          child: child!,
-        );
-      },
+    final picked = await CustomDateRangePicker.show(
+      context,
+      initialRange: _range,
+      // desktopAlignment and desktopPadding retain default values for standard announcements layout
     );
+
     if (picked != null) {
-      setState(() => _range = picked);
+      setState(() {
+        _range = picked;
+      });
     }
   }
 
-  void _openCreateSheet() {
+  void _openCreateSheet() async {
+    // institutionId'yi al — AliciSecimi kendi de çözüyor ama ipucu ver
+    final instId = await UserPermissionService.resolveInstitutionId(
+      FirebaseAuth.instance.currentUser?.email ?? '',
+      userData: userData,
+    );
+    if (!mounted) return;
+    // GMAIL veya boş gelirse null geç — AliciSecimi kendi çözecek
+    final validInstId = (instId.isNotEmpty && instId.toUpperCase() != 'GMAIL')
+        ? instId
+        : null;
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (ctx) => const CreateAnnouncementScreen()),
+      MaterialPageRoute(
+        builder: (ctx) => CreateAnnouncementScreenV2(
+          institutionId: validInstId,
+        ),
+      ),
     );
   }
 
@@ -316,7 +321,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen>
               backgroundColor: Colors.white,
               elevation: 2,
               automaticallyImplyLeading: false,
-              toolbarHeight: _showFilters ? 124 : 68,
+              toolbarHeight: 140,
               flexibleSpace: FlexibleSpaceBar(
                 background: _buildFilters(context),
               ),
@@ -397,62 +402,68 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen>
                 ),
               ),
               const SizedBox(width: 12),
+              // Calendar Button
               Material(
-                color: _showFilters
+                color: _range != null
                     ? Colors.indigo.withOpacity(0.1)
                     : const Color(0xFFF1F5F9),
                 borderRadius: BorderRadius.circular(12),
                 child: InkWell(
-                  onTap: () => setState(() => _showFilters = !_showFilters),
+                  onTap: _pickRange,
                   borderRadius: BorderRadius.circular(12),
                   child: Container(
                     height: 48,
-                    width: 48,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
                     decoration: BoxDecoration(
                       border: Border.all(
-                        color: _showFilters ? Colors.indigo : Colors.transparent,
+                        color: _range != null ? Colors.indigo : Colors.transparent,
                       ),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Icon(
-                      Icons.tune_rounded,
-                      color: _showFilters ? Colors.indigo : const Color(0xFF64748B),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.date_range_rounded,
+                          color: _range != null ? Colors.indigo : const Color(0xFF64748B),
+                        ),
+                        if (_range != null) ...[
+                          const SizedBox(width: 8),
+                          GestureDetector(
+                            onTap: () => setState(() => _range = null),
+                            child: const Icon(
+                              Icons.close_rounded,
+                              size: 18,
+                              color: Colors.indigo,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                 ),
               ),
             ],
           ),
-          if (_showFilters) ...[
-            const SizedBox(height: 12),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              child: Row(
-                children: [
-                  _buildFilterChip(
-                    'Tümü',
-                    _filterType == null,
-                    () => setState(() => _filterType = null),
-                  ),
-                  const SizedBox(width: 8),
-                  _buildFilterChip(
-                    'Okunmamış',
-                    _filterType == 'unread',
-                    () => setState(() => _filterType = 'unread'),
-                  ),
-                  const SizedBox(width: 8),
-                  _buildFilterChip(
-                    'Sabitlenenler',
-                    _filterType == 'pinned',
-                    () => setState(() => _filterType = 'pinned'),
-                  ),
-                  const SizedBox(width: 8),
-                  _buildDateFilterChip(),
-                ],
-              ),
+          const SizedBox(height: 12),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            child: Row(
+              children: [
+                _buildFilterChip(
+                  'Tümü',
+                  _filterType == null,
+                  () => setState(() => _filterType = null),
+                ),
+                const SizedBox(width: 8),
+                _buildFilterChip(
+                  'Okunmamış',
+                  _filterType == 'unread',
+                  () => setState(() => _filterType = 'unread'),
+                ),
+              ],
             ),
-          ],
+          ),
         ],
       ),
     );

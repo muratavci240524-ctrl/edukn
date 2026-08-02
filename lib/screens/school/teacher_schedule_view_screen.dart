@@ -523,73 +523,45 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
       final effectiveTermId = selectedTermId ?? activeTermId;
 
       final Map<String, int> lessonCounts = {};
-      final instIds = [instId, instId.toLowerCase()].toSet().toList();
+      if (_activePeriodId != null) {
+        final scheduleSnap = await FirebaseFirestore.instance
+            .collection('classSchedules')
+            .where('periodId', isEqualTo: _activePeriodId)
+            .get();
 
-      final assignSnap = await FirebaseFirestore.instance
-          .collection('lessonAssignments')
-          .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
-          .where('institutionId', whereIn: instIds)
-          .where('isActive', isEqualTo: true)
-          .get();
+        final Map<String, Set<String>> teacherScheduledSlots = {};
 
-      final Set<String> processedDocIds = {};
-      final Set<String> seenClassLessonTeacherKeys = {};
-      final Map<String, Set<String>> countedMergesPerTeacher = {};
+        for (var doc in scheduleSnap.docs) {
+          final data = doc.data();
+          if (data['isActive'] == false) continue;
 
-      for (final doc in assignSnap.docs) {
-        if (processedDocIds.contains(doc.id)) continue;
-        processedDocIds.add(doc.id);
+          final day = data['day'] as String?;
+          final hourIndex = data['hourIndex'];
+          if (day == null || hourIndex == null) continue;
 
-        final data = doc.data();
+          final slotKey = '${day}_$hourIndex';
 
-        // Dönem kontrolünü biraz esnetelim: 
-        // Eğer atamanın dönemi boşsa veya mevcut dönemle eşleşiyorsa sayalım.
-        final assignmentTermId = (data['termId'] ?? '').toString();
-        if (effectiveTermId != null && 
-            assignmentTermId.isNotEmpty && 
-            assignmentTermId != effectiveTermId) {
-          continue;
-        }
+          final tId = (data['teacherId'] ?? '').toString();
+          final tIds = (data['teacherIds'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
 
-        final cid = (data['classId'] ?? '').toString();
-        final lid = (data['lessonId'] ?? '').toString();
-
-        final tIds = (data['teacherIds'] as List<dynamic>?)
-            ?.map((e) => e.toString())
-            .toList();
-
-        if (tIds != null && tIds.isNotEmpty) {
-          final count = data['weeklyHours'] as int? ?? 1;
-          for (final tId in tIds) {
-            Map<String, dynamic>? matchingMerge;
-            for (var merge in _lessonClassMerges) {
-              final classIdsList = (merge['classIds'] as List?)?.map((e) => e.toString()).toList() ?? [];
-              final mergeLessonId = (merge['lessonId'] ?? '').toString();
-              if (classIdsList.contains(cid) && mergeLessonId == lid) {
-                matchingMerge = merge;
-                break;
-              }
-            }
-
-            if (matchingMerge != null) {
-              final mergeId = matchingMerge['id']?.toString() ?? '';
-              final teacherMerges = countedMergesPerTeacher.putIfAbsent(tId, () => {});
-              if (teacherMerges.contains(mergeId)) {
-                continue;
-              }
-              teacherMerges.add(mergeId);
-              final mergeHours = matchingMerge['weeklyHours'] as int? ?? count;
-              lessonCounts[tId] = (lessonCounts[tId] ?? 0) + mergeHours;
-            } else {
-              final key = '$cid|$lid|$tId';
-              if (seenClassLessonTeacherKeys.contains(key)) {
-                continue;
-              }
-              seenClassLessonTeacherKeys.add(key);
-              lessonCounts[tId] = (lessonCounts[tId] ?? 0) + count;
+          final Set<String> teachersInSlot = {};
+          if (tId.isNotEmpty) {
+            teachersInSlot.add(tId);
+          }
+          for (final id in tIds) {
+            if (id.isNotEmpty) {
+              teachersInSlot.add(id);
             }
           }
+
+          for (final teacherId in teachersInSlot) {
+            teacherScheduledSlots.putIfAbsent(teacherId, () => {}).add(slotKey);
+          }
         }
+
+        teacherScheduledSlots.forEach((teacherId, slots) {
+          lessonCounts[teacherId] = slots.length;
+        });
       }
 
       setState(() {
@@ -822,10 +794,17 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                   ? List<String>.from(existing['scheduleDocIds']) 
                   : [existing['id']?.toString() ?? ''];
 
+              final existingAssignmentIds = existing['assignmentIds'] != null
+                  ? List<String>.from(existing['assignmentIds'])
+                  : [existing['assignmentId']?.toString() ?? ''];
+
               if (!existingClassIds.contains(cid)) {
                 existingClassNames.add(className.toString());
                 existingClassIds.add(cid);
                 existingDocIds.add(doc.id);
+                if (data['assignmentId'] != null) {
+                  existingAssignmentIds.add(data['assignmentId'].toString());
+                }
               }
 
               existingClassNames.sort((a, b) => compareClassNames(a, b));
@@ -834,6 +813,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
               existing['classNames'] = existingClassNames;
               existing['classIds'] = existingClassIds;
               existing['scheduleDocIds'] = existingDocIds;
+              existing['assignmentIds'] = existingAssignmentIds;
               existing['isCombined'] = true;
             } else {
               updatedSchedule[key] = newSlotData;
@@ -844,6 +824,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
               'classNames': [className.toString()],
               'classIds': [cid],
               'scheduleDocIds': [doc.id],
+              'assignmentIds': data['assignmentId'] != null ? [data['assignmentId'].toString()] : <String>[],
             };
           }
         }
@@ -854,16 +835,28 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
       final Set<String> assignedDocIdsPlaced = {};
 
       for (final slot in updatedSchedule.values) {
-        final slotAssignmentId = (slot['assignmentId'] ?? '').toString();
-        final slotCid = (slot['classId'] ?? '').toString();
         final slotLid = (slot['lessonId'] ?? '').toString();
 
-        if (slotAssignmentId.isNotEmpty) {
-          assignedDocIdsPlaced.add(slotAssignmentId);
-          assignmentPlacedSlotsCount[slotAssignmentId] = (assignmentPlacedSlotsCount[slotAssignmentId] ?? 0) + 1;
-        } else if (slotCid.isNotEmpty && slotLid.isNotEmpty) {
-          final matchKey = '$slotCid|$slotLid';
-          assignmentPlacedSlotsCount[matchKey] = (assignmentPlacedSlotsCount[matchKey] ?? 0) + 1;
+        final List<String> slotClassIds = slot['classIds'] != null
+            ? List<String>.from(slot['classIds'])
+            : [(slot['classId'] ?? '').toString()];
+
+        final List<String> slotAssignmentIds = slot['assignmentIds'] != null
+            ? List<String>.from(slot['assignmentIds'])
+            : [(slot['assignmentId'] ?? '').toString()];
+
+        for (final assignmentId in slotAssignmentIds) {
+          if (assignmentId.isNotEmpty) {
+            assignedDocIdsPlaced.add(assignmentId);
+            assignmentPlacedSlotsCount[assignmentId] = (assignmentPlacedSlotsCount[assignmentId] ?? 0) + 1;
+          }
+        }
+
+        for (final cid in slotClassIds) {
+          if (cid.isNotEmpty && slotLid.isNotEmpty) {
+            final matchKey = '$cid|$slotLid';
+            assignmentPlacedSlotsCount[matchKey] = (assignmentPlacedSlotsCount[matchKey] ?? 0) + 1;
+          }
         }
       }
 
@@ -1026,6 +1019,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
 
           final etutSnap = await FirebaseFirestore.instance
               .collection('etut_requests')
+              .where('institutionId', whereIn: instIds)
               .where('teacherId', isEqualTo: teacherId)
               .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(startMidnight))
               .where('date', isLessThan: Timestamp.fromDate(endMidnight))
@@ -1167,7 +1161,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
         elevation: 0,
         backgroundColor: Colors.white,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Colors.purple),
+          icon: Icon(Icons.arrow_back, color: Colors.blue.shade800),
           onPressed: () => Navigator.pop(context),
         ),
         title: Column(
@@ -1176,14 +1170,14 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
             Text(
               widget.isTeacherView ? 'Benim Ders Programım' : 'Öğretmen Ders Programı',
               style: TextStyle(
-                color: Colors.grey.shade900,
+                color: Colors.blue.shade900,
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
               ),
             ),
             Text(
               _resolvedSchoolTypeName ?? widget.schoolTypeName,
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+              style: TextStyle(color: Colors.blue.shade400, fontSize: 12),
             ),
           ],
         ),
@@ -1636,6 +1630,8 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                                       dailyLessonCounts: _dailyLessonCounts,
                                       dayLessonTimes: _dayLessonTimes,
                                       activePeriodId: _activePeriodId,
+                                      institutionId: widget.institutionId,
+                                      schoolTypeId: widget.schoolTypeId,
                                     ),
                               ),
                             );
@@ -3749,13 +3745,14 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
   }
 }
 
-// Mobil görünüm için öğretmen detay sayfası
 class _TeacherScheduleDetailView extends StatefulWidget {
   final Map<String, dynamic> teacherData;
   final List<String> days;
   final Map<String, int> dailyLessonCounts;
   final Map<String, List<Map<String, dynamic>>> dayLessonTimes;
   final String? activePeriodId;
+  final String institutionId;
+  final String schoolTypeId;
 
   const _TeacherScheduleDetailView({
     required this.teacherData,
@@ -3763,6 +3760,8 @@ class _TeacherScheduleDetailView extends StatefulWidget {
     required this.dailyLessonCounts,
     required this.dayLessonTimes,
     this.activePeriodId,
+    required this.institutionId,
+    required this.schoolTypeId,
   });
 
   @override
@@ -3776,8 +3775,9 @@ class _TeacherScheduleDetailViewState
   bool _showTableView = true;
   final ScrollController _horizontalScrollController = ScrollController();
   DateTime _weekStart = DateTime.now();
-  int _currentTabIndex = 0; // 0: Program, 1: Etütler
+  int _currentTabIndex = 0; // 0: Program, 1: Etütler, 2: Atalı Dersler
   List<Map<String, dynamic>> _weeklyEtuts = [];
+  List<Map<String, dynamic>> _teacherAssignments = [];
   bool _isLoading = false;
 
   MaterialColor _getColorFor(String text) {
@@ -3969,16 +3969,22 @@ class _TeacherScheduleDetailViewState
       final teacherId = (widget.teacherData['id'] ?? '').toString();
       if (teacherId.isEmpty) return;
 
+      final instId = widget.institutionId.toUpperCase();
+      final instIds = [instId, instId.toLowerCase()].toSet().toList();
+
       final assignmentsSnapshot = await FirebaseFirestore.instance
           .collection('lessonAssignments')
+          .where('institutionId', whereIn: instIds)
           .where('isActive', isEqualTo: true)
           .where('teacherIds', arrayContains: teacherId)
           .get();
 
       final Set<String> classIds = {};
       final Map<String, Map<String, dynamic>> assignmentMap = {};
+      final List<Map<String, dynamic>> teacherAssignments = [];
       for (var doc in assignmentsSnapshot.docs) {
         final data = doc.data();
+        data['id'] = doc.id;
         final classId = (data['classId'] ?? '').toString();
         final lessonId = (data['lessonId'] ?? '').toString();
         if (classId.isEmpty || lessonId.isEmpty) continue;
@@ -3987,11 +3993,14 @@ class _TeacherScheduleDetailViewState
           'lessonName': (data['lessonName'] ?? '').toString(),
           'className': (data['className'] ?? '').toString(),
         };
+        teacherAssignments.add(data);
       }
 
       if (classIds.isEmpty) {
         setState(() {
           _scheduleData = {};
+          _teacherAssignments = [];
+          _isLoading = false;
         });
         return;
       }
@@ -4004,6 +4013,7 @@ class _TeacherScheduleDetailViewState
         scheduleFetches.add(
           FirebaseFirestore.instance
               .collection('classSchedules')
+              .where('institutionId', whereIn: instIds)
               .where('periodId', isEqualTo: widget.activePeriodId)
               .where('classId', whereIn: batch)
               .where('isActive', isEqualTo: true)
@@ -4047,10 +4057,17 @@ class _TeacherScheduleDetailViewState
                   ? List<String>.from(existing['scheduleDocIds']) 
                   : [existing['id']?.toString() ?? ''];
 
+              final existingAssignmentIds = existing['assignmentIds'] != null
+                  ? List<String>.from(existing['assignmentIds'])
+                  : [existing['assignmentId']?.toString() ?? ''];
+
               if (!existingClassIds.contains(classId)) {
                 existingClassNames.add(assignmentInfo['className'].toString());
                 existingClassIds.add(classId);
                 existingDocIds.add(doc.id);
+                if (data['assignmentId'] != null) {
+                  existingAssignmentIds.add(data['assignmentId'].toString());
+                }
               }
 
               existingClassNames.sort((a, b) => compareClassNames(a, b));
@@ -4059,6 +4076,7 @@ class _TeacherScheduleDetailViewState
               existing['classNames'] = existingClassNames;
               existing['classIds'] = existingClassIds;
               existing['scheduleDocIds'] = existingDocIds;
+              existing['assignmentIds'] = existingAssignmentIds;
               existing['isCombined'] = true;
             } else {
               scheduleData[key] = newSlotData;
@@ -4069,6 +4087,7 @@ class _TeacherScheduleDetailViewState
               'classNames': [assignmentInfo['className'].toString()],
               'classIds': [classId],
               'scheduleDocIds': [doc.id],
+              'assignmentIds': data['assignmentId'] != null ? [data['assignmentId'].toString()] : <String>[],
             };
           }
         }
@@ -4090,6 +4109,7 @@ class _TeacherScheduleDetailViewState
         );
 
         final absenceSnap = await temporaryRef
+            .where('institutionId', whereIn: instIds)
             .where('originalTeacherId', isEqualTo: teacherId)
             .where(
               'date',
@@ -4100,6 +4120,7 @@ class _TeacherScheduleDetailViewState
             .get();
 
         final substituteSnap = await temporaryRef
+            .where('institutionId', whereIn: instIds)
             .where('substituteTeacherId', isEqualTo: teacherId)
             .where(
               'date',
@@ -4111,7 +4132,6 @@ class _TeacherScheduleDetailViewState
 
         for (var doc in absenceSnap.docs) {
           final data = doc.data();
-          // Calculate dayName from date
           final dateVal = (data['date'] as Timestamp).toDate();
           final dayNames = [
             '',
@@ -4142,7 +4162,6 @@ class _TeacherScheduleDetailViewState
 
         for (var doc in substituteSnap.docs) {
           final data = doc.data();
-          // Calculate dayName from date
           final dateVal = (data['date'] as Timestamp).toDate();
           final dayNames = [
             '',
@@ -4175,6 +4194,63 @@ class _TeacherScheduleDetailViewState
             'isTemporary': true,
           };
         }
+        
+        // Atalı Derslerin durumunu hesapla
+        final Map<String, int> assignmentPlacedSlotsCount = {};
+        final Set<String> assignedDocIdsPlaced = {};
+
+        for (final slot in scheduleData.values) {
+          final slotLid = (slot['lessonId'] ?? '').toString();
+
+          final List<String> slotClassIds = slot['classIds'] != null
+              ? List<String>.from(slot['classIds'])
+              : [(slot['classId'] ?? '').toString()];
+
+          final List<String> slotAssignmentIds = slot['assignmentIds'] != null
+              ? List<String>.from(slot['assignmentIds'])
+              : [(slot['assignmentId'] ?? '').toString()];
+
+          for (final assignmentId in slotAssignmentIds) {
+            if (assignmentId.isNotEmpty) {
+              assignedDocIdsPlaced.add(assignmentId);
+              assignmentPlacedSlotsCount[assignmentId] = (assignmentPlacedSlotsCount[assignmentId] ?? 0) + 1;
+            }
+          }
+
+          for (final cid in slotClassIds) {
+            if (cid.isNotEmpty && slotLid.isNotEmpty) {
+              final matchKey = '$cid|$slotLid';
+              assignmentPlacedSlotsCount[matchKey] = (assignmentPlacedSlotsCount[matchKey] ?? 0) + 1;
+            }
+          }
+        }
+
+        final Set<String> consumedMatchKeys = {};
+
+        for (var assignment in teacherAssignments) {
+          final docId = (assignment['id'] ?? '').toString();
+          final cid = (assignment['classId'] ?? '').toString();
+          final lid = (assignment['lessonId'] ?? '').toString();
+          final matchKey = '$cid|$lid';
+
+          int placed = 0;
+          if (assignedDocIdsPlaced.contains(docId)) {
+            placed = assignmentPlacedSlotsCount[docId] ?? 0;
+          } else if (assignmentPlacedSlotsCount.containsKey(matchKey) && !consumedMatchKeys.contains(matchKey)) {
+            placed = assignmentPlacedSlotsCount[matchKey] ?? 0;
+            consumedMatchKeys.add(matchKey);
+          }
+
+          assignment['placedHours'] = placed;
+          assignment['isPlaced'] = placed > 0;
+        }
+
+        teacherAssignments.sort((a, b) {
+          final classNameA = (a['className'] ?? '').toString();
+          final classNameB = (b['className'] ?? '').toString();
+          return compareClassNames(classNameA, classNameB);
+        });
+
         // ---------------------------------------------------------
         // ETÜT TALEPLERİNİ YÜKLE (ETUT REQUESTS)
         // ---------------------------------------------------------
@@ -4188,6 +4264,7 @@ class _TeacherScheduleDetailViewState
           final endMidnight = startMidnight.add(const Duration(days: 7));
           final etutSnap = await FirebaseFirestore.instance
               .collection('etut_requests')
+              .where('institutionId', whereIn: instIds)
               .where('teacherId', isEqualTo: teacherId)
               .where(
                 'date',
@@ -4202,9 +4279,6 @@ class _TeacherScheduleDetailViewState
             weeklyEtuts.add(data);
           }
 
-          // -------------------------------------------------------
-          // STUDENT NAME FETCHING LOGIC
-          // -------------------------------------------------------
           final Set<String> allStudentIds = {};
           for (var etut in weeklyEtuts) {
             final sIds = List<String>.from(etut['studentIds'] ?? []);
@@ -4263,6 +4337,7 @@ class _TeacherScheduleDetailViewState
         setState(() {
           _scheduleData = scheduleData;
           _weeklyEtuts = weeklyEtuts;
+          _teacherAssignments = teacherAssignments;
           _isLoading = false;
         });
       } catch (e) {
@@ -4273,6 +4348,444 @@ class _TeacherScheduleDetailViewState
       print('Program yükleme hatası: $e');
       setState(() => _isLoading = false);
     }
+  }
+
+  void _confirmCancelAssignment(Map<String, dynamic> assignment) {
+    final docId = (assignment['id'] ?? '').toString();
+    final className = (assignment['className'] ?? 'Sınıf').toString();
+    final lessonName = (assignment['lessonName'] ?? 'Ders').toString();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.warning_amber_rounded, color: Colors.red.shade600, size: 24),
+            ),
+            const SizedBox(width: 10),
+            const Text('Atamayı İptal Et', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Text(
+          '"$className - $lessonName" ders atamasını bu öğretmen için iptal etmek istediğinize emin misiniz?',
+          style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Vazgeç', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.shade600,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                final docSnap = await FirebaseFirestore.instance.collection('lessonAssignments').doc(docId).get();
+                final teacherId = widget.teacherData['id']?.toString() ?? '';
+                final teacherName = widget.teacherData['name']?.toString() ?? '';
+                if (docSnap.exists) {
+                  final data = docSnap.data();
+                  final tIds = List<String>.from(data?['teacherIds'] ?? []);
+                  final tNames = List<String>.from(data?['teacherNames'] ?? []);
+                  
+                  if (tIds.length > 1 && teacherId.isNotEmpty) {
+                    tIds.remove(teacherId);
+                    if (tNames.isNotEmpty && teacherName.isNotEmpty) {
+                      tNames.removeWhere((n) => n.contains(teacherName));
+                    }
+                    await FirebaseFirestore.instance.collection('lessonAssignments').doc(docId).update({
+                      'teacherIds': tIds,
+                      'teacherNames': tNames,
+                    });
+                  } else {
+                    await FirebaseFirestore.instance.collection('lessonAssignments').doc(docId).update({
+                      'isActive': false,
+                    });
+                  }
+                }
+
+                setState(() {
+                  _teacherAssignments.removeWhere((a) => a['id'] == docId);
+                });
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Ders ataması başarıyla iptal edildi.'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+
+                await _loadSchedule();
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Atama iptal edilirken hata oluştu: $e'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            },
+            child: const Text('Evet, İptal Et', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _cleanUpUnplacedDuplicates() async {
+    final unplaced = _teacherAssignments.where((a) => a['isPlaced'] == false).toList();
+    if (unplaced.isEmpty) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.cleaning_services, color: Colors.orange.shade700, size: 24),
+            ),
+            const SizedBox(width: 10),
+            const Text('Boştakileri Temizle', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Text(
+          'Bu öğretmene atanmış ancak programda yer almayan (${unplaced.length} adet) ders atamasını silmek istiyor musunuz?',
+          style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Vazgeç', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange.shade800,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Temizle', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() => _isLoading = true);
+    try {
+      final teacherId = widget.teacherData['id']?.toString() ?? '';
+      final teacherName = widget.teacherData['name']?.toString() ?? '';
+      for (final a in unplaced) {
+        final docId = a['id']?.toString() ?? '';
+        if (docId.isEmpty) continue;
+
+        final tIds = List<String>.from(a['teacherIds'] ?? []);
+        final tNames = List<String>.from(a['teacherNames'] ?? []);
+
+        if (tIds.length > 1 && teacherId.isNotEmpty) {
+          tIds.remove(teacherId);
+          if (tNames.isNotEmpty && teacherName.isNotEmpty) {
+            tNames.removeWhere((n) => n.contains(teacherName));
+          }
+          await FirebaseFirestore.instance.collection('lessonAssignments').doc(docId).update({
+            'teacherIds': tIds,
+            'teacherNames': tNames,
+          });
+        } else {
+          await FirebaseFirestore.instance.collection('lessonAssignments').doc(docId).update({
+            'isActive': false,
+          });
+        }
+      }
+
+      setState(() {
+        _teacherAssignments.removeWhere((a) => a['isPlaced'] == false);
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Boştaki ders atamaları başarıyla temizlendi.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+
+      await _loadSchedule();
+    } catch (e) {
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Temizleme sırasında hata oluştu: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Widget _buildAssignedLessonsView() {
+    if (_teacherAssignments.isEmpty) {
+      return Center(
+        child: Container(
+          margin: const EdgeInsets.all(32),
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.blue.shade900.withOpacity(0.04),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
+            border: Border.all(color: Colors.blue.shade50),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.assignment_late_outlined,
+                  size: 48,
+                  color: Colors.blue.shade400,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Atanmış Ders Bulunmuyor',
+                style: TextStyle(
+                  color: Colors.blue.shade900,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Bu öğretmene ait aktif müfredat ders ataması bulunmamaktadır.',
+                style: TextStyle(
+                  color: Colors.grey.shade600,
+                  fontSize: 13,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final hasUnplacedDuplicates = _teacherAssignments.any((a) => a['isPlaced'] == false);
+
+    return Column(
+      children: [
+        Container(
+          margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: Colors.blue.shade50.withOpacity(0.7),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.blue.shade100),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.info_outline, size: 20, color: Colors.blue.shade700),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Programda işli olan atamalar yeşil (✓), boşta kalanlar turuncu (⚠️) rozetle gösterilir.',
+                  style: TextStyle(fontSize: 12, color: Colors.blue.shade900, fontWeight: FontWeight.w500),
+                ),
+              ),
+              if (hasUnplacedDuplicates) ...[
+                const SizedBox(width: 8),
+                ElevatedButton.icon(
+                  onPressed: _cleanUpUnplacedDuplicates,
+                  icon: const Icon(Icons.cleaning_services, size: 14, color: Colors.white),
+                  label: const Text(
+                    'Temizle',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange.shade800,
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    visualDensity: VisualDensity.compact,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+            itemCount: _teacherAssignments.length,
+            itemBuilder: (context, index) {
+              final assignment = _teacherAssignments[index];
+              final className = (assignment['className'] ?? 'Sınıf').toString();
+              final lessonName = (assignment['lessonName'] ?? 'Ders').toString();
+              final weeklyHours = assignment['weeklyHours'] as int? ?? 0;
+              final isPlaced = assignment['isPlaced'] as bool? ?? false;
+              final placedHours = assignment['placedHours'] as int? ?? 0;
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: isPlaced ? Colors.blue.shade100 : Colors.orange.shade200,
+                    width: isPlaced ? 1 : 1.5,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.blue.shade900.withOpacity(0.04),
+                      blurRadius: 8,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: isPlaced
+                              ? [Colors.blue.shade400, Colors.blue.shade700]
+                              : [Colors.orange.shade400, Colors.orange.shade700],
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Center(
+                        child: Icon(
+                          isPlaced ? Icons.class_outlined : Icons.event_busy,
+                          color: Colors.white,
+                          size: 22,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.blue.shade50,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  className,
+                                  style: TextStyle(
+                                    color: Colors.blue.shade800,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.blue.shade50,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  '$weeklyHours saat/h',
+                                  style: TextStyle(
+                                    color: Colors.blue.shade900,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: isPlaced ? Colors.green.shade50 : Colors.orange.shade50,
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                    color: isPlaced ? Colors.green.shade200 : Colors.orange.shade300,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      isPlaced ? Icons.check_circle : Icons.warning_amber_rounded,
+                                      size: 12,
+                                      color: isPlaced ? Colors.green.shade700 : Colors.orange.shade900,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      isPlaced
+                                          ? 'İşli ($placedHours s)'
+                                          : 'Boşta',
+                                      style: TextStyle(
+                                        color: isPlaced ? Colors.green.shade800 : Colors.orange.shade900,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            lessonName,
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.grey.shade900,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      onPressed: () => _confirmCancelAssignment(assignment),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _buildTabToggle() {
@@ -4288,6 +4801,7 @@ class _TeacherScheduleDetailViewState
         children: [
           _tabButton(0, 'Program', Icons.grid_on),
           _tabButton(1, 'Etütler', Icons.list_alt),
+          _tabButton(2, 'Atalı Dersler', Icons.assignment_ind),
         ],
       ),
     );
@@ -4343,7 +4857,7 @@ class _TeacherScheduleDetailViewState
         elevation: 0,
         backgroundColor: Colors.white,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Colors.blue),
+          icon: Icon(Icons.arrow_back, color: Colors.blue.shade800),
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
@@ -4353,7 +4867,7 @@ class _TeacherScheduleDetailViewState
                 _showTableView
                     ? Icons.table_rows_outlined
                     : Icons.view_agenda_outlined,
-                color: Colors.blue,
+                color: Colors.blue.shade800,
               ),
               onPressed: () {
                 setState(() {
@@ -4362,19 +4876,31 @@ class _TeacherScheduleDetailViewState
               },
             ),
         ],
-        title: Text(
-          teacherName,
-          style: TextStyle(
-            color: Colors.grey.shade900,
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-          ),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              teacherName,
+              style: TextStyle(
+                color: Colors.blue.shade900,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            Text(
+              'Öğretmen Ders Programı',
+              style: TextStyle(
+                color: Colors.blue.shade400,
+                fontSize: 11,
+              ),
+            ),
+          ],
         ),
       ),
       body: Column(
         children: [
           _buildTabToggle(),
-          _buildDateSelectorRow(),
+          if (_currentTabIndex != 2) _buildDateSelectorRow(),
           Expanded(
             child: Stack(
               children: [
@@ -4382,7 +4908,9 @@ class _TeacherScheduleDetailViewState
                     ? (_showTableView
                           ? _buildTableScheduleView()
                           : _buildScheduleView())
-                    : _buildEtutListView(),
+                    : _currentTabIndex == 1
+                        ? _buildEtutListView()
+                        : _buildAssignedLessonsView(),
                 if (_isLoading)
                   Container(
                     color: Colors.white70,
@@ -4413,86 +4941,63 @@ class _TeacherScheduleDetailViewState
         ],
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Row(
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            onPressed: () {
+              setState(() {
+                _weekStart = _weekStart.subtract(Duration(days: 7));
+              });
+              _loadSchedule();
+            },
+            icon: Icon(Icons.arrow_back_ios_new, size: 14, color: Colors.blue.shade700),
+            style: IconButton.styleFrom(
+              backgroundColor: Colors.blue.shade50,
+              padding: const EdgeInsets.all(8),
+              minimumSize: const Size(32, 32),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              IconButton(
-                visualDensity: VisualDensity.compact,
-                onPressed: () {
-                  setState(() {
-                    _weekStart = _weekStart.subtract(Duration(days: 7));
-                  });
-                  _loadSchedule();
-                },
-                icon: Icon(Icons.arrow_back_ios_new, size: 14, color: Colors.blue.shade700),
-                style: IconButton.styleFrom(
-                  backgroundColor: Colors.blue.shade50,
-                  padding: const EdgeInsets.all(8),
-                  minimumSize: const Size(32, 32),
+              Text(
+                _currentTabIndex == 0 ? 'HAFTALIK PROGRAM' : 'HAFTALIK ETÜTLER',
+                style: TextStyle(
+                  fontSize: 9,
+                  color: Colors.blue.shade300,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.5,
                 ),
               ),
-              const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'HAFTALIK PROGRAM',
-                    style: TextStyle(
-                      fontSize: 9,
-                      color: Colors.blue.shade300,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                  Text(
-                    _formatWeekRange(_weekStart),
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.blue.shade900,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(width: 12),
-              IconButton(
-                visualDensity: VisualDensity.compact,
-                onPressed: () {
-                  setState(() {
-                    _weekStart = _weekStart.add(Duration(days: 7));
-                  });
-                  _loadSchedule();
-                },
-                icon: Icon(Icons.arrow_forward_ios, size: 14, color: Colors.blue.shade700),
-                style: IconButton.styleFrom(
-                  backgroundColor: Colors.blue.shade50,
-                  padding: const EdgeInsets.all(8),
-                  minimumSize: const Size(32, 32),
+              Text(
+                _formatWeekRange(_weekStart),
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blue.shade900,
                 ),
               ),
             ],
           ),
-          if (_currentTabIndex == 0)
-            IconButton(
-              icon: Icon(
-                _showTableView ? Icons.table_rows_outlined : Icons.view_agenda_outlined,
-                color: Colors.blue.shade700,
-                size: 20,
-              ),
-              onPressed: () {
-                setState(() {
-                  _showTableView = !_showTableView;
-                });
-              },
-              style: IconButton.styleFrom(
-                backgroundColor: Colors.blue.shade50,
-                padding: const EdgeInsets.all(8),
-                minimumSize: const Size(36, 36),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
+          const SizedBox(width: 16),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            onPressed: () {
+              setState(() {
+                _weekStart = _weekStart.add(Duration(days: 7));
+              });
+              _loadSchedule();
+            },
+            icon: Icon(Icons.arrow_forward_ios, size: 14, color: Colors.blue.shade700),
+            style: IconButton.styleFrom(
+              backgroundColor: Colors.blue.shade50,
+              padding: const EdgeInsets.all(8),
+              minimumSize: const Size(32, 32),
             ),
+          ),
         ],
       ),
     );

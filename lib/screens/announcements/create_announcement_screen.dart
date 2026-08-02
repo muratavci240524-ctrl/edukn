@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/announcement_service.dart';
 import '../../widgets/recipient_selector_field.dart';
+import 'package:edukn/widgets/custom_date_range_picker.dart';
 
 class CreateAnnouncementScreen extends StatefulWidget {
   final String? announcementId;
   final Map<String, dynamic>? announcementData;
   final String? schoolTypeId;
   final String? schoolTypeName;
+  final String? institutionId;
 
   const CreateAnnouncementScreen({
     Key? key,
@@ -15,6 +17,7 @@ class CreateAnnouncementScreen extends StatefulWidget {
     this.announcementData,
     this.schoolTypeId,
     this.schoolTypeName,
+    this.institutionId,
   }) : super(key: key);
 
   @override
@@ -110,13 +113,8 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
     super.dispose();
   }
 
-  Future<void> _pickDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _publishDate,
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
-    );
+  Future<void> _pickDate(BuildContext btnContext) async {
+    final picked = await CustomDateRangePicker.showSingle(context, sourceContext: btnContext, initialDate: _publishDate);
     if (picked != null) {
       setState(() {
         _publishDate = picked;
@@ -124,7 +122,7 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
     }
   }
 
-  Future<void> _pickTime() async {
+  Future<void> _pickTime(BuildContext btnContext) async {
     final picked = await showTimePicker(
       context: context,
       initialTime: _publishTime,
@@ -481,7 +479,7 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
                                         label: 'Tarih',
                                         value:
                                             '${_publishDate.day.toString().padLeft(2, '0')}/${_publishDate.month.toString().padLeft(2, '0')}/${_publishDate.year}',
-                                        onTap: _pickDate,
+                                        onTap: (ctx) => _pickDate(ctx),
                                         color: Colors.purple,
                                       ),
                                       const SizedBox(height: 8),
@@ -489,7 +487,7 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
                                         icon: Icons.access_time_rounded,
                                         label: 'Saat',
                                         value: _publishTime.format(context),
-                                        onTap: _pickTime,
+                                        onTap: (ctx) => _pickTime(ctx),
                                         color: Colors.purple,
                                       ),
                                     ],
@@ -503,7 +501,7 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
                                         label: 'Tarih',
                                         value:
                                             '${_publishDate.day.toString().padLeft(2, '0')}/${_publishDate.month.toString().padLeft(2, '0')}/${_publishDate.year}',
-                                        onTap: _pickDate,
+                                        onTap: (ctx) => _pickDate(ctx),
                                         color: Colors.purple,
                                       ),
                                     ),
@@ -513,7 +511,7 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
                                         icon: Icons.access_time_rounded,
                                         label: 'Saat',
                                         value: _publishTime.format(context),
-                                        onTap: _pickTime,
+                                        onTap: (ctx) => _pickTime(ctx),
                                         color: Colors.purple,
                                       ),
                                     ),
@@ -558,16 +556,16 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
                                 ),
                               ),
                               const SizedBox(width: 8),
-                              IconButton(
-                                onPressed: () async {
-                                  final date = await showDatePicker(
-                                    context: context,
-                                    firstDate: DateTime.now(),
-                                    lastDate: DateTime(DateTime.now().year + 2),
-                                    initialDate: DateTime.now().add(
-                                      const Duration(days: 1),
-                                    ),
-                                  );
+                              Builder(
+                                builder: (btnContext) => IconButton(
+                                  onPressed: () async {
+                                    final date = await CustomDateRangePicker.showSingle(
+                                      context,
+                                      sourceContext: btnContext,
+                                      initialDate: DateTime.now().add(
+                                        const Duration(days: 1),
+                                      ),
+                                    );
                                   if (date == null || !mounted) return;
 
                                   final time = await showTimePicker(
@@ -593,6 +591,7 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
                                   backgroundColor: Colors.amber[100],
                                 ),
                               ),
+                            ),
                             ],
                           ),
                           if (_reminders.isNotEmpty) ...[
@@ -843,13 +842,14 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
     required IconData icon,
     required String label,
     required String value,
-    required VoidCallback onTap,
+    required void Function(BuildContext) onTap,
     required MaterialColor color,
   }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
+    return Builder(
+      builder: (btnContext) => InkWell(
+        onTap: () => onTap(btnContext),
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
           color: Colors.white,
@@ -885,6 +885,6 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
           ],
         ),
       ),
-    );
+    ));
   }
 }

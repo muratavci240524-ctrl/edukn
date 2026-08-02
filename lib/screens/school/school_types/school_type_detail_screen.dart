@@ -11,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
 import '../../../services/term_service.dart';
+import '../../../widgets/haberlesme_hub_widget.dart';
 import 'school_type_announcements_screen.dart';
 import 'school_type_social_media_screen.dart';
 import '../student_registration_screen.dart';
@@ -283,205 +284,12 @@ class _CommunicationTabState extends State<_CommunicationTab> with SingleTickerP
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          // Background Gradient
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Colors.blue.shade50, Colors.indigo.shade50],
-              ),
-            ),
-          ),
-          
-          SafeArea(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Header
-                Padding(
-                  padding: const EdgeInsets.only(left: 24, right: 24, top: 32, bottom: 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Haberleşme',
-                        style: TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.indigo.shade900,
-                          letterSpacing: -0.5,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        isTeacher 
-                          ? 'Öğretmenlere özel duyurular ve mesajlaşma merkezi.'
-                          : 'Okulunuzdaki iletişim kanallarına tek bir yerden ulaşın.',
-                        style: TextStyle(
-                          fontSize: 15,
-                          color: Colors.blueGrey.shade600,
-                          height: 1.4,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                
-                // Cards
-                Expanded(
-                  child: ListView(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                    physics: const BouncingScrollPhysics(),
-                    children: [
-                      _buildCommCard(
-                        context: context,
-                        index: 0,
-                        title: 'Duyurular',
-                        description: 'Okul ve kurum içi güncel duyuruları takip edin.',
-                        icon: Icons.campaign_rounded,
-                        color: Colors.orange,
-                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SchoolTypeAnnouncementsScreen(
-                            schoolTypeId: widget.schoolTypeId,
-                            schoolTypeName: widget.schoolTypeName,
-                            institutionId: widget.institutionId,
-                        ))),
-                      ),
-                      const SizedBox(height: 20),
-                      _buildCommCard(
-                        context: context,
-                        index: 1,
-                        title: 'Sosyal Medya',
-                        description: 'Okulun sosyal medya paylaşımlarını inceleyin.',
-                        icon: Icons.share_rounded,
-                        color: Colors.blue,
-                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SchoolTypeSocialMediaScreen(
-                            schoolTypeId: widget.schoolTypeId,
-                            schoolTypeName: widget.schoolTypeName,
-                            institutionId: widget.institutionId,
-                        ))),
-                      ),
-                      const SizedBox(height: 20),
-                      _buildCommCard(
-                        context: context,
-                        index: 2,
-                        title: 'Mesajlar',
-                        description: 'Öğrenciler, veliler ve personelle mesajlaşın.',
-                        icon: Icons.forum_rounded,
-                        color: Colors.green,
-                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(
-                            schoolTypeId: widget.schoolTypeId,
-                            schoolTypeName: widget.schoolTypeName,
-                            institutionId: widget.institutionId,
-                        ))),
-                      ),
-                      const SizedBox(height: 100), // padding for bottom nav
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCommCard({
-    required BuildContext context,
-    required int index,
-    required String title,
-    required String description,
-    required IconData icon,
-    required MaterialColor color,
-    required VoidCallback onTap,
-  }) {
-    final animation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _animationController,
-        curve: Interval(0.1 * index, 1.0, curve: Curves.easeOutBack),
-      ),
-    );
-
-    return AnimatedBuilder(
-      animation: animation,
-      builder: (context, child) {
-        return Transform.translate(
-          offset: Offset(0, 50 * (1 - animation.value)),
-          child: Opacity(
-            opacity: animation.value,
-            child: child,
-          ),
-        );
-      },
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: [
-            BoxShadow(
-              color: color.shade100.withOpacity(0.5),
-              blurRadius: 20,
-              offset: const Offset(0, 10),
-            ),
-          ],
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(24),
-            splashColor: color.shade50.withOpacity(0.5),
-            highlightColor: color.shade50.withOpacity(0.5),
-            child: Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: color.shade50,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Icon(icon, size: 32, color: color.shade700),
-                  ),
-                  const SizedBox(width: 20),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.indigo.shade900,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          description,
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.blueGrey.shade600,
-                            height: 1.4,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Icon(Icons.arrow_forward_ios_rounded, size: 18, color: Colors.indigo.shade200),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
+    return HaberlesmeHubWidget(
+      institutionId: widget.institutionId,
+      schoolTypeId: widget.schoolTypeId,
+      schoolTypeName: widget.schoolTypeName,
+      userData: widget.userData,
+      isTeacher: isTeacher,
     );
   }
 }
@@ -2652,57 +2460,110 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
                         type == 'student';
       final myId = widget.userData?['id'];
 
-      // Öğretmen sınıflarını alalım
+      // Öğretmen sınıflarını ve tüm verileri paralel yükleyelim (8x Hızlı)
       final Set<String> assignedClassIds = {};
-      if (isTeacher && myId != null) {
-        final assignSnap = await FirebaseFirestore.instance
-            .collection('lessonAssignments')
-            .where('institutionId', whereIn: instIds)
-            .where('teacherIds', arrayContains: myId)
-            .where('isActive', isEqualTo: true)
-            .get();
-        for (var doc in assignSnap.docs) {
-          final cid = doc.data()['classId']?.toString();
-          if (cid != null) assignedClassIds.add(cid);
-        }
-      }
-      // Fetch all classes to map classId to className
-      final classesSnapshot = await FirebaseFirestore.instance
+      final startTs = Timestamp.fromDate(startOfMonth.subtract(const Duration(days: 15)));
+      final endTs = Timestamp.fromDate(endOfMonth.add(const Duration(days: 15)));
+
+      final assignFuture = (isTeacher && myId != null)
+          ? FirebaseFirestore.instance
+              .collection('lessonAssignments')
+              .where('institutionId', whereIn: instIds)
+              .where('teacherIds', arrayContains: myId)
+              .where('isActive', isEqualTo: true)
+              .get()
+          : Future.value(null);
+
+      final classesFuture = FirebaseFirestore.instance
           .collection('classes')
           .where('institutionId', whereIn: instIds)
           .get();
+
+      final activitiesFuture = FirebaseFirestore.instance
+          .collection('activities')
+          .where('institutionId', whereIn: instIds)
+          .where('date', isGreaterThanOrEqualTo: startTs)
+          .where('date', isLessThanOrEqualTo: endTs)
+          .get();
+
+      Query etutQuery = FirebaseFirestore.instance
+          .collection('etut_requests')
+          .where('institutionId', whereIn: instIds);
+      if (isTeacher && myId != null) {
+        etutQuery = etutQuery.where('teacherId', isEqualTo: myId);
+      }
+      final etutFuture = etutQuery.get();
+
+      final geziFuture = FirebaseFirestore.instance
+          .collection('field_trips')
+          .where('institutionId', whereIn: instIds)
+          .where('departureTime', isGreaterThanOrEqualTo: startTs)
+          .where('departureTime', isLessThanOrEqualTo: endTs)
+          .get();
+
+      final dutyFuture = (isTeacher && myId != null)
+          ? FirebaseFirestore.instance
+              .collection('dutyScheduleItems')
+              .where('institutionId', whereIn: instIds)
+              .where('teacherId', isEqualTo: myId)
+              .get()
+          : Future.value(null);
+
+      final homeworkFuture = (isTeacher && myId != null)
+          ? FirebaseFirestore.instance
+              .collection('homeworks')
+              .where('institutionId', whereIn: instIds)
+              .where('teacherId', isEqualTo: myId)
+              .where('dueDate', isGreaterThanOrEqualTo: startTs)
+              .where('dueDate', isLessThanOrEqualTo: endTs)
+              .get()
+          : Future.value(null);
+
+      final classExamsFuture = (isTeacher && myId != null)
+          ? FirebaseFirestore.instance
+              .collection('class_exams')
+              .where('institutionId', whereIn: instIds)
+              .where('date', isGreaterThanOrEqualTo: startTs)
+              .where('date', isLessThanOrEqualTo: endTs)
+              .get()
+          : Future.value(null);
+
+      final results = await Future.wait([
+        assignFuture,
+        classesFuture,
+        activitiesFuture,
+        etutFuture,
+        geziFuture,
+        dutyFuture,
+        homeworkFuture,
+        classExamsFuture,
+      ]);
+
+      final assignSnap = results[0] as QuerySnapshot?;
+      final classesSnapshot = results[1] as QuerySnapshot;
+      final activitiesSnapshot = results[2] as QuerySnapshot;
+      final etutSnapshot = results[3] as QuerySnapshot;
+      final geziSnapshot = results[4] as QuerySnapshot;
+      final dutySnapshot = results[5] as QuerySnapshot?;
+      final homeworkSnapshot = results[6] as QuerySnapshot?;
+      final classExamsSnapshot = results[7] as QuerySnapshot?;
+
+      if (assignSnap != null) {
+        for (var doc in assignSnap.docs) {
+          final cid = (doc.data() as Map<String, dynamic>)['classId']?.toString();
+          if (cid != null) assignedClassIds.add(cid);
+        }
+      }
+
       final Map<String, String> classIdToName = {};
       for (var doc in classesSnapshot.docs) {
-        final cData = doc.data();
+        final cData = doc.data() as Map<String, dynamic>;
         final cId = doc.id;
         final cName = cData['className']?.toString() ?? cData['name']?.toString() ?? '';
         if (cName.isNotEmpty) {
           classIdToName[cId] = cName;
         }
       }
-
-      // 1. Sosyal Etkinlikler ve Özel Notlar (activities)
-      final activitiesSnapshot = await FirebaseFirestore.instance
-          .collection('activities')
-          .where('institutionId', whereIn: instIds)
-          .get();
-
-      // 2. Etütler (etut_requests)
-      Query etutQuery = FirebaseFirestore.instance
-          .collection('etut_requests')
-          .where('institutionId', whereIn: instIds);
-      
-      if (isTeacher && myId != null) {
-        etutQuery = etutQuery.where('teacherId', isEqualTo: myId);
-      }
-
-      final etutSnapshot = await etutQuery.get();
-
-      // 3. Geziler (field_trips)
-      final geziSnapshot = await FirebaseFirestore.instance
-          .collection('field_trips')
-          .where('institutionId', whereIn: instIds)
-          .get();
 
       List<Map<String, dynamic>> allEvents = [];
 
@@ -2848,140 +2709,90 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
             }),
       );
 
-      // 4. Öğretmen özel yüklemeleri (Ders programı, Nöbetler, Ödevler, Sınavlar)
+      // 4. Öğretmen özel yüklemeleri (Nöbetler, Ödevler, Sınavlar)
       if (isTeacher && myId != null) {
-        // A. classSchedules (Ders Programı)
-        final scheduleSnapshot = await FirebaseFirestore.instance
-            .collection('classSchedules')
-            .where('institutionId', whereIn: instIds)
-            .where('teacherIds', arrayContains: myId)
-            .where('isActive', isEqualTo: true)
-            .get();
-
-        for (var doc in scheduleSnapshot.docs) {
-          final data = doc.data() as Map<String, dynamic>;
-          final sDayStr = (data['day'] ?? '').toString().trim();
-          final subject = data['subjectName'] ?? data['lessonName'] ?? 'Ders';
-          final className = data['className'] ?? '';
-          
-          final targetWeekday = _parseWeekdayTr(sDayStr);
-          if (targetWeekday != null) {
-            for (int dayOffset = 0; dayOffset <= endOfMonth.difference(startOfMonth).inDays; dayOffset++) {
-              final checkDay = startOfMonth.add(Duration(days: dayOffset));
-              if (checkDay.weekday == targetWeekday) {
-                DateTime eventTime = DateTime(checkDay.year, checkDay.month, checkDay.day, 9, 0);
-                final hourIdx = data['hourIndex'] as int? ?? 0;
-                eventTime = eventTime.add(Duration(minutes: hourIdx * 45));
-
+        // A. dutyScheduleItems (Nöbetler)
+        if (dutySnapshot != null) {
+          for (var doc in dutySnapshot.docs) {
+            final data = doc.data() as Map<String, dynamic>;
+            final dDayOfWeek = data['dayOfWeek'] as int?;
+            final dWeekStart = _parseDateTime(data['weekStart']);
+            final location = data['locationName'] ?? data['dutyLocation'] ?? 'Nöbet Yeri';
+            
+            if (dDayOfWeek != null && dWeekStart != null) {
+              final dutyDate = dWeekStart.add(Duration(days: dDayOfWeek - 1));
+              if (dutyDate.isAfter(startOfMonth.subtract(const Duration(seconds: 1))) &&
+                  dutyDate.isBefore(endOfMonth.add(const Duration(seconds: 1)))) {
+                
                 allEvents.add(<String, dynamic>{
                   ...data,
-                  'id': 'lesson_${doc.id}_${checkDay.day}',
-                  'source': 'lesson',
-                  'title': '$subject ($className)',
-                  'displayType': 'Ders',
-                  'type': 'Ders',
-                  'date': Timestamp.fromDate(eventTime),
-                  'startTime': Timestamp.fromDate(eventTime),
-                  'endTime': Timestamp.fromDate(eventTime.add(const Duration(minutes: 40))),
+                  'id': 'duty_${doc.id}',
+                  'source': 'duty',
+                  'title': 'Nöbet: $location',
+                  'displayType': 'Nöbet',
+                  'type': 'Nöbet',
+                  'date': Timestamp.fromDate(dutyDate),
+                  'startTime': Timestamp.fromDate(dutyDate),
+                  'endTime': Timestamp.fromDate(dutyDate.add(const Duration(hours: 8))),
                 });
               }
             }
           }
         }
 
-        // B. dutyScheduleItems (Nöbetler)
-        final dutySnapshot = await FirebaseFirestore.instance
-            .collection('dutyScheduleItems')
-            .where('institutionId', whereIn: instIds)
-            .where('teacherId', isEqualTo: myId)
-            .get();
-
-        for (var doc in dutySnapshot.docs) {
-          final data = doc.data() as Map<String, dynamic>;
-          final dDayOfWeek = data['dayOfWeek'] as int?;
-          final dWeekStart = _parseDateTime(data['weekStart']);
-          final location = data['locationName'] ?? data['dutyLocation'] ?? 'Nöbet Yeri';
-          
-          if (dDayOfWeek != null && dWeekStart != null) {
-            final dutyDate = dWeekStart.add(Duration(days: dDayOfWeek - 1));
-            if (dutyDate.isAfter(startOfMonth.subtract(const Duration(seconds: 1))) &&
-                dutyDate.isBefore(endOfMonth.add(const Duration(seconds: 1)))) {
-              
-              allEvents.add(<String, dynamic>{
-                ...data,
-                'id': 'duty_${doc.id}',
-                'source': 'duty',
-                'title': 'Nöbet: $location',
-                'displayType': 'Nöbet',
-                'type': 'Nöbet',
-                'date': Timestamp.fromDate(dutyDate),
-                'startTime': Timestamp.fromDate(dutyDate),
-                'endTime': Timestamp.fromDate(dutyDate.add(const Duration(hours: 8))),
-              });
-            }
-          }
-        }
-
         // C. homeworks (Ödevler)
-        final homeworkSnapshot = await FirebaseFirestore.instance
-            .collection('homeworks')
-            .where('institutionId', whereIn: instIds)
-            .where('teacherId', isEqualTo: myId)
-            .get();
-
-        for (var doc in homeworkSnapshot.docs) {
-          final data = doc.data() as Map<String, dynamic>;
-          final dueDate = _parseDateTime(data['dueDate']);
-          final classId = data['classId']?.toString() ?? '';
-          final className = classIdToName[classId] ?? data['className'] ?? '';
-          
-          if (dueDate != null) {
-            if (dueDate.isAfter(startOfMonth.subtract(const Duration(seconds: 1))) &&
-                dueDate.isBefore(endOfMonth.add(const Duration(seconds: 1)))) {
-              final ts = Timestamp.fromDate(dueDate);
-              allEvents.add(<String, dynamic>{
-                ...data,
-                'id': 'homework_${doc.id}',
-                'source': 'homework',
-                'title': 'Ödev Kontrol : $className',
-                'displayType': 'Ödev',
-                'type': 'Ödev',
-                'date': ts,
-                'startTime': ts,
-                'endTime': ts,
-              });
+        if (homeworkSnapshot != null) {
+          for (var doc in homeworkSnapshot.docs) {
+            final data = doc.data() as Map<String, dynamic>;
+            final dueDate = _parseDateTime(data['dueDate']);
+            final classId = data['classId']?.toString() ?? '';
+            final className = classIdToName[classId] ?? data['className'] ?? '';
+            
+            if (dueDate != null) {
+              if (dueDate.isAfter(startOfMonth.subtract(const Duration(seconds: 1))) &&
+                  dueDate.isBefore(endOfMonth.add(const Duration(seconds: 1)))) {
+                final ts = Timestamp.fromDate(dueDate);
+                allEvents.add(<String, dynamic>{
+                  ...data,
+                  'id': 'homework_${doc.id}',
+                  'source': 'homework',
+                  'title': 'Ödev Kontrol : $className',
+                  'displayType': 'Ödev',
+                  'type': 'Ödev',
+                  'date': ts,
+                  'startTime': ts,
+                  'endTime': ts,
+                });
+              }
             }
           }
         }
 
         // D. class_exams (Yazılı Sınavlar)
-        final classExamsSnapshot = await FirebaseFirestore.instance
-            .collection('class_exams')
-            .where('institutionId', whereIn: instIds)
-            .get();
-        
-        for (var doc in classExamsSnapshot.docs) {
-          final data = doc.data() as Map<String, dynamic>;
-          final cId = data['classId']?.toString();
-          final examDate = _parseDateTime(data['date']);
-          final name = data['examName'] ?? 'Sınav';
-          final lesson = data['lessonName'] ?? '';
-          
-          if (examDate != null && cId != null && assignedClassIds.contains(cId)) {
-            if (examDate.isAfter(startOfMonth.subtract(const Duration(seconds: 1))) &&
-                examDate.isBefore(endOfMonth.add(const Duration(seconds: 1)))) {
-              final ts = Timestamp.fromDate(examDate);
-              allEvents.add(<String, dynamic>{
-                ...data,
-                'id': 'class_exam_${doc.id}',
-                'source': 'class_exam',
-                'title': 'Yazılı Sınav: $name ($lesson)',
-                'displayType': 'Sınav',
-                'type': 'Sınav',
-                'date': ts,
-                'startTime': ts,
-                'endTime': ts,
-              });
+        if (classExamsSnapshot != null) {
+          for (var doc in classExamsSnapshot.docs) {
+            final data = doc.data() as Map<String, dynamic>;
+            final cId = data['classId']?.toString();
+            final examDate = _parseDateTime(data['date']);
+            final name = data['examName'] ?? 'Sınav';
+            final lesson = data['lessonName'] ?? '';
+            
+            if (examDate != null && cId != null && assignedClassIds.contains(cId)) {
+              if (examDate.isAfter(startOfMonth.subtract(const Duration(seconds: 1))) &&
+                  examDate.isBefore(endOfMonth.add(const Duration(seconds: 1)))) {
+                final ts = Timestamp.fromDate(examDate);
+                allEvents.add(<String, dynamic>{
+                  ...data,
+                  'id': 'class_exam_${doc.id}',
+                  'source': 'class_exam',
+                  'title': 'Yazılı Sınav: $name ($lesson)',
+                  'displayType': 'Sınav',
+                  'type': 'Sınav',
+                  'date': ts,
+                  'startTime': ts,
+                  'endTime': ts,
+                });
+              }
             }
           }
         }

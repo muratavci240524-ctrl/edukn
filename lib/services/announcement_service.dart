@@ -120,7 +120,7 @@ class AnnouncementService {
         final data = doc.data();
         return {
           'id': doc.id,
-          'name': data['fullName'] ?? data['name'] ?? 'İsimsiz',
+          'name': _resolveUserDisplayName(data),
           'role': data['role'] ?? 'Kullanıcı',
           'email': data['email'] ?? '',
           'username': data['username'] ?? '',
@@ -156,11 +156,11 @@ class AnnouncementService {
   }
 
   // Okul türlerini getir (schoolTypes koleksiyonundan)
-  Future<List<Map<String, dynamic>>> getSchoolTypes() async {
+  Future<List<Map<String, dynamic>>> getSchoolTypes({String? institutionId}) async {
     await _getSchoolInfo();
 
     try {
-      final instId = await _getInstitutionId();
+      final instId = institutionId ?? await _getInstitutionId();
       if (instId == null) return [];
 
       final schoolTypesSnapshot = await _firestore
@@ -188,9 +188,9 @@ class AnnouncementService {
   }
 
   // Sınıf seviyelerini getir
-  Future<List<Map<String, dynamic>>> getClassLevels() async {
+  Future<List<Map<String, dynamic>>> getClassLevels({String? institutionId}) async {
     try {
-      final instId = await _getInstitutionId();
+      final instId = institutionId ?? await _getInstitutionId();
       if (instId == null) return [];
 
       // Okul türlerini doğrudan Firestore'dan al (activeGrades dahil)
@@ -313,63 +313,172 @@ class AnnouncementService {
 
   // Belirli öğrencilerin velilerini getir
   Future<List<Map<String, dynamic>>> getParentsByStudents(
-    List<String> studentIds,
-  ) async {
+    List<String> studentIds, {
+    String? institutionId,
+  }) async {
     if (studentIds.isEmpty) return [];
-
     try {
-      final user = _auth.currentUser;
-      if (user == null) return [];
+      final instId = institutionId ?? await _getInstitutionId();
+      if (instId == null) return [];
 
-      final instId = await _getInstitutionId();
-
-      final snapshot = await _firestore
+      final usersSnap = await _firestore
           .collection('users')
           .where('institutionId', isEqualTo: instId)
-          .where('role', isEqualTo: 'Veli')
-          .where('studentIds', arrayContainsAny: studentIds)
           .get();
 
-      return snapshot.docs.map((doc) {
+      final Set<String> studentIdSet = studentIds.toSet();
+      final List<Map<String, dynamic>> parents = [];
+
+      for (var doc in usersSnap.docs) {
         final data = doc.data();
-        return {
-          'id': doc.id,
-          'name': data['fullName'] ?? data['name'] ?? 'İsimsiz',
-          'role': 'Veli',
-        };
-      }).toList();
+        final role = (data['role'] ?? '').toString().toLowerCase();
+        if (role != 'veli' && role != 'parent') continue;
+
+        List<String> userStudentIds = [];
+        if (data['studentIds'] is List) {
+          userStudentIds = (data['studentIds'] as List).map((e) => e.toString()).toList();
+        } else if (data['studentId'] != null) {
+          userStudentIds = [data['studentId'].toString()];
+        }
+
+        if (userStudentIds.any((sId) => studentIdSet.contains(sId))) {
+          parents.add({
+            'id': doc.id,
+            'name': data['fullName'] ?? data['name'] ?? 'İsimsiz Veli',
+            'role': 'Veli',
+          });
+        }
+      }
+
+      return parents;
     } catch (e) {
       print('Veliler alınırken hata: $e');
       return [];
     }
   }
 
-  // Belirli bir sınıfa ders veren öğretmenleri getir
+  // Belirli bir sınıfa/şubeye ders veren öğretmenleri getir
   Future<List<Map<String, dynamic>>> getTeachersByClass(
     String schoolTypeId,
-    String className,
-  ) async {
+    String classNameOrBranchId, {
+    String? institutionId,
+  }) async {
     try {
-      final user = _auth.currentUser;
-      if (user == null) return [];
+      final instId = institutionId ?? await _getInstitutionId();
+      if (instId == null) return [];
 
-      final instId = await _getInstitutionId();
+      final Map<String, Map<String, dynamic>> teacherMap = {};
 
-      final snapshot = await _firestore
-          .collection('users')
-          .where('institutionId', isEqualTo: instId)
-          .where('role', isEqualTo: 'Öğretmen')
-          .where('classes', arrayContains: '${schoolTypeId}_$className')
-          .get();
+      String className = classNameOrBranchId;
+      String classLevel = classNameOrBranchId;
+      try {
+        final classDoc = await _firestore.collection('classes').doc(classNameOrBranchId).get();
+        if (classDoc.exists) {
+          final cData = classDoc.data()!;
+          className = (cData['className'] ?? cData['name'] ?? classNameOrBranchId).toString();
+          classLevel = (cData['classLevel'] ?? cData['grade'] ?? classNameOrBranchId).toString();
 
-      return snapshot.docs.map((doc) {
-        final data = doc.data();
-        return {
-          'id': doc.id,
-          'name': data['fullName'] ?? data['name'] ?? 'İsimsiz',
-          'role': 'Öğretmen',
-        };
-      }).toList();
+          final mainTeacherId = (cData['mainTeacherId'] ?? cData['classTeacherId'] ?? cData['teacherId'])?.toString();
+          if (mainTeacherId != null && mainTeacherId.isNotEmpty) {
+            teacherMap[mainTeacherId] = {'id': mainTeacherId, 'name': 'Sınıf Öğretmeni', 'role': 'Öğretmen'};
+          }
+        }
+      } catch (_) {}
+
+      final results = await Future.wait([
+        _firestore.collection('lessonAssignments').where('institutionId', isEqualTo: instId).get().catchError((_) => null),
+        _firestore.collection('classSchedules').where('institutionId', isEqualTo: instId).get().catchError((_) => null),
+        _firestore.collection('users').where('institutionId', isEqualTo: instId).get().catchError((_) => null),
+      ]);
+
+      final assignmentsSnap = results[0] as QuerySnapshot?;
+      final schedulesSnap = results[1] as QuerySnapshot?;
+      final usersSnap = results[2] as QuerySnapshot?;
+
+      final Map<String, Map<String, dynamic>> allTeachersDict = {};
+      if (usersSnap != null) {
+        for (var doc in usersSnap.docs) {
+          final d = doc.data() as Map<String, dynamic>;
+          final r = (d['role'] ?? '').toString().toLowerCase();
+          if (r == 'öğretmen' || r == 'ogretmen' || r == 'teacher') {
+            allTeachersDict[doc.id] = {
+              'id': doc.id,
+              'name': d['fullName'] ?? d['name'] ?? 'İsimsiz Öğretmen',
+              'role': 'Öğretmen',
+              'classes': d['classes'] ?? [],
+            };
+          }
+        }
+      }
+
+      bool isClassMatch(dynamic cIdVal) {
+        if (cIdVal == null) return false;
+        final s = cIdVal.toString();
+        return s == classNameOrBranchId ||
+            s == className ||
+            s == classLevel ||
+            s.startsWith(className) ||
+            s.contains(classNameOrBranchId);
+      }
+
+      final Set<String> matchedTeacherIds = {};
+
+      if (assignmentsSnap != null) {
+        for (var doc in assignmentsSnap.docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          final cId = data['classId'] ?? data['className'] ?? data['class'];
+          if (isClassMatch(cId)) {
+            final tIds = data['teacherIds'];
+            if (tIds is List) {
+              for (var id in tIds) {
+                if (id != null) matchedTeacherIds.add(id.toString());
+              }
+            }
+            final singleTId = data['teacherId']?.toString();
+            if (singleTId != null && singleTId.isNotEmpty) {
+              matchedTeacherIds.add(singleTId);
+            }
+          }
+        }
+      }
+
+      if (schedulesSnap != null) {
+        for (var doc in schedulesSnap.docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          final cId = data['classId'] ?? data['className'] ?? data['class'];
+          if (isClassMatch(cId)) {
+            final tIds = data['teacherIds'];
+            if (tIds is List) {
+              for (var id in tIds) {
+                if (id != null) matchedTeacherIds.add(id.toString());
+              }
+            }
+            final singleTId = data['teacherId']?.toString();
+            if (singleTId != null && singleTId.isNotEmpty) {
+              matchedTeacherIds.add(singleTId);
+            }
+          }
+        }
+      }
+
+      allTeachersDict.forEach((tId, tData) {
+        final classesList = tData['classes'];
+        if (classesList is List) {
+          if (classesList.any((c) => isClassMatch(c))) {
+            matchedTeacherIds.add(tId);
+          }
+        }
+      });
+
+      for (var tId in matchedTeacherIds) {
+        if (allTeachersDict.containsKey(tId)) {
+          teacherMap[tId] = allTeachersDict[tId]!;
+        } else {
+          teacherMap[tId] = {'id': tId, 'name': 'Öğretmen', 'role': 'Öğretmen'};
+        }
+      }
+
+      return teacherMap.values.toList();
     } catch (e) {
       print('Öğretmenler alınırken hata: $e');
       return [];
@@ -381,16 +490,12 @@ class AnnouncementService {
     try {
       print('🌿 getBranches called with schoolTypeId: $schoolTypeId');
 
-      // 1. Try to get Institution ID from the school type document itself (Context-aware)
-      String? instId = await _getInstitutionIdFromSchoolType(schoolTypeId);
-      if (instId != null) {
-        print('🔍 getBranches: Found Institution ID from SchoolType: $instId');
+      String? instId;
+      if (schoolTypeId.isNotEmpty && schoolTypeId != 'GENEL') {
+        instId = await _getInstitutionIdFromSchoolType(schoolTypeId);
       }
-
-      // 2. Fallback to user-based Institution ID
       if (instId == null) {
         instId = await _getInstitutionId();
-        print('🔍 getBranches: Using User-based Institution ID: $instId');
       }
 
       if (instId == null) {
@@ -398,43 +503,25 @@ class AnnouncementService {
         return [];
       }
 
-      print(
-        '🌿 Şubeler getiriliyor... Sorgulanan Kurum: $instId, Filtrelenecek OkulTürü: $schoolTypeId',
-      );
+      print('🌿 Şubeler getiriliyor... Sorgulanan Kurum: $instId, Filtrelenecek OkulTürü: $schoolTypeId');
 
-      // IMPORTANT: Class sections (şubeler like 11A, 11B) are stored in 'classes' collection
-      // 'branches' collection is for teacher subjects (Matematik, Türkçe, etc.)
-
-      // Try exact match first
-      var snapshot = await _firestore
-          .collection('classes')
-          .where('institutionId', isEqualTo: instId)
-          .where('schoolTypeId', isEqualTo: schoolTypeId)
-          .where('isActive', isEqualTo: true)
-          .get();
-
-      // If no results with isActive filter, try without it
-      if (snapshot.docs.isEmpty) {
-        print(
-          '🔍 getBranches: No active classes found, trying without isActive filter...',
-        );
-        snapshot = await _firestore
-            .collection('classes')
-            .where('institutionId', isEqualTo: instId)
-            .where('schoolTypeId', isEqualTo: schoolTypeId)
-            .get();
+      Query query = _firestore.collection('classes').where('institutionId', isEqualTo: instId);
+      if (schoolTypeId.isNotEmpty && schoolTypeId != 'GENEL') {
+        query = query.where('schoolTypeId', isEqualTo: schoolTypeId);
       }
 
-      // If still no results, try uppercase institutionId
+      var snapshot = await query.where('isActive', isEqualTo: true).get();
+
       if (snapshot.docs.isEmpty) {
-        print(
-          '🔍 getBranches: Still no classes, trying uppercase institutionId...',
-        );
-        snapshot = await _firestore
-            .collection('classes')
-            .where('institutionId', isEqualTo: instId.toUpperCase())
-            .where('schoolTypeId', isEqualTo: schoolTypeId)
-            .get();
+        snapshot = await query.get();
+      }
+
+      if (snapshot.docs.isEmpty && instId != instId.toUpperCase()) {
+        Query fallbackQuery = _firestore.collection('classes').where('institutionId', isEqualTo: instId.toUpperCase());
+        if (schoolTypeId.isNotEmpty && schoolTypeId != 'GENEL') {
+          fallbackQuery = fallbackQuery.where('schoolTypeId', isEqualTo: schoolTypeId);
+        }
+        snapshot = await fallbackQuery.get();
       }
 
       print(
@@ -442,7 +529,7 @@ class AnnouncementService {
       );
 
       if (snapshot.docs.isNotEmpty) {
-        final firstDoc = snapshot.docs.first.data();
+        final firstDoc = snapshot.docs.first.data() as Map<String, dynamic>;
         print('🌿 Örnek Şube Verisi (İlk Kayıt):');
         print('   - ID: ${snapshot.docs.first.id}');
         print('   - className: ${firstDoc['className']}');
@@ -452,7 +539,7 @@ class AnnouncementService {
       }
 
       final branches = snapshot.docs.map((doc) {
-        final data = doc.data();
+        final data = doc.data() as Map<String, dynamic>;
         return {
           'id': doc.id,
           'name': data['className'] ?? data['name'] ?? 'İsimsiz Şube',
@@ -726,6 +813,51 @@ class AnnouncementService {
 
       // Yeni kayıtlar için aktif dönemi otomatik al
       final activeTermId = await TermService().getActiveTermId();
+      String? resolvedSchoolTypeId = schoolTypeId;
+      final Set<String> targetSchoolTypeIds = {};
+      if (resolvedSchoolTypeId != null && resolvedSchoolTypeId.isNotEmpty) {
+        targetSchoolTypeIds.add(resolvedSchoolTypeId);
+      }
+
+      // Alıcılardaki şubeleri (branch:) ve sınıfları (class:) tara, okul türü ID'lerini bul!
+      for (final r in recipients) {
+        if (r.startsWith('branch:')) {
+          final parts = r.split(':');
+          if (parts.length >= 2) {
+            final branchId = parts[1];
+            try {
+              final cDoc = await _firestore.collection('classes').doc(branchId).get();
+              if (cDoc.exists) {
+                final stId = cDoc.data()?['schoolTypeId']?.toString();
+                if (stId != null && stId.isNotEmpty) {
+                  targetSchoolTypeIds.add(stId);
+                  if (resolvedSchoolTypeId == null || resolvedSchoolTypeId.isEmpty) {
+                    resolvedSchoolTypeId = stId;
+                  }
+                }
+              }
+            } catch (_) {}
+          }
+        }
+      }
+
+      final userRoleData = await UserPermissionService.loadUserData();
+      final userRole = (userRoleData?['role'] ?? '').toString().toLowerCase();
+      final isTeacher = userRole.contains('ogretmen') || userRole.contains('öğretmen') || userRole.contains('teacher');
+      final isManager = userRole == 'admin' || userRole == 'manager' || userRole == 'genel_mudur' || userRole == 'mudur' || userRole == 'mudur_yardimcisi';
+
+      String status = schedulePublish ? 'scheduled' : 'published';
+      String approvalStatus = 'approved';
+
+      if (isTeacher && !isManager && _schoolId != null) {
+        final teacherMode = await getTeacherAnnouncementMode(_schoolId!);
+        if (teacherMode == 'approval_required') {
+          status = 'pending_approval';
+          approvalStatus = 'pending';
+        } else if (teacherMode == 'disabled') {
+          throw Exception('Öğretmenlerin duyuru oluşturma yetkisi kapalıdır.');
+        }
+      }
 
       final announcementData = {
         'title': title,
@@ -739,14 +871,15 @@ class AnnouncementService {
         'createdBy': _auth.currentUser?.email ?? 'unknown@example.com',
         'creatorName': isAnonymous ? institutionName : creatorName,
         'isAnonymous': isAnonymous,
-        'status': schedulePublish ? 'scheduled' : 'published',
+        'status': status,
+        'approvalStatus': approvalStatus,
         'schedulePublish': schedulePublish,
         'reminders': remindersList,
-        'isReminder': false, // Ana duyuru asla hatırlatma değil
-        'readBy': <String>[], // List of user IDs who have read the announcement
-        'termId': activeTermId, // Dönem ID'si
-        if (schoolTypeId != null)
-          'schoolTypeId': schoolTypeId, // Okul türü ID'si
+        'isReminder': false,
+        'readBy': <String>[],
+        'termId': activeTermId,
+        'schoolTypeId': resolvedSchoolTypeId ?? '',
+        'targetSchoolTypeIds': targetSchoolTypeIds.toList(),
         'recipientNames': recipientNames,
         if (repeatMode != null && repeatMode != 'none') 'repeatMode': repeatMode,
         if (repeatUntil != null) 'repeatUntil': Timestamp.fromDate(repeatUntil),
@@ -1265,7 +1398,7 @@ class AnnouncementService {
                 data['className'] ?? data['branch'] ?? data['class'] ?? '';
             allUsers.add({
               'id': doc.id,
-              'name': data['fullName'] ?? data['name'] ?? 'İsimsiz',
+              'name': _resolveUserDisplayName(data),
               'role': 'Öğrenci',
               'email': data['email'] ?? '',
               'username': data['studentNumber'] ?? '',
@@ -1308,7 +1441,7 @@ class AnnouncementService {
                 data['className'] ?? data['branch'] ?? data['class'] ?? '';
             allUsers.add({
               'id': doc.id,
-              'name': data['fullName'] ?? data['name'] ?? 'İsimsiz',
+              'name': _resolveUserDisplayName(data),
               'role': 'Öğrenci',
               'email': data['email'] ?? '',
               'username': data['username'] ?? data['studentNumber'] ?? '',
@@ -1361,7 +1494,7 @@ class AnnouncementService {
                 data['branch'] ?? data['subject'] ?? data['branş'] ?? '';
             allUsers.add({
               'id': doc.id,
-              'name': data['fullName'] ?? data['name'] ?? 'İsimsiz',
+              'name': _resolveUserDisplayName(data),
               'role': data['role'] ?? data['title'] ?? 'Kullanıcı',
               'email': data['email'] ?? '',
               'username': data['username'] ?? '',
@@ -1492,5 +1625,373 @@ class AnnouncementService {
     } catch (e) {
       print('❌ Tekrarlayan duyuru oluşturma hatası: $e');
     }
+  }
+
+  /// Kurumdaki öğrenci dahil tüm kullanıcıları çek
+  Future<List<Map<String, dynamic>>> getAllUsersIncludingStudents({String? institutionId}) async {
+    try {
+      final instId = institutionId ?? await _getInstitutionId();
+      if (instId == null) return [];
+
+      final results = await Future.wait([
+        _firestore.collection('users').where('institutionId', isEqualTo: instId).get().catchError((_) => null as dynamic),
+        _firestore.collection('students').where('institutionId', isEqualTo: instId).get().catchError((_) => null as dynamic),
+      ]);
+
+      final snapUsers = results[0] as QuerySnapshot?;
+      final snapStudents = results[1] as QuerySnapshot?;
+
+      final List<Map<String, dynamic>> users = [];
+      if (snapUsers != null) {
+        for (var doc in snapUsers.docs) {
+          final d = doc.data() as Map<String, dynamic>;
+          d['id'] = doc.id;
+          users.add(d);
+        }
+      }
+
+      if (snapStudents != null) {
+        for (var doc in snapStudents.docs) {
+          final d = doc.data() as Map<String, dynamic>;
+          d['id'] = doc.id;
+          d['role'] = 'Öğrenci';
+          if (!users.any((u) => u['id'] == doc.id)) {
+            users.add(d);
+          }
+        }
+      }
+
+      return users;
+    } catch (e) {
+      print('getAllUsersIncludingStudents hatası: $e');
+      return [];
+    }
+  }
+
+  /// Grup bazlı alıcı ID'lerini bireysel kullanıcılara çözümler
+  Future<List<Map<String, dynamic>>> resolveRecipientUsers(
+    List<String> recipients, {
+    String? schoolTypeId,
+  }) async {
+    final Map<String, Map<String, dynamic>> resolvedMap = {};
+    final instId = await _getInstitutionId();
+    if (instId == null) return [];
+
+    final results = await Future.wait([
+      _firestore.collection('users').where('institutionId', isEqualTo: instId).get().catchError((_) => null as dynamic),
+      _firestore.collection('students').where('institutionId', isEqualTo: instId).get().catchError((_) => null as dynamic),
+      _firestore.collection('classes').where('institutionId', isEqualTo: instId).get().catchError((_) => null as dynamic),
+    ]);
+
+    final snapUsers = results[0] as QuerySnapshot?;
+    final snapStudents = results[1] as QuerySnapshot?;
+    final snapClasses = results[2] as QuerySnapshot?;
+
+    List<Map<String, dynamic>> allUsers = [];
+    if (snapUsers != null) {
+      allUsers = snapUsers.docs.map((doc) {
+        final d = doc.data() as Map<String, dynamic>;
+        d['id'] = doc.id;
+        return d;
+      }).toList();
+    }
+
+    if (snapStudents != null) {
+      for (var doc in snapStudents.docs) {
+        final d = doc.data() as Map<String, dynamic>;
+        d['id'] = doc.id;
+        d['role'] = 'Öğrenci';
+        if (!allUsers.any((u) => u['id'] == doc.id)) {
+          allUsers.add(d);
+        }
+      }
+    }
+
+    final Map<String, Map<String, dynamic>> classesMap = {};
+    if (snapClasses != null) {
+      for (var doc in snapClasses.docs) {
+        final d = doc.data() as Map<String, dynamic>;
+        d['id'] = doc.id;
+        classesMap[doc.id] = d;
+      }
+    }
+
+    final allStudents = allUsers.where((u) {
+      final r = (u['role'] ?? '').toString().toLowerCase();
+      return r == 'öğrenci' || r == 'ogrenci' || r == 'student';
+    }).toList();
+
+    for (final recipientId in recipients) {
+      try {
+        if (recipientId.startsWith('user:')) {
+          final userId = recipientId.substring(5);
+          if (!resolvedMap.containsKey(userId)) {
+            final userDoc = allUsers.firstWhere(
+              (u) => u['id'] == userId,
+              orElse: () => {'id': userId, 'fullName': 'İsimsiz', 'role': 'Kullanıcı'},
+            );
+            resolvedMap[userId] = {
+              'id': userId,
+              'name': userDoc['fullName'] ?? userDoc['name'] ?? 'İsimsiz',
+              'role': userDoc['role'] ?? 'Kullanıcı',
+              'group': recipientId,
+            };
+          }
+        } else if (recipientId.startsWith('branch:')) {
+          final parts = recipientId.split(':');
+          if (parts.length >= 3) {
+            final branchDocId = parts[1];
+            final type = parts[2];
+
+            final classData = classesMap[branchDocId] ?? {};
+            final className = (classData['className'] ?? classData['name'] ?? '').toString();
+
+            final matchedStudents = allStudents.where((s) {
+              final sBranch = (s['branch'] ?? s['branchId'] ?? '').toString();
+              final sClass = (s['class'] ?? s['classId'] ?? s['className'] ?? '').toString();
+              return sBranch == branchDocId || sClass == branchDocId || (className.isNotEmpty && (sClass == className || sBranch == className));
+            }).toList();
+
+            if (type == 'Öğrenciler') {
+              for (var s in matchedStudents) {
+                final sId = s['id'].toString();
+                resolvedMap[sId] = {
+                  'id': sId,
+                  'name': s['fullName'] ?? s['name'] ?? 'İsimsiz Öğrenci',
+                  'role': 'Öğrenci',
+                  'group': recipientId,
+                };
+              }
+            } else if (type == 'Veliler') {
+              final studentIds = matchedStudents.map((s) => s['id'].toString()).toList();
+              final parents = await getParentsByStudents(studentIds);
+              for (var p in parents) {
+                final pId = p['id'] as String;
+                resolvedMap[pId] = {...p, 'group': recipientId};
+              }
+            } else if (type == 'Öğretmenler') {
+              final teachers = await getTeachersByClass(schoolTypeId ?? '', branchDocId);
+              for (var t in teachers) {
+                final tId = t['id'] as String;
+                resolvedMap[tId] = {...t, 'group': recipientId};
+              }
+            }
+          }
+        } else if (recipientId.startsWith('class:')) {
+          final parts = recipientId.split(':');
+          if (parts.length >= 3) {
+            final classLevelId = parts[1];
+            final type = parts[2];
+
+            String targetLevel = classLevelId;
+            final classData = classesMap[classLevelId];
+            if (classData != null) {
+              targetLevel = (classData['classLevel'] ?? classLevelId).toString();
+            }
+
+            final matchedStudents = allStudents.where((s) {
+              final sLevel = (s['classLevel'] ?? s['grade'] ?? '').toString();
+              final sClass = (s['class'] ?? s['className'] ?? '').toString();
+              return sLevel == targetLevel || sLevel == '$targetLevel. Sınıf' || sClass == targetLevel || sClass.startsWith(targetLevel);
+            }).toList();
+
+            if (type == 'Öğrenciler') {
+              for (var s in matchedStudents) {
+                final sId = s['id'].toString();
+                resolvedMap[sId] = {
+                  'id': sId,
+                  'name': s['fullName'] ?? s['name'] ?? 'İsimsiz Öğrenci',
+                  'role': 'Öğrenci',
+                  'group': recipientId,
+                };
+              }
+            } else if (type == 'Veliler') {
+              final studentIds = matchedStudents.map((s) => s['id'].toString()).toList();
+              final parents = await getParentsByStudents(studentIds);
+              for (var p in parents) {
+                final pId = p['id'] as String;
+                resolvedMap[pId] = {...p, 'group': recipientId};
+              }
+            } else if (type == 'Öğretmenler') {
+              final teachers = await getTeachersByClass(schoolTypeId ?? '', targetLevel);
+              for (var t in teachers) {
+                final tId = t['id'] as String;
+                resolvedMap[tId] = {...t, 'group': recipientId};
+              }
+            }
+          }
+        } else if (recipientId == 'ALL') {
+          for (var u in allUsers) {
+            final uId = u['id'].toString();
+            resolvedMap[uId] = {
+              'id': uId,
+              'name': u['fullName'] ?? u['name'] ?? 'İsimsiz',
+              'role': u['role'] ?? 'Kullanıcı',
+              'group': recipientId,
+            };
+          }
+        } else if (recipientId == 'TEACHER') {
+          for (var u in allUsers) {
+            final role = (u['role'] ?? '').toString().toLowerCase();
+            if (role == 'öğretmen' || role == 'ogretmen' || role == 'teacher') {
+              final uId = u['id'].toString();
+              resolvedMap[uId] = {
+                'id': uId,
+                'name': u['fullName'] ?? u['name'] ?? 'İsimsiz Öğretmen',
+                'role': 'Öğretmen',
+                'group': recipientId,
+              };
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    return resolvedMap.values.toList();
+  }
+
+  /// Kullanıcının görebileceği duyuruları filtrele
+  static List<QueryDocumentSnapshot> filterAnnouncementsForUser({
+    required List<QueryDocumentSnapshot> docs,
+    required String userRole,
+    required String userEmail,
+    required List<String> userClassIds,
+    String? viewingSchoolTypeId, // Hangi okul türü arayüzündeyiz? null = Genel
+    bool isGeneralView = false,  // Genel tab seçili mi?
+    String? userId,              // Kullanıcı ID'si (UID)
+  }) {
+    final role = userRole.toLowerCase().trim();
+    final isAdmin = role == 'admin' || role == 'genel_mudur' || role == 'manager';
+    final isTeacher = role.contains('ogretmen') || role.contains('öğretmen') || role.contains('teacher');
+
+    return docs.where((doc) {
+      final data = doc.data() as Map<String, dynamic>;
+      final recipients = List<String>.from(data['recipients'] ?? []);
+      final docSchoolTypeId = data['schoolTypeId']?.toString();
+      final targetSchoolTypeIds = List<String>.from(data['targetSchoolTypeIds'] ?? data['schoolTypeIds'] ?? []);
+      final createdBy = data['createdBy']?.toString() ?? '';
+      final isCreator = createdBy.isNotEmpty && (createdBy == userEmail || (userEmail.isNotEmpty && createdBy.split('@')[0] == userEmail.split('@')[0]));
+
+      // ─── Adım 1: Kullanıcı bu duyurunun hedef kitlesinde mi? ───
+      bool isTargetUser = false;
+
+      if (isCreator || isAdmin) {
+        isTargetUser = true;
+      } else if (recipients.contains('ALL') || recipients.contains('all')) {
+        isTargetUser = true;
+      } else if (isTeacher && (
+          recipients.contains('TEACHER') ||
+          recipients.contains('öğretmen') ||
+          recipients.contains('ogretmen') ||
+          recipients.contains('teacher') ||
+          recipients.contains('unit:ogretmen') ||
+          recipients.contains('unit:ogretmenler')
+      )) {
+        isTargetUser = true;
+      } else if (userId != null && userId.isNotEmpty && (
+          recipients.contains(userId) ||
+          recipients.contains('user:$userId')
+      )) {
+        isTargetUser = true;
+      } else if (userEmail.isNotEmpty && (
+          recipients.contains(userEmail) ||
+          recipients.contains('user:$userEmail')
+      )) {
+        isTargetUser = true;
+      } else {
+        // Rol eşleşmesi
+        if (recipients.contains(role)) {
+          isTargetUser = true;
+        } else {
+          // Sınıf / Şube / Okul türü alıcı kontrolleri
+          for (final r in recipients) {
+            if (r.startsWith('branch:') || r.startsWith('class:')) {
+              for (final cid in userClassIds) {
+                if (r == 'class:$cid' || r == 'class:${cid}_VELI' || r.startsWith('branch:$cid:')) {
+                  isTargetUser = true;
+                  break;
+                }
+              }
+            }
+            if (isTargetUser) break;
+          }
+        }
+      }
+
+      // Eğer kullanıcı hedef kitlede değilse direkt elenir
+      if (!isTargetUser) return false;
+
+      // ─── Adım 2: Okul Türü / Genel Görünüm Kısıtı ───
+      if (viewingSchoolTypeId != null && viewingSchoolTypeId.isNotEmpty && viewingSchoolTypeId != 'GENEL') {
+        // Eğer duyuru spesifik okul türlerine atanmışsa (targetSchoolTypeIds veya docSchoolTypeId dolu ise)
+        final hasExplicitSchoolTypes = targetSchoolTypeIds.isNotEmpty || (docSchoolTypeId != null && docSchoolTypeId.isNotEmpty);
+        if (hasExplicitSchoolTypes) {
+          final matchesDirect = (docSchoolTypeId == viewingSchoolTypeId) || targetSchoolTypeIds.contains(viewingSchoolTypeId);
+          if (!matchesDirect) {
+            // Eğer doğrudan okul türü kimliği tutmuyorsa, öğretmen/genel duyuru haricindeki spesifik diğer okul türlerini ele
+            if (!recipients.contains('ALL') && !recipients.contains('TEACHER') && !recipients.contains('öğretmen') && !recipients.contains('ogretmen')) {
+              return false;
+            }
+          }
+        }
+      }
+
+      return true;
+    }).toList();
+  }
+
+  static String _resolveUserDisplayName(Map<String, dynamic> d) {
+    String name = (d['fullName'] ?? d['name'] ?? d['displayName'] ?? '').toString().trim();
+    if (name.isNotEmpty && name != 'null' && name != 'İsimsiz') return name;
+
+    final first = (d['firstName'] ?? d['first_name'] ?? d['studentName'] ?? d['parentName'] ?? '').toString().trim();
+    final last = (d['lastName'] ?? d['last_name'] ?? d['surname'] ?? '').toString().trim();
+    if (first.isNotEmpty || last.isNotEmpty) {
+      return '$first $last'.trim();
+    }
+
+    final email = (d['email'] ?? d['username'] ?? '').toString().trim();
+    if (email.isNotEmpty && email != 'null') return email;
+
+    return 'Kullanıcı';
+  }
+
+  /// Öğretmen duyuru modunu getir ('approval_required', 'direct', 'disabled')
+  Future<String> getTeacherAnnouncementMode(String schoolId) async {
+    try {
+      final doc = await _firestore.collection('schools').doc(schoolId).collection('settings').doc('announcements').get();
+      if (doc.exists && doc.data() != null) {
+        return doc.data()!['teacherAnnouncementMode']?.toString() ?? 'approval_required';
+      }
+    } catch (_) {}
+    return 'approval_required';
+  }
+
+  /// Öğretmen duyuru modunu güncelle
+  Future<void> setTeacherAnnouncementMode(String schoolId, String mode) async {
+    await _firestore.collection('schools').doc(schoolId).collection('settings').doc('announcements').set({
+      'teacherAnnouncementMode': mode,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  /// Duyuruyu onayla (Yönetici)
+  Future<void> approveAnnouncement(String announcementId, String schoolId, String approverEmail) async {
+    await _firestore.collection('schools').doc(schoolId).collection('announcements').doc(announcementId).update({
+      'status': 'published',
+      'approvalStatus': 'approved',
+      'approvedBy': approverEmail,
+      'approvedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Duyuruyu reddet (Yönetici)
+  Future<void> rejectAnnouncement(String announcementId, String schoolId, String rejecterEmail) async {
+    await _firestore.collection('schools').doc(schoolId).collection('announcements').doc(announcementId).update({
+      'status': 'rejected',
+      'approvalStatus': 'rejected',
+      'rejectedBy': rejecterEmail,
+      'rejectedAt': FieldValue.serverTimestamp(),
+    });
   }
 }

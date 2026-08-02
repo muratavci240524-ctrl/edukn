@@ -35,6 +35,7 @@ import 'school_types/school_type_social_media_screen.dart';
 import 'school_types/chat/chat_screen.dart';
 import 'school_types/school_type_detail_screen.dart';
 import '../../widgets/stylish_bottom_nav.dart';
+import '../../widgets/haberlesme_hub_widget.dart';
 import '../../services/user_permission_service.dart';
 import '../../constants/app_modules.dart';
 import '../../constants/school_type_modules.dart';
@@ -745,72 +746,12 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
   }
 
   Widget _buildCommunicationTab(bool isMobile) {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 24, right: 24, top: 32, bottom: 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Haberleşme',
-                style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: Colors.indigo.shade900, letterSpacing: -0.5),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Tüm kurum iletişim kanallarına tek bir yerden ulaşın.',
-                style: TextStyle(fontSize: 15, color: Colors.blueGrey.shade600, height: 1.4),
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: ListView(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-            physics: const BouncingScrollPhysics(),
-            children: [
-              if (_hasSubModuleAccess('haberlesme', 'genel_duyurular')) ...[
-                _buildCommCard(
-                  title: 'Duyurular',
-                  description: 'Tüm okul türlerinin duyurularını görüntüleyin ve yönetin.',
-                  icon: Icons.campaign_rounded,
-                  color: Colors.orange,
-                  onTap: () => Navigator.pushNamed(context, '/announcements'),
-                ),
-                const SizedBox(height: 20),
-              ],
-              if (_hasSubModuleAccess('haberlesme', 'sosyal_medya')) ...[
-                _buildCommCard(
-                  title: 'Sosyal Medya',
-                  description: 'Okulun global sosyal medya paylaşımlarını inceleyin.',
-                  icon: Icons.share_rounded,
-                  color: Colors.blue,
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SchoolTypeSocialMediaScreen(
-                    schoolTypeId: '',
-                    schoolTypeName: 'Tüm Okul Türleri',
-                    institutionId: schoolData!['institutionId'],
-                  ))),
-                ),
-                const SizedBox(height: 20),
-              ],
-              if (_hasSubModuleAccess('haberlesme', 'mesajlar')) ...[
-                _buildCommCard(
-                  title: 'Mesajlar',
-                  description: 'Tüm kullanıcılara ve okul türlerine mesajlaşın.',
-                  icon: Icons.forum_rounded,
-                  color: Colors.green,
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(
-                    schoolTypeId: '',
-                    schoolTypeName: 'Tüm Okul Türleri',
-                    institutionId: schoolData!['institutionId'],
-                  ))),
-                ),
-                const SizedBox(height: 100),
-              ],
-            ],
-          ),
-        ),
-      ],
+    return HaberlesmeHubWidget(
+      institutionId: schoolData!['institutionId'] ?? '',
+      schoolTypeId: '',
+      schoolTypeName: 'Tüm Okul Türleri',
+      userData: userData,
+      isTeacher: false,
     );
   }
 

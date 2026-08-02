@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/foundation.dart' show kIsWeb, compute;
 import 'package:flutter/material.dart';
@@ -545,10 +544,8 @@ class _TrialExamFormState extends State<TrialExamForm>
 
         // Sadece yerel state'e kaydet
         setState(() {
-          if (file.bytes != null) {
+          if (file.bytes != null || file.path != null) {
             _selectedFiles[index] = file;
-          } else if (file.path != null) {
-            _selectedFiles[index] = File(file.path!);
           }
 
           final oldSession = _sessions[index];
@@ -718,26 +715,12 @@ class _TrialExamFormState extends State<TrialExamForm>
             );
             downloadUrl = await storageRef.getDownloadURL();
           }
-        } else {
-          if (fileData is File) {
-            await storageRef.putFile(
-              fileData,
-              SettableMetadata(contentType: 'text/plain'),
-            );
-            downloadUrl = await storageRef.getDownloadURL();
-          } else if (fileData is PlatformFile && fileData.bytes != null) {
-            await storageRef.putData(
-              fileData.bytes!,
-              SettableMetadata(contentType: 'text/plain'),
-            );
-            downloadUrl = await storageRef.getDownloadURL();
-          } else if (fileData is PlatformFile && fileData.path != null) {
-            await storageRef.putFile(
-              File(fileData.path!),
-              SettableMetadata(contentType: 'text/plain'),
-            );
-            downloadUrl = await storageRef.getDownloadURL();
-          }
+        } else if (fileData is PlatformFile && fileData.bytes != null) {
+          await storageRef.putData(
+            fileData.bytes!,
+            SettableMetadata(contentType: 'text/plain'),
+          );
+          downloadUrl = await storageRef.getDownloadURL();
         }
 
         if (downloadUrl != null && mounted) {
@@ -2434,32 +2417,11 @@ class _TrialExamFormState extends State<TrialExamForm>
     // Read File
     if (_selectedFiles.containsKey(sessionIndex)) {
       final fileData = _selectedFiles[sessionIndex];
-      if (kIsWeb) {
-        if (fileData is PlatformFile && fileData.bytes != null) {
-          try {
-            content = utf8.decode(fileData.bytes!);
-          } catch (_) {
-            content = latin1.decode(fileData.bytes!);
-          }
-        }
-      } else {
-        if (fileData is File) {
-          try {
-            content = await fileData.readAsString();
-          } catch (_) {
-            final bytes = await fileData.readAsBytes();
-            try {
-              content = utf8.decode(bytes);
-            } catch (_) {
-              content = latin1.decode(bytes);
-            }
-          }
-        } else if (fileData is PlatformFile && fileData.bytes != null) {
-          try {
-            content = utf8.decode(fileData.bytes!);
-          } catch (_) {
-            content = latin1.decode(fileData.bytes!);
-          }
+      if (fileData is PlatformFile && fileData.bytes != null) {
+        try {
+          content = utf8.decode(fileData.bytes!);
+        } catch (_) {
+          content = latin1.decode(fileData.bytes!);
         }
       }
     } else if (session.fileUrl != null) {

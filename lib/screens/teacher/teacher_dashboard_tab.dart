@@ -8,10 +8,13 @@ import '../../services/user_permission_service.dart';
 import '../../services/announcement_service.dart';
 import '../announcements/announcement_detail_screen.dart';
 import 'teacher_social_media_screen.dart';
+import 'teacher_announcements_screen.dart';
 import '../../models/school/homework_model.dart';
 import '../school/homework/homework_detail_screen.dart';
 import '../school/attendance_operations_screen.dart';
+import '../school/class_lesson_attendance_screen.dart';
 import '../school/school_types/school_type_detail_screen.dart';
+import '../school/school_types/school_type_announcements_screen.dart';
 
 class TeacherDashboardTab extends StatefulWidget {
   final String institutionId;
@@ -228,16 +231,18 @@ class _NotificationSectionState extends State<_NotificationSection> {
       }
 
       final instId = widget.institutionId.toUpperCase();
-      if (_schoolTypeId == null) {
-        final schoolTypesSnap = await FirebaseFirestore.instance
-            .collection('schoolTypes')
-            .where('institutionId', isEqualTo: instId)
-            .limit(1)
-            .get();
-        if (schoolTypesSnap.docs.isNotEmpty) {
-          _schoolTypeId = schoolTypesSnap.docs.first.id;
-          _schoolTypeName = schoolTypesSnap.docs.first.data()['name'] ?? 'Okul';
-        }
+      if (_schoolId == null || _schoolId!.isEmpty) {
+        try {
+          final instIds = [widget.institutionId, widget.institutionId.toUpperCase(), widget.institutionId.toLowerCase()];
+          final schoolSnap = await FirebaseFirestore.instance
+              .collection('schools')
+              .where('institutionId', whereIn: instIds)
+              .limit(1)
+              .get();
+          if (schoolSnap.docs.isNotEmpty) {
+            _schoolId = schoolSnap.docs.first.id;
+          }
+        } catch (_) {}
       }
 
       if (mounted) {
@@ -255,19 +260,25 @@ class _NotificationSectionState extends State<_NotificationSection> {
   }
  
   void _startListening() {
-    if (_schoolId == null) return;
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
  
     final currentUserId = user.uid;
-    final List<String> instIds = [widget.institutionId.toUpperCase(), widget.institutionId.toLowerCase()];
+    final List<String> instIds = [widget.institutionId, widget.institutionId.toUpperCase(), widget.institutionId.toLowerCase()];
  
-    _listenTo('announcements', FirebaseFirestore.instance
-        .collection('schools')
-        .doc(_schoolId)
-        .collection('announcements')
-        .where('status', isEqualTo: 'published')
-        .snapshots());
+    if (_schoolId != null && _schoolId!.isNotEmpty) {
+      _listenTo('announcements', FirebaseFirestore.instance
+          .collection('schools')
+          .doc(_schoolId)
+          .collection('announcements')
+          .where('status', isEqualTo: 'published')
+          .snapshots());
+    } else {
+      _listenTo('announcements', FirebaseFirestore.instance
+          .collectionGroup('announcements')
+          .where('status', isEqualTo: 'published')
+          .snapshots());
+    }
  
     _listenTo('social', FirebaseFirestore.instance
         .collection('social_media_posts')
@@ -363,13 +374,33 @@ class _NotificationSectionState extends State<_NotificationSection> {
             .where((id) => id != null)
             .cast<String>()
             .toSet() ?? {};
+            
+    if (scheduleSnap != null) {
+      for (var doc in scheduleSnap.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        final cid = data['classId']?.toString();
+        if (cid != null && cid.isNotEmpty) {
+          assignedClassIds.add(cid);
+        }
+      }
+    }
+    
+    final userAssignedIds = _userData?['assignedClassIds'];
+    if (userAssignedIds is List) {
+      for (final id in userAssignedIds) {
+        if (id != null) assignedClassIds.add(id.toString());
+      }
+    }
  
     // 1. DUYURULAR
     if (annSnap != null) {
       for (var doc in annSnap.docs) {
         final data = doc.data() as Map<String, dynamic>;
         final readBy = List<dynamic>.from(data['readBy'] ?? []);
-        if (currentUserEmail != null && readBy.contains(currentUserEmail)) continue;
+        if ((currentUserEmail != null && readBy.contains(currentUserEmail)) || 
+            (currentUserId != null && readBy.contains(currentUserId))) {
+          continue;
+        }
  
         final schoolTypeId = data['schoolTypeId']?.toString();
         final recipients = List<String>.from(data['recipients'] ?? []);
@@ -379,7 +410,7 @@ class _NotificationSectionState extends State<_NotificationSection> {
  
         bool isRecipient = (recipients.contains('ALL') || recipients.contains('TEACHER') || recipients.contains('unit:ogretmen'));
         if (!isRecipient && currentUserId != null) {
-          if (recipients.contains('user:$currentUserId') || (currentUserEmail != null && recipients.contains(currentUserEmail))) {
+          if (recipients.contains('user:$currentUserId') || recipients.contains(currentUserId) || (currentUserEmail != null && recipients.contains(currentUserEmail))) {
             isRecipient = true;
           } else {
             for (var cid in assignedClassIds) {
@@ -625,7 +656,12 @@ class _NotificationSectionState extends State<_NotificationSection> {
       }
     }
  
-    final filteredResult = result.where((item) => !_dismissedIds.contains(item['id'])).toList();
+    final filteredResult = result.where((item) {
+      if (item['type'] == 'attendance_warning' || item['type'] == 'etut_attendance_warning') {
+        return true; // Yoklama kaydedilene kadar bildirim ekranında kalır
+      }
+      return !_dismissedIds.contains(item['id']);
+    }).toList();
     filteredResult.sort((a, b) => (b['time'] as DateTime).compareTo(a['time'] as DateTime));
     if (mounted) {
       setState(() => _allNotifications = filteredResult);
@@ -733,11 +769,25 @@ class _NotificationSectionState extends State<_NotificationSection> {
             onTap: () async {
               if (userEmail != null) {
                 if (type == 'announcement') {
-                  await FirebaseFirestore.instance.collection('schools').doc(_schoolId).collection('announcements').doc(id).update({
-                    'readBy': FieldValue.arrayUnion([userEmail])
-                  });
-                  if (mounted) {
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => AnnouncementDetailScreen(announcementId: id, schoolId: _schoolId!)));
+                  final sId = _schoolId ?? await AnnouncementService().getSchoolId();
+                  if (sId != null && sId.isNotEmpty) {
+                    try {
+                      await FirebaseFirestore.instance.collection('schools').doc(sId).collection('announcements').doc(id).update({
+                        'readBy': FieldValue.arrayUnion([userEmail])
+                      });
+                    } catch (_) {}
+                    if (mounted) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => SchoolTypeAnnouncementsScreen(
+                            institutionId: widget.institutionId,
+                            schoolTypeId: _schoolTypeId ?? '',
+                            schoolTypeName: _schoolTypeName ?? 'Tüm Okul Türleri',
+                          ),
+                        ),
+                      );
+                    }
                   }
                 } else if (type == 'social') {
                   await FirebaseFirestore.instance.collection('social_media_posts').doc(id).update({
@@ -759,16 +809,42 @@ class _NotificationSectionState extends State<_NotificationSection> {
                   }
                 } else if (type == 'attendance_warning') {
                   if (mounted) {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => AttendanceOperationsScreen(
-                          institutionId: widget.institutionId,
-                          schoolTypeId: _schoolTypeId ?? '',
-                          schoolTypeName: _schoolTypeName ?? 'Okul',
-                        )
-                      )
-                    );
+                    final classId = originalData['classId']?.toString() ?? '';
+                    final className = originalData['className']?.toString() ?? 'Sınıf';
+                    final subject = originalData['subjectName'] ?? originalData['lessonName'] ?? 'Ders';
+                    final lessonId = originalData['lessonId']?.toString() ?? subject;
+                    final hourIdx = originalData['hourIndex'] as int? ?? 0;
+                    final lessonHour = hourIdx + 1;
+                    final sTypeId = originalData['schoolTypeId']?.toString() ?? _schoolTypeId ?? '';
+
+                    if (classId.isNotEmpty) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ClassLessonAttendanceScreen(
+                            institutionId: widget.institutionId,
+                            schoolTypeId: sTypeId,
+                            classId: classId,
+                            lessonId: lessonId,
+                            className: className,
+                            lessonName: subject,
+                            initialDate: DateTime.now(),
+                            initialLessonHour: lessonHour,
+                          ),
+                        ),
+                      );
+                    } else {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => AttendanceOperationsScreen(
+                            institutionId: widget.institutionId,
+                            schoolTypeId: _schoolTypeId ?? '',
+                            schoolTypeName: _schoolTypeName ?? 'Okul',
+                          ),
+                        ),
+                      );
+                    }
                   }
                 } else if (type == 'etut_scheduled' || type == 'etut_today' || type == 'etut_attendance_warning') {
                   if (mounted) {
@@ -821,14 +897,15 @@ class _NotificationSectionState extends State<_NotificationSection> {
                             Text(subtitle, style: TextStyle(color: Colors.grey.shade600, fontSize: 12, height: 1.4), maxLines: 2, overflow: TextOverflow.ellipsis),
                           ])),
                           const SizedBox(width: 8),
-                          IconButton(
-                            icon: const Icon(Icons.close, size: 16, color: Colors.grey),
-                            constraints: const BoxConstraints(),
-                            padding: const EdgeInsets.all(4),
-                            onPressed: () {
-                              _dismissNotification(id);
-                            },
-                          ),
+                          if (type != 'attendance_warning' && type != 'etut_attendance_warning')
+                            IconButton(
+                              icon: const Icon(Icons.close, size: 16, color: Colors.grey),
+                              constraints: const BoxConstraints(),
+                              padding: const EdgeInsets.all(4),
+                              onPressed: () {
+                                _dismissNotification(id);
+                              },
+                            ),
                         ],
                       ),
                     ),

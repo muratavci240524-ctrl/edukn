@@ -20,7 +20,8 @@ service cloud.firestore {
 
     // Kullanıcının kurum ID'sini döndürür
     function myInstitutionId() {
-      return getUserData().get('institutionId', '__NONE__');
+      return 'institutionId' in getUserData() ? getUserData().institutionId : 
+             ('institution_id' in getUserData() ? getUserData().institution_id : '__NONE__');
     }
 
     // Kullanıcının rolünü döndürür
@@ -44,7 +45,11 @@ service cloud.firestore {
     // Kullanıcının belirli bir okula (school) ait olup olmadığını kontrol eder
     // Okullarda institutionId = schoolId varsayımı
     function belongsToSchool(schoolId) {
-      return myInstitutionId() == schoolId;
+      return isSuperAdmin() ||
+             myInstitutionId().lower() == schoolId.lower() || 
+             (exists(/databases/$(database)/documents/schools/$(schoolId)) && 
+              (('institutionId' in get(/databases/$(database)/documents/schools/$(schoolId)).data && get(/databases/$(database)/documents/schools/$(schoolId)).data.institutionId.lower() == myInstitutionId().lower()) ||
+               ('institution_id' in get(/databases/$(database)/documents/schools/$(schoolId)).data && get(/databases/$(database)/documents/schools/$(schoolId)).data.institution_id.lower() == myInstitutionId().lower())));
     }
 
     // Admin veya Müdür mü? (En yetkili rol grubu)
@@ -87,6 +92,30 @@ service cloud.firestore {
     // 📊 DEĞERLENDİRMELER (ASSESSMENTS)
     // ═══════════════════════════════════════════════════════════════
     match /assessments/{assessmentId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 📞 ARAMALAR VE 💬 MESAJLAŞMA (CALLS & CONVERSATIONS)
+    // ═══════════════════════════════════════════════════════════════
+    match /calls/{callId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+
+      // WebRTC P2P signaling — ICE Candidate senkronizasyonu
+      match /candidates/{candidateId} {
+        allow read, write: if isAuthenticated() || isSuperAdmin();
+      }
+    }
+
+    match /conversations/{conversationId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+
+      match /messages/{messageId} {
+        allow read, write: if isAuthenticated() || isSuperAdmin();
+      }
+    }
+
+    match /{path=**}/messages/{messageId} {
       allow read, write: if isAuthenticated() || isSuperAdmin();
     }
 
@@ -189,10 +218,22 @@ service cloud.firestore {
       allow delete: if isAuthenticated() && isSuperAdmin();
 
       match /announcements/{announcementId} {
-        allow read: if isAuthenticated() && belongsToSchool(schoolId);
-        allow create: if isAuthenticated() && belongsToSchool(schoolId) && isManagement();
-        allow update: if isAuthenticated() && belongsToSchool(schoolId) && isManagement();
-        allow delete: if isAuthenticated() && belongsToSchool(schoolId) && isAdminOrManager();
+        // Herkes okuyabilir (filtreleme client-side yapılıyor)
+        allow read: if isAuthenticated() && (belongsToSchool(schoolId) || isSameInstitution(resource.data));
+        // Yönetim veya öğretmen oluşturabilir
+        allow create: if isAuthenticated() && (belongsToSchool(schoolId) || isSuperAdmin()) && isTeacherOrAbove();
+        // Oluşturan, yönetim veya 'readBy' (okundu bilgisi) güncelleyen herkes güncelleyebilir
+        allow update: if isAuthenticated() && (belongsToSchool(schoolId) || isSuperAdmin()) && (
+          isManagement() ||
+          resource.data.get('createdBy', '') == request.auth.token.email ||
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy'])
+        );
+        // Admin/Manager veya kendi duyurusunu silebilir
+        allow delete: if isAuthenticated() && (belongsToSchool(schoolId) || isSuperAdmin()) && (
+          isAdminOrManager() ||
+          resource.data.get('createdBy', '') == request.auth.token.email
+        );
+
       }
 
       match /announcementGroups/{groupId} {
@@ -336,6 +377,46 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow create, update, delete: if isAuthenticated() && isSuperAdmin();
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 📱 SOSYAL MEDYA GÖNDERİLERİ
+    // ═══════════════════════════════════════════════════════════════
+    match /social_media_posts/{postId} {
+      // Aynı kuruma ait herkes okuyabilir
+      allow read: if isAuthenticated();
+      // Öğretmen ve üstü veya yönetim oluşturabilir
+      allow create: if isAuthenticated() && isTeacherOrAbove();
+      // Oluşturan kişi, yönetim veya okundu/beğeni güncellemek isteyen herhangi bir kullanıcı güncelleyebilir
+      allow update: if isAuthenticated() && (
+        isManagement() ||
+        resource.data.get('createdBy', '') == request.auth.token.email ||
+        resource.data.get('userId', '') == request.auth.uid ||
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy', 'likes', 'likedBy', 'views'])
+      );
+      // Admin/Manager veya kendi gönderisini silebilir
+      allow delete: if isAuthenticated() && (
+        isAdminOrManager() ||
+        resource.data.get('createdBy', '') == request.auth.token.email ||
+        resource.data.get('userId', '') == request.auth.uid
+      );
+
+      // Yorumlar alt koleksiyonu
+      match /comments/{commentId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated() && isTeacherOrAbove();
+        allow update: if isAuthenticated() && (
+          isManagement() ||
+          resource.data.get('createdBy', '') == request.auth.token.email ||
+          resource.data.get('userId', '') == request.auth.uid
+        );
+        allow delete: if isAuthenticated() && (
+          isAdminOrManager() ||
+          resource.data.get('createdBy', '') == request.auth.token.email ||
+          resource.data.get('userId', '') == request.auth.uid
+        );
+      }
+    }
+
 
     // ═══════════════════════════════════════════════════════════════
     // 📊 DENEME SINAVLARI
@@ -741,28 +822,20 @@ service cloud.firestore {
       allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // 📱 SOSYAL MEDYA
-    // ═══════════════════════════════════════════════════════════════
-    match /social_media_posts/{postId} {
-      allow read: if isAuthenticated() && isSameInstitution(resource.data);
-      allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isManagement();
-      allow update: if isAuthenticated() && isSameInstitution(resource.data) && isManagement();
-      allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
-    }
+
 
     // ═══════════════════════════════════════════════════════════════
     // 💬 SOHBET
     // ═══════════════════════════════════════════════════════════════
     match /conversations/{conversationId} {
       allow read: if isAuthenticated() && (
-        resource.data.get('participants', []).hasAny([request.auth.uid]) ||
+        resource.data.get('participantIds', []).hasAny([request.auth.uid]) ||
         (isSameInstitution(resource.data) && isAdminOrManager())
       );
       allow create: if isAuthenticated() &&
-        request.resource.data.get('participants', []).hasAny([request.auth.uid]);
+        request.resource.data.get('participantIds', []).hasAny([request.auth.uid]);
       allow update: if isAuthenticated() &&
-        resource.data.get('participants', []).hasAny([request.auth.uid]);
+        resource.data.get('participantIds', []).hasAny([request.auth.uid]);
       allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
 
       match /messages/{messageId} {

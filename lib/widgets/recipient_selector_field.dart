@@ -6,6 +6,7 @@ class RecipientSelectorField extends StatefulWidget {
   final List<String> selectedRecipients;
   final Map<String, String> recipientNames;
   final String? schoolTypeId;
+  final String? institutionId; // Genel hesap için
   final Function(List<String>, Map<String, String>) onChanged;
   final String title;
   final String hint;
@@ -15,6 +16,7 @@ class RecipientSelectorField extends StatefulWidget {
     required this.selectedRecipients,
     required this.recipientNames,
     this.schoolTypeId,
+    this.institutionId,
     required this.onChanged,
     this.title = 'Hedef Kitle',
     this.hint = 'Öğrenci, şube veya sınıf seçin',
@@ -34,33 +36,35 @@ class _RecipientSelectorFieldState extends State<RecipientSelectorField> {
         MaterialPageRoute(
           fullscreenDialog: true,
           builder: (context) => AliciSecimi(
-            selectedRecipients: widget.selectedRecipients,
-            initialRecipientNames: widget.recipientNames,
-            savedGroups: [],
-            schoolTypeId: widget.schoolTypeId,
-            isPage: true,
-            onConfirmed: (list, names) {
-              widget.onChanged(list, names);
-            },
-            onSaveGroup: (name) {},
-          ),
-        ),
-      );
-    } else {
-      showDialog(
-        context: context,
-        builder: (context) => AliciSecimi(
           selectedRecipients: widget.selectedRecipients,
           initialRecipientNames: widget.recipientNames,
           savedGroups: [],
           schoolTypeId: widget.schoolTypeId,
+          institutionId: widget.institutionId,
+          isPage: true,
           onConfirmed: (list, names) {
             widget.onChanged(list, names);
           },
           onSaveGroup: (name) {},
         ),
-      );
-    }
+      ),
+    );
+  } else {
+    showDialog(
+      context: context,
+      builder: (context) => AliciSecimi(
+        selectedRecipients: widget.selectedRecipients,
+        initialRecipientNames: widget.recipientNames,
+        savedGroups: [],
+        schoolTypeId: widget.schoolTypeId,
+        institutionId: widget.institutionId,
+        onConfirmed: (list, names) {
+          widget.onChanged(list, names);
+        },
+        onSaveGroup: (name) {},
+      ),
+    );
+  }
   }
 
   String _formatRecipientId(String id) {

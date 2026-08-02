@@ -9,6 +9,9 @@ import '../../widgets/stylish_bottom_nav.dart';
 import 'teacher_haberlesme_screen.dart';
 import 'teacher_operations_screen.dart';
 import 'teacher_dashboard_tab.dart';
+import '../school/school_types/chat/call/call_service.dart';
+import '../school/school_types/chat/call/call_screen_dialog.dart';
+import '../school/school_types/chat/call/call_models.dart';
 
 class TeacherMainScreen extends StatefulWidget {
   final String institutionId;
@@ -32,6 +35,7 @@ class _TeacherMainScreenState extends State<TeacherMainScreen> {
   StreamSubscription? _announcementSub;
   StreamSubscription? _messageSub;
   StreamSubscription? _socialSub;
+  StreamSubscription? _incomingCallSub;
 
   @override
   void initState() {
@@ -50,6 +54,7 @@ class _TeacherMainScreenState extends State<TeacherMainScreen> {
     _announcementSub?.cancel();
     _messageSub?.cancel();
     _socialSub?.cancel();
+    _incomingCallSub?.cancel();
     super.dispose();
   }
 
@@ -58,6 +63,20 @@ class _TeacherMainScreenState extends State<TeacherMainScreen> {
   void _startBadgeListeners() async {
     if (_isBadgeListenerStarted) return;
     _isBadgeListenerStarted = true;
+
+    // Gelen Arama Canlı Dinleme (Öğretmen ana ekranında arama çalması için)
+    CallService().registerFcmToken();
+    _incomingCallSub?.cancel();
+    _incomingCallSub = CallService().listenForIncomingCalls().listen((incomingCalls) {
+      if (incomingCalls.isNotEmpty && mounted) {
+        final activeCall = incomingCalls.first;
+        CallScreenDialog.showCall(
+          context: context,
+          callSession: activeCall,
+          isIncoming: true,
+        );
+      }
+    });
 
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -204,17 +223,50 @@ class _TeacherMainScreenState extends State<TeacherMainScreen> {
               : const Center(child: CircularProgressIndicator());
         }),
       ),
-      bottomNavigationBar: StylishBottomNav(
-        currentIndex: _currentIndex,
-        badgeCounts: {
-          0: _unreadAnnouncements + _unreadSocial + _unreadMessages,
-        },
-        onTap: (index) {
-          setState(() {
-            _currentIndex = index;
-            _pageLoaded[index] = true;
-          });
-        },
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          StylishBottomNav(
+            currentIndex: _currentIndex,
+            badgeCounts: {
+              0: _unreadAnnouncements + _unreadSocial + _unreadMessages,
+            },
+            onTap: (index) {
+              setState(() {
+                _currentIndex = index;
+                _pageLoaded[index] = true;
+              });
+            },
+          ),
+          Container(
+            color: Colors.white,
+            width: double.infinity,
+            padding: const EdgeInsets.only(left: 16, right: 16, top: 4, bottom: 2),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  '© 2026 eduKN.',
+                  style: TextStyle(
+                    color: Colors.blueGrey.shade400,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    InkWell(onTap: () {}, child: Text('Destek', style: TextStyle(color: Colors.blueGrey.shade400, fontSize: 10, fontWeight: FontWeight.w500))),
+                    const SizedBox(width: 16),
+                    InkWell(onTap: () {}, child: Text('Gizlilik', style: TextStyle(color: Colors.blueGrey.shade400, fontSize: 10, fontWeight: FontWeight.w500))),
+                    const SizedBox(width: 16),
+                    InkWell(onTap: () {}, child: Text('Şartlar', style: TextStyle(color: Colors.blueGrey.shade400, fontSize: 10, fontWeight: FontWeight.w500))),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

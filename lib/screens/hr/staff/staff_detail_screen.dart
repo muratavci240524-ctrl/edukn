@@ -1638,42 +1638,18 @@ class _JobTabState extends State<_JobTab> {
       
       // Check in _schoolTypes
       final matchedType = _schoolTypes.firstWhere(
-        (st) => (st['schoolTypeName'] ?? st['typeName'] ?? '').toString().toLowerCase().trim() == locLower,
+        (st) => (st['schoolTypeName'] ?? st['typeName'] ?? st['name'] ?? '').toString().toLowerCase().trim() == locLower,
         orElse: () => {},
       );
-      
+
       if (matchedType.isNotEmpty) {
-        final correctCasing = (matchedType['schoolTypeName'] ?? matchedType['typeName'] ?? '').toString();
+        final correctCasing = (matchedType['schoolTypeName'] ?? matchedType['typeName'] ?? matchedType['name'] ?? '').toString();
         if (!normalizedLocations.contains(correctCasing)) {
           normalizedLocations.add(correctCasing);
         }
       } else {
-        // Check in static locations
-        final staticMatches = [
-          {'value': 'ARGE', 'label': 'ARGE'},
-          {'value': 'INSAN_KAYNAKLARI', 'label': 'İnsan Kaynakları'},
-          {'value': 'DANISMA', 'label': 'Danışma'},
-          {'value': 'GUVENLIK', 'label': 'Güvenlik'},
-          {'value': 'TEMIZLIK', 'label': 'Temizlik'},
-          {'value': 'YEMEKHANE', 'label': 'Yemekhane'},
-          {'value': 'REVIR', 'label': 'Revir'},
-        ];
-        
-        final matchedStatic = staticMatches.firstWhere(
-          (s) => s['value']!.toLowerCase() == locLower || s['label']!.toLowerCase() == locLower,
-          orElse: () => {},
-        );
-        
-        if (matchedStatic.isNotEmpty) {
-          final correctCasing = matchedStatic['value']!;
-          if (!normalizedLocations.contains(correctCasing)) {
-            normalizedLocations.add(correctCasing);
-          }
-        } else {
-          // If no match, keep the original to not lose data
-          if (!normalizedLocations.contains(locTrim)) {
-            normalizedLocations.add(locTrim);
-          }
+        if (!normalizedLocations.contains(locTrim)) {
+          normalizedLocations.add(locTrim);
         }
       }
     }
@@ -2176,7 +2152,7 @@ class _JobTabState extends State<_JobTab> {
                           children: [
                             // Okul türleri
                             ..._schoolTypes.map((st) {
-                              final locationName = (st['schoolTypeName'] ?? st['typeName'] ?? '').toString();
+                              final locationName = (st['schoolTypeName'] ?? st['typeName'] ?? st['name'] ?? '').toString();
                               final isSelected = workLocations.any((loc) => loc.toLowerCase().trim() == locationName.toLowerCase().trim());
                               return FilterChip(
                                 label: Text(locationName),
@@ -2186,32 +2162,6 @@ class _JobTabState extends State<_JobTab> {
                                     workLocations.removeWhere((loc) => loc.toLowerCase().trim() == locationName.toLowerCase().trim());
                                     if (selected) {
                                       workLocations.add(locationName);
-                                    }
-                                  });
-                                },
-                                selectedColor: Colors.indigo.withOpacity(0.3),
-                                checkmarkColor: Colors.indigo,
-                              );
-                            }),
-                            // Sabit ekstra lokasyonlar
-                            ...[
-                              {'value': 'ARGE', 'label': 'ARGE'},
-                              {'value': 'INSAN_KAYNAKLARI', 'label': 'İnsan Kaynakları'},
-                              {'value': 'DANISMA', 'label': 'Danışma'},
-                              {'value': 'GUVENLIK', 'label': 'Güvenlik'},
-                              {'value': 'TEMIZLIK', 'label': 'Temizlik'},
-                              {'value': 'YEMEKHANE', 'label': 'Yemekhane'},
-                              {'value': 'REVIR', 'label': 'Revir'},
-                            ].map((loc) {
-                              final isSelected = workLocations.any((l) => l.toLowerCase().trim() == loc['value']!.toLowerCase().trim() || l.toLowerCase().trim() == loc['label']!.toLowerCase().trim());
-                              return FilterChip(
-                                label: Text(loc['label']!),
-                                selected: isSelected,
-                                onSelected: (selected) {
-                                  setSheetState(() {
-                                    workLocations.removeWhere((l) => l.toLowerCase().trim() == loc['value']!.toLowerCase().trim() || l.toLowerCase().trim() == loc['label']!.toLowerCase().trim());
-                                    if (selected) {
-                                      workLocations.add(loc['value']!);
                                     }
                                   });
                                 },

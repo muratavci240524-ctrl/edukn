@@ -10,7 +10,6 @@ import 'package:printing/printing.dart';
 import 'package:excel/excel.dart' hide Border;
 import 'package:file_saver/file_saver.dart';
 import 'dart:typed_data';
-import 'dart:io';
 
 import 'package:intl/intl.dart';
 import 'package:edukn/screens/school/guidance/guidance_statistics_screen.dart';
@@ -639,18 +638,10 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
             '${DateTime.now().millisecondsSinceEpoch}_${_attachedFile!.name}',
           );
 
-      if (kIsWeb) {
-        if (_attachedFile!.bytes != null) {
-          await ref.putData(_attachedFile!.bytes!);
-        } else {
-          return null;
-        }
+      if (_attachedFile!.bytes != null) {
+        await ref.putData(_attachedFile!.bytes!);
       } else {
-        if (_attachedFile!.path != null) {
-          await ref.putFile(File(_attachedFile!.path!));
-        } else {
-          return null;
-        }
+        return null;
       }
 
       return await ref.getDownloadURL();

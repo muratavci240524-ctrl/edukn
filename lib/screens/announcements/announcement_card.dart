@@ -16,6 +16,9 @@ class AnnouncementCard extends StatefulWidget {
   final VoidCallback onMarkAsRead;
   final VoidCallback onTap;
   final bool canEdit;
+  final bool isPendingApproval;
+  final VoidCallback? onApprove;
+  final VoidCallback? onReject;
 
   const AnnouncementCard({
     Key? key,
@@ -28,6 +31,9 @@ class AnnouncementCard extends StatefulWidget {
     required this.onMarkAsRead,
     required this.onTap,
     required this.canEdit,
+    this.isPendingApproval = false,
+    this.onApprove,
+    this.onReject,
   }) : super(key: key);
 
   @override

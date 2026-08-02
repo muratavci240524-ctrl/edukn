@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:file_saver/file_saver.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'package:excel/excel.dart' as ex;
-import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
-import 'dart:io';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -1052,10 +1052,13 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
     for (var r in _allRequests) {
       sheet.appendRow([ex.TextCellValue(_getStaffName(r['staffId'] ?? r['userId'])), ex.TextCellValue(r['leaveType'] ?? r['type'] ?? 'İzin'), ex.TextCellValue(_formatDate(r['startDate'])), ex.TextCellValue(_formatDate(r['endDate'])), ex.IntCellValue((r['totalDays'] ?? 0).toInt()), ex.TextCellValue(r['status'] ?? 'pending')]);
     }
-    final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/izin_raporu_${_myInstitutionId}.xlsx');
-    await file.writeAsBytes(excel.save()!);
-    Share.shareXFiles([XFile(file.path)], text: 'İzin Yönetimi Raporu');
+    final bytes = excel.save()!;
+    await FileSaver.instance.saveFile(
+      name: 'izin_raporu_${_myInstitutionId}',
+      bytes: Uint8List.fromList(bytes),
+      ext: 'xlsx',
+      mimeType: MimeType.microsoftExcel,
+    );
   }
 
   Future<void> _showRequestDialog() async {

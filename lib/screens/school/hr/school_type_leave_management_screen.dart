@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:file_saver/file_saver.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:excel/excel.dart' as ex;
-import 'package:path_provider/path_provider.dart';
-import 'dart:io';
 import '../../../services/leave_service.dart';
 import '../../../services/leave_conflict_service.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -1312,15 +1312,17 @@ class _SchoolTypeLeaveManagementScreenState extends State<SchoolTypeLeaveManagem
         ]);
       }
 
-      final directory = await getApplicationDocumentsDirectory();
-      final file = File(
-        '${directory.path}/izin_listesi_${DateTime.now().millisecondsSinceEpoch}.xlsx',
+      final bytes = excel.save()!;
+      await FileSaver.instance.saveFile(
+        name: 'izin_listesi_${DateTime.now().millisecondsSinceEpoch}',
+        bytes: Uint8List.fromList(bytes),
+        ext: 'xlsx',
+        mimeType: MimeType.microsoftExcel,
       );
-      await file.writeAsBytes(excel.save()!);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Excel kaydedildi: ${file.path}')),
+          const SnackBar(content: Text('Excel indirildi.')),
         );
       }
     } catch (e) {

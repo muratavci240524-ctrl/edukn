@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:js' as js;
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -20,6 +21,7 @@ import 'screens/school/parent_student_selection_screen.dart';
 import 'screens/school/terms_screen.dart';
 import 'screens/hr/hr_home_screen.dart';
 import 'screens/announcements/announcements_screen.dart';
+import 'screens/school/school_types/school_type_announcements_screen.dart';
 import 'package:edukn/screens/support_services/support_services_hub_screen.dart';
 import 'screens/school/settings/permission_definition_screen.dart';
 import 'screens/school/settings/app_settings_screen.dart';
@@ -35,6 +37,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_options.dart'; // FlutterFire CLI'nin oluşturduğu dosya
 import 'services/term_service.dart';
 import 'services/notification_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'screens/school/school_types/chat/call/call_service.dart';
+import 'screens/school/school_types/chat/call/call_screen_dialog.dart';
+import 'screens/school/school_types/chat/call/call_models.dart';
 // --- BİTTİ ---
 
 // --- Firebase'i uygulama başlamadan önce başlat ---
@@ -236,7 +242,7 @@ class MyApp extends StatelessWidget {
         '/admin-login': (context) => AdminLoginScreen(),
         '/admin-dashboard': (context) => AdminDashboardScreen(),
         '/hr': (context) => const HrHomeScreen(),
-        '/announcements': (context) => const AnnouncementsScreen(),
+        '/announcements': (context) => const SchoolTypeAnnouncementsScreen(),
         '/support-services': (context) => const SupportServicesHubScreen(),
         '/permission-definition': (context) =>
             const PermissionDefinitionScreen(),
@@ -271,7 +277,7 @@ class MyApp extends StatelessWidget {
           '/admin-login': (context) => AdminLoginScreen(),
           '/admin-dashboard': (context) => AdminDashboardScreen(),
           '/hr': (context) => const HrHomeScreen(),
-          '/announcements': (context) => const AnnouncementsScreen(),
+          '/announcements': (context) => const SchoolTypeAnnouncementsScreen(),
           '/support-services': (context) => const SupportServicesHubScreen(),
           '/permission-definition': (context) =>
               const PermissionDefinitionScreen(),
@@ -325,14 +331,51 @@ class _GlobalKeyboardUnfocusWrapper extends StatefulWidget {
 class __GlobalKeyboardUnfocusWrapperState
     extends State<_GlobalKeyboardUnfocusWrapper>
     with WidgetsBindingObserver {
+  StreamSubscription? _incomingCallSub;
+  StreamSubscription? _authSub;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _startGlobalCallListener();
+  }
+
+  void _startGlobalCallListener() {
+    Future.microtask(() async {
+      try {
+        if (Firebase.apps.isEmpty) return;
+        _authSub = FirebaseAuth.instance.authStateChanges().listen((user) {
+          if (user != null) {
+            CallService().registerFcmToken();
+            _incomingCallSub?.cancel();
+            _incomingCallSub = CallService().listenForIncomingCalls().listen((incomingCalls) {
+              if (incomingCalls.isNotEmpty && mounted) {
+                final activeCall = incomingCalls.first;
+                final navContext = MyApp.navigatorKey.currentContext;
+                if (navContext != null) {
+                  CallScreenDialog.showCall(
+                    context: navContext,
+                    callSession: activeCall,
+                    isIncoming: true,
+                  );
+                }
+              }
+            });
+          } else {
+            _incomingCallSub?.cancel();
+          }
+        });
+      } catch (e) {
+        debugPrint("Global call listener init deferred: $e");
+      }
+    });
   }
 
   @override
   void dispose() {
+    _authSub?.cancel();
+    _incomingCallSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

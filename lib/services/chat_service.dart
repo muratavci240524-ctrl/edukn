@@ -1,12 +1,100 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import '../screens/school/school_types/chat/chat_models.dart';
+import '../screens/school/school_types/chat/settings/chat_settings_dialog.dart';
 
 class ChatService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
   String? get currentUserId => _auth.currentUser?.uid;
+  String? get currentUserEmail => _auth.currentUser?.email;
+
+  /// Dinamik Veli - Öğretmen Mesai Saatleri Kontrolü
+  /// Yöneticiler (Müdür, Müdür Yrd, Genel Müdür) 7/24 mesajlaşabilir.
+  bool isWithinWorkingHours({bool isAdminOrManager = false}) {
+    if (isAdminOrManager) return true; // Yöneticiler 7/24 muaf
+
+    final now = DateTime.now();
+    // Hafta sonu izni
+    if (!globalChatSettings.allowWeekendMessaging) {
+      if (now.weekday == DateTime.sunday || now.weekday == DateTime.saturday) {
+        return false;
+      }
+    }
+
+    final currentMinutes = now.hour * 60 + now.minute;
+    final startMinutes = globalChatSettings.startWorkingTime.hour * 60 +
+        globalChatSettings.startWorkingTime.minute;
+    final endMinutes = globalChatSettings.endWorkingTime.hour * 60 +
+        globalChatSettings.endWorkingTime.minute;
+
+    return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
+  }
+
+  /// Yönetici Kontrolü (Silme yetkisi ve 7/24 iletişim için)
+  bool isManagerRole(String roleOrType) {
+    if (roleOrType.isEmpty) return true;
+    final lower = TurkishStringUtils.toLowerTr(roleOrType);
+    return lower.contains('admin') ||
+        lower.contains('manager') ||
+        lower.contains('yonetici') ||
+        lower.contains('yönetici') ||
+        lower.contains('genel müdür') ||
+        lower.contains('genel mudur') ||
+        lower.contains('mudur') ||
+        lower.contains('müdür') ||
+        lower.contains('principal');
+  }
+
+  /// Mesaj Silme (SADECE Yöneticiler Silebilir!)
+  Future<bool> deleteMessage({
+    required String conversationId,
+    required String messageId,
+    required String userRole,
+  }) async {
+    if (!isManagerRole(userRole)) {
+      debugPrint("❌ Yetkisiz mesaj silme denemesi: Sadece yöneticiler silebilir.");
+      return false;
+    }
+
+    try {
+      await _firestore
+          .collection('conversations')
+          .doc(conversationId)
+          .collection('messages')
+          .doc(messageId)
+          .delete();
+      return true;
+    } catch (e) {
+      debugPrint("Mesaj silinirken hata: $e");
+      return false;
+    }
+  }
+
+  /// Mesaj Düzenleme (Kendi mesajını düzenle — 10 dk içinde)
+  Future<bool> editMessage({
+    required String conversationId,
+    required String messageId,
+    required String newContent,
+  }) async {
+    try {
+      await _firestore
+          .collection('conversations')
+          .doc(conversationId)
+          .collection('messages')
+          .doc(messageId)
+          .update({
+        'content': newContent,
+        'isEdited': true,
+      });
+      return true;
+    } catch (e) {
+      debugPrint("Mesaj düzenlenirken hata: $e");
+      return false;
+    }
+  }
 
   // Stream of conversations for current user
   Stream<List<Conversation>> getConversations([String? userId]) {
@@ -16,13 +104,21 @@ class ChatService {
     return _firestore
         .collection('conversations')
         .where('participantIds', arrayContains: uid)
-        .orderBy('updatedAt', descending: true)
         .snapshots()
         .map((snapshot) {
-          return snapshot.docs.map((doc) {
-            return Conversation.fromMap(doc.data(), doc.id);
-          }).toList();
-        });
+      final list = snapshot.docs.map((doc) {
+        return Conversation.fromMap(doc.data(), doc.id);
+      }).toList();
+
+      // Sıralama: En son güncellenen en üstte
+      list.sort((a, b) {
+        final aTime = a.lastMessage?.timestamp ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final bTime = b.lastMessage?.timestamp ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return bTime.compareTo(aTime);
+      });
+
+      return list;
+    });
   }
 
   // Stream of messages for a conversation
@@ -34,32 +130,29 @@ class ChatService {
         .orderBy('timestamp', descending: false)
         .snapshots()
         .map((snapshot) {
-          return snapshot.docs.map((doc) {
-            return ChatMessage.fromMap(doc.data(), doc.id);
-          }).toList();
-        });
+      return snapshot.docs.map((doc) {
+        return ChatMessage.fromMap(doc.data(), doc.id);
+      }).toList();
+    });
   }
 
   // Send a message
   Future<void> sendMessage(String conversationId, ChatMessage message) async {
-    // 1. Add to messages collection
     final messageRef = _firestore
         .collection('conversations')
         .doc(conversationId)
         .collection('messages')
-        .doc(); // Auto-ID
+        .doc();
 
-    // Use transaction/batch if needed, but simple writes are fine for MVP
     await messageRef.set(message.toMap());
 
-    // 2. Update conversation lastMessage and unread counts
     final convDoc = await _firestore.collection('conversations').doc(conversationId).get();
     final participants = List<String>.from(convDoc.data()?['participantIds'] ?? []);
-    
+
     Map<String, dynamic> updates = {
       'lastMessage': message.toMap(),
       'updatedAt': FieldValue.serverTimestamp(),
-      'unreadCount': FieldValue.increment(1), // Legacy total
+      'unreadCount': FieldValue.increment(1),
     };
 
     for (final pId in participants) {
@@ -75,20 +168,15 @@ class ChatService {
   Future<void> markAsRead(String conversationId) async {
     final uid = currentUserId;
     if (uid == null) return;
-    
+
     await _firestore.collection('conversations').doc(conversationId).update({
       'unreadCounts.$uid': 0,
-      // If we want to be clean, we'd also decrement global unreadCount, 
-      // but it's hard without knowing the previous individual count.
-      // So let's just leave global unreadCount as a 'total messages since start' 
-      // or similar if we don't rely on it.
     });
   }
 
   // Create or Get Conversation
-  Future<String> createConversation(List<String> participantIds) async {
-    // For 1-on-1 chats, use deterministic ID to prevent duplicates
-    if (participantIds.length == 2) {
+  Future<String> createConversation(List<String> participantIds, {bool isGroup = false, String? groupName}) async {
+    if (participantIds.length == 2 && !isGroup) {
       final sortedIds = List<String>.from(participantIds)..sort();
       final docId = sortedIds.join('_');
       final docRef = _firestore.collection('conversations').doc(docId);
@@ -98,23 +186,23 @@ class ChatService {
         return docId;
       }
 
-      // Create new if not exists
       final conversation = Conversation(
         id: docId,
         participantIds: participantIds,
         unreadCount: 0,
-        // chatName/image handled by UI usually or derived from participants
+        isGroup: false,
       );
 
       await docRef.set(conversation.toMap());
       return docId;
     }
 
-    // For Groups or other cases, use Auto ID
     final docRef = _firestore.collection('conversations').doc();
     final conversation = Conversation(
       id: docRef.id,
       participantIds: participantIds,
+      chatName: groupName ?? 'Yeni Grup',
+      isGroup: true,
     );
 
     await docRef.set(conversation.toMap());
@@ -127,10 +215,20 @@ class ChatService {
       'isArchived': isArchived,
     });
   }
-}
 
-extension on Conversation {
-  // Helper for constructor mismatch with toMap logic
-  // toMap uses FieldValue, so we can't fully construct locally for initial saving properly without helper
-  // But standard constructor is fine for local objects before saving.
+  /// Yıldızlama / Yıldız Kaldırma (Firestore Sync)
+  Future<void> toggleStarMessage(String conversationId, String messageId, bool isStarred) async {
+    try {
+      await _firestore
+          .collection('conversations')
+          .doc(conversationId)
+          .collection('messages')
+          .doc(messageId)
+          .update({
+        'isStarred': isStarred,
+      });
+    } catch (e) {
+      debugPrint("Yıldızlama hatası: $e");
+    }
+  }
 }

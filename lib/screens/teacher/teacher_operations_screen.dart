@@ -1279,8 +1279,6 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
   Widget _buildCategorySelector() {
     final categories = [
       {'label': 'Tümü', 'icon': Icons.grid_view_rounded, 'id': 'Tümü'},
-      {'label': 'Derslerim', 'icon': Icons.calendar_month, 'id': 'Derslerim'},
-      {'label': 'Öğrenci Yönetimi', 'icon': Icons.people_alt, 'id': 'Ogrenciler'},
       {'label': 'Eğitim', 'icon': Icons.school, 'id': 'egitim'},
       {'label': 'Rehberlik', 'icon': Icons.folder_special, 'id': 'rehberlik'},
       {'label': 'Görev', 'icon': Icons.assignment_ind, 'id': 'gorev'},
@@ -1390,36 +1388,6 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
 
     final List<_ModuleCardWidget> allModules = [
       _ModuleCardWidget(
-        title: 'DERSLERİM',
-        badge: 'Akademik',
-        icon: Icons.calendar_month_rounded,
-        color: Colors.blue,
-        cardWidth: cardWidth,
-        isMobile: isMobile,
-        category: 'Derslerim',
-        showAllItems: isFiltered,
-        items: [
-          {'title': 'Derslerim', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (ctx) => TeacherLessonsScreen(institutionId: widget.institutionId)))},
-        ],
-        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (ctx) => TeacherLessonsScreen(institutionId: widget.institutionId))),
-        buttonLabel: 'DERSLERİ GÖR',
-      ),
-      _ModuleCardWidget(
-        title: 'ÖĞRENCİ YÖNETİMİ',
-        badge: 'Öğrenci',
-        icon: Icons.people_alt,
-        color: Colors.green,
-        cardWidth: cardWidth,
-        isMobile: isMobile,
-        category: 'Öğrenci Yönetimi',
-        showAllItems: isFiltered,
-        items: [
-          {'title': 'Tanımlı Öğrencilerim', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (ctx) => TeacherStudentListScreen(institutionId: widget.institutionId)))},
-          {'title': 'Öğrenci Portfolyoları', 'onTap': _navigateToPortfolio},
-        ],
-        onTap: () => setState(() => _selectedCategory = 'Öğrenci Yönetimi'),
-      ),
-      _ModuleCardWidget(
         title: 'EĞİTİM İŞLEMLERİ',
         badge: 'Eğitim',
         icon: Icons.school,
@@ -1429,6 +1397,8 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
         category: 'Eğitim',
         showAllItems: isFiltered,
         items: [
+          {'title': 'Ders Programı', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (ctx) => TeacherLessonsScreen(institutionId: widget.institutionId)))},
+          {'title': 'Tanımlı Öğrencilerim', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (ctx) => TeacherStudentListScreen(institutionId: widget.institutionId)))},
           {'title': 'Ders İşleyiş Planı', 'onTap': _navigateToWorkCalendar},
           {'title': 'Yoklama İstatistikleri', 'onTap': _navigateToAttendanceStats},
           {'title': 'Ödev İstatistikleri', 'onTap': _navigateToHomeworkStats},
@@ -1448,6 +1418,7 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
         category: 'Rehberlik',
         showAllItems: isFiltered,
         items: [
+          {'title': 'Öğrenci Portfolyoları', 'onTap': _navigateToPortfolio},
           {'title': 'Görüşmeler', 'onTap': _navigateToGuidanceInterview},
           {'title': 'Gözlem ve Etkinlik İşlemleri', 'onTap': _navigateToGuidanceActivity},
           {'title': 'Ders Çalışma Programı', 'onTap': _navigateToSavedStudyPrograms},

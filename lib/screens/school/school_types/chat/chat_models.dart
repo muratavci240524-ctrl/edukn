@@ -1,33 +1,155 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+/// Türkçe Karakter ve Sıralama (Collation) Yardımcı Sınıfı
+class TurkishStringUtils {
+  static String toLowerTr(String input) {
+    return input
+        .replaceAll('İ', 'i')
+        .replaceAll('I', 'ı')
+        .replaceAll('Ğ', 'ğ')
+        .replaceAll('Ü', 'ü')
+        .replaceAll('Ş', 'ş')
+        .replaceAll('Ö', 'ö')
+        .replaceAll('Ç', 'ç')
+        .toLowerCase();
+  }
+
+  /// Türkçe karakterleri aramalar için İngilizce harflere normalize eder
+  /// (Ör: "anıl" -> "anil", "İSMAİL" -> "ismail")
+  static String normalizeForSearch(String input) {
+    return input
+        .replaceAll('İ', 'i')
+        .replaceAll('I', 'i')
+        .replaceAll('ı', 'i')
+        .replaceAll('Ğ', 'g')
+        .replaceAll('ğ', 'g')
+        .replaceAll('Ü', 'u')
+        .replaceAll('ü', 'u')
+        .replaceAll('Ş', 's')
+        .replaceAll('ş', 's')
+        .replaceAll('Ö', 'o')
+        .replaceAll('ö', 'o')
+        .replaceAll('Ç', 'c')
+        .replaceAll('ç', 'c')
+        .toLowerCase();
+  }
+
+  /// Türkçe Alfabeye göre karşılaştırma (Alphabetical Collation)
+  /// A, B, C, Ç, D, E, F, G, Ğ, H, I, İ, J, K, L, M, N, O, Ö, P, R, S, Ş, T, U, Ü, V, Y, Z
+  static int compareTr(String a, String b) {
+    final aLower = toLowerTr(a);
+    final bLower = toLowerTr(b);
+
+    final minLen = aLower.length < bLower.length ? aLower.length : bLower.length;
+    for (int i = 0; i < minLen; i++) {
+      final charA = aLower[i];
+      final charB = bLower[i];
+      if (charA != charB) {
+        final weightA = _charWeight(charA);
+        final weightB = _charWeight(charB);
+        return weightA.compareTo(weightB);
+      }
+    }
+    return aLower.length.compareTo(bLower.length);
+  }
+
+  static int _charWeight(String char) {
+    switch (char) {
+      case 'a': return 1;
+      case 'b': return 2;
+      case 'c': return 3;
+      case 'ç': return 4;
+      case 'd': return 5;
+      case 'e': return 6;
+      case 'f': return 7;
+      case 'g': return 8;
+      case 'ğ': return 9;
+      case 'h': return 10;
+      case 'ı': return 11;
+      case 'i': return 12;
+      case 'j': return 13;
+      case 'k': return 14;
+      case 'l': return 15;
+      case 'm': return 16;
+      case 'n': return 17;
+      case 'o': return 18;
+      case 'ö': return 19;
+      case 'p': return 20;
+      case 'r': return 21;
+      case 's': return 22;
+      case 'ş': return 23;
+      case 't': return 24;
+      case 'u': return 25;
+      case 'ü': return 26;
+      case 'v': return 27;
+      case 'y': return 28;
+      case 'z': return 29;
+      default: return char.codeUnitAt(0) + 100;
+    }
+  }
+}
+
 class ChatUser {
   final String id;
   final String name;
+  final String? email;
   final String? avatarUrl;
   final bool isOnline;
   final DateTime? lastSeen;
-  final String? userType; // 'student', 'teacher', 'staff'
-  final String? role; // Detail role e.g. 'Math Teacher'
+  final String? userType; // 'student', 'parent', 'teacher', 'admin', 'principal', 'staff'
+  final String? role; // Detay rol e.g. 'Matematik Öğretmeni', 'Müdür Yardımcısı'
+  final String? schoolTypeId;
+  final String? motherName;
+  final String? motherPhone;
+  final String? fatherName;
+  final String? fatherPhone;
+  final List<String> classIds;
+  final List<String> teacherIds; // Öğrencinin öğretmen id'leri
+  final List<String> studentIds; // Öğretmenin öğrenci id'leri
 
   ChatUser({
     required this.id,
     required this.name,
+    this.email,
     this.avatarUrl,
     this.isOnline = false,
     this.lastSeen,
     this.userType,
     this.role,
+    this.schoolTypeId,
+    this.motherName,
+    this.motherPhone,
+    this.fatherName,
+    this.fatherPhone,
+    this.classIds = const [],
+    this.teacherIds = const [],
+    this.studentIds = const [],
   });
 
   factory ChatUser.fromMap(Map<String, dynamic> data, String id) {
+    final name = data['name'] ??
+        data['fullName'] ??
+        data['displayName'] ??
+        'İsimsiz Kullanıcı';
     return ChatUser(
       id: id,
-      name: data['name'] ?? 'Unknown',
-      avatarUrl: data['photoUrl'],
+      name: name,
+      email: data['email'],
+      avatarUrl: data['photoUrl'] ?? data['avatarUrl'],
       isOnline: data['isOnline'] ?? false,
       lastSeen: data['lastSeen'] != null
           ? (data['lastSeen'] as Timestamp).toDate()
           : null,
+      userType: data['userType'] ?? data['role'] ?? 'user',
+      role: data['roleTitle'] ?? data['role'] ?? data['title'],
+      schoolTypeId: data['schoolTypeId'],
+      motherName: data['motherName'] ?? data['anneAdi'],
+      motherPhone: data['motherPhone'] ?? data['anneTel'],
+      fatherName: data['fatherName'] ?? data['babaAdi'],
+      fatherPhone: data['fatherPhone'] ?? data['babaTel'],
+      classIds: List<String>.from(data['classIds'] ?? []),
+      teacherIds: List<String>.from(data['teacherIds'] ?? []),
+      studentIds: List<String>.from(data['studentIds'] ?? []),
     );
   }
 }
@@ -39,6 +161,7 @@ class ChatMessage {
   final DateTime timestamp;
   final bool isRead;
   final MessageType type;
+  final String? recipientChannel; // 'student', 'mother', 'father'
 
   ChatMessage({
     required this.id,
@@ -50,10 +173,13 @@ class ChatMessage {
     this.isStarred = false,
     this.repliedMessage,
     this.isForwarded = false,
+    this.isEdited = false,
+    this.recipientChannel,
   });
 
   final bool isStarred;
   final bool isForwarded;
+  final bool isEdited;
   final ChatMessage? repliedMessage;
 
   ChatMessage copyWith({
@@ -65,7 +191,9 @@ class ChatMessage {
     MessageType? type,
     bool? isStarred,
     bool? isForwarded,
+    bool? isEdited,
     ChatMessage? repliedMessage,
+    String? recipientChannel,
   }) {
     return ChatMessage(
       id: id ?? this.id,
@@ -76,7 +204,9 @@ class ChatMessage {
       type: type ?? this.type,
       isStarred: isStarred ?? this.isStarred,
       isForwarded: isForwarded ?? this.isForwarded,
+      isEdited: isEdited ?? this.isEdited,
       repliedMessage: repliedMessage ?? this.repliedMessage,
+      recipientChannel: recipientChannel ?? this.recipientChannel,
     );
   }
 
@@ -89,7 +219,9 @@ class ChatMessage {
       'type': type.toString().split('.').last,
       'isStarred': isStarred,
       'isForwarded': isForwarded,
+      'isEdited': isEdited,
       'repliedMessage': repliedMessage?.toMap(),
+      'recipientChannel': recipientChannel,
     };
   }
 
@@ -106,12 +238,14 @@ class ChatMessage {
       ),
       isStarred: data['isStarred'] ?? false,
       isForwarded: data['isForwarded'] ?? false,
+      isEdited: data['isEdited'] ?? false,
       repliedMessage: data['repliedMessage'] != null
           ? ChatMessage.fromMap(
               data['repliedMessage'],
               '',
-            ) // ID not stored in nested
+            )
           : null,
+      recipientChannel: data['recipientChannel'],
     );
   }
 }
@@ -119,7 +253,7 @@ class ChatMessage {
 // Global state for Starrred Messages (Demo purposes)
 List<ChatMessage> globalStarredMessages = [];
 
-enum MessageType { text, image, file, audio }
+enum MessageType { text, image, file, audio, call }
 
 class Conversation {
   final String id;
@@ -130,6 +264,8 @@ class Conversation {
   final String? chatName; // For groups
   final String? chatImage;
   bool isArchived;
+  bool isPinned;
+  final bool isGroup;
 
   Conversation({
     required this.id,
@@ -140,6 +276,8 @@ class Conversation {
     this.chatName,
     this.chatImage,
     this.isArchived = false,
+    this.isPinned = false,
+    this.isGroup = false,
   });
 
   List<ChatMessage> messages = [];
@@ -153,6 +291,8 @@ class Conversation {
       'chatName': chatName,
       'chatImage': chatImage,
       'isArchived': isArchived,
+      'isPinned': isPinned,
+      'isGroup': isGroup,
       'updatedAt': FieldValue.serverTimestamp(),
     };
   }
@@ -176,6 +316,8 @@ class Conversation {
       chatName: data['chatName'],
       chatImage: data['chatImage'],
       isArchived: data['isArchived'] ?? false,
+      isPinned: data['isPinned'] ?? false,
+      isGroup: data['isGroup'] ?? false,
     );
   }
 }

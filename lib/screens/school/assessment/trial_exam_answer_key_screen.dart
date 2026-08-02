@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
@@ -434,8 +433,6 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
         List<int> bytes;
         if (result.files.single.bytes != null) {
           bytes = result.files.single.bytes!;
-        } else if (result.files.single.path != null) {
-          bytes = File(result.files.single.path!).readAsBytesSync();
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Dosya okunamadı (Bytes null).')),

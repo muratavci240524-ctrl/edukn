@@ -16,6 +16,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
   String? _schoolId;
   String? _institutionId;
   List<String> _disabledModules = [];
+  String _teacherAnnouncementMode = 'approval_required';
 
   @override
   void initState() {
@@ -48,6 +49,19 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
           if (appSettings != null && appSettings['disabledModules'] != null) {
             _disabledModules = List<String>.from(appSettings['disabledModules']);
           }
+
+          // Öğretmen duyuru yetkisi
+          try {
+            final annSettingsDoc = await FirebaseFirestore.instance
+                .collection('schools')
+                .doc(_schoolId)
+                .collection('settings')
+                .doc('announcements')
+                .get();
+            if (annSettingsDoc.exists) {
+              _teacherAnnouncementMode = annSettingsDoc.data()?['teacherAnnouncementMode'] ?? 'approval_required';
+            }
+          } catch (_) {}
         }
       }
     } catch (e) {
@@ -66,6 +80,16 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
         'appSettings': {
           'disabledModules': _disabledModules,
         }
+      }, SetOptions(merge: true));
+
+      await FirebaseFirestore.instance
+          .collection('schools')
+          .doc(_schoolId)
+          .collection('settings')
+          .doc('announcements')
+          .set({
+        'teacherAnnouncementMode': _teacherAnnouncementMode,
+        'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
       
       if (mounted) {
@@ -135,9 +159,12 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
     
     return ListView.builder(
       padding: EdgeInsets.symmetric(horizontal: isMobile ? 16 : 32, vertical: 24),
-      itemCount: modules.length,
+      itemCount: modules.length + 1,
       itemBuilder: (context, index) {
-        final module = modules[index];
+        if (index == 0) {
+          return _buildTeacherAnnouncementSetting();
+        }
+        final module = modules[index - 1];
         // Sistem ayarları kapatılamaz
         if (module.key == 'sistem_ayarlari') return const SizedBox.shrink();
         
@@ -269,6 +296,94 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
           ),
         );
       },
+    );
+  }
+  Widget _buildTeacherAnnouncementSetting() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
+          ),
+        ],
+        border: Border.all(color: Colors.blue.withOpacity(0.3), width: 1.5),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.campaign, color: Colors.blue.shade700, size: 28),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'ÖĞRETMEN DUYURU YETKİSİ',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.2,
+                          color: Colors.indigo.shade900,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Öğretmenlerin duyuru oluşturma yetkisi',
+                        style: TextStyle(fontSize: 13, color: Colors.blueGrey.shade600),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<String>(
+              value: _teacherAnnouncementMode,
+              decoration: InputDecoration(
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              ),
+              items: const [
+                DropdownMenuItem(
+                  value: 'direct',
+                  child: Text('Onaysız Paylaşabilir (Direkt Yayınlanır)'),
+                ),
+                DropdownMenuItem(
+                  value: 'approval_required',
+                  child: Text('Yönetici Onayına Düşsün (Onay ile Yayınlanır)'),
+                ),
+                DropdownMenuItem(
+                  value: 'disabled',
+                  child: Text('Kapalı (Duyuru Oluşturamaz)'),
+                ),
+              ],
+              onChanged: (val) {
+                if (val != null) {
+                  setState(() => _teacherAnnouncementMode = val);
+                }
+              },
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
