@@ -98,3 +98,12 @@ class CallSession {
     );
   }
 }
+
+/// 📵 Arama meşgul hatası - kullanıcı zaten bir görüşmede
+class CallBusyException implements Exception {
+  final String message;
+  CallBusyException(this.message);
+
+  @override
+  String toString() => 'CallBusyException: $message';
+}

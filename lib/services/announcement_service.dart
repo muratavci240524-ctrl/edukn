@@ -917,30 +917,31 @@ class AnnouncementService {
 
   // Duyuruları getir (sadece yayınlanmış olanlar, dönem filtresine göre)
   Stream<QuerySnapshot> getAnnouncements() {
-    // Önce schoolId'yi senkron kontrol et, yoksa async olarak al
-    if (_schoolId != null) {
-      print('Duyurular yükleniyor - Okul ID: $_schoolId');
-      return _firestore
-          .collection('schools')
-          .doc(_schoolId)
-          .collection('announcements')
-          .orderBy('publishDate', descending: true)
-          .snapshots();
-    }
-
-    // schoolId yoksa, önce al sonra stream döndür
-    return Stream.fromFuture(_getSchoolInfo()).asyncExpand((_) {
-      if (_schoolId == null) {
+    return Stream.fromFuture((() async {
+      await _getSchoolInfo();
+      final termId = await TermService().getSelectedTermId();
+      return {'schoolId': _schoolId, 'termId': termId};
+    })()).asyncExpand((data) {
+      final schoolId = data['schoolId'];
+      final termId = data['termId'];
+      
+      if (schoolId == null) {
         print('Hata: Okul ID bulunamadı');
         return Stream.empty();
       }
-      print('Duyurular yükleniyor - Okul ID: $_schoolId');
-      return _firestore
+      
+      print('Duyurular yükleniyor - Okul ID: $schoolId, Term ID: $termId');
+      
+      Query query = _firestore
           .collection('schools')
-          .doc(_schoolId)
-          .collection('announcements')
-          .orderBy('publishDate', descending: true)
-          .snapshots();
+          .doc(schoolId)
+          .collection('announcements');
+          
+      if (termId != null && termId.toString().isNotEmpty) {
+        query = query.where('termId', isEqualTo: termId);
+      }
+          
+      return query.orderBy('publishDate', descending: true).snapshots();
     });
   }
 

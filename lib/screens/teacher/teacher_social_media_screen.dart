@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/user_permission_service.dart';
+import '../../services/term_service.dart';
 import '../school/school_types/school_type_social_media_screen.dart';
 
 class TeacherSocialMediaScreen extends StatefulWidget {
@@ -122,10 +123,17 @@ class _TeacherSocialMediaScreenState extends State<TeacherSocialMediaScreen> {
             ),
           ],
           body: StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection('social_media_posts')
-                .where('institutionId', isEqualTo: widget.institutionId.toUpperCase())
-                .snapshots(),
+            stream: Stream.fromFuture(TermService().getSelectedTermId()).asyncExpand((termId) {
+              Query query = FirebaseFirestore.instance
+                  .collection('social_media_posts')
+                  .where('institutionId', isEqualTo: widget.institutionId.toUpperCase());
+                  
+              if (termId != null && termId.isNotEmpty) {
+                query = query.where('termId', isEqualTo: termId);
+              }
+              
+              return query.snapshots();
+            }),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());

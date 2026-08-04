@@ -15,6 +15,7 @@ import '../school/attendance_operations_screen.dart';
 import '../school/class_lesson_attendance_screen.dart';
 import '../school/school_types/school_type_detail_screen.dart';
 import '../school/school_types/school_type_announcements_screen.dart';
+import 'teacher_messages_screen.dart';
 
 class TeacherDashboardTab extends StatefulWidget {
   final String institutionId;
@@ -142,6 +143,7 @@ class _NotificationSectionState extends State<_NotificationSection> {
   bool _isLoading = true;
   List<Map<String, dynamic>> _allNotifications = [];
   Timer? _timer;
+  Map<String, String> _classNamesMap = {};
  
   Set<String> _dismissedIds = {};
 
@@ -245,6 +247,20 @@ class _NotificationSectionState extends State<_NotificationSection> {
         } catch (_) {}
       }
 
+      try {
+        final instIds = [widget.institutionId, widget.institutionId.toUpperCase(), widget.institutionId.toLowerCase()];
+        final classesSnap = await FirebaseFirestore.instance
+            .collection('classes')
+            .where('institutionId', whereIn: instIds)
+            .get();
+        for (var doc in classesSnap.docs) {
+          final data = doc.data();
+          _classNamesMap[doc.id] = (data['className'] ?? data['name'] ?? 'Sınıf').toString();
+        }
+      } catch (e) {
+        debugPrint('Error loading classes for notifications: $e');
+      }
+
       if (mounted) {
         _startListening();
         _timer = Timer.periodic(const Duration(minutes: 1), (timer) {
@@ -323,6 +339,11 @@ class _NotificationSectionState extends State<_NotificationSection> {
         .where('institutionId', whereIn: instIds)
         .where('teacherId', isEqualTo: currentUserId)
         .snapshots());
+
+    _listenTo('chats', FirebaseFirestore.instance
+        .collection('conversations')
+        .where('participantIds', arrayContains: currentUserId)
+        .snapshots());
   }
  
   void _listenTo(String type, Stream<QuerySnapshot> stream) {
@@ -356,6 +377,7 @@ class _NotificationSectionState extends State<_NotificationSection> {
     final attSnap = _snaps['attendance'];
     final hwSnap = _snaps['homeworks'];
     final etutSnap = _snaps['etuts'];
+    final chatSnap = _snaps['chats'];
  
     final List<Map<String, dynamic>> result = [];
     final user = FirebaseAuth.instance.currentUser;
@@ -548,13 +570,19 @@ class _NotificationSectionState extends State<_NotificationSection> {
             if (now.isAfter(warningTriggerTime)) {
               final key = '${classId}_$lessonHour';
               if (!takenKeys.contains(key)) {
+                final dbClassName = data['className']?.toString() ?? '';
+                final resolvedClassName = _classNamesMap[classId] ?? (dbClassName.length >= 15 ? 'Sınıf' : dbClassName);
+
                 result.add({
                   'id': 'att_${doc.id}',
-                  'title': 'Yoklama Eksik: $className',
+                  'title': 'Yoklama Eksik: $resolvedClassName',
                   'subtitle': '$lessonHour. ders ($subject) yoklaması henüz alınmadı (5 dk geçti).',
                   'time': warningTriggerTime,
                   'type': 'attendance_warning',
-                  'data': data,
+                  'data': {
+                    ...data,
+                    'resolvedClassName': resolvedClassName,
+                  },
                 });
               }
             }
@@ -656,6 +684,66 @@ class _NotificationSectionState extends State<_NotificationSection> {
       }
     }
  
+    // 7. CHATS & MISSED CALLS
+    if (chatSnap != null) {
+      int unreadMessagesCount = 0;
+      int missedCallsCount = 0;
+      DateTime? latestMessageTime;
+
+      for (var doc in chatSnap.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        final unreadCounts = data['unreadCounts'] as Map<String, dynamic>? ?? {};
+        final count = (unreadCounts[currentUserId] as num?)?.toInt() ?? 0;
+
+        if (count > 0) {
+          final lastMsg = data['lastMessage'] as Map<String, dynamic>?;
+          if (lastMsg != null) {
+            final type = lastMsg['type'] as String?;
+            final content = lastMsg['content'] as String? ?? '';
+            final senderId = lastMsg['senderId'] as String?;
+            
+            final msgTime = _parseDateTime(lastMsg['timestamp']);
+            if (msgTime != null && (latestMessageTime == null || msgTime.isAfter(latestMessageTime!))) {
+              latestMessageTime = msgTime;
+            }
+
+            if (type == 'call' && content.contains('Cevapsız') && senderId != currentUserId) {
+              missedCallsCount += 1;
+              if (count > 1) {
+                unreadMessagesCount += (count - 1);
+              }
+            } else {
+              unreadMessagesCount += count;
+            }
+          } else {
+            unreadMessagesCount += count;
+          }
+        }
+      }
+
+      if (unreadMessagesCount > 0) {
+        result.add({
+          'id': 'unread_messages',
+          'title': 'Okunmamış Mesaj',
+          'subtitle': '$unreadMessagesCount adet okunmamış mesajınız bulunmaktadır.',
+          'time': latestMessageTime ?? now,
+          'type': 'chat_message',
+          'data': {},
+        });
+      }
+
+      if (missedCallsCount > 0) {
+        result.add({
+          'id': 'missed_calls',
+          'title': 'Cevapsız Çağrı',
+          'subtitle': '$missedCallsCount adet cevapsız çağrınız bulunmaktadır.',
+          'time': latestMessageTime ?? now,
+          'type': 'chat_call',
+          'data': {},
+        });
+      }
+    }
+
     final filteredResult = result.where((item) {
       if (item['type'] == 'attendance_warning' || item['type'] == 'etut_attendance_warning') {
         return true; // Yoklama kaydedilene kadar bildirim ekranında kalır
@@ -749,6 +837,8 @@ class _NotificationSectionState extends State<_NotificationSection> {
     else if (type == 'etut_scheduled' || type == 'etut_today') { icon = Icons.school_rounded; color = Colors.teal.shade600; }
     else if (type == 'attendance_warning' || type == 'etut_attendance_warning') { icon = Icons.event_busy_rounded; color = Colors.red.shade600; }
     else if (type == 'homework_warning') { icon = Icons.assignment_turned_in_rounded; color = Colors.indigo.shade600; }
+    else if (type == 'chat_message') { icon = Icons.chat_bubble_outline_rounded; color = Colors.blue.shade500; }
+    else if (type == 'chat_call') { icon = Icons.phone_missed_rounded; color = Colors.red.shade500; }
     else { icon = Icons.notifications_none_rounded; color = Colors.grey.shade600; }
  
     final userEmail = FirebaseAuth.instance.currentUser?.email;
@@ -810,7 +900,7 @@ class _NotificationSectionState extends State<_NotificationSection> {
                 } else if (type == 'attendance_warning') {
                   if (mounted) {
                     final classId = originalData['classId']?.toString() ?? '';
-                    final className = originalData['className']?.toString() ?? 'Sınıf';
+                    final className = originalData['resolvedClassName']?.toString() ?? originalData['className']?.toString() ?? 'Sınıf';
                     final subject = originalData['subjectName'] ?? originalData['lessonName'] ?? 'Ders';
                     final lessonId = originalData['lessonId']?.toString() ?? subject;
                     final hourIdx = originalData['hourIndex'] as int? ?? 0;
@@ -869,6 +959,15 @@ class _NotificationSectionState extends State<_NotificationSection> {
                       duration: Duration(seconds: 3),
                     ),
                   );
+                } else if (type == 'chat_message' || type == 'chat_call') {
+                  if (mounted) {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => TeacherMessagesScreen(institutionId: widget.institutionId),
+                      ),
+                    );
+                  }
                 }
               }
             },

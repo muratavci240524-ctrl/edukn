@@ -23,9 +23,17 @@ const messaging = firebase.messaging();
 messaging.onBackgroundMessage((payload) => {
   console.log('[SW] Arka plan bildirimi alındı:', payload);
 
-  const notificationTitle = payload.notification?.title || 'eduKN';
+  // Eğer payload'da "notification" alanı varsa, FCM otomatik olarak bildirim çıkaracaktır.
+  // Bu durumda manuel olarak showNotification çağırmamıza gerek yok (Çift bildirim olmaması için).
+  // Ancak bazen Firebase otomatik çıkarmayabiliyor (data-only mesajlarda). 
+  if (payload.notification) {
+     console.log('[SW] FCM bildirimi otomatik gösterecek.');
+     return;
+  }
+
+  const notificationTitle = payload.data?.title || 'eduKN';
   const notificationOptions = {
-    body: payload.notification?.body || '',
+    body: payload.data?.body || '',
     icon: '/icons/Icon-192.png',
     badge: '/icons/Icon-192.png',
     data: payload.data || {},
@@ -37,21 +45,32 @@ messaging.onBackgroundMessage((payload) => {
   return self.registration.showNotification(notificationTitle, notificationOptions);
 });
 
-// Bildirime tıklandığında
+// Bildirime tıklandığında (veya butonlara basıldığında)
 self.addEventListener('notificationclick', (event) => {
-  console.log('[SW] Bildirime tıklandı:', event);
+  console.log('[SW] Bildirime tıklandı:', event.action || 'ana_tıklama');
   event.notification.close();
 
+  const action = event.action; // "answer" veya "decline"
   const route = event.notification.data?.route || '/';
   const urlToOpen = new URL(route, self.location.origin).href;
 
+  // Reddet butonuna basıldıysa sadece bildirimi kapat
+  if (action === 'decline') {
+    console.log('[SW] Arama reddedildi.');
+    return;
+  }
+
+  // Yanıtla veya normal tıklama → uygulamayı aç
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
       // Açık pencere varsa onu öne getir
       for (const client of windowClients) {
         if (client.url.includes(self.location.origin) && 'focus' in client) {
           client.focus();
-          client.postMessage({ type: 'NOTIFICATION_CLICK', route: route });
+          client.postMessage({ 
+            type: action === 'answer' ? 'CALL_ANSWERED' : 'NOTIFICATION_CLICK', 
+            route: route 
+          });
           return;
         }
       }

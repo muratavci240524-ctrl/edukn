@@ -710,15 +710,57 @@ async function sendNotifications({ recipientUids, title, body, route, type, enti
     }
 
     if (allTokens.length > 0) {
+        const isCallNotification = type === "call";
+        const channelId = isCallNotification ? "incoming_call_channel" : "high_importance_channel";
+
         const message = {
             notification: { title, body },
-            data: { route: route || "/school-dashboard", entityId: entityId || "", type: type || "general" },
+            data: {
+                route: route || "/school-dashboard",
+                entityId: entityId || "",
+                type: type || "general",
+                // Arama bildirimleri için ekstra veri
+                ...(isCallNotification && { isCall: "true" }),
+            },
             tokens: allTokens,
+            android: {
+                notification: {
+                    icon: "ic_notification",
+                    color: "#1976D2",
+                    channelId: channelId,
+                    sound: isCallNotification ? "ringtone" : "default",
+                    priority: isCallNotification ? "max" : "high",
+                    // Arama için Yanıtla/Reddet butonları
+                    ...(isCallNotification && {
+                        clickAction: "INCOMING_CALL",
+                    }),
+                },
+                priority: "high",
+            },
+            apns: {
+                payload: {
+                    aps: {
+                        alert: { title, body },
+                        sound: isCallNotification ? "ringtone.caf" : "default",
+                        badge: 1,
+                        "content-available": 1,
+                        ...(isCallNotification && { "interruption-level": "critical" }),
+                    },
+                },
+            },
             webpush: {
                 notification: {
                     icon: "/icons/Icon-192.png",
                     badge: "/icons/Icon-192.png",
                     click_action: route || "/school-dashboard",
+                    ...(isCallNotification && {
+                        actions: [
+                            { action: "answer", title: "✅ Yanıtla" },
+                            { action: "decline", title: "❌ Reddet" },
+                        ],
+                        requireInteraction: true,
+                        vibrate: [300, 200, 300, 200, 300],
+                    }),
                 },
             },
         };
@@ -951,6 +993,123 @@ exports.onTrialExamCreated = onDocumentCreated("trial_exams/{examId}", async (ev
     });
 });
 
+// ─── Trigger: Sesli/Görüntülü Arama Yapıldığında ─────────────────────────────
+exports.onCallCreated = onDocumentCreated("calls/{callId}", async (event) => {
+    const call = event.data?.data();
+    if (!call) return;
+
+    const { callerId, callerName, receiverId, receiverName, callType } = call;
+    if (!receiverId || !callerId) return;
+
+    const isVideo = callType === 'video';
+    const emoji = isVideo ? '📹' : '📞';
+    const typeText = isVideo ? 'Görüntülü Arama' : 'Sesli Arama';
+
+    await sendNotifications({
+        recipientUids: [receiverId],
+        title: `${emoji} ${typeText}`,
+        body: `${callerName || "Bilinmeyen"} sizi arıyor...`,
+        route: "/school-dashboard",
+        type: "call",
+        entityId: event.params.callId,
+    });
+});
+
+// ─── Trigger: Sosyal Medya Paylaşımı Yapıldığında ────────────────────────────
+exports.onSocialPostCreated = onDocumentCreated(
+    "schools/{schoolId}/socialPosts/{postId}",
+    async (event) => {
+        const post = event.data?.data();
+        if (!post) return;
+        const { institutionId, authorName, content, type: postType } = post;
+        if (!institutionId) return;
+        const recipientUids = await getInstitutionUserUids(institutionId);
+        const postTypeLabel = postType === 'event' ? 'Etkinlik' : 'Paylaşım';
+        await sendNotifications({
+            recipientUids,
+            title: `📱 Yeni ${postTypeLabel}`,
+            body: `${authorName || "Yönetim"}: ${(content || "").substring(0, 80)}`,
+            route: "/school-dashboard",
+            type: "social_post",
+            entityId: event.params.postId,
+        });
+    }
+);
+
+// ─── Trigger: Takvime Etkinlik Eklendiğinde ──────────────────────────────────
+exports.onCalendarEventCreated = onDocumentCreated(
+    "schools/{schoolId}/calendarEvents/{eventId}",
+    async (event) => {
+        const calEvent = event.data?.data();
+        if (!calEvent) return;
+        const { institutionId, title: eventTitle, description, date } = calEvent;
+        if (!institutionId) return;
+        const recipientUids = await getInstitutionUserUids(institutionId);
+        
+        let dateStr = "";
+        if (date && date.toDate) {
+            const d = date.toDate();
+            dateStr = ` (${d.toLocaleDateString("tr-TR")})`;
+        }
+        
+        await sendNotifications({
+            recipientUids,
+            title: `📅 Yeni Etkinlik${dateStr}`,
+            body: eventTitle || description || "Takvime yeni etkinlik eklendi.",
+            route: "/school-dashboard",
+            type: "calendar_event",
+            entityId: event.params.eventId,
+        });
+    }
+);
+
+// ─── Trigger: Nöbet Atandığında ──────────────────────────────────────────────
+exports.onDutyAssigned = onDocumentCreated("dutyScheduleItems/{itemId}", async (event) => {
+    const item = event.data?.data();
+    if (!item) return;
+
+    const { teacherId, teacherName, locationName, dayOfWeek, institutionId } = item;
+    if (!teacherId) return;
+
+    const dayNames = { 1: "Pazartesi", 2: "Salı", 3: "Çarşamba", 4: "Perşembe", 5: "Cuma", 6: "Cumartesi", 7: "Pazar" };
+    const dayName = dayNames[dayOfWeek] || `${dayOfWeek}. gün`;
+    const location = locationName || "Belirtilmemiş";
+
+    await sendNotifications({
+        recipientUids: [teacherId],
+        title: `🛡️ Nöbet Atandı`,
+        body: `${dayName} günü nöbetiniz: ${location}`,
+        route: "/school-dashboard",
+        type: "duty",
+        entityId: event.params.itemId,
+    });
+});
+
+// ─── Trigger: Gezi Oluşturulduğunda ──────────────────────────────────────────
+exports.onFieldTripCreated = onDocumentCreated("field_trips/{tripId}", async (event) => {
+    const trip = event.data?.data();
+    if (!trip) return;
+
+    const { institutionId, title: tripTitle, destination, organizerName, departureDate } = trip;
+    if (!institutionId) return;
+
+    const recipientUids = await getInstitutionUserUids(institutionId);
+
+    let dateStr = "";
+    if (departureDate && departureDate.toDate) {
+        const d = departureDate.toDate();
+        dateStr = ` - ${d.toLocaleDateString("tr-TR")}`;
+    }
+
+    await sendNotifications({
+        recipientUids,
+        title: `🚌 Yeni Gezi${dateStr}`,
+        body: `${tripTitle || destination || "Gezi"} · ${organizerName || "Yönetim"}`,
+        route: "/school-dashboard",
+        type: "field_trip",
+        entityId: event.params.tripId,
+    });
+});
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 🔐 VERİ ŞİFRELEME — ENCRYPTION FUNCTIONS

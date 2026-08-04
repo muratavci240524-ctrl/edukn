@@ -68,6 +68,24 @@ class CallService {
 
     final uid = currentUserId ?? 'local_user';
 
+    // 📞 MEŞGUL KONTROLÜ: Aranan kişi başka bir görüşmede mi?
+    final busyStatus = await isUserBusy(receiverId);
+    if (busyStatus != null) {
+      debugPrint('📵 ${receiverName} şu anda meşgul (${busyStatus})');
+      throw CallBusyException(
+        '${receiverName} şu anda başka bir görüşmede. Lütfen daha sonra tekrar deneyin.',
+      );
+    }
+
+    // 📞 Arayan kişi de başka bir görüşmede mi? (Çift yönlü kontrol)
+    final callerBusy = await isUserBusy(uid);
+    if (callerBusy != null) {
+      debugPrint('📵 Arayan kişi zaten görüşmede ($callerBusy)');
+      throw CallBusyException(
+        'Zaten aktif bir görüşmeniz var. Lütfen önce mevcut görüşmeyi sonlandırın.',
+      );
+    }
+
     String resolvedCallerName = callerName;
     String? resolvedCallerRole = callerRole;
     String? resolvedCallerAvatar = callerAvatar;
@@ -136,6 +154,86 @@ class CallService {
     }
 
     return session;
+  }
+
+  /// 📵 Kullanıcının aktif bir görüşmesi var mı kontrol et
+  /// Dönüş: null = müsait, String = meşgul durumu açıklaması
+  Future<String?> isUserBusy(String userId) async {
+    try {
+      // Kullanıcı arayan mı? (caller olarak aktif arama)
+      final callerCalls = await _firestore
+          .collection('calls')
+          .where('callerId', isEqualTo: userId)
+          .where('status', whereIn: ['ringing', 'accepted'])
+          .limit(1)
+          .get();
+
+      if (callerCalls.docs.isNotEmpty) {
+        final callData = callerCalls.docs.first.data();
+        final createdAt = callData['createdAt'] as dynamic;
+        
+        // 60 saniyeden eski "ringing" aramaları otomatik sonlandır (asılı kalmayı önle)
+        if (callData['status'] == 'ringing' && createdAt != null) {
+          DateTime callTime;
+          if (createdAt is DateTime) {
+            callTime = createdAt;
+          } else if (createdAt.toDate != null) {
+            callTime = createdAt.toDate();
+          } else {
+            callTime = DateTime.now();
+          }
+          
+          if (DateTime.now().difference(callTime).inSeconds > 60) {
+            // Eski asılı kalmış arama, otomatik temizle
+            await _firestore.collection('calls').doc(callerCalls.docs.first.id).update({
+              'status': 'ended',
+            });
+            return null; // Müsait
+          }
+        }
+        
+        return 'Arayan olarak görüşmede';
+      }
+
+      // Kullanıcı aranan mı? (receiver olarak aktif arama)
+      final receiverCalls = await _firestore
+          .collection('calls')
+          .where('receiverId', isEqualTo: userId)
+          .where('status', whereIn: ['ringing', 'accepted'])
+          .limit(1)
+          .get();
+
+      if (receiverCalls.docs.isNotEmpty) {
+        final callData = receiverCalls.docs.first.data();
+        final createdAt = callData['createdAt'] as dynamic;
+        
+        // 60 saniyeden eski "ringing" aramaları otomatik sonlandır
+        if (callData['status'] == 'ringing' && createdAt != null) {
+          DateTime callTime;
+          if (createdAt is DateTime) {
+            callTime = createdAt;
+          } else if (createdAt.toDate != null) {
+            callTime = createdAt.toDate();
+          } else {
+            callTime = DateTime.now();
+          }
+          
+          if (DateTime.now().difference(callTime).inSeconds > 60) {
+            await _firestore.collection('calls').doc(receiverCalls.docs.first.id).update({
+              'status': 'ended',
+            });
+            return null; // Müsait
+          }
+        }
+        
+        return 'Aranan olarak görüşmede';
+      }
+
+      return null; // Müsait
+    } catch (e) {
+      debugPrint('Meşgul kontrolü hatası: $e');
+      return null; // Hata durumunda aramaya izin ver
+    }
   }
 
   /// Rolü Kullanıcı İsteğine Göre Biçimlendirme (GENEL MÜDÜR, MÜDÜR, ÖĞRETMEN, ÖĞRENCİ, VELİ, PERSONEL)

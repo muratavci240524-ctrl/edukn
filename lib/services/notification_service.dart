@@ -3,6 +3,8 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'web_notification/web_notification.dart' if (dart.library.html) 'web_notification/web_notification_web.dart';
 
 /// Uygulama açıkken gelen arka plan mesajlarını işler (top-level function gerekiyor)
 @pragma('vm:entry-point')
@@ -18,14 +20,68 @@ class NotificationService {
   NotificationService._internal();
 
   final FirebaseMessaging _messaging = FirebaseMessaging.instance;
+  final FlutterLocalNotificationsPlugin? _localNotifications = kIsWeb ? null : FlutterLocalNotificationsPlugin();
   
   /// Sayfa yönlendirmesi için navigator key (main.dart'taki ile aynı)
   static GlobalKey<NavigatorState>? navigatorKey;
 
+  bool _initialized = false;
+
   /// Servisi başlat: izin iste, token kaydet, listener'ları kur
   Future<void> initialize({required String uid}) async {
+    if (_initialized) {
+      debugPrint('🔔 NotificationService zaten başlatılmış, atlanıyor.');
+      return;
+    }
+    _initialized = true;
+
     // Arka plan handler'ı kaydet
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+
+    if (!kIsWeb) {
+      const AndroidInitializationSettings initializationSettingsAndroid = AndroidInitializationSettings('@mipmap/ic_launcher');
+      const DarwinInitializationSettings initializationSettingsIOS = DarwinInitializationSettings();
+      const InitializationSettings initializationSettings = InitializationSettings(
+        android: initializationSettingsAndroid,
+        iOS: initializationSettingsIOS,
+      );
+      await _localNotifications?.initialize(
+        settings: initializationSettings,
+        onDidReceiveNotificationResponse: _onNotificationAction,
+      );
+      
+      // Android için Heads-up notification kanalı (genel bildirimler)
+      const AndroidNotificationChannel channel = AndroidNotificationChannel(
+        'high_importance_channel',
+        'High Importance Notifications',
+        description: 'This channel is used for important notifications.',
+        importance: Importance.max,
+      );
+      await _localNotifications
+          ?.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+          ?.createNotificationChannel(channel);
+
+      // Android için Gelen Arama kanalı (zil sesi + titreşim)
+      const AndroidNotificationChannel callChannel = AndroidNotificationChannel(
+        'incoming_call_channel',
+        'Gelen Aramalar',
+        description: 'Sesli ve görüntülü arama bildirimleri.',
+        importance: Importance.max,
+        playSound: true,
+        enableVibration: true,
+        enableLights: true,
+      );
+      await _localNotifications
+          ?.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+          ?.createNotificationChannel(callChannel);
+          
+      // iOS için foreground Heads-up aktif et
+      await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+    }
 
     // 1. İzin İste
     NotificationSettings settings = await _messaging.requestPermission(
@@ -56,8 +112,79 @@ class NotificationService {
     // 4. Uygulama açıkken gelen bildirimleri dinle (Foreground)
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       debugPrint('📩 Foreground mesaj: ${message.notification?.title}');
-      // In-app bildirim zaten Firestore listener'ı ile gösterilecek.
-      // Ek olarak snackbar gösterilebilir (opsiyonel).
+      
+      final title = message.notification?.title ?? message.data['title'] ?? 'Yeni Bildirim';
+      final body = message.notification?.body ?? message.data['body'] ?? '';
+      final type = message.data['type'] ?? 'general';
+      final isCall = message.data['isCall'] == 'true' || type == 'call';
+
+      if (kIsWeb) {
+        showWebNotification(title, body);
+      } else {
+        if (isCall) {
+          // 📞 Arama bildirimi: Özel kanal + Yanıtla/Reddet butonları
+          _localNotifications?.show(
+            id: message.hashCode,
+            title: title,
+            body: body,
+            notificationDetails: const NotificationDetails(
+              android: AndroidNotificationDetails(
+                'incoming_call_channel',
+                'Gelen Aramalar',
+                channelDescription: 'Sesli ve görüntülü arama bildirimleri.',
+                importance: Importance.max,
+                priority: Priority.max,
+                icon: '@mipmap/ic_launcher',
+                fullScreenIntent: true,
+                ongoing: true,
+                autoCancel: false,
+                category: AndroidNotificationCategory.call,
+                visibility: NotificationVisibility.public,
+                actions: <AndroidNotificationAction>[
+                  AndroidNotificationAction(
+                    'answer_call',
+                    '✅ Yanıtla',
+                    showsUserInterface: true,
+                  ),
+                  AndroidNotificationAction(
+                    'decline_call',
+                    '❌ Reddet',
+                    cancelNotification: true,
+                  ),
+                ],
+              ),
+              iOS: DarwinNotificationDetails(
+                presentAlert: true,
+                presentBadge: true,
+                presentSound: true,
+                interruptionLevel: InterruptionLevel.critical,
+              ),
+            ),
+          );
+        } else {
+          // 📩 Normal bildirim
+          _localNotifications?.show(
+            id: message.hashCode,
+            title: title,
+            body: body,
+            notificationDetails: const NotificationDetails(
+              android: AndroidNotificationDetails(
+                'high_importance_channel',
+                'High Importance Notifications',
+                channelDescription: 'This channel is used for important notifications.',
+                importance: Importance.max,
+                priority: Priority.high,
+                icon: '@mipmap/ic_launcher',
+              ),
+              iOS: DarwinNotificationDetails(
+                presentAlert: true,
+                presentBadge: true,
+                presentSound: true,
+              ),
+            ),
+          );
+        }
+      }
     });
 
     // 5. Bildirime tıklanıp uygulama açıldığında (Background → Foreground)
@@ -86,7 +213,7 @@ class NotificationService {
         // Web için VAPID key gerekiyor (Firebase Console > Project Settings > Cloud Messaging)
         try {
           fcmToken = await _messaging.getToken(
-            vapidKey: 'BG8qZKjX_placeholder_replace_with_real_vapid_key',
+            vapidKey: 'BFbtofT_FGdqCvPYbSgZ_ggmb-JVGf7mYZhZWXE8v1dfAcw7kbJN_KvrUKV4hgBxXzdBbj-L8AtJw5VzKQQE8nE',
           );
         } catch (e) {
           debugPrint('⚠️ Web FCM token alınamadı (VAPID key gerekli): $e');
@@ -118,6 +245,29 @@ class NotificationService {
     }
   }
 
+  /// Bildirim butonlarına (Yanıtla/Reddet) tıklandığında
+  void _onNotificationAction(NotificationResponse response) {
+    debugPrint('🔔 Bildirim aksiyonu: ${response.actionId} (payload: ${response.payload})');
+
+    switch (response.actionId) {
+      case 'answer_call':
+        debugPrint('✅ Arama yanıtlandı');
+        // Arama ekranını aç
+        if (navigatorKey?.currentState != null) {
+          navigatorKey!.currentState!.pushNamed('/school-dashboard');
+        }
+        break;
+      case 'decline_call':
+        debugPrint('❌ Arama reddedildi');
+        // Bildirimi kapat (cancelNotification: true zaten yapıyor)
+        break;
+      default:
+        // Normal bildirime tıklandı
+        _handleNotificationTap({'route': '/school-dashboard'});
+        break;
+    }
+  }
+
   /// Bildirime tıklandığında ilgili sayfaya yönlendir
   void _handleNotificationTap(Map<String, dynamic> data) {
     final route = data['route'] as String?;
@@ -146,7 +296,7 @@ class NotificationService {
 
       final token = kIsWeb
           ? await _messaging.getToken(
-              vapidKey: 'BG8qZKjX_placeholder_replace_with_real_vapid_key',
+              vapidKey: 'BFbtofT_FGdqCvPYbSgZ_ggmb-JVGf7mYZhZWXE8v1dfAcw7kbJN_KvrUKV4hgBxXzdBbj-L8AtJw5VzKQQE8nE',
             )
           : await _messaging.getToken();
 

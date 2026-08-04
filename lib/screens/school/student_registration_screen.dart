@@ -1,3 +1,7 @@
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:cloud_functions/cloud_functions.dart';
+import '../../firebase_options.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -16,8 +20,41 @@ import '../../services/user_permission_service.dart';
 import '../../services/term_service.dart';
 import 'student_bulk_upload_dialog.dart';
 import '../../services/crypto_service.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 // Helper metodlar - Her iki class da kullanabilir
+
+Future<String?> _createAuthUser(String email, String password) async {
+  try {
+    final apiKey = DefaultFirebaseOptions.currentPlatform.apiKey;
+    final url = 'https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=$apiKey';
+
+    final response = await http.post(
+      Uri.parse(url),
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({
+        'email': email,
+        'password': password,
+        'returnSecureToken': true,
+      }),
+    );
+
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      return data['localId'] as String;
+    } else {
+      final error = json.decode(response.body);
+      print('⚠️ SignUp REST API: ${error['error']?['message']}');
+      return null;
+    }
+  } catch (e) {
+    print('❌ Auth kullanıcı oluşturma hatası: $e');
+    return null;
+  }
+}
 
 // Büyük harf formatlayıcı
 class UpperCaseTextFormatter extends TextInputFormatter {
@@ -5323,6 +5360,10 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
       _selectedStudent ?? {},
     );
 
+    final usernameEditController = TextEditingController(text: tempData['username'] ?? '');
+    final rawP = tempData['password']?.toString() ?? '';
+    final passwordEditController = TextEditingController(text: rawP == '******' ? '' : rawP);
+
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -5363,6 +5404,8 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
                 formContent = _buildUserInfoFormEditable(
                   tempData,
                   setModalState,
+                  usernameEditController,
+                  passwordEditController,
                 );
                 break;
               case 'Kayıt Bilgileri':
@@ -5441,6 +5484,59 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
                               .collection('students')
                               .doc(_selectedStudentId)
                               .update(tempData);
+
+                          // Kullanıcı Bilgileri veya İletişim Bilgileri güncellendiyse Auth & Users senkronize et
+                          if (section == 'Kullanıcı Bilgileri' || section == 'İletişim Bilgileri') {
+                            final username = tempData['username']?.toString().trim() ?? '';
+                            final password = tempData['password']?.toString().trim() ?? '';
+                            final customEmail = tempData['email']?.toString().trim() ?? '';
+
+                            if (username.isNotEmpty && password.isNotEmpty && password != '******') {
+                              final targetEmail = '$username@$_institutionId.edukn'.toLowerCase();
+                              try {
+                                final userQuery = await FirebaseFirestore.instance
+                                    .collection('users')
+                                    .where('institutionId', isEqualTo: _institutionId)
+                                    .where('username', isEqualTo: username)
+                                    .limit(1)
+                                    .get();
+
+                                String? uid;
+                                if (userQuery.docs.isNotEmpty) {
+                                  uid = userQuery.docs.first.id;
+                                }
+
+                                if (uid != null && uid.isNotEmpty) {
+                                  await FirebaseFunctions.instance
+                                      .httpsCallable('updateUserCredentials')
+                                      .call({'uid': uid, 'newPassword': password});
+                                  print('✅ Auth şifresi güncellendi: $uid');
+                                } else {
+                                  final newUid = await _createAuthUser(targetEmail, password);
+                                  if (customEmail.isNotEmpty && customEmail.contains('@')) {
+                                    await _createAuthUser(customEmail, password);
+                                  }
+                                  final docId = newUid ?? _selectedStudentId ?? username;
+                                  await FirebaseFirestore.instance.collection('users').doc(docId).set({
+                                    'uid': docId,
+                                    'institutionId': _institutionId,
+                                    'username': username,
+                                    'email': targetEmail,
+                                    'personalEmail': customEmail,
+                                    'role': 'student',
+                                    'name': tempData['name'] ?? '',
+                                    'surname': tempData['surname'] ?? '',
+                                    'tcNo': tempData['tcNo'] ?? '',
+                                    'isActive': true,
+                                    'createdAt': FieldValue.serverTimestamp(),
+                                    'updatedAt': FieldValue.serverTimestamp(),
+                                  }, SetOptions(merge: true));
+                                }
+                              } catch (authErr) {
+                                print('⚠️ Auth senkronizasyon hatası: $authErr');
+                              }
+                            }
+                          }
 
                           setState(() {
                             _selectedStudent = tempData;
@@ -5789,14 +5885,9 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
   Widget _buildUserInfoFormEditable(
     Map<String, dynamic> tempData,
     StateSetter setModalState,
+    TextEditingController usernameController,
+    TextEditingController passwordController,
   ) {
-    final usernameController = TextEditingController(
-      text: tempData['username'],
-    );
-    final passwordController = TextEditingController(
-      text: tempData['password'],
-    );
-
     return Column(
       children: [
         // Kullanıcı Adı
@@ -6220,7 +6311,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
                           return DropdownMenuItem<String?>(
                             value: classItem['id'],
                             child: Text(
-                              '${classItem['className']} - ${classItem['classTypeName']}',
+                              '${classItem['className']}',
                               overflow: TextOverflow.ellipsis,
                             ),
                           );
@@ -6341,6 +6432,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
   }
 
   // Dönem ismini ID'den bul
+
   String? _getTermName(String? termId) {
     if (termId == null) return null;
     final term = _terms.firstWhere((t) => t['id'] == termId, orElse: () => {});
@@ -6442,6 +6534,7 @@ class __StudentRegistrationFormScreenState
   final TextEditingController _emailController = TextEditingController();
   String? _selectedHearSource;
   String? _selectedEducationType;
+  List<String> _educationTypesList = ['Tam Gün', 'Sabahçı', 'Öğlenci', 'Yatılı', 'Akşam Kursu'];
   String? _selectedForeignLanguage;
   final TextEditingController _referenceController = TextEditingController();
   bool _isStudentSelfGuardian = false;
@@ -6472,6 +6565,13 @@ class __StudentRegistrationFormScreenState
       final schoolTypesQuery = await FirebaseFirestore.instance
           .collection('schoolTypes')
           .where('institutionId', isEqualTo: institutionId)
+          .get();
+
+      final educationTypesDoc = await FirebaseFirestore.instance
+          .collection('institutions')
+          .doc(institutionId)
+          .collection('settings')
+          .doc('education_types')
           .get();
 
       // Dönemleri yükle
@@ -6854,15 +6954,20 @@ class __StudentRegistrationFormScreenState
                   return;
                 }
 
-                if (_usernameController.text.isEmpty ||
-                    _passwordController.text.isEmpty) {
+                if (_usernameController.text.isEmpty || _passwordController.text.isEmpty) {
+                  final timestampStr = DateTime.now().microsecondsSinceEpoch.toRadixString(36).toUpperCase();
+                  if (_usernameController.text.isEmpty) {
+                    _usernameController.text = 'O$timestampStr';
+                  }
+                  if (_passwordController.text.isEmpty) {
+                    _passwordController.text = timestampStr;
+                  }
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text('⚠ Kullanıcı adı ve şifre zorunlu'),
-                      backgroundColor: Colors.orange,
+                      content: Text('✓ Kullanıcı adı ve şifre otomatik oluşturuldu'),
+                      backgroundColor: Colors.green,
                     ),
                   );
-                  return;
                 }
 
                 if (_selectedSchoolTypeId == null) {
@@ -7025,6 +7130,49 @@ class __StudentRegistrationFormScreenState
                     }
                   }
 
+                  // Öğrenci için Auth & Users koleksiyonuna senkronizasyon
+                  try {
+                    final stUsername = _usernameController.text.trim();
+                    final stPassword = _passwordController.text.trim();
+                    if (stUsername.isNotEmpty && stPassword.isNotEmpty) {
+                      final stEmail = '$stUsername@$_institutionId.edukn'.toLowerCase();
+                      final userQuery = await FirebaseFirestore.instance
+                          .collection('users')
+                          .where('institutionId', isEqualTo: _institutionId)
+                          .where('username', isEqualTo: stUsername)
+                          .limit(1)
+                          .get();
+
+                      String? uid = userQuery.docs.isNotEmpty ? userQuery.docs.first.id : null;
+                      if (uid != null && uid.isNotEmpty) {
+                        try {
+                          await FirebaseFunctions.instance
+                              .httpsCallable('updateUserCredentials')
+                              .call({'uid': uid, 'newPassword': stPassword});
+                        } catch (_) {}
+                      } else {
+                        final newUid = await _createAuthUser(stEmail, stPassword);
+                        if (newUid != null) {
+                          await FirebaseFirestore.instance.collection('users').doc(newUid).set({
+                            'uid': newUid,
+                            'institutionId': _institutionId,
+                            'username': stUsername,
+                            'email': stEmail,
+                            'role': 'student',
+                            'name': _nameController.text,
+                            'surname': _surnameController.text,
+                            'tcNo': _tcController.text,
+                            'isActive': true,
+                            'createdAt': FieldValue.serverTimestamp(),
+                            'updatedAt': FieldValue.serverTimestamp(),
+                          }, SetOptions(merge: true));
+                        }
+                      }
+                    }
+                  } catch (syncErr) {
+                    print('⚠️ Öğrenci Auth senkronizasyonu uyarısı: $syncErr');
+                  }
+
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(widget.existingStudent != null ? '✓ Öğrenci güncellendi!' : '✓ Öğrenci kaydedildi!'),
@@ -7125,10 +7273,6 @@ class __StudentRegistrationFormScreenState
               DropdownMenuItem(value: 'yedek', child: Text('Yedek Kayıt')),
               DropdownMenuItem(value: 'misafir', child: Text('Misafir Kaydı')),
               DropdownMenuItem(value: 'demo', child: Text('Demo Kayıt')),
-              DropdownMenuItem(
-                value: 'excel_import',
-                child: Text('Excel Aktarımı'),
-              ),
             ],
 
             value: _selectedRegistrationType,
@@ -7766,7 +7910,7 @@ class __StudentRegistrationFormScreenState
                               return DropdownMenuItem<String>(
                                 value: classItem['id'],
                                 child: Text(
-                                  '${classItem['className']} - ${classItem['classTypeName']}',
+                                  '${classItem['className']}',
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               );
@@ -7910,20 +8054,71 @@ class __StudentRegistrationFormScreenState
                 child: DropdownButtonFormField<String>(
                   decoration: _inputDecoration('Eğitim Şekli'),
                   items: [
-                    DropdownMenuItem(value: 'tam_gun', child: Text('Tam Gün')),
-                    DropdownMenuItem(value: 'sabahci', child: Text('Sabahçı')),
-                    DropdownMenuItem(value: 'ogleci', child: Text('Öğlenci')),
-                    DropdownMenuItem(value: 'yatili', child: Text('Yatılı')),
+                    ..._educationTypesList.map((type) => DropdownMenuItem(
+                      value: type,
+                      child: Text(type),
+                    )),
                     DropdownMenuItem(
-                      value: 'aksam_kursu',
-                      child: Text('Akşam Kursu'),
+                      value: 'yeni_ekle',
+                      child: Text('+ Yeni Ekle...', style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold)),
                     ),
                   ],
                   value: _selectedEducationType,
-                  onChanged: (value) {
-                    setState(() {
-                      _selectedEducationType = value;
-                    });
+                  onChanged: (value) async {
+                    if (value == 'yeni_ekle') {
+                      String? newValue = await showDialog<String>(
+                        context: context,
+                        builder: (context) {
+                          final TextEditingController controller = TextEditingController();
+                          return AlertDialog(
+                            title: Text('Yeni Eğitim Şekli Ekle'),
+                            content: TextField(
+                              controller: controller,
+                              decoration: InputDecoration(hintText: 'Örn: Yarı Zamanlı'),
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context),
+                                child: Text('İptal'),
+                              ),
+                              ElevatedButton(
+                                onPressed: () => Navigator.pop(context, controller.text.trim()),
+                                child: Text('Ekle'),
+                              ),
+                            ],
+                          );
+                        },
+                      );
+
+                      if (newValue != null && newValue.isNotEmpty) {
+                        setState(() {
+                          if (!_educationTypesList.contains(newValue)) {
+                            _educationTypesList.add(newValue);
+                          }
+                          _selectedEducationType = newValue;
+                        });
+                        
+                        // Firebase'e kaydet
+                        if (_institutionId != null) {
+                          await FirebaseFirestore.instance
+                              .collection('institutions')
+                              .doc(_institutionId)
+                              .collection('settings')
+                              .doc('education_types')
+                              .set({
+                                'types': FieldValue.arrayUnion([newValue])
+                              }, SetOptions(merge: true));
+                        }
+                      } else {
+                        setState(() {
+                          _selectedEducationType = null;
+                        });
+                      }
+                    } else {
+                      setState(() {
+                        _selectedEducationType = value;
+                      });
+                    }
                   },
                 ),
               ),
@@ -7995,7 +8190,9 @@ class __StudentRegistrationFormScreenState
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(12),
                       image: DecorationImage(
-                        image: NetworkImage(_photoPath!),
+                        image: (kIsWeb || _photoPath!.startsWith('http') || _photoPath!.startsWith('blob:'))
+                            ? NetworkImage(_photoPath!) as ImageProvider
+                            : FileImage(File(_photoPath!)),
                         fit: BoxFit.cover,
                       ),
                     ),
@@ -8020,14 +8217,22 @@ class __StudentRegistrationFormScreenState
                   children: [
                     Expanded(
                       child: ElevatedButton.icon(
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                'Galeri özelliği yakında eklenecek',
-                              ),
-                            ),
+                        onPressed: () async {
+                          final picker = ImagePicker();
+                          final XFile? image = await picker.pickImage(
+                            source: ImageSource.gallery,
+                            imageQuality: 70,
                           );
+                          if (image != null) {
+                            // If web or if local path is needed, we might need to handle differently depending on the upload flow.
+                            // Currently _photoPath is used as NetworkImage, which means it should be a URL.
+                            // Since this form might be saved to Firestore, we should either upload immediately or store bytes.
+                            // Let's store the local path and use a FileImage if not web, or NetworkImage if it's already a URL.
+                            // For simplicity, we just set the path. The UI will need to handle FileImage vs NetworkImage.
+                            setState(() {
+                              _photoPath = image.path;
+                            });
+                          }
                         },
                         icon: Icon(Icons.attach_file, size: 18),
                         label: FittedBox(
@@ -8047,14 +8252,17 @@ class __StudentRegistrationFormScreenState
                     SizedBox(width: 12),
                     Expanded(
                       child: ElevatedButton.icon(
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                'Kamera özelliği yakında eklenecek',
-                              ),
-                            ),
+                        onPressed: () async {
+                          final picker = ImagePicker();
+                          final XFile? image = await picker.pickImage(
+                            source: ImageSource.camera,
+                            imageQuality: 70,
                           );
+                          if (image != null) {
+                            setState(() {
+                              _photoPath = image.path;
+                            });
+                          }
                         },
                         icon: Icon(Icons.camera_alt, size: 18),
                         label: FittedBox(
@@ -8982,15 +9190,30 @@ class __StudentRegistrationFormScreenState
                               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('⚠ Yakınlık türü seçiniz'), backgroundColor: Colors.orange));
                               return;
                             }
+                            if (_parentTcController.text.isEmpty || _parentTcController.text.length != 11) {
+                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('⚠ Geçerli bir TC Kimlik No giriniz'), backgroundColor: Colors.orange));
+                              return;
+                            }
                             if (_parentNameController.text.isEmpty || _parentSurnameController.text.isEmpty) {
                               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('⚠ Ad ve Soyad zorunlu'), backgroundColor: Colors.orange));
                               return;
                             }
-                            if (_parentUsernameController.text.isEmpty || _parentPasswordController.text.isEmpty) {
-                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('⚠ Kullanıcı adı ve şifre zorunlu'), backgroundColor: Colors.orange));
-                              return;
+                            
+                            // Otomatik kullanıcı adı ve şifre oluşturma
+                            String username = _parentUsernameController.text;
+                            String password = _parentPasswordController.text;
+                            
+                            if (username.isEmpty || password.isEmpty) {
+                              final timestampStr = DateTime.now().microsecondsSinceEpoch.toRadixString(36).toUpperCase();
+                              if (username.isEmpty) {
+                                username = 'V$timestampStr';
+                              }
+                              if (password.isEmpty) {
+                                password = timestampStr;
+                              }
                             }
-                            if (_parentPasswordController.text.length < 6) {
+                            
+                            if (password.length < 6) {
                               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('⚠ Şifre en az 6 karakter olmalı'), backgroundColor: Colors.orange));
                               return;
                             }
@@ -9004,8 +9227,8 @@ class __StudentRegistrationFormScreenState
                                 'fullName': '${_parentNameController.text} ${_parentSurnameController.text}',
                                 'phone': _parentPhoneController.text,
                                 'email': _parentEmailController.text,
-                                'username': _parentUsernameController.text,
-                                'password': _parentPasswordController.text, // TODO: Hash yapılmalı
+                                'username': username,
+                                'password': password,
                                 'address': _useSameAddress ? 'Öğrenci ile aynı' : _parentAddressController.text,
                               });
 
@@ -9511,39 +9734,7 @@ class __StudentRegistrationFormScreenState
           keyboardType: TextInputType.number,
           onChanged: (value) => tempData['postalCode'] = value,
         ),
-        SizedBox(height: 16),
-        Row(
-          children: [
-            Expanded(
-              child: TextFormField(
-                decoration: _inputDecoration('Enlem'),
-                keyboardType: TextInputType.numberWithOptions(decimal: true),
-                onChanged: (value) => tempData['lat'] = value,
-              ),
-            ),
-            SizedBox(width: 12),
-            Expanded(
-              child: TextFormField(
-                decoration: _inputDecoration('Boylam'),
-                keyboardType: TextInputType.numberWithOptions(decimal: true),
-                onChanged: (value) => tempData['lng'] = value,
-              ),
-            ),
-            SizedBox(width: 12),
-            ElevatedButton.icon(
-              onPressed: () {
-                // TODO: Haritada işaretle
-              },
-              icon: Icon(Icons.map, size: 20),
-              label: Text('Harita'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange,
-                foregroundColor: Colors.white,
-                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              ),
-            ),
-          ],
-        ),
+
       ],
     );
   }
@@ -9552,22 +9743,22 @@ class __StudentRegistrationFormScreenState
   InputDecoration _inputDecoration(String label) {
     return InputDecoration(
       labelText: label,
-      labelStyle: TextStyle(color: Colors.grey.shade600),
+      labelStyle: TextStyle(color: Colors.grey.shade700, fontWeight: FontWeight.w500),
+      filled: true,
+      fillColor: Colors.orange.shade50.withOpacity(0.3),
+      contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
-        borderSide: BorderSide(color: Colors.grey.shade300),
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.orange.shade200),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
-        borderSide: BorderSide(color: Colors.grey.shade300),
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.orange.shade100),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
-        borderSide: BorderSide(color: Colors.blue, width: 2),
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.orange, width: 2),
       ),
-      filled: true,
-      fillColor: Colors.white,
-      contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
     );
   }
 
@@ -9577,10 +9768,10 @@ class __StudentRegistrationFormScreenState
         Container(
           padding: EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: Colors.blue.shade50,
+            color: Colors.orange.shade50,
             borderRadius: BorderRadius.circular(8),
           ),
-          child: Icon(icon, color: Colors.blue, size: 20),
+          child: Icon(icon, color: Colors.orange, size: 20),
         ),
         SizedBox(width: 12),
         Text(

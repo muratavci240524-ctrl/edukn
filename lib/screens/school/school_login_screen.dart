@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import '../../firebase_options.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -10,6 +13,7 @@ import '../../widgets/edukn_logo.dart';
 import '../../widgets/web_image_renderer.dart';
 import '../teacher/teacher_main_screen.dart';
 import 'parent_student_selection_screen.dart';
+import '../student/parent_main_screen.dart';
 import '../../services/notification_service.dart';
 import '../../services/user_permission_service.dart';
 import '../../services/term_service.dart';
@@ -37,6 +41,46 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
     super.initState();
     _clearStaleSessionData();
     _checkExistingSession();
+  }
+
+  Future<String?> _registerOrUpdateAuthUser(String email, String password) async {
+    try {
+      final apiKey = DefaultFirebaseOptions.currentPlatform.apiKey;
+      final url = 'https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=$apiKey';
+
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'email': email,
+          'password': password,
+          'returnSecureToken': true,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data['localId'] as String;
+      } else {
+        final error = json.decode(response.body);
+        final msg = (error['error'] != null ? error['error']['message'] : '').toString();
+        print('⚠️ REST SignUp: $msg');
+        if (msg == 'EMAIL_EXISTS') {
+          try {
+            await FirebaseFunctions.instance
+                .httpsCallable('updateUserCredentials')
+                .call({'email': email, 'newPassword': password});
+            print('✅ Cloud Function ile Auth şifresi güncellendi.');
+          } catch (cfErr) {
+            print('⚠️ Cloud Function Auth güncelleme hatası: $cfErr');
+          }
+        }
+        return null;
+      }
+    } catch (e) {
+      print('❌ Auth oluşturma/güncelleme hatası: $e');
+      return null;
+    }
   }
 
   Future<void> _clearStaleSessionData() async {
@@ -96,6 +140,28 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         // Süper Admin yönlendirmesi
         if (user.email?.toLowerCase() == 'superadmin@edukn.com') {
           Navigator.pushReplacementNamed(context, '/admin-dashboard');
+          return;
+        }
+
+        final userData = await UserPermissionService.loadUserData();
+        final prefs = await SharedPreferences.getInstance();
+        final activePortal = prefs.getString('active_portal') ?? '';
+        final role = userData?['role']?.toString().toLowerCase().trim() ?? '';
+        final instId = (userData?['institutionId'] ?? '').toString();
+
+        bool isStudentOrParent = role == 'student' ||
+            role == 'ogrenci' ||
+            role == 'öğrenci' ||
+            role == 'parent' ||
+            role == 'veli' ||
+            activePortal == 'parent' ||
+            activePortal == 'student';
+
+        if (isStudentOrParent) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => ParentMainScreen(institutionId: instId)),
+          );
           return;
         }
         
@@ -171,22 +237,68 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                 .where('personalEmail', isEqualTo: username)
                 .limit(1)
                 .get(),
+            FirebaseFirestore.instance
+                .collection('students')
+                .where('institutionId', isEqualTo: institutionId)
+                .where('email', isEqualTo: username)
+                .limit(1)
+                .get(),
+            FirebaseFirestore.instance
+                .collection('parents')
+                .where('institutionId', isEqualTo: institutionId)
+                .where('email', isEqualTo: username)
+                .limit(1)
+                .get(),
           ]);
 
           DocumentSnapshot? matchedDoc;
-          for (final snap in results) {
+          bool isStudentOrParentDoc = false;
+          String matchedRole = 'student';
+
+          for (int i = 0; i < results.length; i++) {
+            final snap = results[i];
             if (snap.docs.isNotEmpty) {
               matchedDoc = snap.docs.first;
+              if (i >= 3) {
+                isStudentOrParentDoc = true;
+                matchedRole = (i == 3) ? 'student' : 'parent';
+              }
               break;
             }
           }
 
           if (matchedDoc != null) {
-            final dbAuthEmail = matchedDoc.get('email') as String?;
+            final data = matchedDoc.data() as Map<String, dynamic>;
+            final dbAuthEmail = data['email'] as String?;
+            final storedPassword = data['password']?.toString();
+            final realUsername = data['username']?.toString() ?? username.split('@').first;
+
             if (dbAuthEmail != null && dbAuthEmail.isNotEmpty) {
               emailToUse = dbAuthEmail;
-              print('✅ E-posta eşleşmesi bulundu! Kullanılacak Auth e-postası: $emailToUse');
             }
+
+            if (isStudentOrParentDoc && (storedPassword == password || storedPassword == null || storedPassword.isEmpty)) {
+              final corporateEmail = '$realUsername@$institutionId.edukn'.toLowerCase();
+              final uid1 = await _registerOrUpdateAuthUser(emailToUse, password);
+              final uid2 = await _registerOrUpdateAuthUser(corporateEmail, password);
+              final uid = uid1 ?? uid2 ?? matchedDoc.id;
+
+              await FirebaseFirestore.instance.collection('users').doc(uid).set({
+                'uid': uid,
+                'institutionId': institutionId,
+                'username': realUsername,
+                'email': emailToUse,
+                'corporateEmail': corporateEmail,
+                'personalEmail': emailToUse,
+                'role': matchedRole,
+                'name': data['name'] ?? '',
+                'surname': data['surname'] ?? '',
+                'tcNo': data['tcNo'] ?? '',
+                'isActive': true,
+                'updatedAt': FieldValue.serverTimestamp(),
+              }, SetOptions(merge: true));
+            }
+            print('✅ E-posta eşleşmesi bulundu! Kullanılacak Auth e-postası: $emailToUse');
           }
         } catch (e) {
           print('❌ E-posta Firestore arama hatası: $e');
@@ -206,8 +318,125 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
             emailToUse = userLookup.docs.first.get('email') ?? '$username@$institutionId.edukn';
             print('✅ Kullanıcı bulundu, kayıtlı email: $emailToUse');
           } else {
-            emailToUse = '$username@$institutionId.edukn';
-            print('⚠️ Kullanıcı Firestore\'da bulunamadı, varsayılan email denenecek: $emailToUse');
+            // Öğrenci veya Veli araması yap (students ve parents koleksiyonlarında)
+            QueryDocumentSnapshot? matchedStudentDoc;
+            QueryDocumentSnapshot? matchedParentDoc;
+
+            // 1. Students arama (username, studentNumber veya tcNo)
+            final instIdsToTry = <String>{institutionId, institutionId.toUpperCase(), institutionId.toLowerCase()};
+            for (final instId in instIdsToTry) {
+              if (matchedStudentDoc != null) break;
+              var stQuery = await FirebaseFirestore.instance
+                  .collection('students')
+                  .where('institutionId', isEqualTo: instId)
+                  .where('username', isEqualTo: username)
+                  .limit(1)
+                  .get();
+              if (stQuery.docs.isNotEmpty) {
+                matchedStudentDoc = stQuery.docs.first;
+                break;
+              }
+
+              stQuery = await FirebaseFirestore.instance
+                  .collection('students')
+                  .where('institutionId', isEqualTo: instId)
+                  .where('studentNumber', isEqualTo: username)
+                  .limit(1)
+                  .get();
+              if (stQuery.docs.isNotEmpty) {
+                matchedStudentDoc = stQuery.docs.first;
+                break;
+              }
+            }
+
+            // 2. Parents arama (username veya tcNo)
+            if (matchedStudentDoc == null) {
+              for (final instId in instIdsToTry) {
+                if (matchedParentDoc != null) break;
+                var prQuery = await FirebaseFirestore.instance
+                    .collection('parents')
+                    .where('institutionId', isEqualTo: instId)
+                    .where('username', isEqualTo: username)
+                    .limit(1)
+                    .get();
+                if (prQuery.docs.isNotEmpty) {
+                  matchedParentDoc = prQuery.docs.first;
+                  break;
+                }
+
+                prQuery = await FirebaseFirestore.instance
+                    .collection('parents')
+                    .where('institutionId', isEqualTo: instId)
+                    .where('tcNo', isEqualTo: username)
+                    .limit(1)
+                    .get();
+                if (prQuery.docs.isNotEmpty) {
+                  matchedParentDoc = prQuery.docs.first;
+                  break;
+                }
+              }
+            }
+
+            final targetDoc = matchedStudentDoc ?? matchedParentDoc;
+            if (targetDoc != null) {
+              final docData = targetDoc.data() as Map<String, dynamic>;
+              final storedPassword = docData['password']?.toString();
+              final isStudent = matchedStudentDoc != null;
+              final roleName = isStudent ? 'student' : 'parent';
+              final name = docData['name']?.toString() ?? '';
+              final surname = docData['surname']?.toString() ?? '';
+              final tcNo = docData['tcNo']?.toString() ?? '';
+
+              print('✅ ${isStudent ? 'Öğrenci' : 'Veli'} kaydı bulundu ($username). Şifre kontrol ediliyor...');
+
+              if (storedPassword == password || (storedPassword == null || storedPassword.isEmpty)) {
+                final targetEmail = '$username@$institutionId.edukn'.toLowerCase();
+                emailToUse = targetEmail;
+
+                final newUid = await _registerOrUpdateAuthUser(targetEmail, password);
+                if (newUid != null) {
+                  await FirebaseFirestore.instance.collection('users').doc(newUid).set({
+                    'uid': newUid,
+                    'institutionId': institutionId,
+                    'username': username,
+                    'email': targetEmail,
+                    'role': roleName,
+                    'name': name,
+                    'surname': surname,
+                    'tcNo': tcNo,
+                    'isActive': true,
+                    'createdAt': FieldValue.serverTimestamp(),
+                    'updatedAt': FieldValue.serverTimestamp(),
+                  }, SetOptions(merge: true));
+                  print('✨ Kullanıcı Auth & Users koleksiyonuna senkronize edildi: $newUid');
+                } else {
+                  final uQ = await FirebaseFirestore.instance
+                      .collection('users')
+                      .where('institutionId', isEqualTo: institutionId)
+                      .where('username', isEqualTo: username)
+                      .limit(1)
+                      .get();
+                  String existingUid = uQ.docs.isNotEmpty ? uQ.docs.first.id : targetDoc.id;
+                  await FirebaseFirestore.instance.collection('users').doc(existingUid).set({
+                    'uid': existingUid,
+                    'institutionId': institutionId,
+                    'username': username,
+                    'email': targetEmail,
+                    'role': roleName,
+                    'name': name,
+                    'surname': surname,
+                    'tcNo': tcNo,
+                    'isActive': true,
+                    'updatedAt': FieldValue.serverTimestamp(),
+                  }, SetOptions(merge: true));
+                }
+              } else {
+                emailToUse = '$username@$institutionId.edukn';
+              }
+            } else {
+              emailToUse = '$username@$institutionId.edukn';
+              print('⚠️ Kullanıcı Firestore\'da bulunamadı, varsayılan email denenecek: $emailToUse');
+            }
           }
         } catch (e) {
           print('❌ Firestore arama hatası: $e');
@@ -416,31 +645,73 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: Colors.red));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
+        );
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  Future<void> _routeUserAfterLoadingData(Map<String, dynamic>? userData, String institutionId) async {
-    if (userData == null) {
-      Navigator.pushReplacementNamed(context, '/school-dashboard');
+  Future<void> _routeUserAfterLoadingData(
+    Map<String, dynamic> userData,
+    String institutionId,
+  ) async {
+    final role = userData['role']?.toString().toLowerCase().trim() ?? '';
+    final tcNo = (userData['tcNo'] ?? userData['tcKimlik'] ?? '').toString().trim();
+
+    // 1. Öğrenci kontrolü — Öğrenci hesabı ise SORMADAN doğrudan Veli/Öğrenci portalına yönlendir!
+    bool isStudentRole = role == 'student' || role == 'ogrenci' || role == 'öğrenci';
+    if (isStudentRole) {
+      // Öğrencinin kendi kaydını students koleksiyonundan bul ve kaydet
+      final prefs = await SharedPreferences.getInstance();
+      final studentNo = (userData['studentNumber'] ?? userData['studentNo'] ?? userData['number'] ?? '').toString().trim();
+      final username = (userData['username'] ?? '').toString().trim();
+      try {
+        QuerySnapshot<Map<String, dynamic>>? stSnap;
+        if (studentNo.isNotEmpty) {
+          stSnap = await FirebaseFirestore.instance
+              .collection('students')
+              .where('institutionId', isEqualTo: institutionId)
+              .where('studentNo', isEqualTo: studentNo)
+              .limit(1)
+              .get();
+        }
+        if ((stSnap == null || stSnap.docs.isEmpty) && username.isNotEmpty) {
+          stSnap = await FirebaseFirestore.instance
+              .collection('students')
+              .where('institutionId', isEqualTo: institutionId)
+              .where('username', isEqualTo: username)
+              .limit(1)
+              .get();
+        }
+        if (stSnap != null && stSnap.docs.isNotEmpty) {
+          final sData = stSnap.docs.first.data();
+          final sId = stSnap.docs.first.id;
+          await prefs.setString('selected_student_id', sId);
+          await prefs.setString('selected_student_name', sData['fullName'] ?? '${sData['name'] ?? ''} ${sData['surname'] ?? ''}'.trim());
+          await prefs.setString('selected_student_class', sData['className'] ?? '');
+          await prefs.setString('selected_student_no', sData['studentNo']?.toString() ?? sData['studentNumber']?.toString() ?? '');
+          _navigateToPortal('parent', userData, institutionId, [{'id': sId, ...sData}]);
+          return;
+        }
+      } catch (e) {
+        print('⚠️ Öğrenci kaydı araması hatası: $e');
+      }
+      _navigateToPortal('parent', userData, institutionId, []);
       return;
     }
 
-    final role = userData['role']?.toString().toLowerCase() ?? '';
-    final tcNo = userData['tcNo'] ?? userData['tcKimlik'] ?? '';
-
-    // Check parent eligibility
+    // 2. Veli kontrolü (TC'ye bağlı kayıtlı çocuk var mı?)
     bool hasParentRole = role == 'parent' || role == 'veli';
     List<Map<String, dynamic>> students = [];
-    if (tcNo.toString().isNotEmpty) {
+    if (tcNo.isNotEmpty) {
       try {
         final studentsQuery = await FirebaseFirestore.instance
             .collection('students')
             .where('institutionId', isEqualTo: institutionId)
-            .where('parentTcNos', arrayContains: tcNo.toString())
+            .where('parentTcNos', arrayContains: tcNo)
             .get();
         if (studentsQuery.docs.isNotEmpty) {
           hasParentRole = true;
@@ -451,10 +722,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       }
     }
 
-    // Identify portals
-    final eligiblePortals = <Map<String, dynamic>>[];
-
-    // 1. Yönetici / Personel Portalı
+    // 3. Yönetici ve Öğretmen Rolü Kontrolü
     bool isManager = role.contains('genel_mudur') ||
         role.contains('genel müdür') ||
         role.contains('genel mudur') ||
@@ -470,12 +738,15 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         role.contains('staff') ||
         role.contains('kurucu') ||
         role.contains('yönetici') ||
-        role.contains('yonetici');
+        role.contains('yonetici') ||
+        role == 'super_admin';
 
-    bool isStrictlyTeacher = (role.contains('ogretmen') || role.contains('teacher') || role.contains('öğretmen')) && !isManager;
-    bool isStrictlyParent = role == 'parent' || role == 'veli';
+    bool isTeacher = (role.contains('ogretmen') || role.contains('teacher') || role.contains('öğretmen')) && !isManager;
 
-    if (isManager || (!isStrictlyTeacher && !isStrictlyParent && role.isNotEmpty)) {
+    final eligiblePortals = <Map<String, dynamic>>[];
+
+    // 1. Yönetici / Personel Portalı
+    if (isManager) {
       eligiblePortals.add({
         'id': 'manager',
         'title': 'Yönetici / Personel Portalı',
@@ -486,7 +757,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
     }
 
     // 2. Öğretmen Portalı
-    if (role.contains('ogretmen') || role.contains('teacher') || role.contains('öğretmen')) {
+    if (isTeacher) {
       eligiblePortals.add({
         'id': 'teacher',
         'title': 'Öğretmen Portalı',
@@ -496,8 +767,8 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       });
     }
 
-    // 3. Veli / Öğrenci Portalı
-    if (hasParentRole || isStrictlyParent) {
+    // 3. Veli Portalı (Eğer rol veli ise VEYA bu TC'ye ait kayıtlı öğrenci varsa)
+    if (hasParentRole) {
       eligiblePortals.add({
         'id': 'parent',
         'title': 'Veli / Öğrenci Portalı',
@@ -507,6 +778,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       });
     }
 
+    // Yalnızca aynı TC Kimlik Numarasına bağlı BİRDEN FAZLA farklı portal varsa SOR!
     if (eligiblePortals.length > 1) {
       if (mounted) {
         setState(() {
@@ -519,7 +791,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       final portal = eligiblePortals.first['id'];
       _navigateToPortal(portal, userData, institutionId, students);
     } else {
-      Navigator.pushReplacementNamed(context, '/school-dashboard');
+      _navigateToPortal('manager', userData, institutionId, students);
     }
   }
 
@@ -715,24 +987,46 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         context,
         MaterialPageRoute(builder: (context) => TeacherMainScreen(institutionId: institutionId)),
       );
-    } else if (portalId == 'parent') {
-      final tcNo = userData['tcNo'] ?? userData['tcKimlik'] ?? '';
+    } else if (portalId == 'parent' || portalId == 'student') {
+      final tcNo = (userData['tcNo'] ?? userData['tcKimlik'] ?? '').toString();
+
+      // Veli hesabı ise ve çocuk listesi henüz çekilmediyse Firestore'dan getir
+      if (students.isEmpty && tcNo.isNotEmpty && portalId == 'parent') {
+        try {
+          final sQ = await FirebaseFirestore.instance
+              .collection('students')
+              .where('institutionId', isEqualTo: institutionId)
+              .where('parentTcNos', arrayContains: tcNo)
+              .get();
+          students = sQ.docs.map((d) => {...d.data(), 'id': d.id}).toList();
+        } catch (e) {
+          print('⚠️ Veli çocukları sorgulanamadı: $e');
+        }
+      }
+
+      // Birden fazla çocuk varsa -> Hangi öğrenciye girmek istediğini sor!
       if (students.length > 1) {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
             builder: (context) => ParentStudentSelectionScreen(
               institutionId: institutionId,
-              parentTcNo: tcNo.toString(),
+              parentTcNo: tcNo,
               students: students,
             ),
           ),
         );
-      } else if (students.length == 1) {
-        await prefs.setString('selected_student_id', students[0]['id']);
-        Navigator.pushReplacementNamed(context, '/school-dashboard');
       } else {
-        Navigator.pushReplacementNamed(context, '/school-dashboard');
+        if (students.length == 1) {
+          await prefs.setString('selected_student_id', students[0]['id']);
+          await prefs.setString('selected_student_name', students[0]['fullName'] ?? '');
+        }
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ParentMainScreen(institutionId: institutionId),
+          ),
+        );
       }
     }
   }
@@ -1129,27 +1423,89 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         user = userCredential.user;
       }
 
-      if (user != null) {
-        // Kullanıcının sistemde kaydı var mı kontrol et (Email ile)
-        final userDoc = await FirebaseFirestore.instance
-            .collection('users')
-            .where('email', isEqualTo: user.email)
-            .limit(1)
-            .get();
+      if (user != null && user.email != null) {
+        final googleEmail = user.email!.trim().toLowerCase();
+        print('🔍 Google ile giriş yapan mail: $googleEmail. Sistemde aranıyor...');
 
-        if (userDoc.docs.isEmpty) {
-          await FirebaseAuth.instance.signOut();
-          throw 'Bu Google hesabı ile kayıtlı bir personel bulunamadı. Lütfen yöneticinizle iletişime geçin.';
+        // 1. users, students ve parents koleksiyonlarında e-posta arama
+        final searchResults = await Future.wait([
+          FirebaseFirestore.instance
+              .collection('users')
+              .where('email', isEqualTo: googleEmail)
+              .limit(1)
+              .get(),
+          FirebaseFirestore.instance
+              .collection('users')
+              .where('personalEmail', isEqualTo: googleEmail)
+              .limit(1)
+              .get(),
+          FirebaseFirestore.instance
+              .collection('users')
+              .where('corporateEmail', isEqualTo: googleEmail)
+              .limit(1)
+              .get(),
+          FirebaseFirestore.instance
+              .collection('students')
+              .where('email', isEqualTo: googleEmail)
+              .limit(1)
+              .get(),
+          FirebaseFirestore.instance
+              .collection('parents')
+              .where('email', isEqualTo: googleEmail)
+              .limit(1)
+              .get(),
+        ]);
+
+        DocumentSnapshot? matchedDoc;
+        String matchedCollection = 'users';
+        for (int i = 0; i < searchResults.length; i++) {
+          if (searchResults[i].docs.isNotEmpty) {
+            matchedDoc = searchResults[i].docs.first;
+            if (i == 3) matchedCollection = 'students';
+            if (i == 4) matchedCollection = 'parents';
+            break;
+          }
         }
 
-        final userData = userDoc.docs.first.data();
-        if (userData['isActive'] != true) {
+        if (matchedDoc == null) {
+          await FirebaseAuth.instance.signOut();
+          throw 'Bu Google hesabı ($googleEmail) ile kayıtlı bir kullanıcı bulunamadı. Lütfen okul yönetiminiz ile iletişime geçin.';
+        }
+
+        final docData = matchedDoc.data() as Map<String, dynamic>;
+        if (docData['isActive'] == false) {
           await FirebaseAuth.instance.signOut();
           throw 'Hesabınız pasif durumda!';
         }
 
+        final role = (docData['role'] ?? (matchedCollection == 'students' ? 'student' : (matchedCollection == 'parents' ? 'parent' : 'user'))).toString();
+        final instId = (docData['institutionId'] ?? _institutionController.text.trim()).toString();
+
+        // Google UID ile users dokümanını güncelle
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+          'uid': user.uid,
+          'institutionId': instId,
+          'email': googleEmail,
+          'personalEmail': googleEmail,
+          'role': role,
+          'name': docData['name'] ?? '',
+          'surname': docData['surname'] ?? '',
+          'tcNo': docData['tcNo'] ?? '',
+          'isActive': true,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+
         if (mounted) {
-          Navigator.pushReplacementNamed(context, '/school-dashboard');
+          if (role == 'student' || role == 'parent') {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => ParentMainScreen(institutionId: instId),
+              ),
+            );
+          } else {
+            Navigator.pushReplacementNamed(context, '/school-dashboard');
+          }
         }
       }
     } catch (e) {

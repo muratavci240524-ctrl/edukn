@@ -26,6 +26,7 @@ import 'assessment/question_pool/question_pool_screen.dart';
 import 'assessment/external_exam/external_exam_list_screen.dart';
 import '../teacher/teacher_qr_scan_screen.dart';
 import '../teacher/teacher_main_screen.dart';
+import '../student/parent_main_screen.dart';
 import 'student_registration_screen.dart';
 import '../../main.dart';
 import 'profile_settings_screen.dart';
@@ -501,6 +502,25 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(builder: (context) => TeacherMainScreen(institutionId: instId)),
+            );
+            return;
+          }
+
+          // Otomatik Yönlendirme: Öğrenci / Veli ise doğrudan ParentMainScreen'e git
+          bool isStudentOrParent = role == 'student' ||
+              role == 'ogrenci' ||
+              role == 'öğrenci' ||
+              role == 'parent' ||
+              role == 'veli' ||
+              activePortal == 'parent' ||
+              activePortal == 'student';
+
+          if (isStudentOrParent) {
+            debugPrint('eduKN: Öğrenci / Veli portalı algılandı, Veli/Öğrenci Ana Sayfasına yönlendiriliyor...');
+            final instId = (currentUserData?['institutionId'] ?? data['institutionId'] ?? '').toString();
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => ParentMainScreen(institutionId: instId)),
             );
             return;
           }

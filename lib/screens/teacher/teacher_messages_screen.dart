@@ -342,7 +342,6 @@ class _TeacherMessagesScreenState extends State<TeacherMessagesScreen>
 
         return Scaffold(
           appBar: AppBar(
-            automaticallyImplyLeading: false,
             backgroundColor: Colors.indigo,
             title: _isSearching
                 ? TextField(

@@ -100,14 +100,25 @@ class _TeacherLessonsScreenState extends State<TeacherLessonsScreen> {
         }
       }
       
-      // Global Fallback: Eğer hala yoksa kurum filtresiz ara
+      // Global Fallback: Eğer okul türü bulunamadıysa kurumun tüm okul türlerini al
       if (typeIds.isEmpty) {
-        debugPrint('   ⚠️ Filtresiz global arama yapılıyor...');
-        final globalSnap = await FirebaseFirestore.instance.collection('lessonAssignments')
-            .where('teacherIds', arrayContains: teacherId).get();
-        for (var doc in globalSnap.docs) {
-          final tid = doc.data()['schoolTypeId']?.toString();
-          if (tid != null) typeIds.add(tid);
+        debugPrint('   ⚠️ Kurumun tüm okul türleri getiriliyor...');
+        final instTypesSnap = await FirebaseFirestore.instance
+            .collection('schoolTypes')
+            .where('institutionId', isEqualTo: instId)
+            .get();
+        if (instTypesSnap.docs.isNotEmpty) {
+          for (var doc in instTypesSnap.docs) {
+            typeIds.add(doc.id);
+          }
+        } else {
+          final instTypesSnap2 = await FirebaseFirestore.instance
+              .collection('schoolTypes')
+              .where('institutionId', isEqualTo: instId.toLowerCase())
+              .get();
+          for (var doc in instTypesSnap2.docs) {
+            typeIds.add(doc.id);
+          }
         }
       }
     }

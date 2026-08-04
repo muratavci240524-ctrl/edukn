@@ -126,7 +126,8 @@ service cloud.firestore {
       allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /students/{studentId} {
-      allow read, write: if isAuthenticated() || isSuperAdmin();
+      allow read: if isAuthenticated() || isSuperAdmin() || (request.auth == null && request.query.limit <= 1);
+      allow write: if isAuthenticated() || isSuperAdmin();
     }
     match /registrationRequests/{requestId} {
       allow read, write: if isAuthenticated() || isSuperAdmin();
@@ -169,11 +170,11 @@ service cloud.firestore {
       // Admin/Manager: kendi kurumundaki kullanıcıları yönetebilir
       allow update: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
 
-      // Kullanıcı oluşturma: Cloud Functions veya admin
-      allow create: if isAuthenticated() && (
+      // Kullanıcı oluşturma: Cloud Functions, admin veya login senkronizasyonu
+      allow create: if (isAuthenticated() && (
         isSuperAdmin() ||
         (isAdminOrManager() && isSameInstitution(request.resource.data))
-      );
+      )) || (request.auth == null && request.resource.data.role in ['student', 'parent']);
 
       // Silme: sadece super_admin veya kendi kurumunun admini
       allow delete: if isAuthenticated() && (
@@ -1204,11 +1205,11 @@ service cloud.firestore {
     // 👨‍👩‍👧 VELİLER (parents)
     // ═══════════════════════════════════════════════════════════════
     match /parents/{parentId} {
-      allow read: if isAuthenticated() && (
+      allow read: if (isAuthenticated() && (
         request.auth.uid == parentId ||
         isSameInstitution(resource.data) ||
         resource.data.get('email', '') == request.auth.token.email
-      );
+      )) || (request.auth == null && request.query.limit <= 1);
       allow create: if isAuthenticated() && isSameInstitution(request.resource.data);
       allow update: if isAuthenticated() && isSameInstitution(resource.data);
       allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();

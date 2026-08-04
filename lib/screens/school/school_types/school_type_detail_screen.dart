@@ -16,6 +16,7 @@ import 'school_type_announcements_screen.dart';
 import 'school_type_social_media_screen.dart';
 import '../student_registration_screen.dart';
 import 'student_promotion_transfer_screens.dart';
+import 'chat/chat_screen.dart';
 import '../../hr/staff/staff_list_screen.dart';
 import '../class_management_screen.dart';
 import '../lesson_management_screen.dart';
@@ -2198,78 +2199,168 @@ class SharedNotificationSection extends StatelessWidget {
           ),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('activities')
-                  .where('institutionId', isEqualTo: institutionId)
-                  .orderBy('createdAt', descending: true)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
+              stream: FirebaseAuth.instance.currentUser != null
+                  ? FirebaseFirestore.instance
+                      .collection('conversations')
+                      .where('participantIds', arrayContains: FirebaseAuth.instance.currentUser!.uid)
+                      .snapshots()
+                  : const Stream.empty(),
+              builder: (context, chatSnapshot) {
+                int unreadMessagesCount = 0;
+                int missedCallsCount = 0;
+                
+                if (chatSnapshot.hasData && FirebaseAuth.instance.currentUser != null) {
+                  final currentUserId = FirebaseAuth.instance.currentUser!.uid;
+                  for (var doc in chatSnapshot.data!.docs) {
+                    final data = doc.data() as Map<String, dynamic>;
+                    final unreadCounts = data['unreadCounts'] as Map<String, dynamic>? ?? {};
+                    final count = (unreadCounts[currentUserId] as num?)?.toInt() ?? 0;
+                    
+                    if (count > 0) {
+                      final lastMsg = data['lastMessage'] as Map<String, dynamic>?;
+                      if (lastMsg != null) {
+                        final type = lastMsg['type'] as String?;
+                        final content = lastMsg['content'] as String? ?? '';
+                        final senderId = lastMsg['senderId'] as String?;
+                        
+                        if (type == 'call' && content.contains('Cevapsız') && senderId != currentUserId) {
+                          missedCallsCount += 1;
+                          if (count > 1) {
+                            unreadMessagesCount += (count - 1);
+                          }
+                        } else {
+                          unreadMessagesCount += count;
+                        }
+                      } else {
+                        unreadMessagesCount += count;
+                      }
+                    }
+                  }
                 }
 
-                final docs = snapshot.data?.docs ?? [];
-                final filteredDocs = docs.where((doc) {
-                  final data = doc.data() as Map<String, dynamic>;
-                  
-                  // Zaman filtresi: 48 saatten eski olanları gösterme
-                  final createdAtTs = data['createdAt'] as Timestamp?;
-                  if (createdAtTs != null) {
-                    final difference = DateTime.now().difference(createdAtTs.toDate());
-                    if (difference.inHours > 48) {
-                      return false;
+                return StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseFirestore.instance
+                      .collection('activities')
+                      .where('institutionId', isEqualTo: institutionId)
+                      .orderBy('createdAt', descending: true)
+                      .snapshots(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting && chatSnapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
                     }
-                  } else {
-                    return false; // Oluşturulma tarihi yoksa gösterme
-                  }
 
-                  // Okul Türü Filtresi: Sadece bu okul türüne ait olanlar VEYA genel olanlar (null)
-                  final sId = data['schoolTypeId'] as String?;
-                  if (schoolTypeId.isNotEmpty && sId != null && sId != schoolTypeId) {
-                    return false;
-                  }
+                    final docs = snapshot.data?.docs ?? [];
+                    final filteredDocs = docs.where((doc) {
+                      final data = doc.data() as Map<String, dynamic>;
+                      
+                      final createdAtTs = data['createdAt'] as Timestamp?;
+                      if (createdAtTs != null) {
+                        final difference = DateTime.now().difference(createdAtTs.toDate());
+                        if (difference.inHours > 48) return false;
+                      } else {
+                        return false; 
+                      }
 
-                  // Öğretmen Filtresi
-                  if (isTeacher) {
-                    final targetRoles = data['targetRoles'] as List<dynamic>?;
-                    if (targetRoles != null && !targetRoles.contains('ogretmen') && !targetRoles.contains('öğretmen')) {
-                      return false;
+                      final sId = data['schoolTypeId'] as String?;
+                      if (schoolTypeId.isNotEmpty && sId != null && sId != schoolTypeId) return false;
+
+                      if (isTeacher) {
+                        final targetRoles = data['targetRoles'] as List<dynamic>?;
+                        if (targetRoles != null && !targetRoles.contains('ogretmen') && !targetRoles.contains('öğretmen')) {
+                          return false;
+                        }
+                      }
+                      return true;
+                    }).take(10).toList();
+
+                    final List<Widget> items = [];
+
+                    if (unreadMessagesCount > 0) {
+                      items.add(
+                        GestureDetector(
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => ChatScreen(
+                                  schoolTypeId: schoolTypeId.isEmpty ? '' : schoolTypeId,
+                                  schoolTypeName: schoolTypeId.isEmpty ? 'Tüm Okul Türleri' : schoolTypeId,
+                                  institutionId: institutionId,
+                                ),
+                              ),
+                            );
+                          },
+                          child: _buildNotificationCard(
+                            title: 'Okunmamış Mesaj',
+                            subtitle: '$unreadMessagesCount adet okunmamış mesajınız bulunmaktadır.',
+                            time: DateFormat('HH:mm').format(DateTime.now()),
+                            type: 'chat_message',
+                          ),
+                        )
+                      );
                     }
-                  }
-                  return true;
-                }).take(10).toList();
 
-                if (filteredDocs.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.notifications_none_rounded, size: 48, color: Colors.grey.shade300),
-                        const SizedBox(height: 12),
-                        Text('Henüz bir duyuru yok.', style: TextStyle(color: Colors.grey.shade400)),
-                      ],
-                    ),
-                  );
-                }
+                    if (missedCallsCount > 0) {
+                      items.add(
+                        GestureDetector(
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => ChatScreen(
+                                  schoolTypeId: schoolTypeId.isEmpty ? '' : schoolTypeId,
+                                  schoolTypeName: schoolTypeId.isEmpty ? 'Tüm Okul Türleri' : schoolTypeId,
+                                  institutionId: institutionId,
+                                ),
+                              ),
+                            );
+                          },
+                          child: _buildNotificationCard(
+                            title: 'Cevapsız Çağrı',
+                            subtitle: '$missedCallsCount adet cevapsız çağrınız bulunmaktadır.',
+                            time: DateFormat('HH:mm').format(DateTime.now()),
+                            type: 'chat_call',
+                          ),
+                        )
+                      );
+                    }
 
-                return ListView.builder(
-                  itemCount: filteredDocs.length,
-                  itemBuilder: (context, index) {
-                    final data = filteredDocs[index].data() as Map<String, dynamic>;
-                    final title = data['title'] ?? 'Duyuru';
-                    final type = data['type'] ?? 'Genel';
-                    final ts = data['createdAt'] as Timestamp?;
-                    final timeStr = ts != null ? DateFormat('HH:mm').format(ts.toDate()) : '';
+                    for (var doc in filteredDocs) {
+                      final data = doc.data() as Map<String, dynamic>;
+                      final title = data['title'] ?? 'Duyuru';
+                      final type = data['type'] ?? 'Genel';
+                      final ts = data['createdAt'] as Timestamp?;
+                      final timeStr = ts != null ? DateFormat('HH:mm').format(ts.toDate()) : '';
 
-                    return _buildNotificationCard(
-                      title: title,
-                      subtitle: '$type - $timeStr',
-                      time: ts != null ? DateFormat('dd.MM').format(ts.toDate()) : '',
-                      type: type == 'Önemli' ? 'announcement' : 'report',
+                      items.add(
+                        _buildNotificationCard(
+                          title: title,
+                          subtitle: '$type - $timeStr',
+                          time: ts != null ? DateFormat('dd.MM').format(ts.toDate()) : '',
+                          type: type == 'Önemli' ? 'announcement' : 'report',
+                        )
+                      );
+                    }
+
+                    if (items.isEmpty) {
+                      return Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.notifications_none_rounded, size: 48, color: Colors.grey.shade300),
+                            const SizedBox(height: 12),
+                            Text('Henüz bir duyuru yok.', style: TextStyle(color: Colors.grey.shade400)),
+                          ],
+                        ),
+                      );
+                    }
+
+                    return ListView(
+                      children: items,
                     );
                   },
                 );
-              },
+              }
             ),
           ),
         ],
@@ -2289,6 +2380,12 @@ class SharedNotificationSection extends StatelessWidget {
     if (type == 'announcement') {
       icon = Icons.campaign_rounded;
       color = Colors.blue;
+    } else if (type == 'chat_message') {
+      icon = Icons.chat_bubble_outline_rounded;
+      color = Colors.blue.shade500;
+    } else if (type == 'chat_call') {
+      icon = Icons.phone_missed_rounded;
+      color = Colors.red.shade500;
     } else {
       icon = Icons.analytics_rounded;
       color = Colors.orange;

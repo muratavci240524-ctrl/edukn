@@ -10,6 +10,7 @@ import 'dart:math' as math;
 import 'dart:html' as html;
 import '../../../services/announcement_service.dart';
 import '../../../services/user_permission_service.dart';
+import '../../../services/term_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 // ignore: avoid_web_libraries_in_flutter
 import 'dart:ui_web' as ui;
@@ -387,18 +388,21 @@ class _SchoolTypeSocialMediaScreenState
             ),
           ],
           body: StreamBuilder<QuerySnapshot>(
-            stream: widget.schoolTypeId.isNotEmpty
-                ? FirebaseFirestore.instance
-                    .collection('social_media_posts')
-                    .where('institutionId', isEqualTo: widget.institutionId)
-                    .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
-                    .orderBy('createdAt', descending: true)
-                    .snapshots()
-                : FirebaseFirestore.instance
-                    .collection('social_media_posts')
-                    .where('institutionId', isEqualTo: widget.institutionId)
-                    .orderBy('createdAt', descending: true)
-                    .snapshots(),
+            stream: Stream.fromFuture(TermService().getSelectedTermId()).asyncExpand((termId) {
+              Query query = FirebaseFirestore.instance
+                  .collection('social_media_posts')
+                  .where('institutionId', isEqualTo: widget.institutionId);
+
+              if (widget.schoolTypeId.isNotEmpty) {
+                query = query.where('schoolTypeId', isEqualTo: widget.schoolTypeId);
+              }
+
+              if (termId != null && termId.isNotEmpty) {
+                query = query.where('termId', isEqualTo: termId);
+              }
+
+              return query.orderBy('createdAt', descending: true).snapshots();
+            }),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(

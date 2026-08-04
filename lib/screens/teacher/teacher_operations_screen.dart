@@ -29,10 +29,12 @@ import 'teacher_qr_scan_screen.dart';
 
 class TeacherOperationsScreen extends StatefulWidget {
   final String institutionId;
+  final bool showAppBar;
 
   const TeacherOperationsScreen({
     Key? key,
     required this.institutionId,
+    this.showAppBar = true,
   }) : super(key: key);
 
   @override

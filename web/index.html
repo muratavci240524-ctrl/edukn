@@ -3,7 +3,7 @@
 <head>
   <base href="$FLUTTER_BASE_HREF">
 
-  <!-- Force unregister old Flutter service worker & clear cache storage to break reload loops -->
+  <!-- Eski Flutter Service Worker'ı kaldır (Firebase SW'ye dokunma) -->
   <script>
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistrations().then(function(registrations) {
@@ -18,13 +18,7 @@
           }
         }
       });
-      if (window.caches) {
-        caches.keys().then(function(keys) {
-          keys.forEach(function(key) {
-            caches.delete(key);
-          });
-        });
-      }
+      // NOT: Cache'ler silinMİYOR - uygulama verilerini korumak için.
     }
   </script>
 
@@ -184,6 +178,35 @@
         setTimeout(fixFlutterViewport, 500);
         setTimeout(fixFlutterViewport, 1500);
       });
+    })();
+  </script>
+
+  <!-- PWA BOŞ EKRAN DÜZELTMESİ (Background Context Loss Fix) -->
+  <script>
+    (function() {
+      let _lastHiddenTime = 0;
+      document.addEventListener('visibilitychange', function() {
+        if (document.hidden) {
+          _lastHiddenTime = Date.now();
+        } else {
+          if (_lastHiddenTime > 0) {
+            const timeHiddenMs = Date.now() - _lastHiddenTime;
+            // Eğer uygulama 15 saniyeden (15000ms) fazla arka planda kaldıysa
+            // ve öne getirildiyse, sayfayı yenile ki WebGL/Canvas çökmesi boş ekran yaratmasın.
+            if (timeHiddenMs > 15000) {
+              console.log('🔄 Uygulama arka planda kaldı, yenileniyor...');
+              window.location.reload();
+            }
+          }
+        }
+      });
+
+      // Alternatif: WebGL Context koptuğunda direkt sayfayı yenile
+      document.addEventListener('webglcontextlost', function(e) {
+        e.preventDefault();
+        console.log('❌ WebGL Context Lost! Sayfa yenileniyor...');
+        window.location.reload();
+      }, false);
     })();
   </script>
 </head>

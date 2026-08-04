@@ -62,6 +62,7 @@ class _ChatDetailWidgetState extends State<ChatDetailWidget> {
   // UI State
   String? _hoveredMessageId;
   ChatMessage? _replyingTo;
+  bool _showScrollToBottom = false;
 
   void _toggleStar(String messageId) {
     setState(() {
@@ -259,6 +260,19 @@ class _ChatDetailWidgetState extends State<ChatDetailWidget> {
         _totalDuration = dur;
       });
     });
+
+    _scrollController.addListener(() {
+      if (_scrollController.hasClients) {
+        final maxScroll = _scrollController.position.maxScrollExtent;
+        final currentScroll = _scrollController.offset;
+        final shouldShow = maxScroll - currentScroll > 50;
+        if (shouldShow != _showScrollToBottom) {
+          setState(() {
+            _showScrollToBottom = shouldShow;
+          });
+        }
+      }
+    });
   }
 
   bool _isCallStarting = false;
@@ -333,6 +347,34 @@ class _ChatDetailWidgetState extends State<ChatDetailWidget> {
           isIncoming: false,
         );
       }
+    } on CallBusyException catch (e) {
+      // 📵 Meşgul hatası - kullanıcıya bildir
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.phone_disabled, color: Colors.white, size: 20),
+                const SizedBox(width: 8),
+                Expanded(child: Text(e.message)),
+              ],
+            ),
+            backgroundColor: Colors.red.shade600,
+            duration: const Duration(seconds: 4),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Arama başlatma hatası: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Arama başlatılamadı: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } finally {
       _isCallStarting = false;
     }
@@ -348,6 +390,7 @@ class _ChatDetailWidgetState extends State<ChatDetailWidget> {
           _messages = messages;
         });
         _markAsRead(); // Mark as read on new message receipt
+        _scrollToBottom();
       }
     });
   }
@@ -1102,10 +1145,16 @@ class _ChatDetailWidgetState extends State<ChatDetailWidget> {
               callerAvatar: currentUser.avatarUrl,
             ).then((session) {
               if (session != null) {
-                CallScreenDialog.showCall(
+            CallScreenDialog.showCall(
                   context: context,
                   callSession: session,
                   isIncoming: false,
+                );
+              }
+            }).catchError((e) {
+              if (e is CallBusyException && mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(e.message), backgroundColor: Colors.red.shade600),
                 );
               }
             });
@@ -1284,21 +1333,15 @@ class _ChatDetailWidgetState extends State<ChatDetailWidget> {
                       Builder(
                         builder: (context) {
                           // Find user details if possible
-                          String subtitle = 'Çevrimiçi';
+                          String subtitle = '';
                           try {
-                            // Assuming 1-on-1 chat for now, pick first participant that is not 'me' (if we had 'me')
-                            // data here usually contains the partner ID.
                             if (widget.conversation.participantIds.isNotEmpty) {
-                              final partnerId =
-                                  widget.conversation.participantIds.first;
+                              final partnerId = widget.conversation.participantIds.firstWhere((id) => id != _chatService.currentUserId, orElse: () => '');
                               final user = widget.contacts.firstWhere(
                                 (u) => u.id == partnerId,
-                                orElse: () =>
-                                    ChatUser(id: '', name: '', role: ''),
+                                orElse: () => ChatUser(id: '', name: '', role: ''),
                               );
-                              if (user.role != null && user.role!.isNotEmpty) {
-                                subtitle = user.role!;
-                              }
+                              subtitle = user.role ?? 'Çevrimiçi';
                             }
                           } catch (_) {}
 
@@ -1740,6 +1783,7 @@ class _ChatDetailWidgetState extends State<ChatDetailWidget> {
                   },
                 ),
                 // Floating Scroll-to-Bottom Button (WhatsApp Web Style)
+                if (_showScrollToBottom)
                 Positioned(
                   bottom: 12,
                   right: 16,

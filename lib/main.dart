@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:js' as js;
 import 'package:firebase_app_check/firebase_app_check.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:google_fonts/google_fonts.dart'; // Modern fontlar için
@@ -101,17 +101,22 @@ void main() async {
     }
 
     // 🔐 Firebase App Check — Bot ve yetkisiz erişime karşı koruma
-    // TODO: Firebase Console → App Check → Web'i reCAPTCHA v3 ile kaydet
-    // ve aşağıdaki 'debug' yerine gerçek site key'i ekle:
-    // webProvider: ReCaptchaV3Provider('YOUR_RECAPTCHA_V3_SITE_KEY')
-    await FirebaseAppCheck.instance.activate(
-      webProvider: ReCaptchaV3Provider(
-        '6Levx0gtAAAAALvp-sRrS-PFzvHMtAZ1TMdL6cvq',
-      ),
-      androidProvider: AndroidProvider.debug,
-      appleProvider: AppleProvider.debug,
-    );
-    print('✅ App Check aktif!');
+    if (!kDebugMode) {
+      try {
+        await FirebaseAppCheck.instance.activate(
+          webProvider: ReCaptchaV3Provider(
+            '6Levx0gtAAAAALvp-sRrS-PFzvHMtAZ1TMdL6cvq',
+          ),
+          androidProvider: AndroidProvider.debug,
+          appleProvider: AppleProvider.debug,
+        );
+        print('✅ App Check aktif!');
+      } catch (e) {
+        print('⚠️ App Check aktifleştirilemedi: $e');
+      }
+    } else {
+      print('ℹ️ Debug modunda App Check devre dışı bırakıldı.');
+    }
   } catch (e) {
     print('❌ Firebase başlatma hatası: $e');
     if (!e.toString().toLowerCase().contains('duplicate')) {
@@ -347,6 +352,11 @@ class __GlobalKeyboardUnfocusWrapperState
         if (Firebase.apps.isEmpty) return;
         _authSub = FirebaseAuth.instance.authStateChanges().listen((user) {
           if (user != null) {
+            // FCM token'ı kaydet ve bildirim servisini başlat
+            NotificationService().initialize(uid: user.uid).catchError((e) {
+              debugPrint('Notification init error: $e');
+            });
+            
             CallService().registerFcmToken();
             _incomingCallSub?.cancel();
             _incomingCallSub = CallService().listenForIncomingCalls().listen((incomingCalls) {
@@ -383,6 +393,8 @@ class __GlobalKeyboardUnfocusWrapperState
   @override
   void didChangeMetrics() {
     super.didChangeMetrics();
+    if (kIsWeb) return; // Web'de window.dart assertion hatasını önlemek için atla
+    
     try {
       final dispatcher = WidgetsBinding.instance.platformDispatcher;
       final view =
@@ -393,21 +405,6 @@ class __GlobalKeyboardUnfocusWrapperState
         if (FocusManager.instance.primaryFocus != null &&
             FocusManager.instance.primaryFocus!.hasFocus) {
           FocusManager.instance.primaryFocus?.unfocus();
-        }
-        // JS tarafına da sinyal gönder: viewport'u düzelt
-        if (kIsWeb) {
-          try {
-            js.context.callMethod('eval', [
-              'if(typeof fixFlutterViewport === "function") { fixFlutterViewport(); } '
-                  'else if(window.visualViewport) { '
-                  '  var h = window.visualViewport.height; '
-                  '  document.documentElement.style.height = h + "px"; '
-                  '  document.body.style.height = h + "px"; '
-                  '  var el = document.querySelector("flt-glass-pane"); '
-                  '  if(el) el.style.height = h + "px"; '
-                  '}',
-            ]);
-          } catch (_) {}
         }
       }
     } catch (_) {}

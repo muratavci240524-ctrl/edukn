@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../widgets/edukn_logo.dart';
+import '../student/parent_main_screen.dart';
 
 class ParentStudentSelectionScreen extends StatelessWidget {
   final String institutionId;
@@ -16,13 +17,23 @@ class ParentStudentSelectionScreen extends StatelessWidget {
     required this.students,
   }) : super(key: key);
 
+  Future<String?> _getTermName(String? termId) async {
+    return null;
+  }
+
   Future<void> _selectStudent(BuildContext context, Map<String, dynamic> student) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('selected_student_id', student['id']);
     await prefs.setString('selected_student_name', student['fullName'] ?? '');
+    await prefs.setString('selected_student_class', student['className'] ?? '');
     
     // Yönlendirme
-    Navigator.pushReplacementNamed(context, '/school-dashboard');
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ParentMainScreen(institutionId: institutionId),
+      ),
+    );
   }
 
   @override

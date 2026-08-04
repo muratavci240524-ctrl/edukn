@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import '../screens/school/school_types/chat/chat_models.dart';
 import '../screens/school/school_types/chat/settings/chat_settings_dialog.dart';
+import 'term_service.dart';
 
 class ChatService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -101,23 +102,27 @@ class ChatService {
     final uid = userId ?? currentUserId;
     if (uid == null) return const Stream.empty();
 
-    return _firestore
-        .collection('conversations')
-        .where('participantIds', arrayContains: uid)
-        .snapshots()
-        .map((snapshot) {
-      final list = snapshot.docs.map((doc) {
-        return Conversation.fromMap(doc.data(), doc.id);
-      }).toList();
+    return Stream.fromFuture(TermService().getSelectedTermId()).asyncExpand((termId) {
+      Query query = _firestore.collection('conversations').where('participantIds', arrayContains: uid);
+      
+      if (termId != null && termId.isNotEmpty) {
+        query = query.where('termId', isEqualTo: termId);
+      }
 
-      // Sıralama: En son güncellenen en üstte
-      list.sort((a, b) {
-        final aTime = a.lastMessage?.timestamp ?? DateTime.fromMillisecondsSinceEpoch(0);
-        final bTime = b.lastMessage?.timestamp ?? DateTime.fromMillisecondsSinceEpoch(0);
-        return bTime.compareTo(aTime);
+      return query.snapshots().map((snapshot) {
+        final list = snapshot.docs.map((doc) {
+          return Conversation.fromMap(doc.data() as Map<String, dynamic>, doc.id);
+        }).toList();
+
+        // Sıralama: En son güncellenen en üstte
+        list.sort((a, b) {
+          final aTime = a.lastMessage?.timestamp ?? DateTime.fromMillisecondsSinceEpoch(0);
+          final bTime = b.lastMessage?.timestamp ?? DateTime.fromMillisecondsSinceEpoch(0);
+          return bTime.compareTo(aTime);
+        });
+
+        return list;
       });
-
-      return list;
     });
   }
 
@@ -144,10 +149,13 @@ class ChatService {
         .collection('messages')
         .doc();
 
-    await messageRef.set(message.toMap());
-
     final convDoc = await _firestore.collection('conversations').doc(conversationId).get();
     final participants = List<String>.from(convDoc.data()?['participantIds'] ?? []);
+
+    final messageData = message.toMap();
+    messageData['participants'] = participants; // Cloud Function notification için gerekli
+
+    await messageRef.set(messageData);
 
     Map<String, dynamic> updates = {
       'lastMessage': message.toMap(),
@@ -176,9 +184,12 @@ class ChatService {
 
   // Create or Get Conversation
   Future<String> createConversation(List<String> participantIds, {bool isGroup = false, String? groupName}) async {
+    final termId = await TermService().getActiveTermId();
     if (participantIds.length == 2 && !isGroup) {
       final sortedIds = List<String>.from(participantIds)..sort();
-      final docId = sortedIds.join('_');
+      final docId = termId != null && termId.isNotEmpty 
+          ? '${sortedIds.join('_')}_$termId' 
+          : sortedIds.join('_');
       final docRef = _firestore.collection('conversations').doc(docId);
 
       final doc = await docRef.get();
@@ -191,6 +202,7 @@ class ChatService {
         participantIds: participantIds,
         unreadCount: 0,
         isGroup: false,
+        termId: termId,
       );
 
       await docRef.set(conversation.toMap());
@@ -201,8 +213,10 @@ class ChatService {
     final conversation = Conversation(
       id: docRef.id,
       participantIds: participantIds,
-      chatName: groupName ?? 'Yeni Grup',
+      unreadCount: 0,
       isGroup: true,
+      chatName: groupName ?? 'Yeni Grup',
+      termId: termId,
     );
 
     await docRef.set(conversation.toMap());

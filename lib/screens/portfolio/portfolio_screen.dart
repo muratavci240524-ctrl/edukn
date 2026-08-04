@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
@@ -32,6 +32,10 @@ import '../school/guidance/demand/create_demand_dialog.dart';
 import '../../models/guidance/demand_model.dart';
 import '../../services/guidance/demand_service.dart';
 import '../../services/guidance_service.dart';
+import '../student/student_homework_stats_screen.dart';
+import '../student/student_attendance_stats_screen.dart';
+import '../student/student_etut_stats_screen.dart';
+import '../student/student_exam_stats_screen.dart';
 
 class PortfolioScreen extends StatefulWidget {
   final String institutionId;
@@ -770,7 +774,10 @@ class PortfolioDetailView extends StatefulWidget {
     required this.filteredStudents,
     this.activeTermId,
     required this.schoolSettings,
+    this.initialTab = 0,
   }) : super(key: key);
+
+  final int initialTab;
 
   @override
   _PortfolioDetailViewState createState() => _PortfolioDetailViewState();
@@ -815,7 +822,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 14, vsync: this);
+    _tabController = TabController(length: 14, vsync: this, initialIndex: widget.initialTab.clamp(0, 13));
 
     // Listen to Exam Types to get subject order and question counts
     _examTypesSubscription = AssessmentService()
@@ -901,6 +908,90 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
     _tabController.dispose();
     _examTypesSubscription?.cancel();
     super.dispose();
+  }
+
+  // ─── İstatistik yardımcı metodları ─────────────────────────────────────────
+
+  String get _studentId => widget.student['id']?.toString() ?? '';
+  String get _studentClassId => widget.student['classId']?.toString() ?? '';
+  String get _studentClassLevel => widget.student['classLevel']?.toString() ?? '';
+  String get _studentFullName =>
+      widget.student['fullName']?.toString().isNotEmpty == true
+          ? widget.student['fullName'].toString()
+          : '${widget.student['name'] ?? ''} ${widget.student['surname'] ?? ''}'.trim();
+  String get _studentSchoolNumber =>
+      (widget.student['schoolNumber'] ??
+          widget.student['studentNumber'] ??
+          widget.student['no'] ??
+          '').toString().trim();
+
+  Widget _buildStatsButton({
+    required String label,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: OutlinedButton.icon(
+        onPressed: onTap,
+        icon: Icon(icon, size: 16, color: color),
+        label: Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 13)),
+        style: OutlinedButton.styleFrom(
+          side: BorderSide(color: color.withValues(alpha: 0.5)),
+          backgroundColor: color.withValues(alpha: 0.05),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      ),
+    );
+  }
+
+  void _openHomeworkStats() {
+    Navigator.push(context, MaterialPageRoute(
+      builder: (_) => StudentHomeworkStatsScreen(
+        institutionId: widget.institutionId,
+        studentId: _studentId,
+        classId: _studentClassId,
+      ),
+    ));
+  }
+
+  void _openAttendanceStats() {
+    if (_studentClassId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sınıf bilgisi bulunamadı.')));
+      return;
+    }
+    Navigator.push(context, MaterialPageRoute(
+      builder: (_) => StudentAttendanceStatsScreen(
+        institutionId: widget.institutionId,
+        studentId: _studentId,
+        classId: _studentClassId,
+        studentName: _studentFullName,
+      ),
+    ));
+  }
+
+  void _openEtutStats() {
+    Navigator.push(context, MaterialPageRoute(
+      builder: (_) => StudentEtutStatsScreen(
+        institutionId: widget.institutionId,
+        studentId: _studentId,
+      ),
+    ));
+  }
+
+  void _openExamStats({int initialTab = 0}) {
+    Navigator.push(context, MaterialPageRoute(
+      builder: (_) => StudentExamStatsScreen(
+        institutionId: widget.institutionId,
+        studentId: _studentId,
+        classId: _studentClassId,
+        classLevel: _studentClassLevel,
+        studentName: _studentFullName,
+        schoolNumber: _studentSchoolNumber,
+      ),
+    ));
   }
 
   @override
@@ -1889,7 +1980,20 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
   }
 
   Widget _buildTrialExamsTab() {
-    return StreamBuilder<List<TrialExam>>(
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: Row(children: [
+            _buildStatsButton(
+              label: '📊 Deneme İstatistiklerim',
+              icon: Icons.bar_chart_rounded,
+              color: const Color(0xFF1E40AF),
+              onTap: _openExamStats,
+            ),
+          ]),
+        ),
+        Expanded(child: StreamBuilder<List<TrialExam>>(
       stream: _trialExamsStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -2685,7 +2789,9 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
           ),
         ),
       );
-    });
+      })),
+      ],
+    );
   }
 
   // Helper method for Chart Data
@@ -3023,7 +3129,20 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
     if (classId == null)
       return _buildEmptyState('Öğrenci bir sınıfa atanmamış.');
 
-    return StreamBuilder<QuerySnapshot>(
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: Row(children: [
+            _buildStatsButton(
+              label: '📊 Yazılı Sınav İstatistiklerim',
+              icon: Icons.edit_note_rounded,
+              color: const Color(0xFF4F46E5),
+              onTap: _openExamStats,
+            ),
+          ]),
+        ),
+        Expanded(child: StreamBuilder<QuerySnapshot>(
       stream: _writtenExamsStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting)
@@ -3177,7 +3296,9 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
           ],
         );
       },
-    );
+    )),
+    ],
+  );
   }
 
   // --- 3. ÖDEVLER TAB ---
@@ -3185,7 +3306,20 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
     final studentId = widget.student['id'];
     final classId = widget.student['classId'];
 
-    return StreamBuilder<QuerySnapshot>(
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: Row(children: [
+            _buildStatsButton(
+              label: '📊 Ödev İstatistiklerim',
+              icon: Icons.assignment_rounded,
+              color: const Color(0xFF7C3AED),
+              onTap: _openHomeworkStats,
+            ),
+          ]),
+        ),
+        Expanded(child: StreamBuilder<QuerySnapshot>(
       stream: _homeworksStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting)
@@ -3513,7 +3647,9 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
           ],
         );
       },
-    );
+    )),
+    ],
+  );
   }
 
   void _showHomeworkDetailDialog(
@@ -3716,8 +3852,21 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
   Widget _buildAttendanceTab() {
     final studentId = widget.student['id'];
 
-    return StreamBuilder<QuerySnapshot>(
-      stream: _attendanceStream,
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: Row(children: [
+            _buildStatsButton(
+              label: '📊 Yoklama İstatistiklerim',
+              icon: Icons.how_to_reg_rounded,
+              color: const Color(0xFF059669),
+              onTap: _openAttendanceStats,
+            ),
+          ]),
+        ),
+        Expanded(child: StreamBuilder<QuerySnapshot>(
+          stream: _attendanceStream,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           debugPrint("Devamsızlık Hatası: ${snapshot.error}");
@@ -3933,11 +4082,26 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
           ],
         );
       },
-    );
+    )),
+    ],
+  );
   }
 
   Widget _buildEtutlerTab() {
-    return StreamBuilder<QuerySnapshot>(
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: Row(children: [
+            _buildStatsButton(
+              label: '📊 Etüt İstatistiklerim',
+              icon: Icons.menu_book_rounded,
+              color: const Color(0xFF7C3AED),
+              onTap: _openEtutStats,
+            ),
+          ]),
+        ),
+        Expanded(child: StreamBuilder<QuerySnapshot>(
       stream: _etutlerStream,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
@@ -4102,7 +4266,9 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
           ],
         );
       },
-    );
+    )),
+    ],
+  );
   }
 
   Widget _buildEylemPlanlariTab() {

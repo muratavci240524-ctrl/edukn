@@ -141,7 +141,24 @@ class ChatUser {
           ? (data['lastSeen'] as Timestamp).toDate()
           : null,
       userType: data['userType'] ?? data['role'] ?? 'user',
-      role: data['roleTitle'] ?? data['role'] ?? data['title'],
+      role: () {
+        final title = data['title']?.toString();
+        final roleTitle = data['roleTitle']?.toString();
+        final role = data['role']?.toString();
+        final userType = data['userType']?.toString();
+        
+        final lowerValues = [title?.toLowerCase(), roleTitle?.toLowerCase(), role?.toLowerCase(), userType?.toLowerCase()];
+        
+        for (var v in lowerValues) {
+          if (v == null) continue;
+          if (v.contains('genel müdür') || v == 'genel_mudur') return 'Genel Müdür';
+          if (v == 'müdür' || v == 'mudur' || v == 'okul müdürü') return 'Müdür';
+          if (v == 'müdür yardımcısı' || v == 'mudur_yardimcisi' || v.contains('müdür yardımcısı')) return 'Müdür Yardımcısı';
+          if (v == 'admin' || v == 'kurum yöneticisi') return 'Yönetici';
+        }
+        
+        return roleTitle ?? role ?? title;
+      }(),
       schoolTypeId: data['schoolTypeId'],
       motherName: data['motherName'] ?? data['anneAdi'],
       motherPhone: data['motherPhone'] ?? data['anneTel'],
@@ -266,6 +283,7 @@ class Conversation {
   bool isArchived;
   bool isPinned;
   final bool isGroup;
+  final String? termId;
 
   Conversation({
     required this.id,
@@ -278,6 +296,7 @@ class Conversation {
     this.isArchived = false,
     this.isPinned = false,
     this.isGroup = false,
+    this.termId,
   });
 
   List<ChatMessage> messages = [];
@@ -293,6 +312,7 @@ class Conversation {
       'isArchived': isArchived,
       'isPinned': isPinned,
       'isGroup': isGroup,
+      'termId': termId,
       'updatedAt': FieldValue.serverTimestamp(),
     };
   }
@@ -318,6 +338,7 @@ class Conversation {
       isArchived: data['isArchived'] ?? false,
       isPinned: data['isPinned'] ?? false,
       isGroup: data['isGroup'] ?? false,
+      termId: data['termId'],
     );
   }
 }

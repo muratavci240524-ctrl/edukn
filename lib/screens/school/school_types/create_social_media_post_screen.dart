@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'dart:convert';
 import 'package:image/image.dart' as img;
 import '../../../widgets/recipient_selector_field.dart';
+import '../../../services/term_service.dart';
 
 class CreateSocialMediaPostScreen extends StatefulWidget {
   final String schoolTypeId;
@@ -202,6 +203,7 @@ class _CreateSocialMediaPostScreenState
       statusNotifier.value = "Veritabanına Kaydedildiği...";
 
       final currentUserEmail = user.email ?? '';
+      final termId = await TermService().getActiveTermId();
 
       await FirebaseFirestore.instance
           .collection('social_media_posts')
@@ -225,6 +227,7 @@ class _CreateSocialMediaPostScreenState
             'isPublic': _selectedRecipients.isEmpty,
             'isPinned': false,
             'readBy': [currentUserEmail], // Paylaşımı yapan otomatik okudu sayılır
+            'termId': termId,
           })
           .timeout(
             const Duration(seconds: 45),
