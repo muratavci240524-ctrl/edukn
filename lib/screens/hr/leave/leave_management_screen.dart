@@ -11,6 +11,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../../../services/leave_service.dart';
 import '../../../services/leave_conflict_service.dart';
+import '../../../services/term_service.dart';
 
 class LeaveManagementScreen extends StatefulWidget {
   final String? institutionId;
@@ -36,6 +37,7 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
   String? _myUserId;
   String _myRole = 'staff';
   bool _isLoading = true;
+  String? _activeTermId; // Aktif dönem — sadece bu döneme ait izinler görünür
   DateTime _calendarMonth = DateTime.now();
   Map<int, int> _weekdayLessonCounts = {1: 8, 2: 8, 3: 8, 4: 8, 5: 8, 6: 8, 7: 8};
 
@@ -91,6 +93,9 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
         }
       }
 
+      // Aktif dönemi çözümle
+      _activeTermId = await TermService().getActiveTermId();
+
       if (mounted) {
         final bool isAdmin = _isAdminRole(_myRole);
         _tabController = TabController(length: isAdmin ? 3 : 1, vsync: this);
@@ -125,7 +130,11 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
 
-      final requests = await _service.getLeaveRequests(institutionId: _myInstitutionId!);
+      // Aktif döneme ait izin taleplerini çek
+      final requests = await _service.getLeaveRequests(
+        institutionId: _myInstitutionId!,
+        termId: _activeTermId, // sadece aktif dönem
+      );
       
       try {
         final periodsSnap = await FirebaseFirestore.instance
@@ -1209,6 +1218,7 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
                           startTime: sTimeStr,
                           endTime: eTimeStr,
                           lessonConflicts: conflicts.length,
+                          termId: _activeTermId, // Aktif döneme kaydet
                         );
                       }
                       Navigator.pop(ctx);

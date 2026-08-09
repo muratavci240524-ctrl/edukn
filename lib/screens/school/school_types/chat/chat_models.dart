@@ -135,7 +135,7 @@ class ChatUser {
       id: id,
       name: name,
       email: data['email'],
-      avatarUrl: data['photoUrl'] ?? data['avatarUrl'],
+      avatarUrl: data['profileImageUrl'] ?? data['photoUrl'] ?? data['avatarUrl'],
       isOnline: data['isOnline'] ?? false,
       lastSeen: data['lastSeen'] != null
           ? (data['lastSeen'] as Timestamp).toDate()

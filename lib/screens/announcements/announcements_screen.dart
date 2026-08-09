@@ -57,7 +57,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen>
     );
 
     _termCheckTimer = Timer.periodic(
-      const Duration(seconds: 2),
+      const Duration(seconds: 30),
       (_) => _checkTermChange(),
     );
   }
@@ -227,8 +227,6 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen>
 
   @override
   Widget build(BuildContext context) {
-    _loadSelectedTerm();
-
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       body: SafeArea(

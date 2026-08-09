@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:html' as html;
+import 'dart:math' as math;
+import '../../services/user_permission_service.dart';
+
 
 class ProfileSettingsScreen extends StatefulWidget {
   final bool isSchoolSettings; // Okul bilgileri mi yoksa kişisel profil mi?
@@ -50,8 +53,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   @override
   void initState() {
     super.initState();
-    _loadSchoolData();
-    _loadNotificationSettings();
+    _loadSchoolData(); // Cache'den aninda yukler, ek query yok
   }
 
   Map<String, bool> _notificationSettings = {
@@ -62,23 +64,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     'exams': true,
   };
 
-  Future<void> _loadNotificationSettings() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
 
-    final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-    if (userDoc.exists) {
-      final data = userDoc.data();
-      if (data != null && data.containsKey('notificationSettings')) {
-        setState(() {
-          final settings = Map<String, dynamic>.from(data['notificationSettings']);
-          settings.forEach((key, value) {
-            _notificationSettings[key] = value as bool;
-          });
-        });
-      }
-    }
-  }
 
   @override
   void dispose() {
@@ -97,120 +83,146 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
 
   Future<void> _loadSchoolData() async {
     try {
+      // HIZLI YOL: AppBar zaten cache'ledi, 0 network call
+      final cached = await UserPermissionService.loadUserData();
+
+      if (cached != null && mounted) {
+        final userId  = cached['id']?.toString();
+        final instId  = cached['institutionId']?.toString().toUpperCase();
+        final role    = cached['role']?.toString().toLowerCase();
+        final isAdmin = (role == 'genel_mudur' || role == 'admin');
+
+        _fullNameController.text  = cached['fullName'] ?? '';
+        _userPhoneController.text = cached['phone'] ?? '';
+        _userEmailController.text = cached['email'] ?? '';
+        _profileImageUrl = cached['profileImageUrl'];
+
+        // Bildirim ayarlarini da cache'den oku (ekstra query yok)
+        if (cached.containsKey('notificationSettings')) {
+          final raw = Map<String, dynamic>.from(cached['notificationSettings']);
+          raw.forEach((key, value) {
+            if (_notificationSettings.containsKey(key) && value is bool) {
+              _notificationSettings[key] = value;
+            }
+          });
+        }
+
+        setState(() {
+          _isAdmin = isAdmin;
+          _userData = cached;
+          _userId = userId;
+          institutionId = instId ?? '';
+          _isLoading = false; // Aninda yuklendi!
+        });
+
+        // Okul detaylari sadece okul ayarlari ekraninda lazim — arka planda getir
+        if (instId != null && instId.isNotEmpty && widget.isSchoolSettings) {
+          _loadSchoolDetails(instId);
+        }
+      } else {
+        // Cache bossa (ilk acilista) fallback
+        await _loadSchoolDataFallback();
+      }
+    } catch (e) {
+      debugPrint('Profil yukleme hatasi: $e');
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  // Okul istatistiklerini paralel olarak getirir (okul ayarlari ekrani icin)
+  Future<void> _loadSchoolDetails(String instId) async {
+    try {
+      final results = await Future.wait([
+        FirebaseFirestore.instance.collection('schools').doc(instId).get(),
+        FirebaseFirestore.instance
+            .collection('students')
+            .where('institutionId', isEqualTo: instId)
+            .get(),
+      ]);
+
+      final schoolDoc     = results[0] as DocumentSnapshot;
+      final studentsSnap  = results[1] as QuerySnapshot;
+
+      if (schoolDoc.exists && mounted) {
+        final data = schoolDoc.data() as Map<String, dynamic>;
+        _schoolData  = data;
+        _schoolId    = schoolDoc.id;
+        _schoolNameController.text    = data['schoolName'] ?? '';
+        _schoolAddressController.text = data['schoolAddress'] ?? '';
+        _schoolPhoneController.text   = data['schoolPhone'] ?? '';
+        _schoolEmailController.text   = data['schoolEmail'] ?? '';
+        _logoUrl      = data['logoUrl'];
+        studentQuota  = data['studentQuota'] ?? 0;
+        isActive      = data['isActive'] ?? false;
+        studentCount  = studentsSnap.docs.length;
+        if (data['licenseExpiresAt'] != null) {
+          final expires = (data['licenseExpiresAt'] as Timestamp).toDate();
+          remainingDays = expires.difference(DateTime.now()).inDays;
+        }
+        if (mounted) setState(() {});
+      }
+    } catch (e) {
+      debugPrint('Okul detay hatasi: $e');
+    }
+  }
+
+  // Fallback: cache yoksa email ile arama
+  Future<void> _loadSchoolDataFallback() async {
+    try {
       final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-
-      final originalEmail = user.email!;
-      final searchEmail = originalEmail.toLowerCase();
-      
-      Map<String, dynamic>? userData;
-      String? userId;
-      String? currentInstitutionId;
-
-      // --- ÇOK AŞAMALI AKILLI ARAMA ---
-      
-      // 1. Aşama: Standart Email Araması
-      var userQuery = await FirebaseFirestore.instance
+      if (user == null) {
+        if (mounted) setState(() => _isLoading = false);
+        return;
+      }
+      final searchEmail = user.email?.toLowerCase() ?? '';
+      var q = await FirebaseFirestore.instance
           .collection('users')
           .where('email', isEqualTo: searchEmail)
           .limit(1)
           .get();
-
-      // 2. Aşama: authEmail Araması (Username girişi için)
-      if (userQuery.docs.isEmpty) {
-        userQuery = await FirebaseFirestore.instance
+      if (q.docs.isEmpty) {
+        q = await FirebaseFirestore.instance
             .collection('users')
             .where('authEmail', isEqualTo: searchEmail)
             .limit(1)
             .get();
       }
-
-      // 3. Aşama: Username Araması (Sistem mailinden username ayıklayarak)
-      if (userQuery.docs.isEmpty && searchEmail.contains('.edukn')) {
-        final extractedUsername = searchEmail.split('@')[0];
-        userQuery = await FirebaseFirestore.instance
-            .collection('users')
-            .where('username', isEqualTo: extractedUsername)
-            .limit(1)
-            .get();
-      }
-
-      // 4. Aşama: Orijinal Mail Araması (Case-sensitive eski kayıtlar için)
-      if (userQuery.docs.isEmpty && originalEmail != searchEmail) {
-        userQuery = await FirebaseFirestore.instance
-            .collection('users')
-            .where('email', isEqualTo: originalEmail)
-            .limit(1)
-            .get();
-      }
-
-      bool isAdmin = false;
-
-      if (userQuery.docs.isNotEmpty) {
-        userData = userQuery.docs.first.data();
-        userId = userQuery.docs.first.id;
-        currentInstitutionId = userData['institutionId']?.toString().toUpperCase();
-        
-        _fullNameController.text = userData['fullName'] ?? '';
-        _userPhoneController.text = userData['phone'] ?? '';
-        _userEmailController.text = userData['email'] ?? '';
-        _profileImageUrl = userData['profileImageUrl'];
-        
-        // Rol kontrolü
-        final role = userData['role']?.toString().toLowerCase();
-        isAdmin = (role == 'genel_mudur' || role == 'admin');
-        
-        print('✅ Profil bulundu: ${_fullNameController.text}');
-      } else {
-        print('⚠️ Profil belgesi bulunamadı. Aranan: $searchEmail');
-      }
-
-      // 2. Okul verilerini yükle (Eğer kurum ID varsa ve mod aktifse)
-      if (currentInstitutionId != null) {
-        final schoolDoc = await FirebaseFirestore.instance
-            .collection('schools')
-            .doc(currentInstitutionId)
-            .get();
-
-        if (schoolDoc.exists) {
-          _schoolData = schoolDoc.data();
-          _schoolId = schoolDoc.id;
-
-          _schoolNameController.text = _schoolData!['schoolName'] ?? '';
-          _schoolAddressController.text = _schoolData!['schoolAddress'] ?? '';
-          _schoolPhoneController.text = _schoolData!['schoolPhone'] ?? '';
-          _schoolEmailController.text = _schoolData!['schoolEmail'] ?? '';
-          _logoUrl = _schoolData!['logoUrl'];
-
-          // İstatistikler
-          final studentsQuery = await FirebaseFirestore.instance
-              .collection('students')
-              .where('institutionId', isEqualTo: currentInstitutionId)
-              .get();
-          studentCount = studentsQuery.docs.length;
-          
-          studentQuota = _schoolData!['studentQuota'] ?? 0;
-          isActive = _schoolData!['isActive'] ?? false;
-          
-          if (_schoolData!['licenseExpiresAt'] != null) {
-            final expires = (_schoolData!['licenseExpiresAt'] as Timestamp).toDate();
-            remainingDays = expires.difference(DateTime.now()).inDays;
-          }
+      if (q.docs.isNotEmpty && mounted) {
+        final data   = q.docs.first.data();
+        final userId = q.docs.first.id;
+        final instId = data['institutionId']?.toString().toUpperCase();
+        final role   = data['role']?.toString().toLowerCase();
+        _fullNameController.text  = data['fullName'] ?? '';
+        _userPhoneController.text = data['phone'] ?? '';
+        _userEmailController.text = data['email'] ?? '';
+        _profileImageUrl = data['profileImageUrl'];
+        if (data.containsKey('notificationSettings')) {
+          final raw = Map<String, dynamic>.from(data['notificationSettings']);
+          raw.forEach((key, value) {
+            if (_notificationSettings.containsKey(key) && value is bool) {
+              _notificationSettings[key] = value;
+            }
+          });
         }
+        setState(() {
+          _isAdmin = (role == 'genel_mudur' || role == 'admin');
+          _userData = data;
+          _userId = userId;
+          institutionId = instId ?? '';
+          _isLoading = false;
+        });
+        if (instId != null && widget.isSchoolSettings) {
+          _loadSchoolDetails(instId);
+        }
+      } else {
+        if (mounted) setState(() => _isLoading = false);
       }
-
-      setState(() {
-        _isAdmin = isAdmin;
-        _userData = userData;
-        _userId = userId;
-        this.institutionId = currentInstitutionId ?? '';
-        _isLoading = false;
-      });
     } catch (e) {
-      print('Hata: $e');
-      setState(() => _isLoading = false);
+      debugPrint('Fallback hatasi: $e');
+      if (mounted) setState(() => _isLoading = false);
     }
   }
+
 
   Future<void> _pickImage({bool isLogo = true}) async {
     final uploadInput = html.FileUploadInputElement()..accept = 'image/*';
@@ -222,14 +234,25 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
 
       final reader = html.FileReader();
       reader.readAsDataUrl(files[0]);
-      reader.onLoadEnd.listen((e) {
-        setState(() {
-          if (isLogo) {
-            _logoUrl = reader.result as String?;
-          } else {
-            _profileImageUrl = reader.result as String?;
+      reader.onLoadEnd.listen((e) async {
+        final dataUrl = reader.result as String?;
+        if (dataUrl == null) return;
+
+        if (isLogo) {
+          // Logo için direkt kaydet (kırpma yok)
+          if (mounted) setState(() => _logoUrl = dataUrl);
+        } else {
+          // Profil fotoğrafı için kırpma dialogu aç
+          if (!mounted) return;
+          final croppedUrl = await showDialog<String>(
+            context: context,
+            barrierDismissible: false,
+            builder: (ctx) => PhotoCropDialog(imageDataUrl: dataUrl),
+          );
+          if (croppedUrl != null && mounted) {
+            setState(() => _profileImageUrl = croppedUrl);
           }
-        });
+        }
       });
     });
   }
@@ -263,13 +286,22 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
             'phone': _userPhoneController.text.trim(),
             'email': _userEmailController.text.trim(),
             'profileImageUrl': _profileImageUrl,
-            'updatedAt': FieldValue.serverTimestamp(),
             'notificationSettings': _notificationSettings,
+            'updatedAt': FieldValue.serverTimestamp(),
           });
         }
         
         // Şifre güncelleme
         if (_newPasswordController.text.isNotEmpty) {
+          if (_currentPasswordController.text.isEmpty) {
+            throw Exception('Şifre değişikliği için mevcut şifrenizi girmelisiniz.');
+          }
+          if (_newPasswordController.text != _confirmPasswordController.text) {
+            throw Exception('Yeni şifreler eşleşmiyor.');
+          }
+          if (_newPasswordController.text.length < 6) {
+            throw Exception('Yeni şifre en az 6 karakter olmalıdır.');
+          }
           final user = FirebaseAuth.instance.currentUser!;
           final credential = EmailAuthProvider.credential(
             email: user.email!,
@@ -399,7 +431,53 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
         TextFormField(controller: _userPhoneController, decoration: _modernInputDecoration(label: 'Telefon', icon: Icons.phone)),
         SizedBox(height: 16),
         TextFormField(controller: _userEmailController, decoration: _modernInputDecoration(label: 'E-posta (İletişim)', icon: Icons.email)),
+
+        // ── Şifre Değiştirme ──────────────────────────────────────────
         SizedBox(height: 32),
+        Row(
+          children: [
+            Icon(Icons.lock_outline, color: Colors.indigo, size: 20),
+            SizedBox(width: 8),
+            Text('Şifre Değiştir', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        SizedBox(height: 6),
+        Text(
+          'Şifrenizi değiştirmek istemiyorsanız boş bırakın.',
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+        ),
+        SizedBox(height: 16),
+        _PasswordField(
+          controller: _currentPasswordController,
+          label: 'Mevcut Şifre',
+          icon: Icons.lock_outline,
+        ),
+        SizedBox(height: 12),
+        _PasswordField(
+          controller: _newPasswordController,
+          label: 'Yeni Şifre',
+          icon: Icons.lock_reset,
+          validator: (v) {
+            if (v != null && v.isNotEmpty && v.length < 6) {
+              return 'Şifre en az 6 karakter olmalıdır';
+            }
+            return null;
+          },
+        ),
+        SizedBox(height: 12),
+        _PasswordField(
+          controller: _confirmPasswordController,
+          label: 'Yeni Şifre (Tekrar)',
+          icon: Icons.lock_reset,
+          validator: (v) {
+            if (_newPasswordController.text.isNotEmpty && v != _newPasswordController.text) {
+              return 'Şifreler eşleşmiyor';
+            }
+            return null;
+          },
+        ),
+
+        // ── Bildirim Tercihleri ────────────────────────────
         const SizedBox(height: 32),
         const Text('Bildirim Tercihleri', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
         const SizedBox(height: 12),
@@ -408,11 +486,13 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
         _buildNotificationToggle('homeworks', 'Ödevler', Icons.assignment_outlined),
         _buildNotificationToggle('messages', 'Mesajlar', Icons.forum_outlined),
         _buildNotificationToggle('exams', 'Sınav Sonuçları', Icons.analytics_outlined),
-        const SizedBox(height: 32),
+
+        SizedBox(height: 32),
         _buildSaveButton(),
       ],
     );
   }
+
 
   Widget _buildImageFrame(String? url, IconData fallbackIcon, {bool isCircle = false}) {
     return Container(
@@ -476,6 +556,371 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
       secondary: Icon(icon, color: Colors.indigo, size: 20),
       activeColor: Colors.indigo,
       contentPadding: EdgeInsets.zero,
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// ŞİFRE ALANI — göz ikonuyla görünürlük toggle
+// ─────────────────────────────────────────────────────────────────────
+class _PasswordField extends StatefulWidget {
+  final TextEditingController controller;
+  final String label;
+  final IconData icon;
+  final String? Function(String?)? validator;
+
+  const _PasswordField({
+    required this.controller,
+    required this.label,
+    required this.icon,
+    this.validator,
+  });
+
+  @override
+  State<_PasswordField> createState() => _PasswordFieldState();
+}
+
+class _PasswordFieldState extends State<_PasswordField> {
+  bool _obscure = true;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextFormField(
+      controller: widget.controller,
+      obscureText: _obscure,
+      validator: widget.validator,
+      decoration: InputDecoration(
+        labelText: widget.label,
+        prefixIcon: Icon(widget.icon, color: Colors.indigo),
+        suffixIcon: IconButton(
+          icon: Icon(
+            _obscure ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+            color: Colors.grey.shade500,
+            size: 20,
+          ),
+          onPressed: () => setState(() => _obscure = !_obscure),
+        ),
+        filled: true,
+        fillColor: Colors.grey.shade50,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.grey.shade200),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Colors.indigo, width: 2),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Colors.red, width: 1.5),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Colors.red, width: 2),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// FOTOĞRAF KIRPMA & KONUMLANDIRMA DİALOGU
+// ─────────────────────────────────────────────────────────────────────
+class PhotoCropDialog extends StatefulWidget {
+  final String imageDataUrl;
+  const PhotoCropDialog({Key? key, required this.imageDataUrl}) : super(key: key);
+
+  @override
+  State<PhotoCropDialog> createState() => _PhotoCropDialogState();
+}
+
+class _PhotoCropDialogState extends State<PhotoCropDialog> {
+  static const double _cropSize = 280.0;
+
+  double _imgNaturalWidth = 0;
+  double _imgNaturalHeight = 0;
+  double _scale = 1.0;       // mevcut zoom
+  Offset _offset = Offset.zero; // görüntü kayması (piksel)
+  Offset _dragStart = Offset.zero;
+  Offset _offsetAtDragStart = Offset.zero;
+  bool _ready = false;
+  bool _isCropping = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadImageDimensions();
+  }
+
+  void _loadImageDimensions() {
+    final img = html.ImageElement()..src = widget.imageDataUrl;
+    img.onLoad.listen((_) {
+      final naturalW = (img.naturalWidth ?? 100).toDouble();
+      final naturalH = (img.naturalHeight ?? 100).toDouble();
+      // Görüntü daireyi tam kapatsın diye başlangıç scale hesapla
+      final scaleX = _cropSize / naturalW;
+      final scaleY = _cropSize / naturalH;
+      final initialScale = math.max(scaleX, scaleY);
+      if (mounted) {
+        setState(() {
+          _imgNaturalWidth = naturalW;
+          _imgNaturalHeight = naturalH;
+          _scale = initialScale;
+          _offset = Offset.zero;
+          _ready = true;
+        });
+      }
+    });
+  }
+
+  Offset _clamp(Offset offset) {
+    if (_imgNaturalWidth == 0) return offset;
+    final scaledW = _imgNaturalWidth * _scale;
+    final scaledH = _imgNaturalHeight * _scale;
+    final maxDx = math.max(0.0, (scaledW - _cropSize) / 2);
+    final maxDy = math.max(0.0, (scaledH - _cropSize) / 2);
+    return Offset(
+      offset.dx.clamp(-maxDx, maxDx),
+      offset.dy.clamp(-maxDy, maxDy),
+    );
+  }
+
+  Future<String> _renderCroppedImage() async {
+    const int outSize = 400; // çıktı piksel boyutu
+    final canvas = html.CanvasElement(width: outSize, height: outSize);
+    final ctx = canvas.context2D;
+
+    final img = html.ImageElement()..src = widget.imageDataUrl;
+    await img.onLoad.first;
+
+    // Dairesel clip
+    ctx.beginPath();
+    ctx.arc(outSize / 2, outSize / 2, outSize / 2, 0, 2 * math.pi);
+    ctx.clip();
+
+    // Görüntü konumunu hesapla:
+    // offset = (0,0) → görüntü tam ortada
+    final scaledW = _imgNaturalWidth * _scale;
+    final scaledH = _imgNaturalHeight * _scale;
+    final imgLeft = (_cropSize - scaledW) / 2 + _offset.dx; // crop alanındaki sol kenar
+    final imgTop  = (_cropSize - scaledH) / 2 + _offset.dy; // crop alanındaki üst kenar
+
+    // Kaynak dikdörtgeni (orijinal görüntü koordinatlarında)
+    final srcX = -imgLeft / _scale;
+    final srcY = -imgTop  / _scale;
+    final srcW = _cropSize / _scale;
+    final srcH = _cropSize / _scale;
+
+    ctx.drawImageScaledFromSource(
+      img,
+      srcX.clamp(0, _imgNaturalWidth),
+      srcY.clamp(0, _imgNaturalHeight),
+      srcW.clamp(0, _imgNaturalWidth - srcX.clamp(0, _imgNaturalWidth)),
+      srcH.clamp(0, _imgNaturalHeight - srcY.clamp(0, _imgNaturalHeight)),
+      0, 0, outSize.toDouble(), outSize.toDouble(),
+    );
+
+    return canvas.toDataUrl('image/jpeg', 0.88);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: Container(
+        width: 380,
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Başlık
+            Row(
+              children: [
+                const Icon(Icons.crop_rounded, color: Colors.indigo, size: 22),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text(
+                    'Fotoğrafı Konumlandır',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 20),
+                  onPressed: () => Navigator.pop(context, null),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Fotoğrafı sürükleyerek yüzünüzü ortala. + / − ile yakınlaştır.',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+
+            // Dairesel kırpma alanı
+            Container(
+              width: _cropSize,
+              height: _cropSize,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.indigo, width: 3),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.indigo.withOpacity(0.15),
+                    blurRadius: 16,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: ClipOval(
+                child: !_ready
+                    ? const Center(child: CircularProgressIndicator())
+                    : GestureDetector(
+                        onPanStart: (d) {
+                          _dragStart = d.localPosition;
+                          _offsetAtDragStart = _offset;
+                        },
+                        onPanUpdate: (d) {
+                          final delta = d.localPosition - _dragStart;
+                          setState(() {
+                            _offset = _clamp(_offsetAtDragStart + delta);
+                          });
+                        },
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            // Gri arka plan
+                            Container(color: Colors.grey.shade200),
+                            // Görüntü
+                            Transform.translate(
+                              offset: _offset,
+                              child: Image.network(
+                                widget.imageDataUrl,
+                                width: _imgNaturalWidth * _scale,
+                                height: _imgNaturalHeight * _scale,
+                                fit: BoxFit.fill,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // Zoom kontrolleri
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // — küçült butonu
+                Material(
+                  color: Colors.indigo.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: _ready ? () {
+                      final minScale = math.max(_cropSize / _imgNaturalWidth, _cropSize / _imgNaturalHeight);
+                      final step = (minScale * 3 - minScale) / 10;
+                      setState(() {
+                        _scale = math.max(minScale, _scale - step);
+                        _offset = _clamp(_offset);
+                      });
+                    } : null,
+                    child: const Padding(
+                      padding: EdgeInsets.all(8),
+                      child: Icon(Icons.remove, color: Colors.indigo, size: 20),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Slider(
+                    value: _scale,
+                    min: _ready ? math.max(_cropSize / _imgNaturalWidth, _cropSize / _imgNaturalHeight) : 0.5,
+                    max: _ready ? math.max(_cropSize / _imgNaturalWidth, _cropSize / _imgNaturalHeight) * 3 : 3.0,
+                    activeColor: Colors.indigo,
+                    onChanged: (v) {
+                      setState(() {
+                        _scale = v;
+                        _offset = _clamp(_offset);
+                      });
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // + büyüt butonu
+                Material(
+                  color: Colors.indigo.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: _ready ? () {
+                      final minScale = math.max(_cropSize / _imgNaturalWidth, _cropSize / _imgNaturalHeight);
+                      final step = (minScale * 3 - minScale) / 10;
+                      setState(() {
+                        _scale = math.min(minScale * 3, _scale + step);
+                        _offset = _clamp(_offset);
+                      });
+                    } : null,
+                    child: const Padding(
+                      padding: EdgeInsets.all(8),
+                      child: Icon(Icons.add, color: Colors.indigo, size: 20),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 20),
+
+            // Butonlar
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context, null),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: const Text('İptal'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: _isCropping
+                        ? null
+                        : () async {
+                            setState(() => _isCropping = true);
+                            try {
+                              final cropped = await _renderCroppedImage();
+                              if (mounted) Navigator.pop(context, cropped);
+                            } catch (e) {
+                              if (mounted) Navigator.pop(context, null);
+                            }
+                          },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.indigo,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: _isCropping
+                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                        : const Text('Uygula', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

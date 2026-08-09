@@ -4,9 +4,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import 'edukn_logo.dart';
+import 'user_avatar.dart';
 import '../services/user_permission_service.dart';
 import '../services/term_service.dart';
 import '../screens/school/profile_settings_screen.dart';
+import '../screens/school/notification_settings_screen.dart';
 import '../screens/teacher/teacher_qr_scan_screen.dart';
 import '../screens/portfolio/portfolio_screen.dart';
 import '../screens/school/student_registration_screen.dart';
@@ -677,7 +679,7 @@ class _PremiumAppBarState extends State<PremiumAppBar> {
   Widget _buildProfileButton(String currentTermName, bool isMobile) {
     final displayName = _getUserDisplayName();
     final role = _getUserRole();
-    final initial = displayName.isNotEmpty ? displayName[0].toUpperCase() : 'U';
+    final profileImageUrl = userData?['profileImageUrl'] as String?;
 
     return PopupMenuButton<String>(
       offset: const Offset(0, 48),
@@ -703,7 +705,7 @@ class _PremiumAppBarState extends State<PremiumAppBar> {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (ctx) => const ProfileSettingsScreen(isSchoolSettings: false),
+              builder: (ctx) => const NotificationSettingsScreen(),
             ),
           );
         } else if (value == 'qr') {
@@ -722,10 +724,10 @@ class _PremiumAppBarState extends State<PremiumAppBar> {
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
             child: Row(
               children: [
-                CircleAvatar(
+                UserAvatar(
+                  imageUrl: profileImageUrl,
+                  displayName: displayName,
                   radius: 22,
-                  backgroundColor: Colors.indigo.shade100,
-                  child: Text(initial, style: TextStyle(color: Colors.indigo.shade800, fontSize: 18, fontWeight: FontWeight.bold)),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -768,18 +770,6 @@ class _PremiumAppBarState extends State<PremiumAppBar> {
             ]),
           ),
         ],
-        const PopupMenuDivider(),
-        PopupMenuItem<String>(
-          value: 'notifications',
-          child: Row(children: [
-            Container(padding: const EdgeInsets.all(7), decoration: BoxDecoration(color: Colors.teal.shade50, borderRadius: BorderRadius.circular(8)), child: Icon(Icons.notifications_active_outlined, color: Colors.teal.shade700, size: 18)),
-            const SizedBox(width: 12),
-            const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Bildirim Ayarları', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-              Text('Tercihleri Düzenle', style: TextStyle(fontSize: 11, color: Colors.blueGrey)),
-            ]),
-          ]),
-        ),
         const PopupMenuDivider(),
         PopupMenuItem<String>(
           value: 'qr',
@@ -839,10 +829,10 @@ class _PremiumAppBarState extends State<PremiumAppBar> {
       ],
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-        child: CircleAvatar(
+        child: UserAvatar(
+          imageUrl: profileImageUrl,
+          displayName: displayName,
           radius: 17,
-          backgroundColor: Colors.indigo.shade50,
-          child: Text(initial, style: const TextStyle(color: Colors.indigo, fontSize: 13, fontWeight: FontWeight.bold)),
         ),
       ),
     );

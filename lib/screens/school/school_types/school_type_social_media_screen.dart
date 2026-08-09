@@ -14,6 +14,7 @@ import '../../../services/term_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 // ignore: avoid_web_libraries_in_flutter
 import 'dart:ui_web' as ui;
+import '../../../widgets/user_avatar.dart';
 
 class SchoolTypeSocialMediaScreen extends StatefulWidget {
   final String schoolTypeId;
@@ -1230,19 +1231,10 @@ class _PostCardState extends State<PostCard> {
 
                 Row(
                   children: [
-                    CircleAvatar(
+                    UserAvatar(
+                      imageUrl: creatorPhotoUrl,
+                      displayName: creatorName,
                       radius: 16,
-                      backgroundImage: creatorPhotoUrl != null
-                          ? NetworkImage(creatorPhotoUrl)
-                          : null,
-                      backgroundColor: Colors.indigo.shade50,
-                      child: creatorPhotoUrl == null
-                          ? Icon(
-                              Icons.person,
-                              size: 18,
-                              color: Colors.indigo.shade300,
-                            )
-                          : null,
                     ),
                     const SizedBox(width: 8),
                     Expanded(

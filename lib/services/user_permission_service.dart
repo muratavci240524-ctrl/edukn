@@ -9,6 +9,8 @@ class UserPermissionService {
   static Map<String, dynamic>? _cachedUserData;
   static bool _isImpersonating = false;
   static Future<Map<String, dynamic>?>? _loadFuture;
+  // resolveInstitutionId sonucunu cache'le — her ekran açılışında Firestore'a gitmemek için
+  static String? _cachedInstitutionId;
 
   /// Kullanıcı verilerini yükle (normal veya impersonation)
   static Future<Map<String, dynamic>?> loadUserData({bool forceRefresh = false}) async {
@@ -171,6 +173,7 @@ class UserPermissionService {
   /// Cache'i temizle (logout veya impersonation değişikliğinde)
   static void clearCache() {
     _cachedUserData = null;
+    _cachedInstitutionId = null;
     _isImpersonating = false;
     _loadFuture = null;
     CryptoService.clearCache();
@@ -348,6 +351,11 @@ class UserPermissionService {
   /// Kurum ID'sini çözümler
   /// Öncelik sırası: 1. userData['institutionId'], 2. Email domain (kurumsal ise)
   static Future<String> resolveInstitutionId(String email, {Map<String, dynamic>? userData}) async {
+    // Cache'de varsa hemen dön — Firestore'a gitme
+    if (_cachedInstitutionId != null && _cachedInstitutionId!.isNotEmpty && _cachedInstitutionId!.toUpperCase() != 'GMAIL') {
+      return _cachedInstitutionId!;
+    }
+
     if (userData != null) {
       // ÖNEMLİ DÜZELTME: Büyük/küçük harf uyuşmazlıklarını (örn: ABC06 vs abc06) aşmak için,
       // varsa önce schoolId üzerinden schools koleksiyonundaki orijinal (canonical) institutionId'yi al.
@@ -358,7 +366,8 @@ class UserPermissionService {
           if (schoolDoc.exists) {
             final realInstId = schoolDoc.data()?['institutionId'];
             if (realInstId != null && realInstId.toString().isNotEmpty) {
-              return realInstId.toString();
+              _cachedInstitutionId = realInstId.toString();
+              return _cachedInstitutionId!;
             }
           }
         } catch (e) {
@@ -368,7 +377,8 @@ class UserPermissionService {
 
       // Eğer schoolId yoksa veya bulunamadıysa, userData içindeki değere geri dön
       if (userData.containsKey('institutionId') && userData['institutionId'] != null) {
-        return userData['institutionId'].toString();
+        _cachedInstitutionId = userData['institutionId'].toString();
+        return _cachedInstitutionId!;
       }
     }
 
@@ -381,7 +391,9 @@ class UserPermissionService {
       ];
 
       if (!genericDomains.contains(domain) && domain.contains('.')) {
-        return domain.split('.')[0].toUpperCase();
+        final result = domain.split('.')[0].toUpperCase();
+        _cachedInstitutionId = result;
+        return result;
       }
     }
 

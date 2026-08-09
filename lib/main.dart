@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:js' as js;
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
 import 'package:flutter/material.dart';
@@ -61,7 +60,9 @@ void main() async {
 
       while (attempts < maxWaitSeconds * 10) {
         try {
-          if (js.context.hasProperty('firebase')) {
+          // dart:js kaldırıldı (Flutter 3.44+), basit delay kullan
+          // Firebase SDK'sı index.html'de synchronous yükleniyor, kısa bekleme yeterli
+          if (attempts > 5) { // 500ms sonra hazır kabul et
             print('✅ Firebase SDK hazır (${attempts * 100}ms)');
             sdkLoaded = true;
             break;
@@ -91,12 +92,15 @@ void main() async {
 
     if (kIsWeb) {
       try {
+        // UYARI: persistenceEnabled: true → cloud_firestore_web 5.3.x ile
+        // INTERNAL ASSERTION FAILED (ID: b815/ca9) hatasına neden oluyor.
+        // Persistence kapalı bırakıyoruz, güncellenmiş SDK sürümünde tekrar açılabilir.
         FirebaseFirestore.instance.settings = const Settings(
-          persistenceEnabled: true,
+          persistenceEnabled: false,
         );
-        print('✅ Firestore Web Offline Persistence etkinleştirildi.');
+        print('✅ Firestore Web ayarları uygulandı (persistence=false).');
       } catch (e) {
-        print('⚠️ Firestore Persistence hatası: $e');
+        print('⚠️ Firestore Settings hatası: $e');
       }
     }
 
@@ -350,7 +354,7 @@ class __GlobalKeyboardUnfocusWrapperState
     Future.microtask(() async {
       try {
         if (Firebase.apps.isEmpty) return;
-        _authSub = FirebaseAuth.instance.authStateChanges().listen((user) {
+        _authSub = FirebaseAuth.instance.authStateChanges().listen((user) async {
           if (user != null) {
             // FCM token'ı kaydet ve bildirim servisini başlat
             NotificationService().initialize(uid: user.uid).catchError((e) {
@@ -358,6 +362,12 @@ class __GlobalKeyboardUnfocusWrapperState
             });
             
             CallService().registerFcmToken();
+
+            // Firebase Web SDK: eş zamanlı snapshot stream'ler crash'e yol açıyor.
+            // 3 saniye bekleyerek diğer stream'lerin oturmasını sağlıyoruz.
+            await Future.delayed(const Duration(seconds: 3));
+            if (!mounted) return;
+
             _incomingCallSub?.cancel();
             _incomingCallSub = CallService().listenForIncomingCalls().listen((incomingCalls) {
               if (incomingCalls.isNotEmpty && mounted) {

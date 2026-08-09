@@ -35,9 +35,19 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
   @override
   void initState() {
     super.initState();
-    _loadUserPermissions().then((_) {
+    // Önce cache kontrolü: zaten yüklüyse anında göster
+    final cached = UserPermissionService.getCachedUserData();
+    if (cached != null) {
+      userData = cached;
+      _isLoadingPermissions = false;
+      // institutionId'yi de hemen çözümle (cache'den gelir)
       _getInstitutionId();
-    });
+    } else {
+      // Cache yoksa paralel başlat (seri bekleme yok)
+      Future.wait([
+        _loadUserPermissions(),
+      ]).then((_) => _getInstitutionId());
+    }
   }
 
   // Kullanıcı yetkilendirme bilgilerini yükle

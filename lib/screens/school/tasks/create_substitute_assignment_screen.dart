@@ -31,6 +31,7 @@ class _CreateSubstituteAssignmentScreenState
   Map<String, dynamic>? _selectedAbsentTeacher;
   String? _selectedReasonType; // 'Görevli', 'İzinli', 'Raporlu', 'Diğer'
   bool _isFullDay = false;
+  String? _activeTermId; // Aktif dönem
 
   // Data
   List<Map<String, dynamic>> _teacherSchedule = [];
@@ -54,6 +55,11 @@ class _CreateSubstituteAssignmentScreenState
   void initState() {
     super.initState();
     _loadAllTeachers();
+    _loadTermId();
+  }
+
+  Future<void> _loadTermId() async {
+    _activeTermId = await TermService().getActiveTermId();
   }
 
   Future<void> _loadAllTeachers() async {
@@ -462,6 +468,7 @@ class _CreateSubstituteAssignmentScreenState
               'status': 'published',
               'createdAt': FieldValue.serverTimestamp(),
               'creatorId': user.uid,
+              if (_activeTermId != null) 'termId': _activeTermId,
             });
 
         // Update local stat for next iteration fairness
@@ -680,6 +687,7 @@ class _CreateSubstituteAssignmentScreenState
                 currentPeriodId: _currentPeriodId,
                 defaultReason: _selectedReasonType,
                 customReason: _customReasonController.text,
+                activeTermId: _activeTermId, // Aktif dönemi geçir
                 onAssignmentChanged: () {
                   // Refresh main schedule status to update chips
                   _loadTeacherSchedule(_selectedAbsentTeacher!['id']);
@@ -1224,6 +1232,7 @@ class SubstituteAssignmentCard extends StatefulWidget {
   final String? defaultReason;
   final String? customReason;
   final VoidCallback onAssignmentChanged;
+  final String? activeTermId; // Aktif dönem filtresi için
 
   const SubstituteAssignmentCard({
     Key? key,
@@ -1238,6 +1247,7 @@ class SubstituteAssignmentCard extends StatefulWidget {
     required this.onAssignmentChanged,
     this.defaultReason,
     this.customReason,
+    this.activeTermId,
   }) : super(key: key);
 
   @override
@@ -1440,6 +1450,7 @@ class _SubstituteAssignmentCardState extends State<SubstituteAssignmentCard> {
             'status': 'published',
             'createdAt': FieldValue.serverTimestamp(),
             'creatorId': user.uid,
+            if (widget.activeTermId != null) 'termId': widget.activeTermId,
           });
 
       // Notification - DEFERRED to 'Publish' button in SubstituteTeacherListScreen

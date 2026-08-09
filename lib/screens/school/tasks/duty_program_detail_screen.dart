@@ -4,17 +4,21 @@ import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
 import '../../../services/pdf_service.dart';
 import '../../../models/school/duty_model.dart';
+import 'duty_settings_screen.dart';
 
 class DutyProgramDetailScreen extends StatefulWidget {
   final String periodId;
   final String periodName;
   final String institutionId;
+  /// 'alt_donem' | 'donem' — nöbetin hangi kapsam modunda oluşturulduğu
+  final String scopeType;
 
   const DutyProgramDetailScreen({
     Key? key,
     required this.periodId,
     required this.periodName,
     required this.institutionId,
+    this.scopeType = 'alt_donem', // geriye dönük uyumluluk için default
   }) : super(key: key);
 
   @override
@@ -347,32 +351,81 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
         centerTitle: false,
         iconTheme: const IconThemeData(color: Color(0xFF0F172A)),
         actions: [
-          IconButton(
-            tooltip: 'Yazdır',
-            icon: const Icon(Icons.print, color: Color(0xFF64748B)),
-            onPressed: _printReport,
-          ),
-          if (_tabController.index == 0)
-            IconButton(
-              tooltip: 'Bu Haftayı Temizle',
-              icon: const Icon(Icons.delete_sweep, color: Colors.red),
-              onPressed: _showClearAllDialog,
-            ),
-          IconButton(
-            tooltip: 'Tarih Seç',
-            icon: const Icon(
-              Icons.calendar_month_rounded,
-              color: Color(0xFF4F46E5),
-            ),
-            onPressed: () {
-              if (_tabController.index == 0) {
-                _selectDate();
-              } else {
-                _selectStatsDateRange();
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, color: Color(0xFF64748B)),
+            onSelected: (value) {
+              switch (value) {
+                case 'settings':
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => DutySettingsScreen(
+                        institutionId: widget.institutionId,
+                        periodId: widget.periodId,
+                      ),
+                    ),
+                  );
+                  break;
+                case 'print':
+                  _printReport();
+                  break;
+                case 'date':
+                  if (_tabController.index == 0) {
+                    _selectDate();
+                  } else {
+                    _selectStatsDateRange();
+                  }
+                  break;
+                case 'clear':
+                  _showClearAllDialog();
+                  break;
               }
             },
+            itemBuilder: (_) => [
+              const PopupMenuItem(
+                value: 'settings',
+                child: Row(
+                  children: [
+                    Icon(Icons.settings_outlined, size: 18, color: Color(0xFF64748B)),
+                    SizedBox(width: 10),
+                    Text('Nöbet Ayarları'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'print',
+                child: Row(
+                  children: [
+                    Icon(Icons.print_outlined, size: 18, color: Color(0xFF64748B)),
+                    SizedBox(width: 10),
+                    Text('Yazdır'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'date',
+                child: Row(
+                  children: [
+                    Icon(Icons.calendar_month_rounded, size: 18, color: Color(0xFF4F46E5)),
+                    SizedBox(width: 10),
+                    Text('Tarih Seç'),
+                  ],
+                ),
+              ),
+              if (_tabController.index == 0)
+                const PopupMenuItem(
+                  value: 'clear',
+                  child: Row(
+                    children: [
+                      Icon(Icons.delete_sweep, size: 18, color: Colors.red),
+                      SizedBox(width: 10),
+                      Text('Bu Haftaı Temizle',
+                          style: TextStyle(color: Colors.red)),
+                    ],
+                  ),
+                ),
+            ],
           ),
-          const SizedBox(width: 8),
         ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(100),
@@ -764,50 +817,56 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
               Container(
                 margin: const EdgeInsets.only(bottom: 16),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    // Date Range
-                    InkWell(
-                      onTap: _selectStatsDateRange,
-                      borderRadius: BorderRadius.circular(8),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          border: Border.all(color: Colors.grey.shade300),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(
-                              Icons.calendar_today,
-                              size: 16,
-                              color: Color(0xFF64748B),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              '${dateFormat.format(_statsStartDate)} - ${dateFormat.format(_statsEndDate)}',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF334155),
+                    // Date Range - Flexible ile overflow önleniyor
+                    Flexible(
+                      child: InkWell(
+                        onTap: _selectStatsDateRange,
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            border: Border.all(color: Colors.grey.shade300),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.calendar_today,
+                                size: 14,
+                                color: Color(0xFF64748B),
                               ),
-                            ),
-                            const SizedBox(width: 4),
-                            const Icon(
-                              Icons.arrow_drop_down,
-                              color: Color(0xFF64748B),
-                            ),
-                          ],
+                              const SizedBox(width: 6),
+                              Flexible(
+                                child: Text(
+                                  '${dateFormat.format(_statsStartDate)} - ${dateFormat.format(_statsEndDate)}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                    color: Color(0xFF334155),
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 2),
+                              const Icon(
+                                Icons.arrow_drop_down,
+                                size: 18,
+                                color: Color(0xFF64748B),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
-
                     IconButton(
                       tooltip: 'Raporu Yazdır',
-                      icon: const Icon(Icons.print_outlined),
+                      icon: const Icon(Icons.print_outlined, size: 20),
                       onPressed: _printStatsReport,
                     ),
                   ],
@@ -1315,6 +1374,7 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
     final data = {
       'institutionId': widget.institutionId,
       'periodId': widget.periodId,
+      'scopeType': widget.scopeType, // Kapsam modu kaydediliyor
       'locationId': locId,
       'locationName': _locations
           .firstWhere(

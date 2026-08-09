@@ -6,6 +6,11 @@ import 'term_service.dart';
 import 'user_permission_service.dart';
 
 class AnnouncementService {
+  // Singleton pattern: _schoolId ve _cachedInstitutionId cache'i widget rebuild'de sıfırlanmaz
+  static final AnnouncementService _instance = AnnouncementService._internal();
+  factory AnnouncementService() => _instance;
+  AnnouncementService._internal();
+
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 

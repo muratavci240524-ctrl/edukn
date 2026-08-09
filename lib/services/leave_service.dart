@@ -19,6 +19,7 @@ class LeaveService {
     bool isFullDay = true,
     String? startTime,
     String? endTime,
+    String? termId, // Aktif dönem ID'si
     // Legacy support
     String? userId,
     String? type,
@@ -50,6 +51,7 @@ class LeaveService {
       'isFullDay': isFullDay,
       'startTime': startTime,
       'endTime': endTime,
+      if (termId != null) 'termId': termId, // Dönem bazında filtreleme için
     });
     
     return docRef.id;
@@ -75,6 +77,7 @@ class LeaveService {
     required String institutionId,
     String? staffId,
     String? status,
+    String? termId, // null ise dönem filtresi uygulanmaz
   }) async {
     Query query = _firestore.collection('leave_requests').where('institutionId', isEqualTo: institutionId);
     
@@ -84,6 +87,10 @@ class LeaveService {
     
     if (status != null) {
       query = query.where('status', isEqualTo: status);
+    }
+
+    if (termId != null) {
+      query = query.where('termId', isEqualTo: termId);
     }
     
     final snapshot = await query.get();

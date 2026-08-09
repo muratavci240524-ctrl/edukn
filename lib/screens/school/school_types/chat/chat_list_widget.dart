@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'chat_models.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../../../../widgets/user_avatar.dart';
 
 class ChatListWidget extends StatelessWidget {
   final List<Conversation> conversations;
@@ -113,24 +114,10 @@ class ChatListWidget extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             child: Row(
               children: [
-                CircleAvatar(
+                UserAvatar(
+                  imageUrl: displayImage,
+                  displayName: chatTitle,
                   radius: 24,
-                  backgroundColor: Colors.grey.shade300,
-                  backgroundImage: (displayImage != null && displayImage.isNotEmpty)
-                      ? NetworkImage(displayImage)
-                      : null,
-                  child: (displayImage == null || displayImage.isEmpty)
-                      ? (displayTitle.isNotEmpty
-                          ? Text(
-                              displayTitle[0].toUpperCase(),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 18,
-                              ),
-                            )
-                          : const Icon(Icons.person, color: Colors.white, size: 28))
-                      : null,
                 ),
                 const SizedBox(width: 12),
                 Expanded(

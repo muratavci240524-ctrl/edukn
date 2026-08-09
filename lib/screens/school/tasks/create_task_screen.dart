@@ -2,15 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import '../../../widgets/custom_date_range_picker.dart';
 
 class CreateTaskScreen extends StatefulWidget {
   final String institutionId;
   final String schoolTypeId;
+  final String? termId; // Aktif dönem ID'si
 
   const CreateTaskScreen({
     Key? key,
     required this.institutionId,
     required this.schoolTypeId,
+    this.termId,
   }) : super(key: key);
 
   @override
@@ -470,20 +473,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   }
 
   Future<void> _pickDateTime() async {
-    final now = DateTime.now();
-    final date = await showDatePicker(
-      context: context,
-      initialDate: _selectedDate ?? now,
-      firstDate: now.subtract(const Duration(days: 365)),
-      lastDate: now.add(const Duration(days: 365 * 2)),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(primary: Color(0xFF4F46E5)),
-          ),
-          child: child!,
-        );
-      },
+    // Özel tarih bileşeni ile tek tarih seçimi
+    final date = await CustomDateRangePicker.showSingle(
+      context,
+      initialDate: _selectedDate,
     );
 
     if (date != null) {
@@ -494,7 +487,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         builder: (context, child) {
           return Theme(
             data: Theme.of(context).copyWith(
-              colorScheme: const ColorScheme.light(primary: Color(0xFF4F46E5)),
+              colorScheme:
+                  const ColorScheme.light(primary: Color(0xFF4F46E5)),
             ),
             child: child!,
           );
@@ -769,6 +763,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         'description': _descController.text.trim(),
         'institutionId': widget.institutionId,
         'schoolTypeId': widget.schoolTypeId,
+        'termId': widget.termId, // Aktif dönem kaydediliyor
         'creatorId': user.uid,
         'creatorName': _selectedUsers.any((u) => u['id'] == user.uid)
             ? _selectedUsers.firstWhere((u) => u['id'] == user.uid)['fullName']

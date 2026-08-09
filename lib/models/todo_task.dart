@@ -8,12 +8,14 @@ class ToDoTask {
   final String creatorName;
   final DateTime createdAt;
   final DateTime? deadline;
-  final List<String> assigneeIds; // UIDs of people assigned
-  final Map<String, String> assigneeNames; // UID -> Name mapping for display
-  final List<String>
-  completedBy; // UIDs of people who completed this specific instance
-  final String recurrence; // 'none', 'daily', 'weekly', 'monthly'
+  final List<String> assigneeIds;
+  final Map<String, String> assigneeNames;
+  final List<String> completedBy;
+  final String recurrence;
   final bool isArchived;
+  final String? termId;
+  /// uid → tamamladığı zaman
+  final Map<String, DateTime> completedAt;
 
   ToDoTask({
     required this.id,
@@ -28,25 +30,44 @@ class ToDoTask {
     required this.completedBy,
     required this.recurrence,
     this.isArchived = false,
+    this.termId,
+    this.completedAt = const {},
   });
 
   factory ToDoTask.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
+
+    // completedAt: {uid: Timestamp} map'i
+    Map<String, DateTime> completedAtMap = {};
+    final rawCompletedAt = data['completedAt'];
+    if (rawCompletedAt is Map) {
+      rawCompletedAt.forEach((k, v) {
+        if (v is Timestamp) {
+          completedAtMap[k.toString()] = v.toDate();
+        }
+      });
+    }
+
     return ToDoTask(
       id: doc.id,
       title: data['title'] ?? '',
       description: data['description'] ?? '',
       creatorId: data['creatorId'] ?? '',
       creatorName: data['creatorName'] ?? '',
-      createdAt: (data['createdAt'] as Timestamp).toDate(),
+      createdAt: data['createdAt'] != null
+          ? (data['createdAt'] as Timestamp).toDate()
+          : DateTime.now(),
       deadline: data['deadline'] != null
           ? (data['deadline'] as Timestamp).toDate()
           : null,
       assigneeIds: List<String>.from(data['assigneeIds'] ?? []),
-      assigneeNames: Map<String, String>.from(data['assigneeNames'] ?? {}),
+      assigneeNames: (data['assigneeNames'] as Map<dynamic, dynamic>? ?? {})
+          .map((k, v) => MapEntry(k.toString(), v?.toString() ?? '')),
       completedBy: List<String>.from(data['completedBy'] ?? []),
       recurrence: data['recurrence'] ?? 'none',
       isArchived: data['isArchived'] ?? false,
+      termId: data['termId'] as String?,
+      completedAt: completedAtMap,
     );
   }
 
@@ -61,8 +82,10 @@ class ToDoTask {
       'assigneeIds': assigneeIds,
       'assigneeNames': assigneeNames,
       'completedBy': completedBy,
+      'completedAt': completedAt.map((k, v) => MapEntry(k, Timestamp.fromDate(v))),
       'recurrence': recurrence,
       'isArchived': isArchived,
+      if (termId != null) 'termId': termId,
     };
   }
 }

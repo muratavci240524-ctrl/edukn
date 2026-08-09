@@ -8,8 +8,10 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:excel/excel.dart' as ex;
 import '../../../services/leave_service.dart';
 import '../../../services/leave_conflict_service.dart';
+import '../../../services/term_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'school_type_leave_approval_screen.dart';
+import '../../../widgets/custom_date_range_picker.dart';
 
 class SchoolTypeLeaveManagementScreen extends StatefulWidget {
   final String? institutionId;
@@ -32,6 +34,7 @@ class _SchoolTypeLeaveManagementScreenState extends State<SchoolTypeLeaveManagem
   late TabController _tabController;
 
   Map<String, dynamic>? _currentUserData;
+  String? _activeTermId; // Aktif dönem
   List<Map<String, dynamic>> _pendingRequests = [];
   List<Map<String, dynamic>> _historyRequests = [];
   List<Map<String, dynamic>> _allStaff = [];
@@ -50,7 +53,7 @@ class _SchoolTypeLeaveManagementScreenState extends State<SchoolTypeLeaveManagem
     super.dispose();
   }
 
-  Future<void> _loadData() async {
+  Future<void> _loadData({int retryCount = 0}) async {
     if (!mounted) return;
     setState(() => _loading = true);
     try {
@@ -78,6 +81,9 @@ class _SchoolTypeLeaveManagementScreenState extends State<SchoolTypeLeaveManagem
         return data;
       }).toList();
 
+      // Aktif dönemi al
+      _activeTermId = await TermService().getActiveTermId();
+
       // İzin taleplerini çek (Yönetici değilse sadece kendininkileri)
       final bool isManager =
           _currentUserData?['role'] == 'admin' ||
@@ -87,6 +93,7 @@ class _SchoolTypeLeaveManagementScreenState extends State<SchoolTypeLeaveManagem
       final allRequests = await _service.getLeaveRequests(
         institutionId: instId ?? '',
         staffId: isManager ? null : user?.uid,
+        termId: _activeTermId, // Sadece aktif dönem
       );
 
       if (mounted) {
@@ -114,10 +121,15 @@ class _SchoolTypeLeaveManagementScreenState extends State<SchoolTypeLeaveManagem
         });
       }
     } catch (e) {
+      // Firebase Web SDK iç assertion hatası — 2 saniye bekleyip tekrar dene
+      final errStr = e.toString();
+      if (errStr.contains('INTERNAL ASSERTION FAILED') && retryCount < 3) {
+        debugPrint('Firebase assertion hatası, ${ retryCount + 1}. retry...');
+        await Future.delayed(const Duration(seconds: 2));
+        return _loadData(retryCount: retryCount + 1);
+      }
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Hata: $e')));
+        debugPrint('İzin yönetimi yüklenirken hata: $e');
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -338,104 +350,99 @@ class _SchoolTypeLeaveManagementScreenState extends State<SchoolTypeLeaveManagem
                         // Date range card
                         _buildSectionTitle('Tarih Aralığı'),
                         const SizedBox(height: 8),
-                        Container(
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade50,
+                        Builder(
+                          builder: (btnCtx) => InkWell(
                             borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: Colors.grey.shade200),
-                          ),
-                          child: Column(
-                            children: [
-                              ListTile(
-                                leading: const Icon(
-                                  Icons.calendar_today_outlined,
-                                  color: Colors.blue,
-                                  size: 18,
+                            onTap: () async {
+                              final range = await CustomDateRangePicker.showRange(
+                                context,
+                                sourceContext: btnCtx,
+                                initialRange: DateTimeRange(
+                                  start: startDate,
+                                  end: endDate,
                                 ),
-                                title: const Text(
-                                  'Başlangıç',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: Colors.grey,
-                                  ),
-                                ),
-                                subtitle: Text(
-                                  DateFormat(
-                                    'd MMMM yyyy (EEEE)',
-                                    'tr_TR',
-                                  ).format(startDate),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 15,
-                                    color: Colors.black87,
-                                  ),
-                                ),
-                                onTap: () async {
-                                  final picked = await showDatePicker(
-                                    context: context,
-                                    initialDate: startDate,
-                                    firstDate: DateTime(2020),
-                                    lastDate: DateTime.now().add(
-                                      const Duration(days: 365),
-                                    ),
-                                    locale: const Locale('tr', 'TR'),
-                                  );
-                                  if (picked != null) {
-                                    setDialogState(() {
-                                      startDate = picked;
-                                      endDate = startDate;
-                                    });
+                                desktopAlignment: Alignment.center,
+                                desktopPadding: EdgeInsets.zero,
+                              );
+                              if (range != null) {
+                                setDialogState(() {
+                                  startDate = range.start;
+                                  endDate = range.end;
+                                  // Farklı günler seçildiyse tam gün izne geç
+                                  if (startDate.day != endDate.day ||
+                                      startDate.month != endDate.month ||
+                                      startDate.year != endDate.year) {
+                                    isFullDay = true;
                                   }
-                                },
+                                });
+                              }
+                            },
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade50,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: Colors.grey.shade200),
                               ),
-                              const Divider(indent: 50, height: 1),
-                              ListTile(
-                                leading: const Icon(
-                                  Icons.event_outlined,
-                                  color: Colors.orange,
-                                  size: 18,
-                                ),
-                                title: const Text(
-                                  'Bitiş',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: Colors.grey,
-                                  ),
-                                ),
-                                subtitle: Text(
-                                  DateFormat(
-                                    'd MMMM yyyy (EEEE)',
-                                    'tr_TR',
-                                  ).format(endDate),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 15,
-                                    color: Colors.black87,
-                                  ),
-                                ),
-                                onTap: () async {
-                                  final picked = await showDatePicker(
-                                    context: context,
-                                    initialDate: endDate,
-                                    firstDate: startDate,
-                                    lastDate: DateTime.now().add(
-                                      const Duration(days: 365),
+                              child: Column(
+                                children: [
+                                  ListTile(
+                                    leading: const Icon(
+                                      Icons.calendar_today_outlined,
+                                      color: Colors.blue,
+                                      size: 18,
                                     ),
-                                    locale: const Locale('tr', 'TR'),
-                                  );
-                                  if (picked != null) {
-                                    setDialogState(() {
-                                      endDate = picked;
-                                      if (startDate.day != endDate.day ||
-                                          startDate.month != endDate.month ||
-                                          startDate.year != endDate.year) {
-                                        isFullDay = true;
-                                      }
-                                    });
-                                  }
-                                },
+                                    title: const Text(
+                                      'Başlangıç',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: Colors.grey,
+                                      ),
+                                    ),
+                                    subtitle: Text(
+                                      DateFormat('d MMMM yyyy (EEEE)', 'tr_TR')
+                                          .format(startDate),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 15,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                    trailing: const Icon(
+                                        Icons.edit_calendar_outlined,
+                                        size: 16,
+                                        color: Colors.grey),
+                                  ),
+                                  const Divider(indent: 50, height: 1),
+                                  ListTile(
+                                    leading: const Icon(
+                                      Icons.event_outlined,
+                                      color: Colors.orange,
+                                      size: 18,
+                                    ),
+                                    title: const Text(
+                                      'Bitiş',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: Colors.grey,
+                                      ),
+                                    ),
+                                    subtitle: Text(
+                                      DateFormat('d MMMM yyyy (EEEE)', 'tr_TR')
+                                          .format(endDate),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 15,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                    trailing: const Icon(
+                                        Icons.edit_calendar_outlined,
+                                        size: 16,
+                                        color: Colors.grey),
+                                  ),
+                                ],
                               ),
-                            ],
+                            ),
                           ),
                         ),
 
@@ -632,6 +639,7 @@ class _SchoolTypeLeaveManagementScreenState extends State<SchoolTypeLeaveManagem
                                 endTime: endStr,
                                 note: reasonController.text,
                                 role: _currentUserData?['role'] ?? 'admin',
+                                termId: _activeTermId, // Aktif döneme kaydet
                               );
                               if (mounted) {
                                 Navigator.pop(context);

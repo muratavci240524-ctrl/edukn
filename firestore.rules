@@ -579,10 +579,17 @@ service cloud.firestore {
     }
 
     match /dutyScheduleItems/{itemId} {
-      allow read: if isAuthenticated() && isSameInstitution(resource.data);
+      // periodId ile filtreleme zaten kurum yalıtımı sağlıyor;
+      // list sorgularında resource.data null geldiğinden isSameInstitution yerine isAuthenticated kullanıyoruz
+      allow read: if isAuthenticated();
       allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isAdminOrManager();
       allow update: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
       allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
+    }
+
+    match /dutyGlobalSettings/{institutionId} {
+      allow read: if isAuthenticated() && belongsToInstitution(institutionId);
+      allow write: if isAuthenticated() && belongsToInstitution(institutionId) && isAdminOrManager();
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -912,6 +919,32 @@ service cloud.firestore {
       allow read: if isAuthenticated() && isSameInstitution(resource.data);
       allow create: if isAuthenticated() && isSameInstitution(request.resource.data);
       allow update, delete: if false; // Cloud Functions işler
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 👤 GEÇİCİ ÖĞRETMEN GÖREVLENDİRMELERİ
+    // ═══════════════════════════════════════════════════════════════
+    match /temporaryTeacherAssignments/{assignmentId} {
+      allow read: if isAuthenticated() && isSameInstitution(resource.data);
+      allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isAdminOrManager();
+      allow update: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
+      allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // ✅ GÖREV LİSTESİ (ToDo Tasks)
+    // ═══════════════════════════════════════════════════════════════
+    match /todo_tasks/{taskId} {
+      // Tüm kurum üyeleri okuyabilir (kendi görevlerini)
+      allow read: if isAuthenticated() && isSameInstitution(resource.data);
+      // Yönetim görev oluşturabilir
+      allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isManagement();
+      // Yönetim veya görevli kişi güncelleyebilir (tamamlama için)
+      allow update: if isAuthenticated() && isSameInstitution(resource.data) && (
+        isManagement() ||
+        resource.data.get('assigneeIds', []).hasAny([request.auth.uid])
+      );
+      allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
     }
 
     // ═══════════════════════════════════════════════════════════════

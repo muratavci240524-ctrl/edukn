@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import '../../../models/school/temporary_teacher_assignment.dart';
 import '../../../services/pdf_service.dart';
+import '../../../services/term_service.dart';
 import 'package:printing/printing.dart';
 import 'create_substitute_assignment_screen.dart';
 
@@ -27,6 +28,7 @@ class _SubstituteTeacherListScreenState
     extends State<SubstituteTeacherListScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  String? _activeTermId; // Aktif dönem filtresi
 
   // Date filter
   DateTime _selectedDate = DateTime.now();
@@ -40,6 +42,12 @@ class _SubstituteTeacherListScreenState
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _loadTermId();
+  }
+
+  Future<void> _loadTermId() async {
+    final termId = await TermService().getActiveTermId();
+    if (mounted) setState(() => _activeTermId = termId);
   }
 
   @override
@@ -344,12 +352,18 @@ class _SubstituteTeacherListScreenState
     }
 
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('temporaryTeacherAssignments')
-          .where('institutionId', isEqualTo: widget.institutionId)
-          .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
-          .where('date', isLessThanOrEqualTo: Timestamp.fromDate(end))
-          .snapshots(),
+      stream: (() {
+        Query q = FirebaseFirestore.instance
+            .collection('temporaryTeacherAssignments')
+            .where('institutionId', isEqualTo: widget.institutionId)
+            .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+            .where('date', isLessThanOrEqualTo: Timestamp.fromDate(end));
+        // Aktif dönem filtresi
+        if (_activeTermId != null) {
+          q = q.where('termId', isEqualTo: _activeTermId);
+        }
+        return q.snapshots();
+      })(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());

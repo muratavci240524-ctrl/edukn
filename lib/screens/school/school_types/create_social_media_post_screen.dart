@@ -156,7 +156,7 @@ class _CreateSocialMediaPostScreenState
         if (userQuery.docs.isNotEmpty) {
           final userData = userQuery.docs.first.data();
           creatorName = userData['fullName'] ?? userData['name'] ?? creatorName;
-          creatorPhotoUrl = userData['photoUrl'];
+          creatorPhotoUrl = userData['profileImageUrl'] ?? userData['photoUrl'];
         }
       } catch (e) {
         debugPrint("Kullanıcı detay hatası: $e");

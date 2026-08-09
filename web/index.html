@@ -44,6 +44,12 @@
   <title>edukn</title>
   <link rel="manifest" href="manifest.json">
 
+  <!-- Material Icons Font (Flutter 3.44+ için gerekli) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons|Material+Icons+Outlined|Material+Icons+Round|Material+Icons+Sharp" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+
   <!-- Firebase SDK'ları -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -185,23 +191,26 @@
   <script>
     (function() {
       let _lastHiddenTime = 0;
+      const RELOAD_THRESHOLD_MS = 10 * 60 * 1000; // 10 dakika (eski: 15 saniye)
+
       document.addEventListener('visibilitychange', function() {
         if (document.hidden) {
           _lastHiddenTime = Date.now();
         } else {
           if (_lastHiddenTime > 0) {
             const timeHiddenMs = Date.now() - _lastHiddenTime;
-            // Eğer uygulama 15 saniyeden (15000ms) fazla arka planda kaldıysa
-            // ve öne getirildiyse, sayfayı yenile ki WebGL/Canvas çökmesi boş ekran yaratmasın.
-            if (timeHiddenMs > 15000) {
-              console.log('🔄 Uygulama arka planda kaldı, yenileniyor...');
+            // Sadece 10 dakikadan uzun süre arka planda kaldıysa yenile
+            // (sekme değiştirme, kısa bekleme gibi durumlarda YENILEME YAPMA)
+            if (timeHiddenMs > RELOAD_THRESHOLD_MS) {
+              console.log('🔄 Uygulama uzun süre arka planda kaldı (' + Math.round(timeHiddenMs/60000) + ' dk), yenileniyor...');
               window.location.reload();
             }
           }
+          _lastHiddenTime = 0; // sıfırla
         }
       });
 
-      // Alternatif: WebGL Context koptuğunda direkt sayfayı yenile
+      // Sadece gerçek WebGL context kaybında yenile (sekme değiştirmede değil)
       document.addEventListener('webglcontextlost', function(e) {
         e.preventDefault();
         console.log('❌ WebGL Context Lost! Sayfa yenileniyor...');
