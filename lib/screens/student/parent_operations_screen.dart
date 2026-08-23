@@ -9,6 +9,9 @@ import 'student_exam_stats_screen.dart';
 import '../school/guidance/saved_study_programs_screen.dart';
 import '../portfolio/portfolio_screen.dart';
 import '../school/assessment/assessment_reports_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'parent_accounting_screen.dart';
 
 
 class ParentOperationsScreen extends StatefulWidget {
@@ -34,11 +37,34 @@ class _ParentOperationsScreenState extends State<ParentOperationsScreen> {
   String _classLevel = '';
   Map<String, dynamic>? _studentData;
   String _selectedCategory = 'Tümü';
+  bool _isParentUser = false;
 
   @override
   void initState() {
     super.initState();
+    _checkParentRole();
     _loadStudentSchoolType();
+  }
+
+  Future<void> _checkParentRole() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final prefRole = (prefs.getString('userRole') ?? prefs.getString('role') ?? '').toLowerCase();
+      if (prefRole == 'parent' || prefRole == 'veli') {
+        if (mounted) setState(() => _isParentUser = true);
+        return;
+      }
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        if (doc.exists) {
+          final role = (doc.data()?['role'] ?? '').toString().toLowerCase();
+          final tcNo = (doc.data()?['tcNo'] ?? '').toString().trim();
+          final isParent = role == 'parent' || role == 'veli' || (tcNo.isNotEmpty && role != 'student' && role != 'ogrenci');
+          if (mounted) setState(() => _isParentUser = isParent);
+        }
+      }
+    } catch (_) {}
   }
 
   @override
@@ -145,6 +171,8 @@ class _ParentOperationsScreenState extends State<ParentOperationsScreen> {
       {'label': 'Tümü', 'icon': Icons.grid_view_rounded, 'id': 'Tümü'},
       {'label': 'Eğitim İşlemleri', 'icon': Icons.school_rounded, 'id': 'Eğitim'},
       {'label': 'Portfolyo', 'icon': Icons.folder_special_rounded, 'id': 'Portfolyo'},
+      if (_isParentUser)
+        {'label': 'Mali İşler', 'icon': Icons.account_balance_wallet_rounded, 'id': 'Mali İşler'},
     ];
 
     return Container(
@@ -354,6 +382,57 @@ class _ParentOperationsScreenState extends State<ParentOperationsScreen> {
       {'title': 'Etkinlik Raporları', 'onTap': () => _openPortfolioTab(13)},
     ];
 
+    final accountingItems = <Map<String, dynamic>>[
+      {
+        'title': 'Öğrenci Taksit & Ödeme Planı',
+        'onTap': () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (ctx) => ParentAccountingScreen(
+                institutionId: widget.institutionId,
+                studentId: _studentId,
+                studentName: '${(_studentData?['name'] ?? '').toString().trim()} ${(_studentData?['surname'] ?? '').toString().trim()}'.trim(),
+                studentNo: (_studentData?['studentNumber'] ?? _studentData?['studentNo'] ?? '').toString(),
+              ),
+            ),
+          );
+        },
+      },
+      {
+        'title': 'Ödenen Taksitler & Makbuzlar',
+        'onTap': () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (ctx) => ParentAccountingScreen(
+                institutionId: widget.institutionId,
+                studentId: _studentId,
+                studentName: '${(_studentData?['name'] ?? '').toString().trim()} ${(_studentData?['surname'] ?? '').toString().trim()}'.trim(),
+                studentNo: (_studentData?['studentNumber'] ?? _studentData?['studentNo'] ?? '').toString(),
+              ),
+            ),
+          );
+        },
+      },
+      {
+        'title': 'Kalan Bakiye & Vade Takvimi',
+        'onTap': () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (ctx) => ParentAccountingScreen(
+                institutionId: widget.institutionId,
+                studentId: _studentId,
+                studentName: '${(_studentData?['name'] ?? '').toString().trim()} ${(_studentData?['surname'] ?? '').toString().trim()}'.trim(),
+                studentNo: (_studentData?['studentNumber'] ?? _studentData?['studentNo'] ?? '').toString(),
+              ),
+            ),
+          );
+        },
+      },
+    ];
+
     final allModules = [
       _ModuleCardWidget(
         title: 'EĞİTİM İŞLEMLERİ',
@@ -379,6 +458,19 @@ class _ParentOperationsScreenState extends State<ParentOperationsScreen> {
         items: portfolioItems,
         onTap: () => setState(() => _selectedCategory = 'Portfolyo'),
       ),
+      if (_isParentUser)
+        _ModuleCardWidget(
+          title: 'MUHASEBE & ÖDEME PLANI',
+          badge: 'Mali İşler',
+          icon: Icons.account_balance_wallet_rounded,
+          color: const Color(0xFF10B981),
+          cardWidth: cardWidth,
+          isMobile: isMobile,
+          category: 'Mali İşler',
+          showAllItems: isFiltered && _selectedCategory == 'Mali İşler',
+          items: accountingItems,
+          onTap: () => setState(() => _selectedCategory = 'Mali İşler'),
+        ),
     ];
 
     final filteredModules = (_selectedCategory == 'Tümü'

@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../../../models/assessment/exam_type_model.dart';
 import '../../../../services/assessment_service.dart';
-import './exam_type_form_screen.dart';
+import './exam_type_form_screen.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+
 
 class ExamTypeListScreen extends StatefulWidget {
   final String institutionId;
@@ -235,7 +236,7 @@ class _ExamTypeListScreenState extends State<ExamTypeListScreen> {
                 ),
               ),
               const Spacer(),
-              StreamBuilder<List<ExamType>>(
+              SafeStreamBuilder<List<ExamType>>(
                 stream: _getStream(),
                 builder: (context, snapshot) {
                   final count = snapshot.hasData ? snapshot.data!.length : 0;
@@ -309,7 +310,7 @@ class _ExamTypeListScreenState extends State<ExamTypeListScreen> {
   }
 
   Widget _buildList({required bool isMobile}) {
-    return StreamBuilder<List<ExamType>>(
+    return SafeStreamBuilder<List<ExamType>>(
       stream: _getStream(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {

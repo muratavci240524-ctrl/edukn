@@ -26,7 +26,8 @@ class CampGroupGridScreen extends StatefulWidget {
   State<CampGroupGridScreen> createState() => _CampGroupGridScreenState();
 }
 
-class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTickerProviderStateMixin {
+class _CampGroupGridScreenState extends State<CampGroupGridScreen>
+    with SingleTickerProviderStateMixin {
   final _service = CampService();
   final _repo = CampRepository();
   final _db = FirebaseFirestore.instance;
@@ -43,7 +44,7 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
   List<Map<String, dynamic>> _absentStudents = [];
   List<String> _excludedStudents = [];
   Map<String, List<String>> _unassignedReasons = {};
-  
+
   final Set<String> _selectedStudentIds = {};
 
   bool _loading = true;
@@ -69,82 +70,149 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
       _loadingMessage = 'Kamp durumu ve gruplar getiriliyor...';
     });
 
-    final cycleDoc = await _db.collection('camp_cycles').doc(widget.cycle.id).get();
-    CampCycle currentCycle = widget.cycle;
-    if (cycleDoc.exists) {
-      currentCycle = CampCycle.fromMap(cycleDoc.data()!, cycleDoc.id);
-    }
-
-    final groups = await _repo.getGroupsByCycle(widget.cycle.id);
-    
-    if (mounted) setState(() => _loadingMessage = 'Öğrenci atamaları yükleniyor...');
-    final snap = await _db.collection('camp_assignments').where('cycleId', isEqualTo: widget.cycle.id).get();
-    final assignments = snap.docs.map((d) => CampAssignment.fromMap(d.data(), d.id)).toList();
-
-    final Map<String, List<CampAssignment>> byGroup = {};
-    for (var g in groups) byGroup[g.id] = [];
-    for (var a in assignments) byGroup.putIfAbsent(a.groupId, () => []).add(a);
-
-    if (mounted) {
-      setState(() {
-        _groups = groups;
-        _assignmentsByGroup = byGroup;
-        _unassignedStudents = currentCycle.unassignedStudentIds;
-        _underAssignedStudents = currentCycle.underAssignedStudentIds;
-        _unassignedReasons = currentCycle.unassignedReasons;
-        _excludedStudents = currentCycle.excludedStudentIds;
-        _loadingMessage = 'Şube ve öğrenci listeleri oluşturuluyor...';
-      });
-      await _loadBranchStudentsForCycle(currentCycle);
-      _calculateAbsentStudents(currentCycle);
-      
-      if (mounted) {
-        setState(() => _loading = false);
+    try {
+      final cycleDoc = await _db
+          .collection('camp_cycles')
+          .doc(widget.cycle.id)
+          .get();
+      CampCycle currentCycle = widget.cycle;
+      if (cycleDoc.exists) {
+        currentCycle = CampCycle.fromMap(cycleDoc.data()!, cycleDoc.id);
       }
 
-      // Check if we need to auto-assign special class
-      if (currentCycle.isSpecialClassActive && !currentCycle.specialClassGenerated && _allBranchStudents.isNotEmpty) {
-         final specialGroups = _groups.where((g) => g.isSpecial).toList();
-         if (specialGroups.isNotEmpty) {
-            await _autoAssignSpecialClassSilent(currentCycle, _groups, _allBranchStudents);
-         }
+      final groups = await _repo.getGroupsByCycle(widget.cycle.id);
+
+      if (mounted)
+        setState(() => _loadingMessage = 'Öğrenci atamaları yükleniyor...');
+      final snap = await _db
+          .collection('camp_assignments')
+          .where('cycleId', isEqualTo: widget.cycle.id)
+          .get();
+      final assignments = snap.docs
+          .map((d) => CampAssignment.fromMap(d.data(), d.id))
+          .toList();
+
+      final Map<String, List<CampAssignment>> byGroup = {};
+      for (var g in groups) byGroup[g.id] = [];
+      for (var a in assignments)
+        byGroup.putIfAbsent(a.groupId, () => []).add(a);
+
+      if (mounted) {
+        setState(() {
+          _groups = groups;
+          _assignmentsByGroup = byGroup;
+          _unassignedStudents = currentCycle.unassignedStudentIds;
+          _underAssignedStudents = currentCycle.underAssignedStudentIds;
+          _unassignedReasons = currentCycle.unassignedReasons;
+          _excludedStudents = currentCycle.excludedStudentIds;
+          _loadingMessage = 'Şube ve öğrenci listeleri oluşturuluyor...';
+        });
+        await _loadBranchStudentsForCycle(currentCycle);
+        _calculateAbsentStudents(currentCycle);
+
+        if (mounted) {
+          setState(() => _loading = false);
+        }
+
+        // Sadece draft modda ve gerekli koşullar sağlanıyorsa özel sınıf ata
+        final bool isDraft = currentCycle.status == CampCycleStatus.draft;
+        if (isDraft &&
+            currentCycle.isSpecialClassActive &&
+            !currentCycle.specialClassGenerated &&
+            _allBranchStudents.isNotEmpty) {
+          final specialGroups = _groups.where((g) => g.isSpecial).toList();
+          if (specialGroups.isNotEmpty) {
+            await _autoAssignSpecialClassSilent(
+              currentCycle,
+              _groups,
+              _allBranchStudents,
+            );
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Kamp verileri yüklenirken hata: $e');
+      if (mounted) {
+        setState(() => _loading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Veriler yüklenirken hata oluştu: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
   }
 
-  Future<void> _autoAssignSpecialClassSilent(CampCycle cycle, List<CampGroup> groups, List<Map<String, dynamic>> branchStudents) async {
-    setState(() => _loadingMessage = 'Özel sınıf otomatik yerleştiriliyor...');
-    final profiles = await _createStudentNeedProfiles(branchStudents, (s) {});
-    final engine = CampAssignmentEngine(cycleId: cycle.id, institutionId: cycle.institutionId);
-    final atamalar = engine.generateSpecialClassOnly(ogrenciProfiller: profiles, gruplar: groups, specialClassCriteria: cycle.specialClassCriteria);
-    if (atamalar.isNotEmpty) {
-       final specialGroupIds = groups.where((g) => g.isSpecial).map((e) => e.id).toSet();
-       final snap = await _db.collection('camp_assignments').where('cycleId', isEqualTo: cycle.id).get();
-       final refsToDelete = snap.docs.where((d) => specialGroupIds.contains(d.data()['groupId'] as String)).map((d) => d.reference).toList();
-       if (refsToDelete.isNotEmpty) {
-         await _repo.batchDeleteByRefs(refsToDelete);
-       }
-       
-       await _repo.batchWriteAssignments(atamalar);
-       final List<CampGroup> updatedGroups = [];
-       for (var g in groups) {
-          if (g.isSpecial) {
-             final assignedCount = atamalar.where((a) => a.groupId == g.id).length;
-             updatedGroups.add(g.copyWith(mevcutOgrenciSayisi: assignedCount, kazanimlar: ['Soru Çözüm']));
-          } else {
-             updatedGroups.add(g);
-          }
-       }
-       await _repo.batchUpdateGroups(updatedGroups.where((g) => g.isSpecial).toList());
-       
-       // Update cycle to mark special class as generated
-       await _db.collection('camp_cycles').doc(cycle.id).update({
-         'specialClassGenerated': true,
-       });
+  Future<void> _autoAssignSpecialClassSilent(
+    CampCycle cycle,
+    List<CampGroup> groups,
+    List<Map<String, dynamic>> branchStudents,
+  ) async {
+    try {
+      setState(
+        () => _loadingMessage = 'Özel sınıf otomatik yerleştiriliyor...',
+      );
+      final profiles = await _createStudentNeedProfiles(branchStudents, (s) {});
+      final engine = CampAssignmentEngine(
+        cycleId: cycle.id,
+        institutionId: cycle.institutionId,
+      );
+      final atamalar = engine.generateSpecialClassOnly(
+        ogrenciProfiller: profiles,
+        gruplar: groups,
+        specialClassCriteria: cycle.specialClassCriteria,
+      );
+      if (atamalar.isNotEmpty) {
+        final specialGroupIds = groups
+            .where((g) => g.isSpecial)
+            .map((e) => e.id)
+            .toSet();
+        final snap = await _db
+            .collection('camp_assignments')
+            .where('cycleId', isEqualTo: cycle.id)
+            .get();
+        final refsToDelete = snap.docs
+            .where(
+              (d) => specialGroupIds.contains(d.data()['groupId'] as String),
+            )
+            .map((d) => d.reference)
+            .toList();
+        if (refsToDelete.isNotEmpty) {
+          await _repo.batchDeleteByRefs(refsToDelete);
+        }
 
-       await _loadData(); // reload again
-    } else {
-       if (mounted) setState(() => _loading = false);
+        await _repo.batchWriteAssignments(atamalar);
+        final List<CampGroup> updatedGroups = [];
+        for (var g in groups) {
+          if (g.isSpecial) {
+            final assignedCount = atamalar
+                .where((a) => a.groupId == g.id)
+                .length;
+            updatedGroups.add(
+              g.copyWith(
+                mevcutOgrenciSayisi: assignedCount,
+                kazanimlar: ['Soru Çözüm'],
+              ),
+            );
+          } else {
+            updatedGroups.add(g);
+          }
+        }
+        await _repo.batchUpdateGroups(
+          updatedGroups.where((g) => g.isSpecial).toList(),
+        );
+      }
+
+      // Atama olsun olmasın, specialClassGenerated'ı true yap (sonsuz döngüyü önle)
+      await _db.collection('camp_cycles').doc(cycle.id).update({
+        'specialClassGenerated': true,
+      });
+
+      await _loadData(); // reload again
+    } catch (e) {
+      debugPrint('Özel sınıf atama hatası: $e');
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -152,19 +220,23 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
     setState(() {
       _absentStudents = _allBranchStudents
           .where((s) => cycle.absentStudentIds.contains(s['id']))
-          .map((s) => {
-                'id': s['id'],
-                'name': (s['fullName'] ?? s['name'] ?? 'İsimsiz').toString(),
-                'branch': (s['className'] ?? s['branch'] ?? '').toString(),
-                'subeId': s['branchId'] ?? '',
-              })
+          .map(
+            (s) => <String, dynamic>{
+              'id': s['id'],
+              'name': (s['fullName'] ?? s['name'] ?? 'İsimsiz').toString(),
+              'branch': (s['className'] ?? s['branch'] ?? '').toString(),
+              'subeId': s['branchId'] ?? '',
+            },
+          )
           .toList();
     });
   }
 
   Future<void> _loadBranchStudentsForCycle(CampCycle cycle) async {
     try {
-      final List<String> examIds = cycle.referansDenemeSinavIds.isNotEmpty ? cycle.referansDenemeSinavIds : [cycle.referansDenemeSinavId];
+      final List<String> examIds = cycle.referansDenemeSinavIds.isNotEmpty
+          ? cycle.referansDenemeSinavIds
+          : [cycle.referansDenemeSinavId];
       final List<Map<String, dynamic>> branchStudents = [];
       final Set<String> processedStudentIds = {};
 
@@ -173,12 +245,20 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
         if (!examDoc.exists) continue;
 
         final examData = examDoc.data()!;
-        final selectedBranches = (examData['selectedBranches'] as List<dynamic>? ?? []).map((e) => e.toString()).toList();
+        final selectedBranches =
+            (examData['selectedBranches'] as List<dynamic>? ?? [])
+                .map((e) => e.toString())
+                .toList();
         final classLevel = examData['classLevel']?.toString() ?? '';
 
         if (selectedBranches.isNotEmpty) {
-          final futures = selectedBranches.map((branch) => 
-            _db.collection('students').where('institutionId', isEqualTo: cycle.institutionId).where('className', isEqualTo: branch).where('isActive', isEqualTo: true).get()
+          final futures = selectedBranches.map(
+            (branch) => _db
+                .collection('students')
+                .where('institutionId', isEqualTo: cycle.institutionId)
+                .where('className', isEqualTo: branch)
+                .where('isActive', isEqualTo: true)
+                .get(),
           );
           final snaps = await Future.wait(futures);
           for (final snap in snaps) {
@@ -189,7 +269,12 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
             }
           }
         } else if (classLevel.isNotEmpty) {
-          final snap = await _db.collection('students').where('institutionId', isEqualTo: cycle.institutionId).where('classLevel', isEqualTo: classLevel).where('isActive', isEqualTo: true).get();
+          final snap = await _db
+              .collection('students')
+              .where('institutionId', isEqualTo: cycle.institutionId)
+              .where('classLevel', isEqualTo: classLevel)
+              .where('isActive', isEqualTo: true)
+              .get();
           for (final doc in snap.docs) {
             if (processedStudentIds.contains(doc.id)) continue;
             processedStudentIds.add(doc.id);
@@ -203,7 +288,9 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
           _totalPotentialStudents = branchStudents.length;
         });
       }
-    } catch (e) { print('Öğrenci yükleme hatası: $e'); }
+    } catch (e) {
+      print('Öğrenci yükleme hatası: $e');
+    }
   }
 
   @override
@@ -214,7 +301,10 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
-        title: Text(widget.cycle.title ?? 'Kamp Grupları', style: const TextStyle(color: Colors.white, fontSize: 16)),
+        title: Text(
+          widget.cycle.title ?? 'Kamp Grupları',
+          style: const TextStyle(color: Colors.white, fontSize: 16),
+        ),
         backgroundColor: Colors.orange.shade700,
         iconTheme: const IconThemeData(color: Colors.white),
         centerTitle: true,
@@ -233,7 +323,11 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                   value: 'publish',
                   child: Row(
                     children: [
-                      Icon(Icons.publish, size: 20, color: Colors.green.shade700),
+                      Icon(
+                        Icons.publish,
+                        size: 20,
+                        color: Colors.green.shade700,
+                      ),
                       const SizedBox(width: 12),
                       const Text('Yayınla (Etüt Oluştur)'),
                     ],
@@ -244,7 +338,11 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                   value: 'unpublish',
                   child: Row(
                     children: [
-                      Icon(Icons.cancel_presentation, size: 20, color: Colors.red.shade700),
+                      Icon(
+                        Icons.cancel_presentation,
+                        size: 20,
+                        color: Colors.red.shade700,
+                      ),
                       const SizedBox(width: 12),
                       const Text('Yayından Kaldır'),
                     ],
@@ -254,7 +352,11 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                 value: 'reset',
                 child: Row(
                   children: [
-                    Icon(Icons.delete_sweep, size: 20, color: Colors.red.shade400),
+                    Icon(
+                      Icons.delete_sweep,
+                      size: 20,
+                      color: Colors.red.shade400,
+                    ),
                     const SizedBox(width: 12),
                     const Text('Dağıtımı Sıfırla'),
                   ],
@@ -268,79 +370,112 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white60,
           indicatorColor: Colors.white,
-          labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+          labelStyle: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
+          ),
           unselectedLabelStyle: const TextStyle(fontSize: 13),
           tabs: [
             const Tab(text: 'Gruplar'),
-            Tab(child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                const Text('Yerleşemeyenler'),
-                if ((_unassignedStudents.length + _underAssignedStudents.length + _absentStudents.length + _excludedStudents.length) > 0) ...[
-                  const SizedBox(width: 4),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                    decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(8)),
-                    child: Text('${_unassignedStudents.length + _underAssignedStudents.length + _absentStudents.length + _excludedStudents.length}', 
-                      style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
-                  ),
-                ]
-              ]),
-            )),
+            Tab(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('Yerleşemeyenler'),
+                    if ((_unassignedStudents.length +
+                            _underAssignedStudents.length +
+                            _absentStudents.length +
+                            _excludedStudents.length) >
+                        0) ...[
+                      const SizedBox(width: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 1,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.red,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          '${_unassignedStudents.length + _underAssignedStudents.length + _absentStudents.length + _excludedStudents.length}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
             const Tab(text: 'Raporlar'),
           ],
         ),
       ),
-      body: _loading 
-        ? Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    SizedBox(
-                      width: 70, height: 70,
-                      child: CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.orange.shade700),
-                        strokeWidth: 4,
-                        backgroundColor: Colors.orange.shade100,
+      body: _loading
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      SizedBox(
+                        width: 70,
+                        height: 70,
+                        child: CircularProgressIndicator(
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Colors.orange.shade700,
+                          ),
+                          strokeWidth: 4,
+                          backgroundColor: Colors.orange.shade100,
+                        ),
+                      ),
+                      Icon(
+                        Icons.auto_awesome,
+                        color: Colors.orange.shade700,
+                        size: 28,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 300),
+                    child: Text(
+                      _loadingMessage,
+                      key: ValueKey<String>(_loadingMessage),
+                      style: TextStyle(
+                        fontSize: 15,
+                        color: Colors.grey.shade800,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.3,
                       ),
                     ),
-                    Icon(Icons.auto_awesome, color: Colors.orange.shade700, size: 28),
-                  ],
-                ),
-                const SizedBox(height: 24),
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 300),
-                  child: Text(
-                    _loadingMessage,
-                    key: ValueKey<String>(_loadingMessage),
-                    style: TextStyle(
-                      fontSize: 15,
-                      color: Colors.grey.shade800,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0.3,
-                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Lütfen bekleyin, verileriniz hazırlanıyor...',
-                  style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
-                ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Lütfen bekleyin, verileriniz hazırlanıyor...',
+                    style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+                  ),
+                ],
+              ),
+            )
+          : TabBarView(
+              controller: _tabController,
+              children: [
+                _buildGroupsTab(),
+                _buildYerlesmeyenTab(),
+                _buildReportsTab(),
               ],
             ),
-          )
-        : TabBarView(
-            controller: _tabController,
-            children: [
-              _buildGroupsTab(),
-              _buildYerlesmeyenTab(),
-              _buildReportsTab(),
-            ],
-          ),
-      bottomNavigationBar: _selectedStudentIds.isNotEmpty ? _buildBulkActionBar() : null,
+      bottomNavigationBar: _selectedStudentIds.isNotEmpty
+          ? _buildBulkActionBar()
+          : null,
       floatingActionButton: AnimatedBuilder(
         animation: _tabController,
         builder: (context, _) {
@@ -350,69 +485,76 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
             return FloatingActionButton.extended(
               onPressed: _generating ? null : _showGenerateDraftSheet,
               label: Text(_generating ? 'Dağıtılıyor...' : 'Dağıtım Yap'),
-              icon: _generating 
-                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) 
-                : const Icon(Icons.auto_awesome),
+              icon: _generating
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.auto_awesome),
               backgroundColor: Colors.orange.shade700,
               foregroundColor: Colors.white,
             );
           }
 
           if (_tabController.index == 1 && isDraft) {
-             String filterName = 'Sınava Girmeyenleri';
-             if (_yerlesmeyenFilterIndex == 1) filterName = 'Atanamayanları';
-             if (_yerlesmeyenFilterIndex == 2) filterName = 'Eksik Atananları';
-             if (_yerlesmeyenFilterIndex == 3) filterName = 'Hariç Tutulanları';
+            String filterName = 'Sınava Girmeyenleri';
+            if (_yerlesmeyenFilterIndex == 1) filterName = 'Atanamayanları';
+            if (_yerlesmeyenFilterIndex == 2) filterName = 'Eksik Atananları';
+            if (_yerlesmeyenFilterIndex == 3) filterName = 'Hariç Tutulanları';
 
-             final isMobile = MediaQuery.of(context).size.width < 600;
+            final isMobile = MediaQuery.of(context).size.width < 600;
 
-             if (isMobile) {
-               return Column(
-                 mainAxisSize: MainAxisSize.min,
-                 crossAxisAlignment: CrossAxisAlignment.end,
-                 children: [
-                   if (_yerlesmeyenFilterIndex == 3)
-                     FloatingActionButton(
-                       heroTag: 'edit_excludes_fab_mobile',
-                       onPressed: () => _goToSetupToEditExcludes(),
-                       backgroundColor: Colors.orange.shade700,
-                       child: const Icon(Icons.edit_note, color: Colors.white),
-                     )
-                   else
-                     FloatingActionButton(
-                       heroTag: 'auto_assign_fab_mobile',
-                       onPressed: _loading ? null : _confirmAutoAssign,
-                       backgroundColor: Colors.teal,
-                       child: const Icon(Icons.bolt, color: Colors.white),
-                     ),
-                 ],
-               );
-             }
+            if (isMobile) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (_yerlesmeyenFilterIndex == 3)
+                    FloatingActionButton(
+                      heroTag: 'edit_excludes_fab_mobile',
+                      onPressed: () => _goToSetupToEditExcludes(),
+                      backgroundColor: Colors.orange.shade700,
+                      child: const Icon(Icons.edit_note, color: Colors.white),
+                    )
+                  else
+                    FloatingActionButton(
+                      heroTag: 'auto_assign_fab_mobile',
+                      onPressed: _loading ? null : _confirmAutoAssign,
+                      backgroundColor: Colors.teal,
+                      child: const Icon(Icons.bolt, color: Colors.white),
+                    ),
+                ],
+              );
+            }
 
-             return Column(
-               mainAxisSize: MainAxisSize.min,
-               crossAxisAlignment: CrossAxisAlignment.end,
-               children: [
-                 if (_yerlesmeyenFilterIndex == 3)
-                   FloatingActionButton.extended(
-                     heroTag: 'edit_excludes_fab',
-                     onPressed: () => _goToSetupToEditExcludes(),
-                     label: const Text('Hariç Listesini Düzenle'),
-                     icon: const Icon(Icons.edit_note),
-                     backgroundColor: Colors.orange.shade700,
-                     foregroundColor: Colors.white,
-                   )
-                 else
-                   FloatingActionButton.extended(
-                     heroTag: 'auto_assign_fab',
-                     onPressed: _loading ? null : _confirmAutoAssign,
-                     label: Text('$filterName Otomatik Ata'),
-                     icon: const Icon(Icons.bolt),
-                     backgroundColor: Colors.teal,
-                     foregroundColor: Colors.white,
-                   ),
-               ],
-             );
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                if (_yerlesmeyenFilterIndex == 3)
+                  FloatingActionButton.extended(
+                    heroTag: 'edit_excludes_fab',
+                    onPressed: () => _goToSetupToEditExcludes(),
+                    label: const Text('Hariç Listesini Düzenle'),
+                    icon: const Icon(Icons.edit_note),
+                    backgroundColor: Colors.orange.shade700,
+                    foregroundColor: Colors.white,
+                  )
+                else
+                  FloatingActionButton.extended(
+                    heroTag: 'auto_assign_fab',
+                    onPressed: _loading ? null : _confirmAutoAssign,
+                    label: Text('$filterName Otomatik Ata'),
+                    icon: const Icon(Icons.bolt),
+                    backgroundColor: Colors.teal,
+                    foregroundColor: Colors.white,
+                  ),
+              ],
+            );
           }
           return const SizedBox.shrink();
         },
@@ -420,7 +562,7 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
     );
   }
 
-  // ─── MANUEL İŞLEMLER ──────────────────────────────────────────────────────
+  // ═══ MANUEL İŞLEMLER ═══════════════════════════════════════════════════
 
   void _goToSetupToEditExcludes() {
     _showStudentSelectionDialog();
@@ -450,31 +592,41 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
       barrierColor: Colors.black54,
       transitionDuration: const Duration(milliseconds: 300),
       transitionBuilder: (ctx, anim, _, child) => SlideTransition(
-        position: Tween<Offset>(begin: const Offset(0, 0.06), end: Offset.zero)
-            .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+        position: Tween<Offset>(
+          begin: const Offset(0, 0.06),
+          end: Offset.zero,
+        ).animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
         child: FadeTransition(opacity: anim, child: child),
       ),
       pageBuilder: (ctx, _, __) => StatefulBuilder(
         builder: (ctx, setSt) {
           final filtered = _allBranchStudents.where((s) {
-            final name = (s['fullName'] ?? s['name'] ?? '').toString().toLowerCase();
+            final name = (s['fullName'] ?? s['name'] ?? '')
+                .toString()
+                .toLowerCase();
             final cl = (s['classLevel'] ?? s['sinifSeviyesi'] ?? '').toString();
             final br = (s['className'] ?? s['sube'] ?? '').toString();
-            if (searchQuery.isNotEmpty && !name.contains(searchQuery.toLowerCase())) return false;
-            if (filterClassLevel != null && cl != filterClassLevel) return false;
+            if (searchQuery.isNotEmpty &&
+                !name.contains(searchQuery.toLowerCase()))
+              return false;
+            if (filterClassLevel != null && cl != filterClassLevel)
+              return false;
             if (filterBranch != null && br != filterBranch) return false;
             return true;
           }).toList();
 
           final activeCount = _allBranchStudents.length - tempExcluded.length;
-          final excludedInFiltered = filtered.where((s) => tempExcluded.contains(s['id'])).length;
-          final allFilteredSelected = filtered.isNotEmpty && excludedInFiltered == 0;
+          final excludedInFiltered = filtered
+              .where((s) => tempExcluded.contains(s['id']))
+              .length;
+          final allFilteredSelected =
+              filtered.isNotEmpty && excludedInFiltered == 0;
 
           return Scaffold(
             backgroundColor: const Color(0xFFF5F6FA),
             body: Column(
               children: [
-                // ── Premium Başlık ──
+                // ══ Premium Başlık ══
                 Container(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
@@ -483,7 +635,11 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                       end: Alignment.bottomRight,
                     ),
                     boxShadow: [
-                      BoxShadow(color: Colors.orange.shade900.withOpacity(0.3), blurRadius: 12, offset: const Offset(0, 4)),
+                      BoxShadow(
+                        color: Colors.orange.shade900.withOpacity(0.3),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
                     ],
                   ),
                   child: SafeArea(
@@ -494,33 +650,57 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                         children: [
                           IconButton(
                             onPressed: () => Navigator.pop(ctx),
-                            icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 20),
+                            icon: const Icon(
+                              Icons.arrow_back_ios_new,
+                              color: Colors.white,
+                              size: 20,
+                            ),
                           ),
                           const SizedBox(width: 4),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text('Kapsanan Öğrenciler', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 0.3)),
+                                const Text(
+                                  'Kapsanan Öğrenciler',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 0.3,
+                                  ),
+                                ),
                                 const SizedBox(height: 2),
                                 Text(
                                   '$activeCount / ${_allBranchStudents.length} öğrenci seçili',
-                                  style: TextStyle(color: Colors.white.withOpacity(0.85), fontSize: 12),
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.85),
+                                    fontSize: 12,
+                                  ),
                                 ),
                               ],
                             ),
                           ),
                           if (tempExcluded.isNotEmpty)
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
                               decoration: BoxDecoration(
                                 color: Colors.white.withOpacity(0.2),
                                 borderRadius: BorderRadius.circular(20),
-                                border: Border.all(color: Colors.white.withOpacity(0.4)),
+                                border: Border.all(
+                                  color: Colors.white.withOpacity(0.4),
+                                ),
                               ),
                               child: Text(
                                 '${tempExcluded.length} hariç',
-                                style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                             ),
                         ],
@@ -529,7 +709,7 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                   ),
                 ),
 
-                // ── Arama & Filtreler ──
+                // ══ Arama & Filtreler ══
                 Container(
                   color: Colors.white,
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
@@ -547,16 +727,33 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                           style: const TextStyle(fontSize: 14),
                           decoration: InputDecoration(
                             hintText: 'Öğrenci adı ara...',
-                            hintStyle: TextStyle(fontSize: 13, color: Colors.grey.shade400),
-                            prefixIcon: Icon(Icons.search, size: 20, color: Colors.grey.shade400),
+                            hintStyle: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey.shade400,
+                            ),
+                            prefixIcon: Icon(
+                              Icons.search,
+                              size: 20,
+                              color: Colors.grey.shade400,
+                            ),
                             suffixIcon: searchQuery.isNotEmpty
                                 ? IconButton(
-                                    icon: Icon(Icons.close, size: 18, color: Colors.grey.shade400),
-                                    onPressed: () { searchCtrl.clear(); setSt(() => searchQuery = ''); },
+                                    icon: Icon(
+                                      Icons.close,
+                                      size: 18,
+                                      color: Colors.grey.shade400,
+                                    ),
+                                    onPressed: () {
+                                      searchCtrl.clear();
+                                      setSt(() => searchQuery = '');
+                                    },
                                   )
                                 : null,
                             border: InputBorder.none,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 14,
+                            ),
                           ),
                         ),
                       ),
@@ -569,10 +766,27 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                               hint: 'Sınıf Seviyesi',
                               icon: Icons.school_outlined,
                               items: [
-                                const DropdownMenuItem(value: null, child: Text('Tüm Seviyeler', style: TextStyle(fontSize: 13))),
-                                ...sortedClassLevels.map((cl) => DropdownMenuItem(value: cl, child: Text('$cl. Sınıf', style: const TextStyle(fontSize: 13)))),
+                                const DropdownMenuItem(
+                                  value: null,
+                                  child: Text(
+                                    'Tüm Seviyeler',
+                                    style: TextStyle(fontSize: 13),
+                                  ),
+                                ),
+                                ...sortedClassLevels.map(
+                                  (cl) => DropdownMenuItem(
+                                    value: cl,
+                                    child: Text(
+                                      '$cl. Sınıf',
+                                      style: const TextStyle(fontSize: 13),
+                                    ),
+                                  ),
+                                ),
                               ],
-                              onChanged: (v) => setSt(() { filterClassLevel = v; filterBranch = null; }),
+                              onChanged: (v) => setSt(() {
+                                filterClassLevel = v;
+                                filterBranch = null;
+                              }),
                             ),
                           ),
                           const SizedBox(width: 10),
@@ -582,12 +796,38 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                               hint: 'Şube',
                               icon: Icons.door_front_door_outlined,
                               items: [
-                                const DropdownMenuItem(value: null, child: Text('Tüm Şubeler', style: TextStyle(fontSize: 13))),
+                                const DropdownMenuItem(
+                                  value: null,
+                                  child: Text(
+                                    'Tüm Şubeler',
+                                    style: TextStyle(fontSize: 13),
+                                  ),
+                                ),
                                 ...sortedBranches
-                                  .where((br) => filterClassLevel == null || _allBranchStudents.any((s) =>
-                                      (s['className'] ?? s['sube'] ?? '') == br &&
-                                      (s['classLevel'] ?? s['sinifSeviyesi'] ?? '') == filterClassLevel))
-                                  .map((br) => DropdownMenuItem(value: br, child: Text(br, style: const TextStyle(fontSize: 13)))),
+                                    .where(
+                                      (br) =>
+                                          filterClassLevel == null ||
+                                          _allBranchStudents.any(
+                                            (s) =>
+                                                (s['className'] ??
+                                                        s['sube'] ??
+                                                        '') ==
+                                                    br &&
+                                                (s['classLevel'] ??
+                                                        s['sinifSeviyesi'] ??
+                                                        '') ==
+                                                    filterClassLevel,
+                                          ),
+                                    )
+                                    .map(
+                                      (br) => DropdownMenuItem(
+                                        value: br,
+                                        child: Text(
+                                          br,
+                                          style: const TextStyle(fontSize: 13),
+                                        ),
+                                      ),
+                                    ),
                               ],
                               onChanged: (v) => setSt(() => filterBranch = v),
                             ),
@@ -598,7 +838,7 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                   ),
                 ),
 
-                // ── Toplu İşlem Çubuğu ──
+                // ══ Toplu İşlem Çubuğu ══
                 Container(
                   color: Colors.white,
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -610,41 +850,67 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                           if (allFilteredSelected) {
                             for (final s in filtered) tempExcluded.add(s['id']);
                           } else {
-                            for (final s in filtered) tempExcluded.remove(s['id']);
+                            for (final s in filtered)
+                              tempExcluded.remove(s['id']);
                           }
                         }),
                         child: Row(
                           children: [
                             AnimatedContainer(
                               duration: const Duration(milliseconds: 200),
-                              width: 22, height: 22,
+                              width: 22,
+                              height: 22,
                               decoration: BoxDecoration(
-                                color: allFilteredSelected ? Colors.orange.shade700 : Colors.transparent,
-                                border: Border.all(color: allFilteredSelected ? Colors.orange.shade700 : Colors.grey.shade400, width: 2),
+                                color: allFilteredSelected
+                                    ? Colors.orange.shade700
+                                    : Colors.transparent,
+                                border: Border.all(
+                                  color: allFilteredSelected
+                                      ? Colors.orange.shade700
+                                      : Colors.grey.shade400,
+                                  width: 2,
+                                ),
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: allFilteredSelected
-                                  ? const Icon(Icons.check, size: 14, color: Colors.white)
+                                  ? const Icon(
+                                      Icons.check,
+                                      size: 14,
+                                      color: Colors.white,
+                                    )
                                   : null,
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              allFilteredSelected ? 'Tümünü Kaldır' : 'Tümünü Seç',
-                              style: TextStyle(fontSize: 13, color: Colors.grey.shade700, fontWeight: FontWeight.w500),
+                              allFilteredSelected
+                                  ? 'Tümünü Kaldır'
+                                  : 'Tümünü Seç',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey.shade700,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
                           ],
                         ),
                       ),
                       const Spacer(),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.grey.shade100,
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
                           '${filtered.length} öğrenci',
-                          style: TextStyle(fontSize: 11, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade600,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                       ),
                     ],
@@ -653,16 +919,26 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
 
                 const Divider(height: 1, color: Color(0xFFEEEEEE)),
 
-                // ── Öğrenci Listesi ──
+                // ══ Öğrenci Listesi ══
                 Expanded(
                   child: filtered.isEmpty
                       ? Center(
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.search_off, size: 48, color: Colors.grey.shade300),
+                              Icon(
+                                Icons.search_off,
+                                size: 48,
+                                color: Colors.grey.shade300,
+                              ),
                               const SizedBox(height: 12),
-                              Text('Öğrenci bulunamadı', style: TextStyle(color: Colors.grey.shade400, fontSize: 14)),
+                              Text(
+                                'Öğrenci bulunamadı',
+                                style: TextStyle(
+                                  color: Colors.grey.shade400,
+                                  fontSize: 14,
+                                ),
+                              ),
                             ],
                           ),
                         )
@@ -672,9 +948,14 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                           itemBuilder: (_, i) {
                             final s = filtered[i];
                             final id = s['id'] as String;
-                            final name = (s['fullName'] ?? s['name'] ?? 'İsimsiz').toString();
-                            final cl = (s['classLevel'] ?? s['sinifSeviyesi'] ?? '').toString();
-                            final br = (s['className'] ?? s['sube'] ?? '').toString();
+                            final name =
+                                (s['fullName'] ?? s['name'] ?? 'İsimsiz')
+                                    .toString();
+                            final cl =
+                                (s['classLevel'] ?? s['sinifSeviyesi'] ?? '')
+                                    .toString();
+                            final br = (s['className'] ?? s['sube'] ?? '')
+                                .toString();
                             final isIncluded = !tempExcluded.contains(id);
 
                             return AnimatedOpacity(
@@ -686,35 +967,60 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                                   color: Colors.white,
                                   borderRadius: BorderRadius.circular(14),
                                   border: Border.all(
-                                    color: isIncluded ? Colors.transparent : Colors.grey.shade200,
+                                    color: isIncluded
+                                        ? Colors.transparent
+                                        : Colors.grey.shade200,
                                     width: 1,
                                   ),
                                   boxShadow: isIncluded
-                                      ? [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 6, offset: const Offset(0, 2))]
+                                      ? [
+                                          BoxShadow(
+                                            color: Colors.black.withOpacity(
+                                              0.04,
+                                            ),
+                                            blurRadius: 6,
+                                            offset: const Offset(0, 2),
+                                          ),
+                                        ]
                                       : [],
                                 ),
                                 child: InkWell(
                                   borderRadius: BorderRadius.circular(14),
                                   onTap: () => setSt(() {
-                                    if (isIncluded) tempExcluded.add(id);
-                                    else tempExcluded.remove(id);
+                                    if (isIncluded)
+                                      tempExcluded.add(id);
+                                    else
+                                      tempExcluded.remove(id);
                                   }),
                                   child: Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 12,
+                                    ),
                                     child: Row(
                                       children: [
                                         Container(
-                                          width: 40, height: 40,
+                                          width: 40,
+                                          height: 40,
                                           decoration: BoxDecoration(
-                                            color: isIncluded ? Colors.orange.shade50 : Colors.grey.shade100,
-                                            borderRadius: BorderRadius.circular(12),
+                                            color: isIncluded
+                                                ? Colors.orange.shade50
+                                                : Colors.grey.shade100,
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
                                           ),
                                           child: Center(
                                             child: Text(
-                                              name.isNotEmpty ? name[0].toUpperCase() : '?',
+                                              name.isNotEmpty
+                                                  ? name[0].toUpperCase()
+                                                  : '?',
                                               style: TextStyle(
-                                                fontSize: 16, fontWeight: FontWeight.bold,
-                                                color: isIncluded ? Colors.orange.shade700 : Colors.grey.shade400,
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.bold,
+                                                color: isIncluded
+                                                    ? Colors.orange.shade700
+                                                    : Colors.grey.shade400,
                                               ),
                                             ),
                                           ),
@@ -722,32 +1028,73 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                                         const SizedBox(width: 12),
                                         Expanded(
                                           child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
                                             children: [
-                                              Text(name, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: isIncluded ? const Color(0xFF1A1A2E) : Colors.grey.shade400)),
+                                              Text(
+                                                name,
+                                                style: TextStyle(
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: isIncluded
+                                                      ? const Color(0xFF1A1A2E)
+                                                      : Colors.grey.shade400,
+                                                ),
+                                              ),
                                               const SizedBox(height: 3),
                                               Row(
                                                 children: [
-                                                  Icon(Icons.class_outlined, size: 12, color: isIncluded ? Colors.orange.shade400 : Colors.grey.shade300),
+                                                  Icon(
+                                                    Icons.class_outlined,
+                                                    size: 12,
+                                                    color: isIncluded
+                                                        ? Colors.orange.shade400
+                                                        : Colors.grey.shade300,
+                                                  ),
                                                   const SizedBox(width: 4),
-                                                  Text('$cl. Sınıf  •  $br', style: TextStyle(fontSize: 11, color: isIncluded ? Colors.grey.shade500 : Colors.grey.shade300)),
+                                                  Text(
+                                                    '$cl. Sınıf  •  $br',
+                                                    style: TextStyle(
+                                                      fontSize: 11,
+                                                      color: isIncluded
+                                                          ? Colors.grey.shade500
+                                                          : Colors
+                                                                .grey
+                                                                .shade300,
+                                                    ),
+                                                  ),
                                                 ],
                                               ),
                                             ],
                                           ),
                                         ),
                                         AnimatedContainer(
-                                          duration: const Duration(milliseconds: 200),
-                                          width: 24, height: 24,
+                                          duration: const Duration(
+                                            milliseconds: 200,
+                                          ),
+                                          width: 24,
+                                          height: 24,
                                           decoration: BoxDecoration(
-                                            color: isIncluded ? Colors.orange.shade700 : Colors.transparent,
+                                            color: isIncluded
+                                                ? Colors.orange.shade700
+                                                : Colors.transparent,
                                             border: Border.all(
-                                              color: isIncluded ? Colors.orange.shade700 : Colors.grey.shade300,
+                                              color: isIncluded
+                                                  ? Colors.orange.shade700
+                                                  : Colors.grey.shade300,
                                               width: 2,
                                             ),
-                                            borderRadius: BorderRadius.circular(8),
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
                                           ),
-                                          child: isIncluded ? const Icon(Icons.check, size: 16, color: Colors.white) : null,
+                                          child: isIncluded
+                                              ? const Icon(
+                                                  Icons.check,
+                                                  size: 16,
+                                                  color: Colors.white,
+                                                )
+                                              : null,
                                         ),
                                       ],
                                     ),
@@ -758,13 +1105,19 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                           },
                         ),
                 ),
-                
-                // ── Kaydet Butonu ──
+
+                // ══ Kaydet Butonu ══
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -4))],
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, -4),
+                      ),
+                    ],
                   ),
                   child: SafeArea(
                     top: false,
@@ -777,48 +1130,83 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                           setState(() => _loading = true);
                           try {
                             if (widget.cycle.isSpecialClassActive) {
-                              final specialGroupIds = _groups.where((g) => g.isSpecial).map((g) => g.id).toSet();
-                              final specialAssignments = _assignmentsByGroup.values
+                              final specialGroupIds = _groups
+                                  .where((g) => g.isSpecial)
+                                  .map((g) => g.id)
+                                  .toSet();
+                              final specialAssignments = _assignmentsByGroup
+                                  .values
                                   .expand((list) => list)
-                                  .where((a) => specialGroupIds.contains(a.groupId))
+                                  .where(
+                                    (a) => specialGroupIds.contains(a.groupId),
+                                  )
                                   .toList();
                               if (specialAssignments.isNotEmpty) {
-                                await _service.removeAssignments(specialAssignments);
+                                await _service.removeAssignments(
+                                  specialAssignments,
+                                );
                               }
-                              
+
                               final List<CampGroup> updatedGroups = [];
                               for (var g in _groups) {
-                                 if (g.isSpecial) {
-                                    updatedGroups.add(g.copyWith(mevcutOgrenciSayisi: 0, kazanimlar: []));
-                                 }
+                                if (g.isSpecial) {
+                                  updatedGroups.add(
+                                    g.copyWith(
+                                      mevcutOgrenciSayisi: 0,
+                                      kazanimlar: [],
+                                    ),
+                                  );
+                                }
                               }
                               if (updatedGroups.isNotEmpty) {
                                 await _repo.batchUpdateGroups(updatedGroups);
                               }
                             } else {
-                              final excludedAssignments = _assignmentsByGroup.values
+                              final excludedAssignments = _assignmentsByGroup
+                                  .values
                                   .expand((list) => list)
-                                  .where((a) => tempExcluded.contains(a.ogrenciId))
+                                  .where(
+                                    (a) => tempExcluded.contains(a.ogrenciId),
+                                  )
                                   .toList();
                               if (excludedAssignments.isNotEmpty) {
-                                await _service.removeAssignments(excludedAssignments);
+                                await _service.removeAssignments(
+                                  excludedAssignments,
+                                );
                               }
                             }
 
-                            await _db.collection('camp_cycles').doc(widget.cycle.id).update({
-                              'excludedStudentIds': tempExcluded.toList(),
-                              'specialClassGenerated': false,
-                            });
+                            await _db
+                                .collection('camp_cycles')
+                                .doc(widget.cycle.id)
+                                .update({
+                                  'excludedStudentIds': tempExcluded.toList(),
+                                  'specialClassGenerated': false,
+                                });
 
                             await _loadData();
 
                             if (widget.cycle.isSpecialClassActive) {
-                              final cycleDoc = await _db.collection('camp_cycles').doc(widget.cycle.id).get();
-                              final currentCycle = CampCycle.fromMap(cycleDoc.data()!, cycleDoc.id);
-                              
-                              final freshGroups = await _repo.getGroupsByCycle(widget.cycle.id);
-                              final filteredBranchStudents = _allBranchStudents.where((s) => !tempExcluded.contains(s['id'])).toList();
-                              await _autoAssignSpecialClassSilent(currentCycle, freshGroups, filteredBranchStudents);
+                              final cycleDoc = await _db
+                                  .collection('camp_cycles')
+                                  .doc(widget.cycle.id)
+                                  .get();
+                              final currentCycle = CampCycle.fromMap(
+                                cycleDoc.data()!,
+                                cycleDoc.id,
+                              );
+
+                              final freshGroups = await _repo.getGroupsByCycle(
+                                widget.cycle.id,
+                              );
+                              final filteredBranchStudents = _allBranchStudents
+                                  .where((s) => !tempExcluded.contains(s['id']))
+                                  .toList();
+                              await _autoAssignSpecialClassSilent(
+                                currentCycle,
+                                freshGroups,
+                                filteredBranchStudents,
+                              );
                             }
                           } catch (e) {
                             debugPrint('Hariç listesini güncellerken hata: $e');
@@ -829,10 +1217,18 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.orange.shade700,
                           foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                           elevation: 0,
                         ),
-                        child: const Text('Seçimleri Kaydet', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        child: const Text(
+                          'Seçimleri Kaydet',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -863,12 +1259,19 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
         child: DropdownButton<T>(
           value: value,
           isExpanded: true,
-          icon: Icon(Icons.keyboard_arrow_down, size: 18, color: Colors.grey.shade500),
+          icon: Icon(
+            Icons.keyboard_arrow_down,
+            size: 18,
+            color: Colors.grey.shade500,
+          ),
           hint: Row(
             children: [
               Icon(icon, size: 14, color: Colors.grey.shade400),
               const SizedBox(width: 6),
-              Text(hint, style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
+              Text(
+                hint,
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
+              ),
             ],
           ),
           items: items,
@@ -890,23 +1293,51 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
           color: Colors.white,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
-        padding: EdgeInsets.fromLTRB(24, 24, 24, 24 + MediaQuery.of(ctx).padding.bottom),
+        padding: EdgeInsets.fromLTRB(
+          24,
+          24,
+          24,
+          24 + MediaQuery.of(ctx).padding.bottom,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
             const SizedBox(height: 24),
             Container(
               padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(color: Colors.red.shade50, shape: BoxShape.circle),
-              child: Icon(Icons.delete_sweep_rounded, color: Colors.red.shade600, size: 32),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.delete_sweep_rounded,
+                color: Colors.red.shade600,
+                size: 32,
+              ),
             ),
             const SizedBox(height: 16),
-            const Text('Dağıtımı Sıfırla', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)),
+            const Text(
+              'Dağıtımı Sıfırla',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
             const SizedBox(height: 8),
-            const Text('Mevcut tüm öğrenci atamaları, grup dolulukları ve istatistikler kalıcı olarak silinecektir. Bu işlem geri alınamaz.', 
-              textAlign: TextAlign.center, 
-              style: TextStyle(fontSize: 13, color: Colors.grey, height: 1.5)),
+            const Text(
+              'Mevcut tüm öğrenci atamaları, grup dolulukları ve istatistikler kalıcı olarak silinecektir. Bu işlem geri alınamaz.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 13, color: Colors.grey, height: 1.5),
+            ),
             const SizedBox(height: 32),
             Row(
               children: [
@@ -915,10 +1346,18 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                     onPressed: () => Navigator.pop(ctx),
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                       side: BorderSide(color: Colors.grey.shade300),
                     ),
-                    child: const Text('Vazgeç', style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
+                    child: const Text(
+                      'Vazgeç',
+                      style: TextStyle(
+                        color: Colors.black87,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -929,27 +1368,57 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                       setState(() => _loading = true);
                       try {
                         await _repo.rollbackAssignments(widget.cycle.id);
-                        final groups = await _repo.getGroupsByCycle(widget.cycle.id);
-                        final resetGroups = groups.map((g) => g.copyWith(mevcutOgrenciSayisi: 0, kazanimlar: [])).toList();
+                        final groups = await _repo.getGroupsByCycle(
+                          widget.cycle.id,
+                        );
+                        final resetGroups = groups
+                            .map(
+                              (g) => g.copyWith(
+                                mevcutOgrenciSayisi: 0,
+                                kazanimlar: [],
+                              ),
+                            )
+                            .toList();
                         await _repo.batchUpdateGroups(resetGroups);
-                        await _db.collection('camp_cycles').doc(widget.cycle.id).update({
-                          'specialClassGenerated': false,
-                          'unassignedStudentIds': [], 
-                          'underAssignedStudentIds': [], 
-                          'absentStudentIds': [], 
-                          'unassignedReasons': {}
-                        });
-                        
+                        await _db
+                            .collection('camp_cycles')
+                            .doc(widget.cycle.id)
+                            .update({
+                              'specialClassGenerated': false,
+                              'unassignedStudentIds': [],
+                              'underAssignedStudentIds': [],
+                              'absentStudentIds': [],
+                              'unassignedReasons': {},
+                            });
+
                         if (widget.cycle.isSpecialClassActive) {
-                          final filteredStudents = _allBranchStudents.where((s) => !_excludedStudents.contains(s['id'])).toList();
-                          await _autoAssignSpecialClassSilent(widget.cycle, resetGroups, filteredStudents);
+                          final filteredStudents = _allBranchStudents
+                              .where(
+                                (s) => !_excludedStudents.contains(s['id']),
+                              )
+                              .toList();
+                          await _autoAssignSpecialClassSilent(
+                            widget.cycle,
+                            resetGroups,
+                            filteredStudents,
+                          );
                         } else {
                           await _loadData();
                         }
-                        
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tüm atamalar sıfırlandı.'), backgroundColor: Colors.green));
-                      } catch (e) { 
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red)); 
+
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Tüm atamalar sıfırlandı.'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      } catch (e) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Hata: $e'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
                         setState(() => _loading = false);
                       }
                     },
@@ -958,9 +1427,14 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                       foregroundColor: Colors.white,
                       elevation: 0,
                       padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
-                    child: const Text('Sıfırla ve Temizle', style: TextStyle(fontWeight: FontWeight.bold)),
+                    child: const Text(
+                      'Sıfırla ve Temizle',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
                   ),
                 ),
               ],
@@ -973,33 +1447,336 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
   }
 
   Future<void> _publish() async {
-    final assignments = _assignmentsByGroup.values.expand((element) => element).toList();
-    if (assignments.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Atama yapılmamış bir döngü yayınlanamaz.'))); return; }
+    final assignments = _assignmentsByGroup.values
+        .expand((element) => element)
+        .toList();
+    if (assignments.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Atama yapılmamış bir döngü yayınlanamaz.'),
+        ),
+      );
+      return;
+    }
+
+    final totalStudents = assignments.map((a) => a.ogrenciId).toSet().length;
+    final activeGroups = _groups.where((g) => g.mevcutOgrenciSayisi > 0).length;
+
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: EdgeInsets.fromLTRB(
+          24,
+          24,
+          24,
+          24 + MediaQuery.of(ctx).padding.bottom,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.green.shade50,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.publish_rounded,
+                color: Colors.green.shade700,
+                size: 32,
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Kamp Programını Yayınla',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Bu işlem $totalStudents öğrenci için $activeGroups aktif grupta etüt oluşturacak ve bildirim gönderecektir.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 13,
+                color: Colors.grey,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.orange.shade100),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.info_outline,
+                    color: Colors.orange.shade700,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Yayınlanan program etüt modülünde görünür hale gelir.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.orange.shade800,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      side: BorderSide(color: Colors.grey.shade300),
+                    ),
+                    child: const Text(
+                      'Vazgeç',
+                      style: TextStyle(
+                        color: Colors.black87,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green.shade700,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text(
+                      'Yayınla',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+
+    if (confirmed != true) return;
+
     setState(() => _publishing = true);
     try {
-      await _service.publishCycle(cycle: widget.cycle, gruplar: _groups, atamalar: assignments);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Kamp programı başarıyla yayınlandı ve etütler oluşturuldu!'), backgroundColor: Colors.green));
+      await _service.publishCycle(
+        cycle: widget.cycle,
+        gruplar: _groups,
+        atamalar: assignments,
+      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Kamp programı başarıyla yayınlandı ve etütler oluşturuldu!',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
       await _loadData();
-    } catch (e) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Yayınlama hatası: $e'), backgroundColor: Colors.red)); } finally { setState(() => _publishing = false); }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Yayınlama hatası: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() => _publishing = false);
+    }
   }
 
   Future<void> _unpublish() async {
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: EdgeInsets.fromLTRB(
+          24,
+          24,
+          24,
+          24 + MediaQuery.of(ctx).padding.bottom,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.cancel_presentation_rounded,
+                color: Colors.red.shade600,
+                size: 32,
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Yayından Kaldır',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Bu işlem yayınlanmış tüm etüt kayıtlarını silecektir. Kamp programı taslak durumuna geri dönecektir.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 13, color: Colors.grey, height: 1.5),
+            ),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      side: BorderSide(color: Colors.grey.shade300),
+                    ),
+                    child: const Text(
+                      'Vazgeç',
+                      style: TextStyle(
+                        color: Colors.black87,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red.shade600,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text(
+                      'Yayından Kaldır',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+
+    if (confirmed != true) return;
+
     setState(() => _publishing = true);
     try {
       await _service.unpublishCycle(widget.cycle.id);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Kamp programı yayından kaldırıldı ve ilgili etütler silindi.')));
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Kamp programı yayından kaldırıldı ve ilgili etütler silindi.',
+            ),
+          ),
+        );
+      }
       await _loadData();
-    } catch (e) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Yayından kaldırma hatası: $e'), backgroundColor: Colors.red)); } finally { setState(() => _publishing = false); }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Yayından kaldırma hatası: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() => _publishing = false);
+    }
   }
 
   void _removeAssignments(List<CampAssignment> list) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Gruptan Çıkar'),
-        content: Text('${list.length} öğrenciyi gruptan çıkarmak istediğinize emin misiniz?'),
+        title: const Text('Gruptan çıkar'),
+        content: Text(
+          '${list.length} öğrenciyi gruptan çıkarmak istediğinize emin misiniz?',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Vazgeç')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Vazgeç'),
+          ),
           TextButton(
             onPressed: () async {
               Navigator.pop(ctx);
@@ -1018,12 +1795,25 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
   void _showMoveDialog(List<CampAssignment> assignments) {
     if (assignments.isEmpty) return;
     final firstAssign = assignments.first;
-    final currentGroup = _groups.firstWhere((g) => g.id == firstAssign.groupId, orElse: () => _groups.first);
-    final otherGroupsInSlot = _groups.where((g) => g.id != currentGroup.id && g.baslangicSaat == currentGroup.baslangicSaat && g.gun == currentGroup.gun).toList();
+    final currentGroup = _groups.firstWhere(
+      (g) => g.id == firstAssign.groupId,
+      orElse: () => _groups.first,
+    );
+    final otherGroupsInSlot = _groups
+        .where(
+          (g) =>
+              g.id != currentGroup.id &&
+              g.baslangicSaat == currentGroup.baslangicSaat &&
+              g.gun == currentGroup.gun,
+        )
+        .toList();
 
     if (otherGroupsInSlot.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Aynı saat diliminde başka grup bulunamadı.'), backgroundColor: Colors.orange),
+        const SnackBar(
+          content: Text('Aynı saat diliminde başka grup bulunamadı.'),
+          backgroundColor: Colors.orange,
+        ),
       );
       return;
     }
@@ -1039,7 +1829,12 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
           color: Colors.white,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
-        padding: EdgeInsets.fromLTRB(20, 12, 20, MediaQuery.of(ctx).viewInsets.bottom + 24),
+        padding: EdgeInsets.fromLTRB(
+          20,
+          12,
+          20,
+          MediaQuery.of(ctx).viewInsets.bottom + 24,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1048,7 +1843,10 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
               child: Container(
                 width: 40,
                 height: 4,
-                decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
             ),
             const SizedBox(height: 20),
@@ -1056,7 +1854,10 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
               children: [
                 Container(
                   padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(12)),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                   child: const Icon(Icons.swap_horiz, color: Colors.orange),
                 ),
                 const SizedBox(width: 16),
@@ -1066,11 +1867,18 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                     children: [
                       const Text(
                         'Grubu Değiştir',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
                       ),
                       Text(
                         '${currentGroup.gun} - ${currentGroup.baslangicSaat} Seansı',
-                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey,
+                        ),
                       ),
                     ],
                   ),
@@ -1091,12 +1899,20 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                 children: [
                   const Text(
                     'Taşınacak Öğrenci(ler):',
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey),
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     studentNames,
-                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.black87),
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
                   ),
                 ],
               ),
@@ -1104,7 +1920,11 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
             const SizedBox(height: 20),
             const Text(
               'Hedef Grup Seçin',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.grey),
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey,
+              ),
             ),
             const SizedBox(height: 10),
             ConstrainedBox(
@@ -1118,7 +1938,7 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                   final g = otherGroupsInSlot[index];
                   final isFull = g.mevcutOgrenciSayisi >= g.kapasite;
                   final badgeColor = isFull ? Colors.red : Colors.green;
-                  
+
                   return Container(
                     margin: const EdgeInsets.only(bottom: 10),
                     decoration: BoxDecoration(
@@ -1130,7 +1950,7 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                           color: Colors.black.withOpacity(0.02),
                           blurRadius: 6,
                           offset: const Offset(0, 2),
-                        )
+                        ),
                       ],
                     ),
                     child: Material(
@@ -1140,7 +1960,11 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                         onTap: () async {
                           Navigator.pop(ctx);
                           setState(() => _loading = true);
-                          await _service.moveAssignments(assignments, g.id, '${g.dersAdi} - ${g.ogretmenAdi}');
+                          await _service.moveAssignments(
+                            assignments,
+                            g.id,
+                            '${g.dersAdi} - ${g.ogretmenAdi}',
+                          );
                           _selectedStudentIds.clear();
                           await _loadData();
                         },
@@ -1155,7 +1979,10 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                                   color: Colors.orange.shade50,
                                   borderRadius: BorderRadius.circular(12),
                                 ),
-                                child: const Icon(Icons.school, color: Colors.orange),
+                                child: const Icon(
+                                  Icons.school,
+                                  color: Colors.orange,
+                                ),
                               ),
                               const SizedBox(width: 14),
                               Expanded(
@@ -1182,11 +2009,19 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                                     const SizedBox(height: 4),
                                     Row(
                                       children: [
-                                        Icon(Icons.meeting_room_outlined, size: 12, color: Colors.grey.shade400),
+                                        Icon(
+                                          Icons.meeting_room_outlined,
+                                          size: 12,
+                                          color: Colors.grey.shade400,
+                                        ),
                                         const SizedBox(width: 4),
                                         Text(
-                                          g.derslikAdi ?? 'Derslik Belirtilmedi',
-                                          style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                                          g.derslikAdi ??
+                                              'Derslik Belirtilmedi',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: Colors.grey.shade500,
+                                          ),
                                         ),
                                       ],
                                     ),
@@ -1194,7 +2029,10 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                                 ),
                               ),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
                                 decoration: BoxDecoration(
                                   color: badgeColor.withOpacity(0.1),
                                   borderRadius: BorderRadius.circular(12),
@@ -1224,18 +2062,25 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
   }
 
   void _showSwapGroupDialog(CampGroup groupA) {
-    final sameSlotAndBranchGroups = _groups.where((g) => 
-      g.id != groupA.id && 
-      g.baslangicSaat == groupA.baslangicSaat && 
-      g.gun == groupA.gun &&
-      (g.dersId == groupA.dersId || g.dersAdi == groupA.dersAdi)
-    ).toList();
+    final sameSlotAndBranchGroups = _groups
+        .where(
+          (g) =>
+              g.id != groupA.id &&
+              g.baslangicSaat == groupA.baslangicSaat &&
+              g.gun == groupA.gun &&
+              (g.dersId == groupA.dersId || g.dersAdi == groupA.dersAdi),
+        )
+        .toList();
 
     if (sameSlotAndBranchGroups.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Aynı saatte "${groupA.dersAdi}" branşında başka grup bulunamadı.'),
-        backgroundColor: Colors.orange,
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Aynı saatte "${groupA.dersAdi}" branşında başka grup bulunamadı.',
+          ),
+          backgroundColor: Colors.orange,
+        ),
+      );
       return;
     }
 
@@ -1248,18 +2093,35 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
           color: Colors.white,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
-        padding: EdgeInsets.fromLTRB(20, 12, 20, MediaQuery.of(ctx).viewInsets.bottom + 24),
+        padding: EdgeInsets.fromLTRB(
+          20,
+          12,
+          20,
+          MediaQuery.of(ctx).viewInsets.bottom + 24,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)))),
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
             const SizedBox(height: 24),
             Row(
               children: [
                 Container(
                   padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(12)),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                   child: const Icon(Icons.swap_horiz, color: Colors.orange),
                 ),
                 const SizedBox(width: 16),
@@ -1267,42 +2129,86 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Grup Takası', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
-                      Text('Öğrenci kitlelerini karşılıklı değiştirin', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      Text(
+                        'Grup Takası',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      Text(
+                        'Öğrenci kitlelerini karşılıklı değiştirin',
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
                     ],
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 20),
-            Text('"${groupA.dersAdi}" branşı için "${groupA.ogretmenAdi}" grubundaki öğrencileri kiminle takas etmek istersiniz?', 
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade700, height: 1.4)),
+            Text(
+              '"${groupA.dersAdi}" branşında "${groupA.ogretmenAdi}" grubundaki öğrencileri kiminle takas etmek istersiniz?',
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.grey.shade700,
+                height: 1.4,
+              ),
+            ),
             const SizedBox(height: 20),
-            ...sameSlotAndBranchGroups.map((groupB) => Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.grey.shade200),
-                color: Colors.grey.shade50.withOpacity(0.5),
-              ),
-              child: ListTile(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                leading: CircleAvatar(
-                  backgroundColor: Colors.orange,
-                  radius: 18,
-                  child: const Icon(Icons.person, color: Colors.white, size: 20),
-                ),
-                title: Text(groupB.ogretmenAdi, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                subtitle: Text('${groupB.mevcutOgrenciSayisi} öğrenci • ${groupB.derslikAdi ?? "Derslik belirtilmedi"}', style: const TextStyle(fontSize: 12)),
-                trailing: const Icon(Icons.chevron_right, color: Colors.orange),
-                onTap: () async {
-                  Navigator.pop(ctx);
-                  setState(() => _loading = true);
-                  await _service.swapGroups(groupA, groupB, _assignmentsByGroup[groupA.id] ?? [], _assignmentsByGroup[groupB.id] ?? []);
-                  await _loadData();
-                },
-              ),
-            )).toList(),
+            ...sameSlotAndBranchGroups
+                .map(
+                  (groupB) => Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.grey.shade200),
+                      color: Colors.grey.shade50.withOpacity(0.5),
+                    ),
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 4,
+                      ),
+                      leading: CircleAvatar(
+                        backgroundColor: Colors.orange,
+                        radius: 18,
+                        child: const Icon(
+                          Icons.person,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                      ),
+                      title: Text(
+                        groupB.ogretmenAdi,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
+                      ),
+                      subtitle: Text(
+                        '${groupB.mevcutOgrenciSayisi} öğrenci | ${groupB.derslikAdi ?? "Derslik belirtilmedi"}',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      trailing: const Icon(
+                        Icons.chevron_right,
+                        color: Colors.orange,
+                      ),
+                      onTap: () async {
+                        Navigator.pop(ctx);
+                        setState(() => _loading = true);
+                        await _service.swapGroups(
+                          groupA,
+                          groupB,
+                          _assignmentsByGroup[groupA.id] ?? [],
+                          _assignmentsByGroup[groupB.id] ?? [],
+                        );
+                        await _loadData();
+                      },
+                    ),
+                  ),
+                )
+                .toList(),
             const SizedBox(height: 8),
           ],
         ),
@@ -1310,7 +2216,10 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
     );
   }
 
-  void _showManualAssignDialog(Map<String, dynamic> student, {List<CampGroup>? slotGroups}) {
+  void _showManualAssignDialog(
+    Map<String, dynamic> student, {
+    List<CampGroup>? slotGroups,
+  }) {
     final studentId = student['id'] as String;
     final assignedSlots = <String>{};
     for (final entry in _assignmentsByGroup.entries) {
@@ -1320,18 +2229,37 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
       }
     }
 
-    if (widget.cycle.haftalikMaksimumSaat != null && assignedSlots.length >= widget.cycle.haftalikMaksimumSaat!) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Bu öğrenci maksimum seans limitine (${widget.cycle.haftalikMaksimumSaat}) ulaştı.'), backgroundColor: Colors.orange));
+    if (widget.cycle.haftalikMaksimumSaat != null &&
+        assignedSlots.length >= widget.cycle.haftalikMaksimumSaat!) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Bu öğrenci maksimum seans limitine (${widget.cycle.haftalikMaksimumSaat}) ulaştı.',
+          ),
+          backgroundColor: Colors.orange,
+        ),
+      );
       return;
     }
 
-    final availableGroups = slotGroups ?? _groups.where((g) => !assignedSlots.contains('${g.baslangicSaat}-${g.gun}')).toList();
+    final availableGroups =
+        slotGroups ??
+        _groups
+            .where(
+              (g) => !assignedSlots.contains('${g.baslangicSaat}-${g.gun}'),
+            )
+            .toList();
     if (availableGroups.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bu öğrenci için uygun grup bulunamadı.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Bu öğrenci için uygun grup bulunamadı.'),
+        ),
+      );
       return;
     }
 
-    final branches = availableGroups.map((g) => g.dersAdi).toSet().toList()..sort();
+    final branches = availableGroups.map((g) => g.dersAdi).toSet().toList()
+      ..sort();
     String? selectedBranch;
     CampGroup? selectedGroup;
 
@@ -1339,27 +2267,44 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) {
-          final filteredGroups = selectedBranch == null 
-              ? <CampGroup>[] 
-              : availableGroups.where((g) => g.dersAdi == selectedBranch).toList();
+          final filteredGroups = selectedBranch == null
+              ? <CampGroup>[]
+              : availableGroups
+                    .where((g) => g.dersAdi == selectedBranch)
+                    .toList();
 
           return AlertDialog(
-            title: Text('${student['name']?.toString() ?? "İsimsiz"} - Manuel Ata', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            title: Text(
+              '${student['name']?.toString() ?? "İsimsiz"} - Manuel Ata',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Branş Seçin', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+                const Text(
+                  'Branş Seçin',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey,
+                  ),
+                ),
                 const SizedBox(height: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
-                  decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade300)),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.grey.shade300),
+                  ),
                   child: DropdownButton<String>(
                     isExpanded: true,
                     value: selectedBranch,
                     underline: const SizedBox(),
                     hint: const Text('Branş Seçiniz'),
-                    items: branches.map((b) => DropdownMenuItem(value: b, child: Text(b))).toList(),
+                    items: branches
+                        .map((b) => DropdownMenuItem(value: b, child: Text(b)))
+                        .toList(),
                     onChanged: (val) {
                       setDialogState(() {
                         selectedBranch = val;
@@ -1369,11 +2314,21 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                   ),
                 ),
                 const SizedBox(height: 16),
-                const Text('Grup Seçin', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+                const Text(
+                  'Grup Seçin',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey,
+                  ),
+                ),
                 const SizedBox(height: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
-                  decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade300)),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.grey.shade300),
+                  ),
                   child: DropdownButton<CampGroup>(
                     isExpanded: true,
                     value: selectedGroup,
@@ -1382,9 +2337,13 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                     items: filteredGroups.map((g) {
                       final isFull = g.mevcutOgrenciSayisi >= g.kapasite;
                       return DropdownMenuItem(
-                        value: g, 
-                        child: Text('${g.ogretmenAdi} (${g.mevcutOgrenciSayisi}/${g.kapasite})', 
-                          style: TextStyle(color: isFull ? Colors.red : Colors.black87))
+                        value: g,
+                        child: Text(
+                          '${g.ogretmenAdi} (${g.mevcutOgrenciSayisi}/${g.kapasite})',
+                          style: TextStyle(
+                            color: isFull ? Colors.red : Colors.black87,
+                          ),
+                        ),
                       );
                     }).toList(),
                     onChanged: (val) {
@@ -1392,64 +2351,102 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                     },
                   ),
                 ),
-                if (selectedGroup != null && selectedGroup!.mevcutOgrenciSayisi >= selectedGroup!.kapasite)
+                if (selectedGroup != null &&
+                    selectedGroup!.mevcutOgrenciSayisi >=
+                        selectedGroup!.kapasite)
                   Padding(
                     padding: const EdgeInsets.only(top: 12),
                     child: Row(
                       children: [
-                        const Icon(Icons.warning_amber_rounded, color: Colors.red, size: 16),
+                        const Icon(
+                          Icons.warning_amber_rounded,
+                          color: Colors.red,
+                          size: 16,
+                        ),
                         const SizedBox(width: 8),
-                        const Expanded(child: Text('Dikkat: Grup kapasitesi dolu! Yine de atama yapılacak.', style: TextStyle(color: Colors.red, fontSize: 11, fontWeight: FontWeight.bold))),
+                        const Expanded(
+                          child: Text(
+                            'Dikkat: Grup kapasitesi dolu! Yine de atama yapılacak.',
+                            style: TextStyle(
+                              color: Colors.red,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),
               ],
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('İptal')),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('İptal'),
+              ),
               ElevatedButton(
-                onPressed: selectedGroup == null ? null : () async {
-                  bool confirm = true;
-                  if (selectedGroup!.mevcutOgrenciSayisi >= selectedGroup!.kapasite) {
-                    confirm = await showDialog<bool>(
-                      context: context,
-                      builder: (c) => AlertDialog(
-                        title: const Text('Kapasite Aşımı'),
-                        content: const Text('Seçtiğiniz grup dolu. Yine de bu öğrenciyi bu gruba eklemek istiyor musunuz?'),
-                        actions: [
-                          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Hayır')),
-                          TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Evet, Devam Et')),
-                        ],
-                      )
-                    ) ?? false;
-                  }
+                onPressed: selectedGroup == null
+                    ? null
+                    : () async {
+                        bool confirm = true;
+                        if (selectedGroup!.mevcutOgrenciSayisi >=
+                            selectedGroup!.kapasite) {
+                          confirm =
+                              await showDialog<bool>(
+                                context: context,
+                                builder: (c) => AlertDialog(
+                                  title: const Text('Kapasite Aşımı'),
+                                  content: const Text(
+                                    'Seçtiğiniz grup dolu. Yine de bu öğrenciyi bu gruba eklemek istiyor musunuz?',
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(c, false),
+                                      child: const Text('Hayır'),
+                                    ),
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(c, true),
+                                      child: const Text('Evet, Devam Et'),
+                                    ),
+                                  ],
+                                ),
+                              ) ??
+                              false;
+                        }
 
-                  if (confirm) {
-                    Navigator.pop(ctx);
-                    setState(() => _loading = true);
-                    await _service.manualAssign(
-                      cycleId: widget.cycle.id,
-                      ogrenciId: studentId,
-                      ogrenciAdi: student['name']?.toString() ?? 'İsimsiz',
-                      subeId: student['subeId'] ?? '',
-                      subeAdi: student['branch']?.toString() ?? '',
-                      yeniGrupId: selectedGroup!.id,
-                      yeniGrupAdi: '${selectedGroup!.dersAdi} - ${selectedGroup!.ogretmenAdi}',
-                      isAbsent: _yerlesmeyenFilterIndex == 0,
-                    );
-                    
-                    // Yerel güncellemeler
-                    setState(() {
-                      _unassignedStudents.remove(studentId);
-                      _underAssignedStudents.remove(studentId);
-                      _absentStudents.removeWhere((s) => s['id'] == studentId);
-                      _excludedStudents.remove(studentId);
-                    });
-                    
-                    await _loadData();
-                  }
-                },
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
+                        if (confirm) {
+                          Navigator.pop(ctx);
+                          setState(() => _loading = true);
+                          await _service.manualAssign(
+                            cycleId: widget.cycle.id,
+                            ogrenciId: studentId,
+                            ogrenciAdi:
+                                student['name']?.toString() ?? 'İsimsiz',
+                            subeId: student['subeId'] ?? '',
+                            subeAdi: student['branch']?.toString() ?? '',
+                            yeniGrupId: selectedGroup!.id,
+                            yeniGrupAdi:
+                                '${selectedGroup!.dersAdi} - ${selectedGroup!.ogretmenAdi}',
+                            isAbsent: _yerlesmeyenFilterIndex == 0,
+                          );
+
+                          // Yerel güncellemeler
+                          setState(() {
+                            _unassignedStudents.remove(studentId);
+                            _underAssignedStudents.remove(studentId);
+                            _absentStudents.removeWhere(
+                              (s) => s['id'] == studentId,
+                            );
+                            _excludedStudents.remove(studentId);
+                          });
+
+                          await _loadData();
+                        }
+                      },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  foregroundColor: Colors.white,
+                ),
                 child: const Text('Atamayı Onayla'),
               ),
             ],
@@ -1477,7 +2474,9 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
     }
 
     if (count == 0) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bu kategoride atanacak öğrenci yok.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bu kategoride atanacak öğrenci yok.')),
+      );
       return;
     }
 
@@ -1485,9 +2484,14 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Otomatik Atama Onayı'),
-        content: Text('$count $filterName öğrenciye otomatik atama yapılacaktır. Onaylıyor musunuz?'),
+        content: Text(
+          '$count $filterName öğrenciye otomatik atama yapılacaktır. Onaylıyor musunuz?',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('İptal')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('İptal'),
+          ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
@@ -1509,13 +2513,18 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
       List<Map<String, dynamic>> targetStudents = [];
       if (_yerlesmeyenFilterIndex == 0) {
         targetStudents = _absentStudents;
-      } else if (_yerlesmeyenFilterIndex == 1 || _yerlesmeyenFilterIndex == 2 || _yerlesmeyenFilterIndex == 3) {
+      } else if (_yerlesmeyenFilterIndex == 1 ||
+          _yerlesmeyenFilterIndex == 2 ||
+          _yerlesmeyenFilterIndex == 3) {
         List<String> ids = _unassignedStudents;
         if (_yerlesmeyenFilterIndex == 2) ids = _underAssignedStudents;
         if (_yerlesmeyenFilterIndex == 3) ids = _excludedStudents;
 
         targetStudents = ids.map((id) {
-          final s = _allBranchStudents.firstWhere((s) => s['id'] == id, orElse: () => {'id': id, 'fullName': 'Yükleniyor...'});
+          final s = _allBranchStudents.firstWhere(
+            (s) => s['id'] == id,
+            orElse: () => {'id': id, 'fullName': 'Yükleniyor...'},
+          );
           return {
             'id': id,
             'name': (s['fullName'] ?? s['name'] ?? 'İsimsiz').toString(),
@@ -1538,15 +2547,31 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
       // Load actual student profiles for target students
       final allStudents = await _fetchStudentsForCycle();
       final targetIds = targetStudents.map((s) => s['id'] as String).toSet();
-      final targetFullStudents = allStudents.where((s) => targetIds.contains(s['id'])).toList();
-      
+      final targetFullStudents = allStudents
+          .where((s) => targetIds.contains(s['id']))
+          .toList();
+
       final Set<String> allStudentsWhoEnteredExam = {};
-      final profiles = await _createStudentNeedProfiles(targetFullStudents, (sid) => allStudentsWhoEnteredExam.add(sid));
+      final profiles = await _createStudentNeedProfiles(
+        targetFullStudents,
+        (sid) => allStudentsWhoEnteredExam.add(sid),
+      );
 
       for (final student in targetStudents) {
         final studentId = student['id'] as String;
-        final profile = profiles.firstWhere((p) => p.ogrenciId == studentId, orElse: () => StudentNeedProfile(ogrenciId: studentId, ogrenciAdi: student['name'] ?? 'İsimsiz', subeId: student['subeId'] ?? '', subeAdi: student['branch'] ?? '', dersIhtiyaclari: {}));
-        final actualSube = profile.subeAdi.isNotEmpty ? profile.subeAdi : (student['branch'] ?? '');
+        final profile = profiles.firstWhere(
+          (p) => p.ogrenciId == studentId,
+          orElse: () => StudentNeedProfile(
+            ogrenciId: studentId,
+            ogrenciAdi: student['name'] ?? 'İsimsiz',
+            subeId: student['subeId'] ?? '',
+            subeAdi: student['branch'] ?? '',
+            dersIhtiyaclari: {},
+          ),
+        );
+        final actualSube = profile.subeAdi.isNotEmpty
+            ? profile.subeAdi
+            : (student['branch'] ?? '');
         final assignedGroupIds = _assignmentsByGroup.entries
             .where((e) => e.value.any((a) => a.ogrenciId == studentId))
             .map((e) => e.key)
@@ -1562,76 +2587,138 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
           }
         }
 
+        final subjectLimits = widget.cycle.dersBazliSaatSinirlari;
+        final Map<String, int> studentSubjectHours = {};
+        for (final grup in _groups) {
+          if (assignedGroupIds.contains(grup.id)) {
+            studentSubjectHours[grup.dersAdi] = (studentSubjectHours[grup.dersAdi] ?? 0) + 1;
+            studentSubjectHours[grup.dersId] = (studentSubjectHours[grup.dersId] ?? 0) + 1;
+          }
+        }
+
         final prioritizedGroups = List<CampGroup>.from(_groups)
-          ..sort((a, b) => _getGroupSuccessAvg(a.id).compareTo(_getGroupSuccessAvg(b.id)));
+          ..sort((a, b) {
+            // Kotası en eksik olan dersin gruplarına öncelik ver
+            if (subjectLimits.isNotEmpty) {
+              final minA = subjectLimits[a.dersAdi]?['min'] ?? subjectLimits[a.dersId]?['min'] ?? 0;
+              final minB = subjectLimits[b.dersAdi]?['min'] ?? subjectLimits[b.dersId]?['min'] ?? 0;
+              final currentA = studentSubjectHours[a.dersAdi] ?? studentSubjectHours[a.dersId] ?? 0;
+              final currentB = studentSubjectHours[b.dersAdi] ?? studentSubjectHours[b.dersId] ?? 0;
+              final needA = minA - currentA;
+              final needB = minB - currentB;
+              if (needA != needB) return needB.compareTo(needA);
+            }
+            return _getGroupSuccessAvg(a.id).compareTo(_getGroupSuccessAvg(b.id));
+          });
 
         int studentAtamaSayisi = 0;
         void attemptAssignment({required bool allowDuplicateSubject}) {
           for (final grup in prioritizedGroups) {
-            if (grup.isSpecial) continue; // Skip special classes for unassigned/absent auto-assigner
-            if (widget.cycle.haftalikMaksimumSaat != null && occupiedTimeSlots.length >= widget.cycle.haftalikMaksimumSaat!) break;
-            if (!allowDuplicateSubject && assignedSubjects.contains(grup.dersAdi)) continue; 
-            if (occupiedTimeSlots.contains('${grup.baslangicSaat}-${grup.gun}')) continue; 
+            if (grup.isSpecial)
+              continue; // Skip special classes for unassigned/absent auto-assigner
+            if (widget.cycle.haftalikMaksimumSaat != null &&
+                occupiedTimeSlots.length >= widget.cycle.haftalikMaksimumSaat!)
+              break;
+
+            // Ders bazlı saat limiti kontrolü (Max kotayı asla aşamaz!)
+            final maxSaat = subjectLimits[grup.dersAdi]?['max'] ?? subjectLimits[grup.dersId]?['max'];
+            final currentHours = studentSubjectHours[grup.dersAdi] ?? studentSubjectHours[grup.dersId] ?? 0;
+            if (maxSaat != null && currentHours >= maxSaat) {
+              continue;
+            }
+
+            if (!allowDuplicateSubject &&
+                subjectLimits.isEmpty &&
+                assignedSubjects.contains(grup.dersAdi)) {
+              continue;
+            }
+            if (occupiedTimeSlots.contains('${grup.baslangicSaat}-${grup.gun}'))
+              continue;
 
             final currentAssigns = _assignmentsByGroup[grup.id] ?? [];
-            if (widget.cycle.minimumGrupOgrenciSayisi != null && currentAssigns.length < widget.cycle.minimumGrupOgrenciSayisi!) {
+            if (widget.cycle.minimumGrupOgrenciSayisi != null &&
+                currentAssigns.length <
+                    widget.cycle.minimumGrupOgrenciSayisi!) {
               continue;
             }
             if (currentAssigns.length < grup.kapasite) {
               if (assignedGroupIds.contains(grup.id)) continue;
 
-              final actualBasari = profile.dersBasariOranlari[grup.dersId] ?? profile.dersBasariOranlari[grup.dersAdi] ?? 0.5;
+              final actualBasari =
+                  profile.dersBasariOranlari[grup.dersId] ??
+                  profile.dersBasariOranlari[grup.dersAdi] ??
+                  0.5;
 
               final assignRef = _db.collection('camp_assignments').doc();
-              batch.set(assignRef, CampAssignment(
-                id: assignRef.id, 
-                cycleId: widget.cycle.id, 
-                groupId: grup.id, 
-                ogrenciId: studentId, 
-                ogrenciAdi: student['name'] ?? 'İsimsiz', 
-                sube: actualSube,
-                subeId: student['subeId'] ?? '',
-                groupName: '${grup.dersAdi} - ${grup.ogretmenAdi}', 
-                basariOrani: actualBasari, 
-              ).toMap());
+              batch.set(
+                assignRef,
+                CampAssignment(
+                  id: assignRef.id,
+                  cycleId: widget.cycle.id,
+                  institutionId: widget.cycle.institutionId,
+                  groupId: grup.id,
+                  ogrenciId: studentId,
+                  ogrenciAdi: student['name'] ?? 'İsimsiz',
+                  sube: actualSube,
+                  subeId: student['subeId'] ?? '',
+                  groupName: '${grup.dersAdi} - ${grup.ogretmenAdi}',
+                  basariOrani: actualBasari,
+                ).toMap(),
+              );
 
               // Log
               final logRef = _db.collection('camp_assignment_logs').doc();
-              batch.set(logRef, CampAssignmentLog(
-                id: logRef.id, cycleId: widget.cycle.id, institutionId: widget.cycle.institutionId,
-                ogrenciId: studentId, ogrenciAdi: student['name'] ?? 'İsimsiz',
-                yeniGrupId: grup.id, yeniGrupAdi: '${grup.dersAdi} - ${grup.ogretmenAdi}',
-                yapanKullaniciId: _auth.currentUser?.uid ?? '', yapanKullaniciAdi: _auth.currentUser?.displayName ?? 'Admin', tarih: DateTime.now()
-              ).toMap());
+              batch.set(
+                logRef,
+                CampAssignmentLog(
+                  id: logRef.id,
+                  cycleId: widget.cycle.id,
+                  institutionId: widget.cycle.institutionId,
+                  ogrenciId: studentId,
+                  ogrenciAdi: student['name'] ?? 'İsimsiz',
+                  yeniGrupId: grup.id,
+                  yeniGrupAdi: '${grup.dersAdi} - ${grup.ogretmenAdi}',
+                  yapanKullaniciId: _auth.currentUser?.uid ?? '',
+                  yapanKullaniciAdi: _auth.currentUser?.displayName ?? 'Admin',
+                  tarih: DateTime.now(),
+                ).toMap(),
+              );
 
               atamaYapilanSayisi++;
               studentAtamaSayisi++;
-              
+
               _assignmentsByGroup.putIfAbsent(grup.id, () => []);
-              _assignmentsByGroup[grup.id]!.add(CampAssignment(
-                id: assignRef.id, 
-                cycleId: widget.cycle.id, 
-                groupId: grup.id, 
-                ogrenciId: studentId, 
-                ogrenciAdi: student['name'] ?? 'İsimsiz', 
-                sube: actualSube,
-                subeId: student['subeId'] ?? '',
-                groupName: '${grup.dersAdi} - ${grup.ogretmenAdi}', 
-                basariOrani: actualBasari, 
-              ));
-              
+              _assignmentsByGroup[grup.id]!.add(
+                CampAssignment(
+                  id: assignRef.id,
+                  cycleId: widget.cycle.id,
+                  institutionId: widget.cycle.institutionId,
+                  groupId: grup.id,
+                  ogrenciId: studentId,
+                  ogrenciAdi: student['name'] ?? 'İsimsiz',
+                  sube: actualSube,
+                  subeId: student['subeId'] ?? '',
+                  groupName: '${grup.dersAdi} - ${grup.ogretmenAdi}',
+                  basariOrani: actualBasari,
+                ),
+              );
+
               occupiedTimeSlots.add('${grup.baslangicSaat}-${grup.gun}');
               assignedSubjects.add(grup.dersAdi);
               assignedGroupIds.add(grup.id);
+              studentSubjectHours[grup.dersAdi] = (studentSubjectHours[grup.dersAdi] ?? 0) + 1;
+              studentSubjectHours[grup.dersId] = (studentSubjectHours[grup.dersId] ?? 0) + 1;
             }
           }
         }
 
-        attemptAssignment(allowDuplicateSubject: false);
-        if (_yerlesmeyenFilterIndex == 2 || (widget.cycle.minimumDersSayisi != null && occupiedTimeSlots.length < widget.cycle.minimumDersSayisi!)) {
+        attemptAssignment(allowDuplicateSubject: subjectLimits.isNotEmpty);
+        if (_yerlesmeyenFilterIndex == 2 ||
+            (widget.cycle.minimumDersSayisi != null &&
+                occupiedTimeSlots.length < widget.cycle.minimumDersSayisi!)) {
           attemptAssignment(allowDuplicateSubject: true);
         }
-        
+
         if (studentAtamaSayisi > 0) {
           processedStudentIds.add(studentId);
           // Firestore listelerinden kaldır
@@ -1649,17 +2736,35 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
       }
 
       setState(() {
-        _absentStudents.removeWhere((s) => processedStudentIds.contains(s['id']));
-        _unassignedStudents.removeWhere((id) => processedStudentIds.contains(id));
-        _underAssignedStudents.removeWhere((id) => processedStudentIds.contains(id));
+        _absentStudents.removeWhere(
+          (s) => processedStudentIds.contains(s['id']),
+        );
+        _unassignedStudents.removeWhere(
+          (id) => processedStudentIds.contains(id),
+        );
+        _underAssignedStudents.removeWhere(
+          (id) => processedStudentIds.contains(id),
+        );
         _excludedStudents.removeWhere((id) => processedStudentIds.contains(id));
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$atamaYapilanSayisi yeni atama başarıyla tamamlandı.'), backgroundColor: Colors.green));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '$atamaYapilanSayisi yeni atama başarıyla tamamlandı.',
+          ),
+          backgroundColor: Colors.green,
+        ),
+      );
       await Future.delayed(const Duration(milliseconds: 500));
       await _loadData();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Atama hatası: $e'), backgroundColor: Colors.red));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Atama hatası: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
       if (mounted) setState(() => _loading = false);
     }
   }
@@ -1670,7 +2775,7 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
     return assigns.fold(0.0, (sum, a) => sum + a.basariOrani) / assigns.length;
   }
 
-  // ─── UI BİLEŞENLERİ ──────────────────────────────────────────────────────
+  // ═══ UI BİLEŞENLERİ ═══════════════════════════════════════════════════
 
   Widget _buildGroupsTab() {
     if (_groups.isEmpty) {
@@ -1680,40 +2785,91 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
           children: [
             Icon(Icons.group_outlined, size: 56, color: Colors.grey.shade300),
             const SizedBox(height: 12),
-            Text('Grup yok', style: TextStyle(color: Colors.grey.shade500, fontSize: 16)),
+            Text(
+              'Grup yok',
+              style: TextStyle(color: Colors.grey.shade500, fontSize: 16),
+            ),
             const SizedBox(height: 8),
-            Text('"Dağıtım Yap" butonuna basarak\nalgoritmanın çalışmasını sağlayın.', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey.shade400, fontSize: 13)),
+            Text(
+              '"Dağıtım Yap" butonuna basarak\nalgoritmanın çalışmasını sağlayın.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+            ),
           ],
         ),
       );
     }
 
     int getDayIndex(String dayStr) {
-      final d = dayStr.toLowerCase();
+      final d = dayStr.toLowerCase().replaceAll(' ', '');
       if (d.contains('pazartesi') || d.contains('pzt')) return 1;
       if (d.contains('salı') || d.contains('sali') || d.contains('sal')) return 2;
-      if (d.contains('çarşamba') || d.contains('carsamba') || d.contains('çrş')) return 3;
-      if (d.contains('perşembe') || d.contains('persembe') || d.contains('prş')) return 4;
+      if (d.contains('çarşamba') ||
+          d.contains('carsamba') ||
+          d.contains('çarş') ||
+          d.contains('cars') ||
+          d.contains('çrş') ||
+          d.contains('crs')) {
+        return 3;
+      }
+      if (d.contains('perşembe') ||
+          d.contains('persembe') ||
+          d.contains('perş') ||
+          d.contains('pers') ||
+          d.contains('prş') ||
+          d.contains('prs')) {
+        return 4;
+      }
       if (d.contains('cumartesi') || d.contains('cmt')) return 6;
       if (d.contains('cuma') || d.contains('cum')) return 5;
       if (d.contains('pazar') || d.contains('pzr')) return 7;
       return 99;
     }
 
+    int parseTime(String timeStr) {
+      try {
+        final parts = timeStr.trim().split(':');
+        if (parts.length >= 2) {
+          final h = int.tryParse(parts[0]) ?? 0;
+          final m = int.tryParse(parts[1]) ?? 0;
+          return h * 60 + m;
+        }
+      } catch (_) {}
+      return 9999;
+    }
+
     final Map<String, List<CampGroup>> byBranch = {};
-    final Set<String> allGroupBranches = _groups.map((g) => g.isSpecial ? 'Özel Sınıf' : g.dersAdi).toSet();
-    final allDays = _groups.map((g) => g.gun).where((d) => d.isNotEmpty).toSet().toList()..sort((a, b) {
-      final idxA = getDayIndex(a);
-      final idxB = getDayIndex(b);
-      if (idxA == idxB) return a.compareTo(b);
-      return idxA.compareTo(idxB);
-    });
+    final Set<String> allGroupBranches = _groups
+        .map((g) => g.isSpecial ? 'Özel Sınıf' : g.dersAdi)
+        .toSet();
+    final allDays =
+        _groups.map((g) => g.gun).where((d) => d.isNotEmpty).toSet().toList()
+          ..sort((a, b) {
+            final idxA = getDayIndex(a);
+            final idxB = getDayIndex(b);
+            if (idxA == idxB) return a.compareTo(b);
+            return idxA.compareTo(idxB);
+          });
 
     // Seçili güne ait slotları belirle
-    final filteredGroups = _groups.where((g) => _selectedSlotFilter == null || g.gun == _selectedSlotFilter).toList();
-    final allPossibleSlots = filteredGroups.map((g) => '${g.baslangicSaat}-${g.bitisSaat}').toSet().toList()..sort();
-    
-    if (_selectedTimeSlots == null) _selectedTimeSlots = Set<String>.from(allPossibleSlots);
+    final filteredGroups = _groups
+        .where(
+          (g) => _selectedSlotFilter == null || g.gun == _selectedSlotFilter,
+        )
+        .toList();
+    final allPossibleSlots =
+        filteredGroups
+            .map((g) => '${g.baslangicSaat}-${g.bitisSaat}')
+            .toSet()
+            .toList()
+          ..sort((a, b) {
+            final startA = a.split('-').first;
+            final startB = b.split('-').first;
+            return parseTime(startA).compareTo(parseTime(startB));
+          });
+
+    if (_selectedTimeSlots == null)
+      _selectedTimeSlots = Set<String>.from(allPossibleSlots);
 
     for (final g in filteredGroups) {
       final key = g.isSpecial ? 'Özel Sınıf' : g.dersAdi;
@@ -1723,21 +2879,45 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
       byBranch.putIfAbsent(key, () => []).add(g);
     }
 
-    final sortedBranches = byBranch.keys.toList()..sort((a, b) {
-      if (a == 'Özel Sınıf') return -1;
-      if (b == 'Özel Sınıf') return 1;
-      return a.compareTo(b);
-    });
+    final sortedBranches = byBranch.keys.toList()
+      ..sort((a, b) {
+        if (a == 'Özel Sınıf') return -1;
+        if (b == 'Özel Sınıf') return 1;
+        return a.compareTo(b);
+      });
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         _buildCycleSummaryBar(),
         const SizedBox(height: 16),
-        _buildGroupFilterRow(allGroupBranches.toList()..sort(), allPossibleSlots, allDays),
+        _buildGroupFilterRow(
+          allGroupBranches.toList()..sort(),
+          allPossibleSlots,
+          allDays,
+        ),
         const SizedBox(height: 12),
         ...sortedBranches.map((branch) {
-          final groups = byBranch[branch]!;
+          final groups = byBranch[branch]!
+            ..sort((a, b) {
+              // 1. Gün Sıralaması (Pzt -> Salı -> Çarş -> Perş...)
+              final dayA = getDayIndex(a.gun.isNotEmpty ? a.gun : a.saatDilimiAdi);
+              final dayB = getDayIndex(b.gun.isNotEmpty ? b.gun : b.saatDilimiAdi);
+              if (dayA != dayB) return dayA.compareTo(dayB);
+
+              // 2. Başlangıç Saati Sıralaması (09:30 -> 10:20 -> 11:10...)
+              final timeA = parseTime(a.baslangicSaat);
+              final timeB = parseTime(b.baslangicSaat);
+              if (timeA != timeB) return timeA.compareTo(timeB);
+
+              // 3. Bitiş Saati Sıralaması
+              final endTimeA = parseTime(a.bitisSaat);
+              final endTimeB = parseTime(b.bitisSaat);
+              if (endTimeA != endTimeB) return endTimeA.compareTo(endTimeB);
+
+              // 4. Derslik / İsim Sıralaması
+              return (a.derslikAdi ?? a.dersAdi).compareTo(b.derslikAdi ?? b.dersAdi);
+            });
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1754,12 +2934,24 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
   }
 
   Widget _buildCycleSummaryBar() {
-    final totalAssignments = _assignmentsByGroup.values.fold(0, (sum, list) => sum + list.length);
-    final totalUnplaced = _unassignedStudents.length + _underAssignedStudents.length + _absentStudents.length + _excludedStudents.length;
+    final totalAssignments = _assignmentsByGroup.values.fold(
+      0,
+      (sum, list) => sum + list.length,
+    );
+    final totalUnplaced =
+        _unassignedStudents.length +
+        _underAssignedStudents.length +
+        _absentStudents.length +
+        _excludedStudents.length;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      decoration: BoxDecoration(gradient: LinearGradient(colors: [Colors.orange.shade600, Colors.orange.shade800]), borderRadius: BorderRadius.circular(12)),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.orange.shade600, Colors.orange.shade800],
+        ),
+        borderRadius: BorderRadius.circular(12),
+      ),
       child: Row(
         children: [
           _statItem('${_groups.length}', 'Grup'),
@@ -1774,12 +2966,39 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
     );
   }
 
-  Widget _statItem(String value, String label) => Expanded(child: Column(children: [Text(value, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)), Text(label, style: const TextStyle(color: Colors.white70, fontSize: 10), textAlign: TextAlign.center)]));
-  Widget _dividerStat() => Container(height: 30, width: 1, color: Colors.white30, margin: const EdgeInsets.symmetric(horizontal: 8));
+  Widget _statItem(String value, String label) => Expanded(
+    child: Column(
+      children: [
+        Text(
+          value,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        Text(
+          label,
+          style: const TextStyle(color: Colors.white70, fontSize: 10),
+          textAlign: TextAlign.center,
+        ),
+      ],
+    ),
+  );
+  Widget _dividerStat() => Container(
+    height: 30,
+    width: 1,
+    color: Colors.white30,
+    margin: const EdgeInsets.symmetric(horizontal: 8),
+  );
 
-  Widget _buildGroupFilterRow(List<String> branches, List<String> allSlots, List<String> allDays) {
+  Widget _buildGroupFilterRow(
+    List<String> branches,
+    List<String> allSlots,
+    List<String> allDays,
+  ) {
     final isMobile = MediaQuery.of(context).size.width < 600;
-    
+
     if (isMobile) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1790,33 +3009,63 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                 child: Container(
                   height: 36,
                   padding: const EdgeInsets.symmetric(horizontal: 8),
-                  decoration: BoxDecoration(color: Colors.white, border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(8)),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    border: Border.all(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                   child: DropdownButtonHideUnderline(
                     child: DropdownButton<String>(
                       value: _selectedSlotFilter,
                       isExpanded: true,
                       hint: Text(
-                        'Tümü (Slotlar)', 
-                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey.shade700, fontSize: 12),
+                        'Tümü (Slotlar)',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey.shade700,
+                          fontSize: 12,
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
                       isDense: true,
-                      icon: Icon(Icons.arrow_drop_down, color: Colors.grey.shade600),
+                      icon: Icon(
+                        Icons.arrow_drop_down,
+                        color: Colors.grey.shade600,
+                      ),
                       items: [
                         const DropdownMenuItem<String>(
-                          value: null, 
-                          child: Text('Tümü (Slotlar)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis),
+                          value: null,
+                          child: Text(
+                            'Tümü (Slotlar)',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
-                        ...allDays.map((day) => DropdownMenuItem<String>(
-                          value: day, 
-                          child: Text(day, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis),
-                        )),
+                        ...allDays.map(
+                          (day) => DropdownMenuItem<String>(
+                            value: day,
+                            child: Text(
+                              day,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
                       ],
                       onChanged: (val) {
                         setState(() {
                           _selectedSlotFilter = val;
-                          _selectedTimeSlots = null; // Gün değişince alt slotları sıfırla
+                          _selectedTimeSlots =
+                              null; // Gün değiştirince slotları sıfırla
                         });
                       },
                     ),
@@ -1828,29 +3077,62 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                 child: Container(
                   height: 36,
                   padding: const EdgeInsets.symmetric(horizontal: 8),
-                  decoration: BoxDecoration(color: Colors.white, border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(8)),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    border: Border.all(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                   child: DropdownButtonHideUnderline(
                     child: DropdownButton<String>(
                       value: _groupFilterBranch,
                       isDense: true,
                       isExpanded: true,
-                      icon: Icon(Icons.arrow_drop_down, color: Colors.grey.shade600),
+                      icon: Icon(
+                        Icons.arrow_drop_down,
+                        color: Colors.grey.shade600,
+                      ),
                       hint: Text(
-                        'Tüm Branşlar', 
-                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey.shade700, fontSize: 12),
+                        'Tüm Branşlar',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey.shade700,
+                          fontSize: 12,
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      style: const TextStyle(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.black87,
+                        fontWeight: FontWeight.bold,
+                      ),
                       items: [
                         const DropdownMenuItem<String>(
-                          value: null, 
-                          child: Text('Tüm Branşlar', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis),
+                          value: null,
+                          child: Text(
+                            'Tüm Branşlar',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
-                        ...branches.map((b) => DropdownMenuItem<String>(
-                          value: b, 
-                          child: Text(b, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis),
-                        )),
+                        ...branches.map(
+                          (b) => DropdownMenuItem<String>(
+                            value: b,
+                            child: Text(
+                              b,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
                       ],
                       onChanged: (v) => setState(() => _groupFilterBranch = v),
                     ),
@@ -1868,17 +3150,26 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                 scrollDirection: Axis.horizontal,
                 child: Row(
                   children: [
-                    Text('Saat Slotları: ', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey.shade600)),
+                    Text(
+                      'Saat Slotları: ',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
                     ...allSlots.asMap().entries.map((entry) {
                       final index = entry.key + 1;
                       final slotKey = entry.value;
-                      final isSelected = _selectedTimeSlots?.contains(slotKey) ?? true;
+                      final isSelected =
+                          _selectedTimeSlots?.contains(slotKey) ?? true;
                       return Padding(
                         padding: const EdgeInsets.only(right: 6),
                         child: InkWell(
                           onTap: () {
                             setState(() {
-                              if (_selectedTimeSlots == null) _selectedTimeSlots = Set<String>.from(allSlots);
+                              if (_selectedTimeSlots == null)
+                                _selectedTimeSlots = Set<String>.from(allSlots);
                               if (_selectedTimeSlots!.contains(slotKey)) {
                                 _selectedTimeSlots!.remove(slotKey);
                               } else {
@@ -1888,14 +3179,28 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                           },
                           borderRadius: BorderRadius.circular(6),
                           child: Container(
-                            width: 28, height: 28,
+                            width: 28,
+                            height: 28,
                             alignment: Alignment.center,
                             decoration: BoxDecoration(
-                              color: isSelected ? Colors.orange : Colors.white, 
-                              borderRadius: BorderRadius.circular(6), 
-                              border: Border.all(color: isSelected ? Colors.orange : Colors.grey.shade300)
+                              color: isSelected ? Colors.orange : Colors.white,
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: isSelected
+                                    ? Colors.orange
+                                    : Colors.grey.shade300,
+                              ),
                             ),
-                            child: Text('$index', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isSelected ? Colors.white : Colors.grey.shade600)),
+                            child: Text(
+                              '$index',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: isSelected
+                                    ? Colors.white
+                                    : Colors.grey.shade600,
+                              ),
+                            ),
                           ),
                         ),
                       );
@@ -1914,21 +3219,50 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
         Container(
           height: 32,
           padding: const EdgeInsets.symmetric(horizontal: 10),
-          decoration: BoxDecoration(color: Colors.white, border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(6)),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border.all(color: Colors.grey.shade300),
+            borderRadius: BorderRadius.circular(6),
+          ),
           child: DropdownButtonHideUnderline(
             child: DropdownButton<String>(
               value: _selectedSlotFilter,
-              hint: Text('Tümü (Slotlar)', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey.shade700, fontSize: 13)),
+              hint: Text(
+                'Tümü (Slotlar)',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey.shade700,
+                  fontSize: 13,
+                ),
+              ),
               isDense: true,
               icon: Icon(Icons.arrow_drop_down, color: Colors.grey.shade600),
               items: [
-                const DropdownMenuItem<String>(value: null, child: Text('Tümü (Slotlar)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13))),
-                ...allDays.map((day) => DropdownMenuItem<String>(value: day, child: Text(day, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))),
+                const DropdownMenuItem<String>(
+                  value: null,
+                  child: Text(
+                    'Tümü (Slotlar)',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                ),
+                ...allDays.map(
+                  (day) => DropdownMenuItem<String>(
+                    value: day,
+                    child: Text(
+                      day,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ),
               ],
               onChanged: (val) {
                 setState(() {
                   _selectedSlotFilter = val;
-                  _selectedTimeSlots = null; // Gün değişince alt slotları sıfırla
+                  _selectedTimeSlots =
+                      null; // Gün değişince alt slotları sıfırla
                 });
               },
             ),
@@ -1943,22 +3277,46 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                 ...allSlots.asMap().entries.map((entry) {
                   final index = entry.key + 1;
                   final slotKey = entry.value;
-                  final isSelected = _selectedTimeSlots?.contains(slotKey) ?? true;
+                  final isSelected =
+                      _selectedTimeSlots?.contains(slotKey) ?? true;
                   return Padding(
                     padding: const EdgeInsets.only(right: 6),
                     child: InkWell(
                       onTap: () {
                         setState(() {
-                          if (_selectedTimeSlots == null) _selectedTimeSlots = Set<String>.from(allSlots);
-                          if (_selectedTimeSlots!.contains(slotKey)) { _selectedTimeSlots!.remove(slotKey); } else { _selectedTimeSlots!.add(slotKey); }
+                          if (_selectedTimeSlots == null)
+                            _selectedTimeSlots = Set<String>.from(allSlots);
+                          if (_selectedTimeSlots!.contains(slotKey)) {
+                            _selectedTimeSlots!.remove(slotKey);
+                          } else {
+                            _selectedTimeSlots!.add(slotKey);
+                          }
                         });
                       },
                       borderRadius: BorderRadius.circular(4),
                       child: Container(
-                        width: 26, height: 26,
+                        width: 26,
+                        height: 26,
                         alignment: Alignment.center,
-                        decoration: BoxDecoration(color: isSelected ? Colors.orange : Colors.white, borderRadius: BorderRadius.circular(4), border: Border.all(color: isSelected ? Colors.orange : Colors.grey.shade300)),
-                        child: Text('$index', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isSelected ? Colors.white : Colors.grey.shade600)),
+                        decoration: BoxDecoration(
+                          color: isSelected ? Colors.orange : Colors.white,
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(
+                            color: isSelected
+                                ? Colors.orange
+                                : Colors.grey.shade300,
+                          ),
+                        ),
+                        child: Text(
+                          '$index',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: isSelected
+                                ? Colors.white
+                                : Colors.grey.shade600,
+                          ),
+                        ),
                       ),
                     ),
                   );
@@ -1970,15 +3328,24 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
         const SizedBox(width: 8),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey.shade300)),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.grey.shade300),
+          ),
           child: DropdownButtonHideUnderline(
             child: DropdownButton<String>(
               value: _groupFilterBranch,
               hint: const Text('Tüm Branşlar', style: TextStyle(fontSize: 12)),
               style: const TextStyle(fontSize: 12, color: Colors.black87),
               items: [
-                const DropdownMenuItem<String>(value: null, child: Text('Tüm Branşlar')),
-                ...branches.map((b) => DropdownMenuItem<String>(value: b, child: Text(b))),
+                const DropdownMenuItem<String>(
+                  value: null,
+                  child: Text('Tüm Branşlar'),
+                ),
+                ...branches.map(
+                  (b) => DropdownMenuItem<String>(value: b, child: Text(b)),
+                ),
               ],
               onChanged: (v) => setState(() => _groupFilterBranch = v),
             ),
@@ -1988,21 +3355,48 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
     );
   }
 
-  Widget _buildBranchHeader(String branch) => Padding(padding: const EdgeInsets.only(bottom: 4), child: Row(children: [Icon(Icons.label_important_outline, size: 16, color: Colors.orange.shade700), const SizedBox(width: 6), Text(branch, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.orange.shade700))]));
+  Widget _buildBranchHeader(String branch) => Padding(
+    padding: const EdgeInsets.only(bottom: 4),
+    child: Row(
+      children: [
+        Icon(
+          Icons.label_important_outline,
+          size: 16,
+          color: Colors.orange.shade700,
+        ),
+        const SizedBox(width: 6),
+        Text(
+          branch,
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+            color: Colors.orange.shade700,
+          ),
+        ),
+      ],
+    ),
+  );
 
   bool _hasHighPercentSuccess(CampGroup group) {
     final assignments = _assignmentsByGroup[group.id] ?? [];
     if (assignments.isEmpty) return false;
-    final avg = assignments.fold(0.0, (sum, a) => sum + a.basariOrani) / assignments.length;
+    final avg =
+        assignments.fold(0.0, (sum, a) => sum + a.basariOrani) /
+        assignments.length;
     return (avg * 100).round() >= 95;
   }
 
   Widget _buildGroupCard(CampGroup group) {
     final assignments = _assignmentsByGroup[group.id] ?? [];
-    final doluluk = group.kapasite > 0 ? assignments.length / group.kapasite : 0.0;
+    final doluluk = group.kapasite > 0
+        ? assignments.length / group.kapasite
+        : 0.0;
     final isSpecial = group.isSpecial;
     Color dolulukRenk = Colors.green;
-    if (doluluk >= 1.0) dolulukRenk = Colors.red; else if (doluluk >= 0.8) dolulukRenk = Colors.orange;
+    if (doluluk >= 1.0)
+      dolulukRenk = Colors.red;
+    else if (doluluk >= 0.8)
+      dolulukRenk = Colors.orange;
 
     final isHighPercentSuccess = _hasHighPercentSuccess(group);
 
@@ -2015,15 +3409,24 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
         collapsedShape: const RoundedRectangleBorder(side: BorderSide.none),
         leading: Container(
           padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(8)),
-          child: Icon(isSpecial ? Icons.star : Icons.book_outlined, color: Colors.orange, size: 22),
+          decoration: BoxDecoration(
+            color: Colors.orange.shade50,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(
+            isSpecial ? Icons.star : Icons.book_outlined,
+            color: Colors.orange,
+            size: 22,
+          ),
         ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Row 1: Full-Width Title (TAM SATIR)
             Text(
-              isSpecial ? 'ÖZEL SINIF - ${group.derslikAdi ?? ""}' : group.dersAdi, 
+              isSpecial
+                  ? 'ÖZEL SINIF - ${group.derslikAdi ?? ""}'
+                  : group.dersAdi,
               style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -2040,20 +3443,29 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '${group.gun} • ${group.baslangicSaat}-${group.bitisSaat} • ${group.ogretmenAdi}${group.derslikAdi != null ? ' (${group.derslikAdi})' : ''}', 
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                        '${group.gun} • ${group.baslangicSaat}-${group.bitisSaat} • ${group.ogretmenAdi}${group.derslikAdi != null ? ' (${group.derslikAdi})' : ''}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                        ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
                       if (group.kazanimlar.isNotEmpty)
                         Padding(
-                          padding: const EdgeInsets.only(top: 2), 
+                          padding: const EdgeInsets.only(top: 2),
                           child: Text(
-                            isHighPercentSuccess ? 'Ana Kazanım: Soru Çözümü' : 'Ana Kazanım: ${group.kazanimlar.first}', 
-                            maxLines: 1, 
-                            overflow: TextOverflow.ellipsis, 
-                            style: TextStyle(fontSize: 11, color: Colors.orange.shade700, fontWeight: FontWeight.bold)
-                          )
+                            isHighPercentSuccess
+                                ? 'Ana Kazanım: Soru Çözümü'
+                                : 'Ana Kazanım: ${group.kazanimlar.first}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.orange.shade700,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
                     ],
                   ),
@@ -2065,16 +3477,21 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      '${assignments.length}/${group.kapasite}', 
-                      style: TextStyle(fontWeight: FontWeight.bold, color: dolulukRenk, fontSize: 13),
+                      '${assignments.length}/${group.kapasite}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: dolulukRenk,
+                        fontSize: 13,
+                      ),
                     ),
                     const SizedBox(height: 3),
                     SizedBox(
-                      width: 48, height: 4, 
+                      width: 48,
+                      height: 4,
                       child: LinearProgressIndicator(
-                        value: doluluk.clamp(0.0, 1.0), 
-                        backgroundColor: Colors.grey.shade200, 
-                        valueColor: AlwaysStoppedAnimation<Color>(dolulukRenk), 
+                        value: doluluk.clamp(0.0, 1.0),
+                        backgroundColor: Colors.grey.shade200,
+                        valueColor: AlwaysStoppedAnimation<Color>(dolulukRenk),
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
@@ -2093,27 +3510,74 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Kazanımlar (1 Ana + 2 Yardımcı)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.orange)),
+                  const Text(
+                    'Kazanımlar (1 Ana + 2 Yardımcı)',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                      color: Colors.orange,
+                    ),
+                  ),
                   const SizedBox(height: 8),
                   Wrap(
-                    spacing: 6, runSpacing: 6,
+                    spacing: 6,
+                    runSpacing: 6,
                     children: [
                       if (isHighPercentSuccess)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(6), border: Border.all(color: Colors.orange.shade100)),
-                          child: const Text('Ana: Soru Çözümü', style: TextStyle(fontSize: 11, color: Colors.orange, fontWeight: FontWeight.bold)),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.shade50,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: Colors.orange.shade100),
+                          ),
+                          child: const Text(
+                            'Ana: Soru Çözümü',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.orange,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         )
                       else
-                        ...group.kazanimlar.take(3).toList().asMap().entries.map((entry) {
-                          final index = entry.key;
-                          final k = entry.value;
-                          return Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(6), border: Border.all(color: Colors.orange.shade100)),
-                            child: Text(index == 0 ? 'Ana: $k' : 'Yard: $k', style: TextStyle(fontSize: 11, color: index == 0 ? Colors.orange.shade900 : Colors.grey.shade700, fontWeight: index == 0 ? FontWeight.bold : FontWeight.w500)),
-                          );
-                        }),
+                        ...group.kazanimlar
+                            .take(3)
+                            .toList()
+                            .asMap()
+                            .entries
+                            .map((entry) {
+                              final index = entry.key;
+                              final k = entry.value;
+                              return Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.orange.shade50,
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                    color: Colors.orange.shade100,
+                                  ),
+                                ),
+                                child: Text(
+                                  index == 0 ? 'Ana: $k' : 'Yard: $k',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: index == 0
+                                        ? Colors.orange.shade900
+                                        : Colors.grey.shade700,
+                                    fontWeight: index == 0
+                                        ? FontWeight.bold
+                                        : FontWeight.w500,
+                                  ),
+                                ),
+                              );
+                            }),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -2121,17 +3585,22 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                 ],
               ),
             ),
-          if (assignments.isEmpty) const Padding(padding: EdgeInsets.all(16), child: Text('Bu grupta henüz öğrenci yok.'))
-          else _buildGroupStudentList(assignments),
+          if (assignments.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('Bu grupta henüz öğrenci yok.'),
+            )
+          else
+            _buildGroupStudentList(assignments),
         ],
       ),
     );
   }
-  
+
   Widget _buildGroupStudentList(List<CampAssignment> assignments) {
     final sortedAssignments = List<CampAssignment>.from(assignments)
       ..sort((a, b) => b.basariOrani.compareTo(a.basariOrani));
-    
+
     return ListView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -2140,24 +3609,53 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
         final s = sortedAssignments[index];
         final isSelected = _selectedStudentIds.contains(s.id);
         return InkWell(
-          onTap: () => setState(() { if (isSelected) _selectedStudentIds.remove(s.id); else _selectedStudentIds.add(s.id); }),
+          onTap: () => setState(() {
+            if (isSelected)
+              _selectedStudentIds.remove(s.id);
+            else
+              _selectedStudentIds.add(s.id);
+          }),
           child: Container(
             color: isSelected ? Colors.orange.shade50.withOpacity(0.5) : null,
             child: ListTile(
               dense: true,
               leading: CircleAvatar(
                 radius: 12,
-                backgroundColor: isSelected ? Colors.orange : Colors.orange.shade50,
-                child: isSelected ? const Icon(Icons.check, size: 14, color: Colors.white) : Text('${index + 1}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.orange)),
+                backgroundColor: isSelected
+                    ? Colors.orange
+                    : Colors.orange.shade50,
+                child: isSelected
+                    ? const Icon(Icons.check, size: 14, color: Colors.white)
+                    : Text(
+                        '${index + 1}',
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.orange,
+                        ),
+                      ),
               ),
-              title: Row(children: [
-                Expanded(child: Text('${s.ogrenciAdi}${s.sube != null ? " (${s.sube})" : ""}', style: const TextStyle(fontWeight: FontWeight.w500))),
-                _buildStudentScoreBadge(s),
-              ]),
-              trailing: _selectedStudentIds.isEmpty ? IconButton(
-                icon: const Icon(Icons.compare_arrows, size: 16, color: Colors.grey),
-                onPressed: () => _showMoveDialog([s]),
-              ) : null,
+              title: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${s.ogrenciAdi}${s.sube != null ? " (${s.sube})" : ""}',
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                  _buildStudentScoreBadge(s),
+                ],
+              ),
+              trailing: _selectedStudentIds.isEmpty
+                  ? IconButton(
+                      icon: const Icon(
+                        Icons.compare_arrows,
+                        size: 16,
+                        color: Colors.grey,
+                      ),
+                      onPressed: () => _showMoveDialog([s]),
+                    )
+                  : null,
             ),
           ),
         );
@@ -2168,20 +3666,37 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
   Widget _buildGroupAvgBadge(CampGroup group) {
     final assignments = _assignmentsByGroup[group.id] ?? [];
     if (assignments.isEmpty) return const SizedBox.shrink();
-    final avg = assignments.fold(0.0, (sum, a) => sum + a.basariOrani) / assignments.length;
+    final avg =
+        assignments.fold(0.0, (sum, a) => sum + a.basariOrani) /
+        assignments.length;
     final pct = (avg * 100).toStringAsFixed(0);
-    final color = avg < 0.4 ? Colors.red : avg < 0.7 ? Colors.orange : Colors.green;
-    
+    final color = avg < 0.4
+        ? Colors.red
+        : avg < 0.7
+        ? Colors.orange
+        : Colors.green;
+
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text('Ort. %$pct', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: color)),
+        Text(
+          'Ort. %$pct',
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
         if (!group.isSpecial)
           Padding(
             padding: const EdgeInsets.only(left: 4),
             child: InkWell(
               onTap: () => _showSwapGroupDialog(group),
-              child: Icon(Icons.swap_horiz, size: 14, color: Colors.grey.shade400),
+              child: Icon(
+                Icons.swap_horiz,
+                size: 14,
+                color: Colors.grey.shade400,
+              ),
             ),
           ),
       ],
@@ -2190,25 +3705,92 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
 
   Widget _buildStudentScoreBadge(CampAssignment a) {
     final pct = (a.basariOrani * 100).toStringAsFixed(0);
-    final color = a.basariOrani < 0.4 ? Colors.red : a.basariOrani < 0.7 ? Colors.orange : Colors.green;
-    return Container(padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2), decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(8), border: Border.all(color: color.withOpacity(0.3))), child: Text('%$pct', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: color)));
+    final color = a.basariOrani < 0.4
+        ? Colors.red
+        : a.basariOrani < 0.7
+        ? Colors.orange
+        : Colors.green;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Text(
+        '%$pct',
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+          color: color,
+        ),
+      ),
+    );
   }
 
   Widget _buildBulkActionBar() {
-    final selectedAssignments = _assignmentsByGroup.values.expand((list) => list).where((a) => _selectedStudentIds.contains(a.id)).toList();
+    final selectedAssignments = _assignmentsByGroup.values
+        .expand((list) => list)
+        .where((a) => _selectedStudentIds.contains(a.id))
+        .toList();
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-      decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, -2))]),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
       child: SafeArea(
         child: Row(
           children: [
-            Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [Text('${_selectedStudentIds.length} Seçim Yapıldı', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)), Text('Toplu işlem yapabilirsiniz.', style: TextStyle(color: Colors.grey.shade600, fontSize: 11))]),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${_selectedStudentIds.length} Seçim Yapıldı',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                Text(
+                  'Toplu işlem yapabilirsiniz.',
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
+                ),
+              ],
+            ),
             const Spacer(),
-            TextButton(onPressed: () => setState(() => _selectedStudentIds.clear()), child: const Text('İptal')),
+            TextButton(
+              onPressed: () => setState(() => _selectedStudentIds.clear()),
+              child: const Text('İptal'),
+            ),
             const SizedBox(width: 8),
-            ElevatedButton.icon(onPressed: () => _removeAssignments(selectedAssignments), icon: const Icon(Icons.delete_outline, size: 18), label: const Text('Çıkar'), style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade50, foregroundColor: Colors.red, elevation: 0)),
+            ElevatedButton.icon(
+              onPressed: () => _removeAssignments(selectedAssignments),
+              icon: const Icon(Icons.delete_outline, size: 18),
+              label: const Text('Çıkar'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red.shade50,
+                foregroundColor: Colors.red,
+                elevation: 0,
+              ),
+            ),
             const SizedBox(width: 8),
-            ElevatedButton.icon(onPressed: () => _showMoveDialog(selectedAssignments), icon: const Icon(Icons.swap_horiz, size: 18), label: const Text('Taşı'), style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade700, foregroundColor: Colors.white)),
+            ElevatedButton.icon(
+              onPressed: () => _showMoveDialog(selectedAssignments),
+              icon: const Icon(Icons.swap_horiz, size: 18),
+              label: const Text('Taşı'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange.shade700,
+                foregroundColor: Colors.white,
+              ),
+            ),
           ],
         ),
       ),
@@ -2219,187 +3801,419 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
     return Column(
       children: [
         Container(
-          padding: const EdgeInsets.all(12), 
-          color: Colors.white, 
+          padding: const EdgeInsets.all(12),
+          color: Colors.white,
           width: double.infinity,
           child: Row(
             children: [
-              Expanded(child: _filterChip(0, 'Sınava Girmeyen', _absentStudents.length)), 
-              const SizedBox(width: 8), 
-              Expanded(child: _filterChip(1, 'Atanamayan', _unassignedStudents.length)), 
-              const SizedBox(width: 8), 
-              Expanded(child: _filterChip(2, 'Eksik Atanan', _underAssignedStudents.length)),
-              const SizedBox(width: 8), 
-              Expanded(child: _filterChip(3, 'Hariçler', _excludedStudents.length)),
-            ]
-          )
+              Expanded(
+                child: _filterChip(
+                  0,
+                  'Sınava Girmeyen',
+                  _absentStudents.length,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _filterChip(1, 'Atanamayan', _unassignedStudents.length),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _filterChip(
+                  2,
+                  'Eksik Atanan',
+                  _underAssignedStudents.length,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _filterChip(3, 'Hariçler', _excludedStudents.length),
+              ),
+            ],
+          ),
         ),
-        Expanded(child: _yerlesmeyenFilterIndex == 0 ? _buildStudentList(_absentStudents) : _buildStudentList(_getMappedStudents(_yerlesmeyenFilterIndex))),
+        Expanded(
+          child: _yerlesmeyenFilterIndex == 0
+              ? _buildStudentList(_absentStudents)
+              : _buildStudentList(_getMappedStudents(_yerlesmeyenFilterIndex)),
+        ),
       ],
     );
   }
 
   Widget _filterChip(int index, String label, int count) {
     final isSelected = _yerlesmeyenFilterIndex == index;
-    return InkWell(onTap: () => setState(() => _yerlesmeyenFilterIndex = index), child: Container(padding: const EdgeInsets.symmetric(vertical: 8), decoration: BoxDecoration(color: isSelected ? Colors.orange.shade700 : Colors.grey.shade50, borderRadius: BorderRadius.circular(20), border: Border.all(color: isSelected ? Colors.orange.shade700 : Colors.grey.shade300)), child: Column(children: [Text('$count', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: isSelected ? Colors.white : Colors.orange.shade700)), Text(label, style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: isSelected ? Colors.white : Colors.grey.shade600), textAlign: TextAlign.center)])));
+    return InkWell(
+      onTap: () => setState(() => _yerlesmeyenFilterIndex = index),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.orange.shade700 : Colors.grey.shade50,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected ? Colors.orange.shade700 : Colors.grey.shade300,
+          ),
+        ),
+        child: Column(
+          children: [
+            Text(
+              '$count',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: isSelected ? Colors.white : Colors.orange.shade700,
+              ),
+            ),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.bold,
+                color: isSelected ? Colors.white : Colors.grey.shade600,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   List<Map<String, dynamic>> _getMappedStudents(int filterIndex) {
     List<String> ids = _unassignedStudents;
     if (filterIndex == 2) ids = _underAssignedStudents;
     if (filterIndex == 3) ids = _excludedStudents;
-    return _allBranchStudents.where((s) => ids.contains(s['id'])).map((s) => {'id': s['id'], 'name': (s['fullName'] ?? s['name'] ?? 'İsimsiz').toString(), 'branch': (s['className'] ?? s['branch'] ?? '').toString(), 'subeId': s['branchId'] ?? ''}).toList();
+    return _allBranchStudents
+        .where((s) => ids.contains(s['id']))
+        .map(
+          (s) => {
+            'id': s['id'],
+            'name': (s['fullName'] ?? s['name'] ?? 'İsimsiz').toString(),
+            'branch': (s['className'] ?? s['branch'] ?? '').toString(),
+            'subeId': s['branchId'] ?? '',
+          },
+        )
+        .toList();
   }
 
   Widget _buildStudentList(List<Map<String, dynamic>> students) {
-    if (students.isEmpty) return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.check_circle_outline, size: 56, color: Colors.green.shade300), const SizedBox(height: 12), const Text('Bu kategoride öğrenci yok.')]));
-    return ListView.builder(padding: const EdgeInsets.only(left: 12, top: 12, right: 12, bottom: 160), itemCount: students.length, itemBuilder: (context, i) {
-      final student = students[i];
-      final name = student['name'] ?? 'İsimsiz';
-      final branch = student['branch'] ?? '';
-      final studentId = student['id']?.toString() ?? '';
-      final reasons = _unassignedReasons[studentId] ?? [];
-      
-      // Öğrencinin atanmış olduğu gruplar
-      final studentAssigns = _assignmentsByGroup.values.expand((list) => list).where((a) => a.ogrenciId == studentId).toList();
-      final Map<String, CampAssignment> assignedSlots = {for (final a in studentAssigns) a.groupId: a};
-      final Set<String> occupiedTimes = studentAssigns.map((a) {
-        final g = _groups.firstWhere((g) => g.id == a.groupId);
-        return '${g.baslangicSaat}-${g.gun}';
-      }).toSet();
-
-      return Card(
-        margin: const EdgeInsets.only(bottom: 12), 
-        elevation: 0, 
-        clipBehavior: Clip.antiAlias,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.grey.shade200)), 
-        child: ExpansionTile(
-          shape: const RoundedRectangleBorder(side: BorderSide.none),
-          collapsedShape: const RoundedRectangleBorder(side: BorderSide.none),
-          tilePadding: const EdgeInsets.fromLTRB(16, 8, 8, 8), 
-          leading: CircleAvatar(backgroundColor: Colors.orange.shade50, child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?', style: TextStyle(color: Colors.orange.shade700, fontWeight: FontWeight.bold))), 
-          title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold)), 
-          subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(branch, style: const TextStyle(fontSize: 12)), 
-            if (reasons.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 4), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: reasons.map((r) => Text('• $r', style: TextStyle(fontSize: 10, color: Colors.red.shade700, fontWeight: FontWeight.w500))).toList())),
-            if (studentAssigns.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 4), child: Text('${studentAssigns.length} seansa atandı.', style: const TextStyle(fontSize: 10, color: Colors.teal, fontWeight: FontWeight.bold))),
-          ]), 
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextButton(
-                onPressed: () => _autoAssignSingleStudent(student),
-                child: const Text('Otomatik Ata', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.teal)),
-              ),
-              PopupMenuButton<String>(
-                icon: const Icon(Icons.more_vert, size: 18),
-                padding: EdgeInsets.zero,
-                onSelected: (val) {
-                  if (val == 'exclude') {
-                    _excludeStudent(studentId);
-                  } else if (val == 'include') {
-                    _includeStudent(studentId);
-                  }
-                },
-                itemBuilder: (ctx) => [
-                  if (_yerlesmeyenFilterIndex != 3)
-                    const PopupMenuItem(value: 'exclude', child: Text('Hariç Tut', style: TextStyle(fontSize: 12, color: Colors.red))),
-                  if (_yerlesmeyenFilterIndex == 3)
-                    const PopupMenuItem(value: 'include', child: Text('Kapsama Al', style: TextStyle(fontSize: 12, color: Colors.green))),
-                ],
-              ),
-            ],
-          ),
+    if (students.isEmpty)
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Divider(height: 1),
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Atama Durumu (Seans Bazlı)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
-                  const SizedBox(height: 12),
-                  ...() {
-                    // Tüm seansları al
-                    final allTimeSlots = _groups.map((g) => '${g.baslangicSaat}-${g.bitisSaat}#${g.gun}').toSet().toList()..sort();
-                    return allTimeSlots.map((slotKey) {
-                      final parts = slotKey.split('#');
-                      final time = parts[0];
-                      final day = parts[1];
-                      final shortTime = time.split('-')[0];
-                      
-                      final assignment = studentAssigns.firstWhere((a) {
-                        final g = _groups.firstWhere((g) => g.id == a.groupId);
-                        return '${g.baslangicSaat}-${g.bitisSaat}' == time && g.gun == day;
-                      }, orElse: () => CampAssignment(id: '', cycleId: '', groupId: '', ogrenciId: '', ogrenciAdi: '', groupName: ''));
-
-                      final bool isAssigned = assignment.id.isNotEmpty;
-
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: isAssigned ? Colors.teal.shade50 : Colors.grey.shade50,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: isAssigned ? Colors.teal.shade100 : Colors.grey.shade200),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 80,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(day, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
-                                  Text(shortTime, style: const TextStyle(fontSize: 12, color: Colors.black54)),
-                                ],
-                              ),
-                            ),
-                            Expanded(
-                              child: Text(
-                                isAssigned ? assignment.groupName : 'Atama Yapılmadı',
-                                style: TextStyle(
-                                  fontSize: 12, 
-                                  fontWeight: isAssigned ? FontWeight.bold : FontWeight.normal,
-                                  color: isAssigned ? Colors.teal.shade900 : Colors.grey.shade600,
-                                ),
-                              ),
-                            ),
-                            if (!isAssigned)
-                              TextButton.icon(
-                                onPressed: () {
-                                  // Bu seansa ait grupları filtrele
-                                  final slotGroups = _groups.where((g) => '${g.baslangicSaat}-${g.bitisSaat}' == time && g.gun == day).toList();
-                                  _showManualAssignDialog(student, slotGroups: slotGroups);
-                                },
-                                icon: const Icon(Icons.add_circle_outline, size: 14),
-                                label: const Text('Buraya Ata', style: TextStyle(fontSize: 10)),
-                                style: TextButton.styleFrom(foregroundColor: Colors.teal, padding: const EdgeInsets.symmetric(horizontal: 8)),
-                              ),
-                          ],
-                        ),
-                      );
-                    });
-                  }(),
-                ],
-              ),
+            Icon(
+              Icons.check_circle_outline,
+              size: 56,
+              color: Colors.green.shade300,
             ),
+            const SizedBox(height: 12),
+            const Text('Bu kategoride öğrenci yok.'),
           ],
         ),
       );
-    });
+    return ListView.builder(
+      padding: const EdgeInsets.only(left: 12, top: 12, right: 12, bottom: 160),
+      itemCount: students.length,
+      itemBuilder: (context, i) {
+        final student = students[i];
+        final name = student['name'] ?? 'İsimsiz';
+        final branch = student['branch'] ?? '';
+        final studentId = student['id']?.toString() ?? '';
+        final reasons = _unassignedReasons[studentId] ?? [];
+
+        // Öğrencinin atanmış olduğu gruplar
+        final studentAssigns = _assignmentsByGroup.values
+            .expand((list) => list)
+            .where((a) => a.ogrenciId == studentId)
+            .toList();
+        final Map<String, CampAssignment> assignedSlots = {
+          for (final a in studentAssigns) a.groupId: a,
+        };
+        final Set<String> occupiedTimes = studentAssigns.map((a) {
+          final g = _groups.firstWhere((g) => g.id == a.groupId);
+          return '${g.baslangicSaat}-${g.gun}';
+        }).toSet();
+
+        return Card(
+          margin: const EdgeInsets.only(bottom: 12),
+          elevation: 0,
+          clipBehavior: Clip.antiAlias,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: Colors.grey.shade200),
+          ),
+          child: ExpansionTile(
+            shape: const RoundedRectangleBorder(side: BorderSide.none),
+            collapsedShape: const RoundedRectangleBorder(side: BorderSide.none),
+            tilePadding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+            leading: CircleAvatar(
+              backgroundColor: Colors.orange.shade50,
+              child: Text(
+                name.isNotEmpty ? name[0].toUpperCase() : '?',
+                style: TextStyle(
+                  color: Colors.orange.shade700,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            title: Text(
+              name,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(branch, style: const TextStyle(fontSize: 12)),
+                if (reasons.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: reasons
+                          .map(
+                            (r) => Text(
+                              '• $r',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.red.shade700,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  ),
+                if (studentAssigns.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      '${studentAssigns.length} seansa atandı.',
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: Colors.teal,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextButton(
+                  onPressed: () => _autoAssignSingleStudent(student),
+                  child: const Text(
+                    'Otomatik Ata',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.teal,
+                    ),
+                  ),
+                ),
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_vert, size: 18),
+                  padding: EdgeInsets.zero,
+                  onSelected: (val) {
+                    if (val == 'exclude') {
+                      _excludeStudent(studentId);
+                    } else if (val == 'include') {
+                      _includeStudent(studentId);
+                    }
+                  },
+                  itemBuilder: (ctx) => [
+                    if (_yerlesmeyenFilterIndex != 3)
+                      const PopupMenuItem(
+                        value: 'exclude',
+                        child: Text(
+                          'Hariç Tut',
+                          style: TextStyle(fontSize: 12, color: Colors.red),
+                        ),
+                      ),
+                    if (_yerlesmeyenFilterIndex == 3)
+                      const PopupMenuItem(
+                        value: 'include',
+                        child: Text(
+                          'Kapsama Al',
+                          style: TextStyle(fontSize: 12, color: Colors.green),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+            children: [
+              const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Atama Durumu (Seans Bazlı)',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    ...() {
+                      // Tüm seansları al
+                      final allTimeSlots =
+                          _groups
+                              .map(
+                                (g) =>
+                                    '${g.baslangicSaat}-${g.bitisSaat}#${g.gun}',
+                              )
+                              .toSet()
+                              .toList()
+                            ..sort();
+                      return allTimeSlots.map((slotKey) {
+                        final parts = slotKey.split('#');
+                        final time = parts[0];
+                        final day = parts[1];
+                        final shortTime = time.split('-')[0];
+
+                        final assignment = studentAssigns.firstWhere(
+                          (a) {
+                            final g = _groups.firstWhere(
+                              (g) => g.id == a.groupId,
+                            );
+                            return '${g.baslangicSaat}-${g.bitisSaat}' ==
+                                    time &&
+                                g.gun == day;
+                          },
+                          orElse: () => CampAssignment(
+                            id: '',
+                            cycleId: '',
+                            groupId: '',
+                            ogrenciId: '',
+                            ogrenciAdi: '',
+                            groupName: '',
+                          ),
+                        );
+
+                        final bool isAssigned = assignment.id.isNotEmpty;
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isAssigned
+                                ? Colors.teal.shade50
+                                : Colors.grey.shade50,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: isAssigned
+                                  ? Colors.teal.shade100
+                                  : Colors.grey.shade200,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 80,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      day,
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    Text(
+                                      shortTime,
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.black54,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Expanded(
+                                child: Text(
+                                  isAssigned
+                                      ? assignment.groupName
+                                      : 'Atama Yapılmadı',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: isAssigned
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
+                                    color: isAssigned
+                                        ? Colors.teal.shade900
+                                        : Colors.grey.shade600,
+                                  ),
+                                ),
+                              ),
+                              if (!isAssigned)
+                                TextButton.icon(
+                                  onPressed: () {
+                                    // Bu seansa ait grupları filtrele
+                                    final slotGroups = _groups
+                                        .where(
+                                          (g) =>
+                                              '${g.baslangicSaat}-${g.bitisSaat}' ==
+                                                  time &&
+                                              g.gun == day,
+                                        )
+                                        .toList();
+                                    _showManualAssignDialog(
+                                      student,
+                                      slotGroups: slotGroups,
+                                    );
+                                  },
+                                  icon: const Icon(
+                                    Icons.add_circle_outline,
+                                    size: 14,
+                                  ),
+                                  label: const Text(
+                                    'Buraya Ata',
+                                    style: TextStyle(fontSize: 10),
+                                  ),
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: Colors.teal,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        );
+                      });
+                    }(),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _excludeStudent(String studentId) async {
     // Tüm mevcut atamaları bul ve sil
-    final assigns = _assignmentsByGroup.values.expand((l) => l).where((a) => a.ogrenciId == studentId).toList();
+    final assigns = _assignmentsByGroup.values
+        .expand((l) => l)
+        .where((a) => a.ogrenciId == studentId)
+        .toList();
     if (assigns.isNotEmpty) {
       await _service.removeAssignments(assigns);
       for (var a in assigns) {
         _assignmentsByGroup[a.groupId]?.removeWhere((x) => x.id == a.id);
       }
     }
-    
+
     // Firestore'da ilgili listelerden çıkarıp excluded listesine ekle
     final cycleRef = _db.collection('camp_cycles').doc(widget.cycle.id);
     await cycleRef.update({
@@ -2413,10 +4227,18 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
       _unassignedStudents.remove(studentId);
       _underAssignedStudents.remove(studentId);
       _absentStudents.removeWhere((s) => s['id'] == studentId);
-      if (!_excludedStudents.contains(studentId)) _excludedStudents.add(studentId);
+      if (!_excludedStudents.contains(studentId))
+        _excludedStudents.add(studentId);
     });
 
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Öğrenci hariç tutulanlar listesine eklendi ve mevcut atamaları silindi.'), backgroundColor: Colors.orange));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Öğrenci hariç tutulanlar listesine eklendi ve mevcut atamaları silindi.',
+        ),
+        backgroundColor: Colors.orange,
+      ),
+    );
   }
 
   Future<void> _includeStudent(String studentId) async {
@@ -2432,7 +4254,12 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
 
     // _loadData() çağırarak öğrencinin durumunu (unassigned, vs.) yeniden hesaplamasını sağlıyoruz
     await _loadData();
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Öğrenci tekrar kapsama alındı.'), backgroundColor: Colors.green));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Öğrenci tekrar kapsama alındı.'),
+        backgroundColor: Colors.green,
+      ),
+    );
   }
 
   Future<void> _autoAssignSingleStudent(Map<String, dynamic> student) async {
@@ -2442,14 +4269,33 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
 
       // Load actual student profiles for this student
       final allStudents = await _fetchStudentsForCycle();
-      final targetFullStudents = allStudents.where((s) => s['id'] == studentId).toList();
+      final targetFullStudents = allStudents
+          .where((s) => s['id'] == studentId)
+          .toList();
       final Set<String> allStudentsWhoEnteredExam = {};
-      final profiles = await _createStudentNeedProfiles(targetFullStudents, (sid) => allStudentsWhoEnteredExam.add(sid));
+      final profiles = await _createStudentNeedProfiles(
+        targetFullStudents,
+        (sid) => allStudentsWhoEnteredExam.add(sid),
+      );
 
-      final profile = profiles.firstWhere((p) => p.ogrenciId == studentId, orElse: () => StudentNeedProfile(ogrenciId: studentId, ogrenciAdi: student['name'] ?? 'İsimsiz', subeId: student['subeId'] ?? '', subeAdi: student['branch'] ?? '', dersIhtiyaclari: {}));
-      final actualSube = profile.subeAdi.isNotEmpty ? profile.subeAdi : (student['branch'] ?? '');
+      final profile = profiles.firstWhere(
+        (p) => p.ogrenciId == studentId,
+        orElse: () => StudentNeedProfile(
+          ogrenciId: studentId,
+          ogrenciAdi: student['name'] ?? 'İsimsiz',
+          subeId: student['subeId'] ?? '',
+          subeAdi: student['branch'] ?? '',
+          dersIhtiyaclari: {},
+        ),
+      );
+      final actualSube = profile.subeAdi.isNotEmpty
+          ? profile.subeAdi
+          : (student['branch'] ?? '');
 
-      final assignedGroupIds = _assignmentsByGroup.entries.where((e) => e.value.any((a) => a.ogrenciId == studentId)).map((e) => e.key).toSet();
+      final assignedGroupIds = _assignmentsByGroup.entries
+          .where((e) => e.value.any((a) => a.ogrenciId == studentId))
+          .map((e) => e.key)
+          .toSet();
       final assignedSubjects = <String>{};
       final occupiedTimeSlots = <String>{};
 
@@ -2460,8 +4306,26 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
         }
       }
 
+      final subjectLimits = widget.cycle.dersBazliSaatSinirlari;
+      final Map<String, int> studentSubjectHours = {};
+      for (final grup in _groups) {
+        if (assignedGroupIds.contains(grup.id)) {
+          studentSubjectHours[grup.dersAdi] = (studentSubjectHours[grup.dersAdi] ?? 0) + 1;
+          studentSubjectHours[grup.dersId] = (studentSubjectHours[grup.dersId] ?? 0) + 1;
+        }
+      }
+
       final prioritizedGroups = List<CampGroup>.from(_groups)
         ..sort((a, b) {
+          if (subjectLimits.isNotEmpty) {
+            final minA = subjectLimits[a.dersAdi]?['min'] ?? subjectLimits[a.dersId]?['min'] ?? 0;
+            final minB = subjectLimits[b.dersAdi]?['min'] ?? subjectLimits[b.dersId]?['min'] ?? 0;
+            final currentA = studentSubjectHours[a.dersAdi] ?? studentSubjectHours[a.dersId] ?? 0;
+            final currentB = studentSubjectHours[b.dersAdi] ?? studentSubjectHours[b.dersId] ?? 0;
+            final needA = minA - currentA;
+            final needB = minB - currentB;
+            if (needA != needB) return needB.compareTo(needA);
+          }
           final avgA = _getGroupSuccessAvg(a.id);
           final avgB = _getGroupSuccessAvg(b.id);
           return avgA.compareTo(avgB);
@@ -2470,16 +4334,34 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
       int assignedCount = 0;
       void attemptAssignment({required bool allowDuplicateSubject}) {
         for (final grup in prioritizedGroups) {
-          if (widget.cycle.haftalikMaksimumSaat != null && occupiedTimeSlots.length >= widget.cycle.haftalikMaksimumSaat!) break;
+          if (grup.isSpecial) continue;
+          if (widget.cycle.haftalikMaksimumSaat != null &&
+              occupiedTimeSlots.length >= widget.cycle.haftalikMaksimumSaat!)
+            break;
 
-          if (!allowDuplicateSubject && assignedSubjects.contains(grup.dersAdi)) continue; 
-          if (occupiedTimeSlots.contains('${grup.baslangicSaat}-${grup.gun}')) continue; 
+          // Ders bazlı saat limiti kontrolü (Max kotayı asla aşamaz!)
+          final maxSaat = subjectLimits[grup.dersAdi]?['max'] ?? subjectLimits[grup.dersId]?['max'];
+          final currentHours = studentSubjectHours[grup.dersAdi] ?? studentSubjectHours[grup.dersId] ?? 0;
+          if (maxSaat != null && currentHours >= maxSaat) {
+            continue;
+          }
+
+          if (!allowDuplicateSubject &&
+              subjectLimits.isEmpty &&
+              assignedSubjects.contains(grup.dersAdi)) {
+            continue;
+          }
+          if (occupiedTimeSlots.contains('${grup.baslangicSaat}-${grup.gun}'))
+            continue;
 
           final currentAssigns = _assignmentsByGroup[grup.id] ?? [];
           if (currentAssigns.length < grup.kapasite) {
             if (assignedGroupIds.contains(grup.id)) continue;
 
-            final actualBasari = profile.dersBasariOranlari[grup.dersId] ?? profile.dersBasariOranlari[grup.dersAdi] ?? 0.5;
+            final actualBasari =
+                profile.dersBasariOranlari[grup.dersId] ??
+                profile.dersBasariOranlari[grup.dersAdi] ??
+                0.5;
 
             _service.manualAssign(
               cycleId: widget.cycle.id,
@@ -2493,17 +4375,22 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
               isAbsent: _yerlesmeyenFilterIndex == 0,
             );
             assignedCount++;
-            
+
             occupiedTimeSlots.add('${grup.baslangicSaat}-${grup.gun}');
             assignedSubjects.add(grup.dersAdi);
             assignedGroupIds.add(grup.id);
+            studentSubjectHours[grup.dersAdi] = (studentSubjectHours[grup.dersAdi] ?? 0) + 1;
+            studentSubjectHours[grup.dersId] = (studentSubjectHours[grup.dersId] ?? 0) + 1;
           }
         }
       }
 
-      attemptAssignment(allowDuplicateSubject: false);
-      
-      if (assignedCount == 0 || _yerlesmeyenFilterIndex == 2 || (widget.cycle.minimumDersSayisi != null && occupiedTimeSlots.length < widget.cycle.minimumDersSayisi!)) {
+      attemptAssignment(allowDuplicateSubject: subjectLimits.isNotEmpty);
+
+      if (assignedCount == 0 ||
+          _yerlesmeyenFilterIndex == 2 ||
+          (widget.cycle.minimumDersSayisi != null &&
+              occupiedTimeSlots.length < widget.cycle.minimumDersSayisi!)) {
         attemptAssignment(allowDuplicateSubject: true);
       }
 
@@ -2515,20 +4402,32 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
             'excludedStudentIds': FieldValue.arrayRemove([studentId]),
           });
         }
-        
+
         setState(() {
           _unassignedStudents.remove(studentId);
           _underAssignedStudents.remove(studentId);
           _absentStudents.removeWhere((s) => s['id'] == studentId);
           _excludedStudents.remove(studentId);
         });
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Öğrenci $assignedCount seansa başarıyla atandı.'), backgroundColor: Colors.green));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Öğrenci $assignedCount seansa başarıyla atandı.'),
+            backgroundColor: Colors.green,
+          ),
+        );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Uygun boş yer bulunamadı.'), backgroundColor: Colors.orange));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Uygun boş yer bulunamadı.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
       }
       await _loadData();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+      );
       if (mounted) setState(() => _loading = false);
     }
   }
@@ -2538,46 +4437,91 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
       padding: const EdgeInsets.all(16),
       children: [
         _buildReportTile(
-            icon: Icons.analytics_rounded,
-            title: 'İşlem ve Değişiklik Logu',
-            subtitle: 'Atama geçmişi ve sistem günlükleri',
-            color: Colors.indigo,
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CampReportsScreen(institutionId: widget.cycle.institutionId, cycleId: widget.cycle.id))),
+          icon: Icons.analytics_rounded,
+          title: 'İşlem ve Değişiklik Logu',
+          subtitle: 'Atama geçmişi ve sistem günlükleri',
+          color: Colors.indigo,
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => CampReportsScreen(
+                institutionId: widget.cycle.institutionId,
+                cycleId: widget.cycle.id,
+              ),
+            ),
           ),
-          const SizedBox(height: 16),
-          _buildReportTile(
-            icon: Icons.person_pin_rounded,
-            title: 'Öğrenci Haftalık Takvim',
-            subtitle: 'Bireysel öğrenci ders programları',
-            color: Colors.teal,
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CampStudentTimetableScreen(cycle: widget.cycle, groups: _groups, assignmentsByGroup: _assignmentsByGroup))),
+        ),
+        const SizedBox(height: 16),
+        _buildReportTile(
+          icon: Icons.person_pin_rounded,
+          title: 'Öğrenci Haftalık Takvim',
+          subtitle: 'Bireysel öğrenci ders programları',
+          color: Colors.teal,
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => CampStudentTimetableScreen(
+                cycle: widget.cycle,
+                groups: _groups,
+                assignmentsByGroup: _assignmentsByGroup,
+              ),
+            ),
           ),
-          const SizedBox(height: 16),
-          _buildReportTile(
-            icon: Icons.assignment_ind_rounded,
-            title: 'Öğretmen Haftalık Takvim',
-            subtitle: 'Öğretmen programları ve listeler',
-            color: Colors.amber.shade700,
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CampTeacherTimetableScreen(cycle: widget.cycle, groups: _groups, assignmentsByGroup: _assignmentsByGroup))),
+        ),
+        const SizedBox(height: 16),
+        _buildReportTile(
+          icon: Icons.assignment_ind_rounded,
+          title: 'Öğretmen Haftalık Takvim',
+          subtitle: 'Öğretmen programları ve listeler',
+          color: Colors.amber.shade700,
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => CampTeacherTimetableScreen(
+                cycle: widget.cycle,
+                groups: _groups,
+                assignmentsByGroup: _assignmentsByGroup,
+              ),
+            ),
           ),
-          const SizedBox(height: 16),
-          _buildReportTile(
-            icon: Icons.meeting_room_rounded,
-            title: 'Derslik Haftalık Takvim',
-            subtitle: 'Derslik doluluk ve program detayları',
-            color: Colors.pink.shade600,
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CampClassroomTimetableScreen(cycle: widget.cycle, groups: _groups, assignmentsByGroup: _assignmentsByGroup))),
+        ),
+        const SizedBox(height: 16),
+        _buildReportTile(
+          icon: Icons.meeting_room_rounded,
+          title: 'Derslik Haftalık Takvim',
+          subtitle: 'Derslik doluluk ve program detayları',
+          color: Colors.pink.shade600,
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => CampClassroomTimetableScreen(
+                cycle: widget.cycle,
+                groups: _groups,
+                assignmentsByGroup: _assignmentsByGroup,
+              ),
+            ),
           ),
-        ],
+        ),
+      ],
     );
   }
 
-  Widget _buildReportTile({required IconData icon, required String title, required String subtitle, required Color color, required VoidCallback onTap}) {
+  Widget _buildReportTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
-          BoxShadow(color: color.withOpacity(0.08), blurRadius: 15, offset: const Offset(0, 5)),
+          BoxShadow(
+            color: color.withOpacity(0.08),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
+          ),
         ],
       ),
       child: Material(
@@ -2589,10 +4533,7 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
           child: IntrinsicHeight(
             child: Row(
               children: [
-                Container(
-                  width: 6,
-                  color: color,
-                ),
+                Container(width: 6, color: color),
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.all(20),
@@ -2611,13 +4552,29 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.black87)),
+                              Text(
+                                title,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
+                                  color: Colors.black87,
+                                ),
+                              ),
                               const SizedBox(height: 4),
-                              Text(subtitle, style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                              Text(
+                                subtitle,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade500,
+                                ),
+                              ),
                             ],
                           ),
                         ),
-                        Icon(Icons.chevron_right_rounded, color: Colors.grey.shade300),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          color: Colors.grey.shade300,
+                        ),
                       ],
                     ),
                   ),
@@ -2631,27 +4588,97 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
   }
 
   void _showGenerateDraftSheet() {
-    final subjects = _groups.where((g) => !g.isSpecial).map((g) => g.dersAdi).toSet().toList()..sort();
-    showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (ctx) => _DraftGenerateSheet(cycle: widget.cycle, availableSubjects: subjects, onGenerate: (esik, sadeceDusuk, dersBazli, minGrup, pastCycles, soruCozumActive, soruCozumThreshold) async { Navigator.pop(ctx); await _executeGenerate(esik, sadeceDusuk, dersBazli, minGrup, pastCycles, soruCozumActive, soruCozumThreshold); }));
+    final subjects =
+        _groups
+            .where((g) => !g.isSpecial)
+            .map((g) => g.dersAdi)
+            .toSet()
+            .toList()
+          ..sort();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _DraftGenerateSheet(
+        cycle: widget.cycle,
+        availableSubjects: subjects,
+        onGenerate:
+            (
+              esik,
+              sadeceDusuk,
+              dersBazli,
+              minGrup,
+              pastCycles,
+              soruCozumActive,
+              soruCozumThreshold,
+              dersBazliSaatSinirlari,
+              dersBazliZorlaAtama,
+            ) async {
+              Navigator.pop(ctx);
+              await _executeGenerate(
+                esik,
+                sadeceDusuk,
+                dersBazli,
+                minGrup,
+                pastCycles,
+                soruCozumActive,
+                soruCozumThreshold,
+                dersBazliSaatSinirlari,
+                dersBazliZorlaAtama,
+              );
+            },
+      ),
+    );
   }
 
-  Future<void> _executeGenerate(double esik, bool sadeceDusuk, Map<String, double> dersBazli, int minGrup, List<String> pastCycles, bool soruCozumActive, double soruCozumThreshold) async {
+  Future<void> _executeGenerate(
+    double esik,
+    bool sadeceDusuk,
+    Map<String, double> dersBazli,
+    int minGrup,
+    List<String> pastCycles,
+    bool soruCozumActive,
+    double soruCozumThreshold,
+    Map<String, Map<String, int>> dersBazliSaatSinirlari,
+    bool dersBazliZorlaAtama,
+  ) async {
     setState(() => _generating = true);
     try {
       final students = await _fetchStudentsForCycle();
       students.removeWhere((s) => _excludedStudents.contains(s['id']));
-      
+
       final Set<String> allStudentsWhoEnteredExam = {};
-      final profiles = await _createStudentNeedProfiles(students, (sid) => allStudentsWhoEnteredExam.add(sid));
-      final List<Map<String, dynamic>> absent = students.where((s) => !allStudentsWhoEnteredExam.contains(s['id'])).map((s) => {'id': s['id'], 'name': (s['fullName'] ?? s['name'] ?? 'İsimsiz').toString(), 'branch': (s['className'] ?? s['branch'] ?? '').toString(), 'subeId': s['branchId'] ?? ''}).toList();
-      
-      final engine = CampAssignmentEngine(cycleId: widget.cycle.id, institutionId: widget.cycle.institutionId, haftalikMaksimumSaat: widget.cycle.haftalikMaksimumSaat, minimumGrupOgrenciSayisi: minGrup);
+      final profiles = await _createStudentNeedProfiles(
+        students,
+        (sid) => allStudentsWhoEnteredExam.add(sid),
+      );
+      final List<Map<String, dynamic>> absent = students
+          .where((s) => !allStudentsWhoEnteredExam.contains(s['id']))
+          .map(
+            (s) => {
+              'id': s['id'],
+              'name': (s['fullName'] ?? s['name'] ?? 'İsimsiz').toString(),
+              'branch': (s['className'] ?? s['branch'] ?? '').toString(),
+              'subeId': s['branchId'] ?? '',
+            },
+          )
+          .toList();
+
+      final engine = CampAssignmentEngine(
+        cycleId: widget.cycle.id,
+        institutionId: widget.cycle.institutionId,
+        haftalikMaksimumSaat: widget.cycle.haftalikMaksimumSaat,
+        minimumGrupOgrenciSayisi: minGrup,
+      );
       engine.setMinimumDersSayisi(widget.cycle.minimumDersSayisi);
-      
+
       Map<String, Map<String, int>> gecmisKatilimlar = {};
       if (pastCycles.isNotEmpty) {
         for (var pid in pastCycles) {
-          final snap = await _db.collection('camp_assignments').where('cycleId', isEqualTo: pid).get();
+          final snap = await _db
+              .collection('camp_assignments')
+              .where('cycleId', isEqualTo: pid)
+              .get();
           for (var doc in snap.docs) {
             final data = doc.data();
             final ogrenciId = data['ogrenciId'] as String?;
@@ -2659,89 +4686,156 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
             if (ogrenciId != null && groupName != null) {
               final dersAdi = groupName.split(' - ').first.trim();
               gecmisKatilimlar.putIfAbsent(ogrenciId, () => {});
-              gecmisKatilimlar[ogrenciId]![dersAdi] = (gecmisKatilimlar[ogrenciId]![dersAdi] ?? 0) + 1;
+              gecmisKatilimlar[ogrenciId]![dersAdi] =
+                  (gecmisKatilimlar[ogrenciId]![dersAdi] ?? 0) + 1;
             }
           }
         }
       }
-      
-      final specialGroupIds = _groups.where((g) => g.isSpecial).map((e) => e.id).toSet();
-      final existingSpecialAssigns = _assignmentsByGroup.values.expand((a) => a).where((a) => specialGroupIds.contains(a.groupId) && !_excludedStudents.contains(a.ogrenciId)).toList();
+
+      final specialGroupIds = _groups
+          .where((g) => g.isSpecial)
+          .map((e) => e.id)
+          .toSet();
+      final existingSpecialAssigns = _assignmentsByGroup.values
+          .expand((a) => a)
+          .where(
+            (a) =>
+                specialGroupIds.contains(a.groupId) &&
+                !_excludedStudents.contains(a.ogrenciId),
+          )
+          .toList();
 
       final draftResult = await engine.generateDraft(
-        ogrenciProfiller: profiles, 
-        gruplar: _groups, 
-        esikBasariOrani: esik, 
-        sadeceDusukBasari: sadeceDusuk, 
-        dersBazliEsikler: dersBazli, 
-        gecmisKatilimlar: gecmisKatilimlar, 
+        ogrenciProfiller: profiles,
+        gruplar: _groups,
+        esikBasariOrani: esik,
+        sadeceDusukBasari: sadeceDusuk,
+        dersBazliEsikler: dersBazli,
+        gecmisKatilimlar: gecmisKatilimlar,
         specialClassCriteria: widget.cycle.specialClassCriteria,
         mevcutAtamalar: existingSpecialAssigns,
         highSuccessSoruCozumActive: soruCozumActive,
         highSuccessSoruCozumThreshold: soruCozumThreshold,
+        dersBazliSaatSinirlari: dersBazliSaatSinirlari,
+        dersBazliZorlaAtama: dersBazliZorlaAtama,
       );
-      
-      final Map<String, List<String>> allReasons = Map.from(draftResult.yerlesmemeNedenleri);
-      for (final a in absent) allReasons.putIfAbsent(a['id'].toString(), () => []).add('Sınava girmedi, analiz verisi yok.');
-      
+
+      final Map<String, List<String>> allReasons = Map.from(
+        draftResult.yerlesmemeNedenleri,
+      );
+      for (final a in absent)
+        allReasons
+            .putIfAbsent(a['id'].toString(), () => [])
+            .add('Sınava girmedi, analiz verisi yok.');
+
       // Özel sınıf atamalarını koruyarak silme işlemi yapalım
-      final snap = await _db.collection('camp_assignments').where('cycleId', isEqualTo: widget.cycle.id).get();
-      final refsToDelete = snap.docs.where((d) {
-         final gid = d.data()['groupId'] as String;
-         if (existingSpecialAssigns.isEmpty) return true;
-         return !specialGroupIds.contains(gid);
-      }).map((d) => d.reference).toList();
+      final snap = await _db
+          .collection('camp_assignments')
+          .where('cycleId', isEqualTo: widget.cycle.id)
+          .get();
+      final refsToDelete = snap.docs
+          .where((d) {
+            final gid = d.data()['groupId'] as String;
+            if (existingSpecialAssigns.isEmpty) return true;
+            return !specialGroupIds.contains(gid);
+          })
+          .map((d) => d.reference)
+          .toList();
       await _repo.batchDeleteByRefs(refsToDelete);
 
       // Yeni atamaları yaz
       final newAssignments = existingSpecialAssigns.isEmpty
           ? draftResult.atamalar
-          : draftResult.atamalar.where((a) => !specialGroupIds.contains(a.groupId)).toList();
+          : draftResult.atamalar
+                .where((a) => !specialGroupIds.contains(a.groupId))
+                .toList();
       await _repo.batchWriteAssignments(newAssignments);
-      
+
       await _repo.batchUpdateGroups(draftResult.gruplar);
-      
+
       final Map<String, dynamic> cycleUpdateData = {
-        'unassignedStudentIds': draftResult.yerlesmeyenOgrenciIds, 
-        'underAssignedStudentIds': draftResult.eksikAtananOgrenciIds, 
-        'absentStudentIds': absent.map((a) => a['id'].toString()).toList(), 
-        'unassignedReasons': allReasons
+        'unassignedStudentIds': draftResult.yerlesmeyenOgrenciIds,
+        'underAssignedStudentIds': draftResult.eksikAtananOgrenciIds,
+        'absentStudentIds': absent.map((a) => a['id'].toString()).toList(),
+        'unassignedReasons': allReasons,
       };
       if (existingSpecialAssigns.isEmpty && widget.cycle.isSpecialClassActive) {
         cycleUpdateData['specialClassGenerated'] = true;
       }
-      await _db.collection('camp_cycles').doc(widget.cycle.id).update(cycleUpdateData);
-      
+      await _db
+          .collection('camp_cycles')
+          .doc(widget.cycle.id)
+          .update(cycleUpdateData);
+
       await _loadData();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Dağıtım başarıyla tamamlandı!'), backgroundColor: Colors.green));
-    } catch (e) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red)); } finally { setState(() => _generating = false); }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Dağıtım başarıyla tamamlandı!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+      );
+    } finally {
+      setState(() => _generating = false);
+    }
   }
 
   Future<List<Map<String, dynamic>>> _fetchStudentsForCycle() async {
-    final List<String> examIds = widget.cycle.referansDenemeSinavIds.isNotEmpty ? widget.cycle.referansDenemeSinavIds : [widget.cycle.referansDenemeSinavId];
+    final List<String> examIds = widget.cycle.referansDenemeSinavIds.isNotEmpty
+        ? widget.cycle.referansDenemeSinavIds
+        : [widget.cycle.referansDenemeSinavId];
     final Set<String> studentIds = {};
     final List<Map<String, dynamic>> students = [];
     for (var eid in examIds) {
       final doc = await _db.collection('trial_exams').doc(eid).get();
       if (!doc.exists) continue;
-      final branches = (doc.data()!['selectedBranches'] as List<dynamic>? ?? []).map((e) => e.toString()).toList();
+      final branches = (doc.data()!['selectedBranches'] as List<dynamic>? ?? [])
+          .map((e) => e.toString())
+          .toList();
       final classLevel = doc.data()!['classLevel']?.toString() ?? '';
       if (branches.isNotEmpty) {
         for (var b in branches) {
-          final sSnap = await _db.collection('students').where('institutionId', isEqualTo: widget.cycle.institutionId).where('className', isEqualTo: b).where('isActive', isEqualTo: true).get();
-          for (var sDoc in sSnap.docs) if (!studentIds.contains(sDoc.id)) { students.add({...sDoc.data(), 'id': sDoc.id}); studentIds.add(sDoc.id); }
+          final sSnap = await _db
+              .collection('students')
+              .where('institutionId', isEqualTo: widget.cycle.institutionId)
+              .where('className', isEqualTo: b)
+              .where('isActive', isEqualTo: true)
+              .get();
+          for (var sDoc in sSnap.docs)
+            if (!studentIds.contains(sDoc.id)) {
+              students.add({...sDoc.data(), 'id': sDoc.id});
+              studentIds.add(sDoc.id);
+            }
         }
       } else if (classLevel.isNotEmpty) {
-        final sSnap = await _db.collection('students').where('institutionId', isEqualTo: widget.cycle.institutionId).where('classLevel', isEqualTo: classLevel).where('isActive', isEqualTo: true).get();
-        for (var sDoc in sSnap.docs) if (!studentIds.contains(sDoc.id)) { students.add({...sDoc.data(), 'id': sDoc.id}); studentIds.add(sDoc.id); }
+        final sSnap = await _db
+            .collection('students')
+            .where('institutionId', isEqualTo: widget.cycle.institutionId)
+            .where('classLevel', isEqualTo: classLevel)
+            .where('isActive', isEqualTo: true)
+            .get();
+        for (var sDoc in sSnap.docs)
+          if (!studentIds.contains(sDoc.id)) {
+            students.add({...sDoc.data(), 'id': sDoc.id});
+            studentIds.add(sDoc.id);
+          }
       }
     }
     return students;
   }
 
-  Future<List<StudentNeedProfile>> _createStudentNeedProfiles(List<Map<String, dynamic>> students, Function(String) onStudentEntered) async {
-    final List<String> examIds = widget.cycle.referansDenemeSinavIds.isNotEmpty ? widget.cycle.referansDenemeSinavIds : [widget.cycle.referansDenemeSinavId];
-    final Map<String, Map<String, double>> studentSubjectSuccess = {}; 
+  Future<List<StudentNeedProfile>> _createStudentNeedProfiles(
+    List<Map<String, dynamic>> students,
+    Function(String) onStudentEntered,
+  ) async {
+    final List<String> examIds = widget.cycle.referansDenemeSinavIds.isNotEmpty
+        ? widget.cycle.referansDenemeSinavIds
+        : [widget.cycle.referansDenemeSinavId];
+    final Map<String, Map<String, double>> studentSubjectSuccess = {};
     final Map<String, Map<String, Set<String>>> studentSubjectTopics = {};
     final Map<String, List<double>> studentScoresList = {};
 
@@ -2750,11 +4844,17 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
       if (doc.exists && doc.data()!['resultsJson'] != null) {
         try {
           final examData = doc.data()!;
-          final outcomesMapRaw = examData['outcomes'] as Map<String, dynamic>? ?? {};
+          final outcomesMapRaw =
+              examData['outcomes'] as Map<String, dynamic>? ?? {};
           final Map<String, Map<String, List<String>>> examOutcomes = {};
           outcomesMapRaw.forEach((booklet, subjects) {
             if (subjects is Map<String, dynamic>) {
-              examOutcomes[booklet] = subjects.map((k, v) => MapEntry(k, (v as List<dynamic>).map((e) => e.toString()).toList()));
+              examOutcomes[booklet] = subjects.map(
+                (k, v) => MapEntry(
+                  k,
+                  (v as List<dynamic>).map((e) => e.toString()).toList(),
+                ),
+              );
             }
           });
 
@@ -2763,17 +4863,24 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
             final sr = StudentResult.fromJson(r);
             if (sr.systemStudentId != null) {
               onStudentEntered(sr.systemStudentId!);
-              final Map<String, double> successMap = studentSubjectSuccess.putIfAbsent(sr.systemStudentId!, () => {});
-              final Map<String, Set<String>> topicMap = studentSubjectTopics.putIfAbsent(sr.systemStudentId!, () => {});
-              final scoreList = studentScoresList.putIfAbsent(sr.systemStudentId!, () => []);
+              final Map<String, double> successMap = studentSubjectSuccess
+                  .putIfAbsent(sr.systemStudentId!, () => {});
+              final Map<String, Set<String>> topicMap = studentSubjectTopics
+                  .putIfAbsent(sr.systemStudentId!, () => {});
+              final scoreList = studentScoresList.putIfAbsent(
+                sr.systemStudentId!,
+                () => [],
+              );
               scoreList.add(sr.score);
 
               sr.subjects.forEach((ders, stats) {
                 final totalQ = stats.correct + stats.wrong + stats.empty;
-                if (totalQ > 0) { 
-                  final current = stats.correct / totalQ; 
-                  successMap[ders] = successMap.containsKey(ders) ? (successMap[ders]! + current) / 2 : current; 
-                  
+                if (totalQ > 0) {
+                  final current = stats.correct / totalQ;
+                  successMap[ders] = successMap.containsKey(ders)
+                      ? (successMap[ders]! + current) / 2
+                      : current;
+
                   if (current < 0.6) {
                     final studentAnswers = sr.answers[ders] ?? '';
                     final correctAnswers = sr.correctAnswers[ders] ?? '';
@@ -2781,10 +4888,16 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
                     final subjectOutcomes = examOutcomes[booklet]?[ders] ?? [];
 
                     final topics = topicMap.putIfAbsent(ders, () => {});
-                    for (int i = 0; i < studentAnswers.length && i < correctAnswers.length; i++) {
-                      if (studentAnswers[i] != correctAnswers[i] && i < subjectOutcomes.length) {
+                    for (
+                      int i = 0;
+                      i < studentAnswers.length && i < correctAnswers.length;
+                      i++
+                    ) {
+                      if (studentAnswers[i] != correctAnswers[i] &&
+                          i < subjectOutcomes.length) {
                         final kazanim = subjectOutcomes[i];
-                        if (kazanim.isNotEmpty && kazanim != '-') topics.add(kazanim);
+                        if (kazanim.isNotEmpty && kazanim != '-')
+                          topics.add(kazanim);
                       }
                     }
                   }
@@ -2795,22 +4908,53 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen> with SingleTi
         } catch (e) {}
       }
     }
-    return students.where((s) => studentSubjectSuccess.containsKey(s['id'])).map((s) {
-      final sid = s['id'] as String;
-      final success = studentSubjectSuccess[sid]!;
-      final topics = studentSubjectTopics[sid] ?? {};
-      final scores = studentScoresList[sid] ?? [];
-      final avgScore = scores.isEmpty ? 0.0 : scores.reduce((a, b) => a + b) / scores.length;
-      return StudentNeedProfile(ogrenciId: sid, ogrenciAdi: s['fullName'] ?? '${s['name']} ${s['surname']}', subeId: s['branchId'] ?? '', subeAdi: (s['className'] ?? s['branch'] ?? '').toString(), examScore: avgScore, dersIhtiyaclari: success.map((k, v) => MapEntry(k, (1.0 - v).clamp(0.0, 1.0))), dersBasariOranlari: success, kazanimIhtiyaclari: topics);
-    }).toList();
+    return students
+        .where((s) => studentSubjectSuccess.containsKey(s['id']))
+        .map((s) {
+          final sid = s['id'] as String;
+          final success = studentSubjectSuccess[sid]!;
+          final topics = studentSubjectTopics[sid] ?? {};
+          final scores = studentScoresList[sid] ?? [];
+          final avgScore = scores.isEmpty
+              ? 0.0
+              : scores.reduce((a, b) => a + b) / scores.length;
+          return StudentNeedProfile(
+            ogrenciId: sid,
+            ogrenciAdi: s['fullName'] ?? '${s['name']} ${s['surname']}',
+            subeId: s['branchId'] ?? '',
+            subeAdi: (s['className'] ?? s['branch'] ?? '').toString(),
+            examScore: avgScore,
+            dersIhtiyaclari: success.map(
+              (k, v) => MapEntry(k, (1.0 - v).clamp(0.0, 1.0)),
+            ),
+            dersBasariOranlari: success,
+            kazanimIhtiyaclari: topics,
+          );
+        })
+        .toList();
   }
 }
 
 class _DraftGenerateSheet extends StatefulWidget {
   final CampCycle cycle;
   final List<String> availableSubjects;
-  final Future<void> Function(double esik, bool sadeceDusuk, Map<String, double> dersBazli, int minGrup, List<String> pastCycles, bool soruCozumActive, double soruCozumThreshold) onGenerate;
-  const _DraftGenerateSheet({required this.cycle, required this.availableSubjects, required this.onGenerate});
+  final Future<void> Function(
+    double esik,
+    bool sadeceDusuk,
+    Map<String, double> dersBazli,
+    int minGrup,
+    List<String> pastCycles,
+    bool soruCozumActive,
+    double soruCozumThreshold,
+    Map<String, Map<String, int>> dersBazliSaatSinirlari,
+    bool dersBazliZorlaAtama,
+  )
+  onGenerate;
+  const _DraftGenerateSheet({
+    required this.cycle,
+    required this.availableSubjects,
+    required this.onGenerate,
+  });
   @override
   State<_DraftGenerateSheet> createState() => _DraftGenerateSheetState();
 }
@@ -2822,129 +4966,683 @@ class _DraftGenerateSheetState extends State<_DraftGenerateSheet> {
   bool _dersBazliAcik = false;
   late int _minGrupOgrenci;
   final Map<String, double> _dersBazliEsikler = {};
-  
+
   bool _soruCozumActive = true;
   double _soruCozumThreshold = 0.95;
-  
+
   bool _dengele = false;
   List<String> _selectedPastCycles = [];
   List<Map<String, dynamic>> _availablePastCycles = [];
 
+  // Ders bazlı saat sınırları
+  bool _dersBazliSaatAktif = false;
+  bool _dersBazliZorlaAtama = true;
+  final Map<String, Map<String, int>> _dersBazliSaatSinirlari = {};
+
   @override
-  void initState() { 
-    super.initState(); 
+  void initState() {
+    super.initState();
     _minGrupOgrenci = widget.cycle.minimumGrupOgrenciSayisi ?? 5;
-    for (final sub in widget.availableSubjects) _dersBazliEsikler[sub] = _esikBasariOrani; 
+    for (final sub in widget.availableSubjects)
+      _dersBazliEsikler[sub] = _esikBasariOrani;
     _soruCozumActive = widget.cycle.highSuccessSoruCozumActive;
     _soruCozumThreshold = widget.cycle.highSuccessSoruCozumThreshold;
+    // Mevcut ders bazlı saat sınırlarını yükle
+    if (widget.cycle.dersBazliSaatSinirlari.isNotEmpty) {
+      _dersBazliSaatAktif = true;
+      _dersBazliSaatSinirlari.addAll(widget.cycle.dersBazliSaatSinirlari);
+      _dersBazliZorlaAtama = widget.cycle.dersBazliZorlaAtama;
+    }
     _fetchPastCycles();
   }
 
   Future<void> _fetchPastCycles() async {
     try {
-       final snap = await FirebaseFirestore.instance.collection('camp_cycles').where('institutionId', isEqualTo: widget.cycle.institutionId).get();
-       final cycles = snap.docs.map((d) => {'id': d.id, 'name': d.data()['title'] ?? 'İsimsiz Program'}).where((c) => c['id'] != widget.cycle.id).toList();
-       if (mounted) setState(() => _availablePastCycles = cycles);
-    } catch(e) {}
+      final snap = await FirebaseFirestore.instance
+          .collection('camp_cycles')
+          .where('institutionId', isEqualTo: widget.cycle.institutionId)
+          .get();
+      final cycles = snap.docs
+          .map(
+            (d) => {'id': d.id, 'name': d.data()['title'] ?? 'İsimsiz Program'},
+          )
+          .where((c) => c['id'] != widget.cycle.id)
+          .toList();
+      if (mounted) setState(() => _availablePastCycles = cycles);
+    } catch (e) {}
   }
+
+  void _initDersBazliSaatSinirlari() {
+    for (final sub in widget.availableSubjects) {
+      _dersBazliSaatSinirlari.putIfAbsent(sub, () => {'min': 1, 'max': 3});
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: MediaQuery.of(context).viewInsets.bottom + 20),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 20,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(8)), child: const Icon(Icons.auto_fix_high, color: Colors.orange, size: 20)),
-            const SizedBox(width: 12),
-            const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('Dağıtım Yap / Taslak Oluştur', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)), Text('Sınav sonuçlarına göre otomatik yerleştirme', style: TextStyle(fontSize: 12, color: Colors.grey))])),
-          ]),
-          const Divider(height: 28),
-          Flexible(child: SingleChildScrollView(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Row(children: [
-              const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('Grup Kotaları', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)), Text('Grup minimum öğrenci sayısını belirle', style: TextStyle(fontSize: 11, color: Colors.grey))])),
-              SizedBox(width: 50, child: TextFormField(initialValue: _minGrupOgrenci.toString(), keyboardType: TextInputType.number, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.orange), decoration: InputDecoration(isDense: true, filled: true, fillColor: Colors.orange.shade50, border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none)), onChanged: (v) => _minGrupOgrenci = int.tryParse(v) ?? 0)),
-            ])),
-            const Divider(height: 24),
-            SwitchListTile(contentPadding: EdgeInsets.zero, value: _sadeceDusukBasari, onChanged: (v) => setState(() => _sadeceDusukBasari = v), activeColor: Colors.orange, title: const Text('Sadece düşük başarılı dersler', style: TextStyle(fontWeight: FontWeight.w600)), subtitle: const Text('Kapalıysa tüm dersler için atama yapılır', style: TextStyle(fontSize: 11))),
-            if (_sadeceDusukBasari) ...[
-              const SizedBox(height: 12),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                value: _dersBazliAcik,
-                onChanged: (v) => setState(() {
-                  _dersBazliAcik = v;
-                  if (v) {
-                    for (final sub in widget.availableSubjects) {
-                      _dersBazliEsikler[sub] = _esikBasariOrani;
-                    }
-                  }
-                }),
-                activeColor: Colors.orange,
-                title: const Text('Ders bazlı eşik belirle', style: TextStyle(fontWeight: FontWeight.w600)),
-                subtitle: const Text('Her ders için farklı bir başarı eşiği tanımlayın', style: TextStyle(fontSize: 11)),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.auto_fix_high,
+                  color: Colors.orange,
+                  size: 20,
+                ),
               ),
-              const SizedBox(height: 12),
-              if (!_dersBazliAcik) ...[
-                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Başarı Eşiği', style: TextStyle(fontWeight: FontWeight.w600)), Text('%${(_esikBasariOrani * 100).toStringAsFixed(0)}', style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 16))]),
-                Slider(value: _esikBasariOrani, min: 0.0, max: 1.0, divisions: 20, activeColor: Colors.orange, onChanged: (v) => setState(() => _esikBasariOrani = v)),
-              ] else ...[
-                Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: Colors.grey.shade50, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade200)), child: Column(children: widget.availableSubjects.map((sub) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(sub, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)), Text('%${((_dersBazliEsikler[sub] ?? 0.6) * 100).toStringAsFixed(0)}', style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 13))]), Slider(value: _dersBazliEsikler[sub] ?? 0.6, min: 0.0, max: 1.0, divisions: 20, activeColor: Colors.orange.shade300, onChanged: (v) => setState(() => _dersBazliEsikler[sub] = v))])).toList())),
-              ],
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Dağıtım Yap / Taslak Oluştur',
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      'Sınav sonuçlarına göre otomatik yerleştirme',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ),
             ],
-            const SizedBox(height: 16),
-            Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.blue.shade100)), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Icon(Icons.info_outline, color: Colors.blue.shade700, size: 18), const SizedBox(width: 8), const Expanded(child: Text('Mevcut sınav sonuçları analiz edilecek. Sınava girmeyen öğrenciler ayrı listede görünecek.', style: TextStyle(fontSize: 12, color: Colors.blue)))]))
-          ]))),
+          ),
+          const Divider(height: 28),
+          Flexible(
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(
+                      children: [
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Grup Kotaları',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 15,
+                                ),
+                              ),
+                              Text(
+                                'Grup minimum öğrenci sayısını belirle',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        SizedBox(
+                          width: 50,
+                          child: TextFormField(
+                            initialValue: _minGrupOgrenci.toString(),
+                            keyboardType: TextInputType.number,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.orange,
+                            ),
+                            decoration: InputDecoration(
+                              isDense: true,
+                              filled: true,
+                              fillColor: Colors.orange.shade50,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: BorderSide.none,
+                              ),
+                            ),
+                            onChanged: (v) =>
+                                _minGrupOgrenci = int.tryParse(v) ?? 0,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 24),
+
+                  // ... DERS BAZLI SAAT SINIRLARI ...
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: _dersBazliSaatAktif,
+                    onChanged: (v) => setState(() {
+                      _dersBazliSaatAktif = v;
+                      if (v) _initDersBazliSaatSinirlari();
+                    }),
+                    activeColor: Colors.deepPurple,
+                    title: const Text(
+                      'Ders Bazlı Saat Sınırları',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    subtitle: const Text(
+                      'Her ders için min/max saat belirle',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                    secondary: Icon(
+                      Icons.schedule,
+                      color: _dersBazliSaatAktif
+                          ? Colors.deepPurple
+                          : Colors.grey,
+                    ),
+                  ),
+                  if (_dersBazliSaatAktif) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.deepPurple.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.deepPurple.shade100),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          ...widget.availableSubjects.map((sub) {
+                            final limits =
+                                _dersBazliSaatSinirlari[sub] ??
+                                {'min': 1, 'max': 3};
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 6),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    flex: 3,
+                                    child: Text(
+                                      sub,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ),
+                                  const Text(
+                                    'Min:',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  SizedBox(
+                                    width: 40,
+                                    child: TextFormField(
+                                      initialValue: (limits['min'] ?? 1)
+                                          .toString(),
+                                      keyboardType: TextInputType.number,
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.deepPurple.shade700,
+                                        fontSize: 13,
+                                      ),
+                                      decoration: InputDecoration(
+                                        isDense: true,
+                                        filled: true,
+                                        fillColor: Colors.white,
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              vertical: 6,
+                                            ),
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                          borderSide: BorderSide(
+                                            color: Colors.deepPurple.shade200,
+                                          ),
+                                        ),
+                                      ),
+                                      onChanged: (v) => setState(
+                                        () => _dersBazliSaatSinirlari[sub] = {
+                                          ...limits,
+                                          'min': int.tryParse(v) ?? 1,
+                                        },
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  const Text(
+                                    'Max:',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  SizedBox(
+                                    width: 40,
+                                    child: TextFormField(
+                                      initialValue: (limits['max'] ?? 3)
+                                          .toString(),
+                                      keyboardType: TextInputType.number,
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.deepPurple.shade700,
+                                        fontSize: 13,
+                                      ),
+                                      decoration: InputDecoration(
+                                        isDense: true,
+                                        filled: true,
+                                        fillColor: Colors.white,
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              vertical: 6,
+                                            ),
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                          borderSide: BorderSide(
+                                            color: Colors.deepPurple.shade200,
+                                          ),
+                                        ),
+                                      ),
+                                      onChanged: (v) => setState(
+                                        () => _dersBazliSaatSinirlari[sub] = {
+                                          ...limits,
+                                          'max': int.tryParse(v) ?? 3,
+                                        },
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                          const Divider(height: 16),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            dense: true,
+                            value: _dersBazliZorlaAtama,
+                            onChanged: (v) =>
+                                setState(() => _dersBazliZorlaAtama = v),
+                            activeColor: Colors.deepPurple,
+                            title: const Text(
+                              'Minimum saate ulaşamayan öğrencileri zorla ata',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w500,
+                                fontSize: 12,
+                              ),
+                            ),
+                            subtitle: const Text(
+                              'Kapalıysa sadece raporlanır',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.deepPurple.shade100.withValues(
+                                alpha: 0.3,
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.info_outline,
+                                  color: Colors.deepPurple.shade400,
+                                  size: 16,
+                                ),
+                                const SizedBox(width: 6),
+                                const Expanded(
+                                  child: Text(
+                                    'Aktif olduğunda "sadece düşük başarılı" filtresi devre dışı kalır. Öğrenciler başarı yakınlığına göre gruplanır.',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.deepPurple,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+
+                  if (!_dersBazliSaatAktif) ...[
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: _sadeceDusukBasari,
+                      onChanged: (v) => setState(() => _sadeceDusukBasari = v),
+                      activeColor: Colors.orange,
+                      title: const Text(
+                        'Sadece düşük başarılı dersler',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: const Text(
+                        'Kapalıysa tüm dersler için atama yapılır',
+                        style: TextStyle(fontSize: 11),
+                      ),
+                    ),
+                    if (_sadeceDusukBasari) ...[
+                      const SizedBox(height: 12),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: _dersBazliAcik,
+                        onChanged: (v) => setState(() {
+                          _dersBazliAcik = v;
+                          if (v) {
+                            for (final sub in widget.availableSubjects) {
+                              _dersBazliEsikler[sub] = _esikBasariOrani;
+                            }
+                          }
+                        }),
+                        activeColor: Colors.orange,
+                        title: const Text(
+                          'Ders bazlı eşik belirle',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        subtitle: const Text(
+                          'Her ders için farklı bir başarı eşiği tanımlayın',
+                          style: TextStyle(fontSize: 11),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      if (!_dersBazliAcik) ...[
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'Başarı Eşiği',
+                              style: TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                            Text(
+                              '%${(_esikBasariOrani * 100).toStringAsFixed(0)}',
+                              style: const TextStyle(
+                                color: Colors.orange,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Slider(
+                          value: _esikBasariOrani,
+                          min: 0.0,
+                          max: 1.0,
+                          divisions: 20,
+                          activeColor: Colors.orange,
+                          onChanged: (v) =>
+                              setState(() => _esikBasariOrani = v),
+                        ),
+                      ] else ...[
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.grey.shade200),
+                          ),
+                          child: Column(
+                            children: widget.availableSubjects
+                                .map(
+                                  (sub) => Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text(
+                                            sub,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w600,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                          Text(
+                                            '%${((_dersBazliEsikler[sub] ?? 0.6) * 100).toStringAsFixed(0)}',
+                                            style: const TextStyle(
+                                              color: Colors.orange,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      Slider(
+                                        value: _dersBazliEsikler[sub] ?? 0.6,
+                                        min: 0.0,
+                                        max: 1.0,
+                                        divisions: 20,
+                                        activeColor: Colors.orange.shade300,
+                                        onChanged: (v) => setState(
+                                          () => _dersBazliEsikler[sub] = v,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                                .toList(),
+                          ),
+                        ),
+                      ],
+                    ],
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.blue.shade100),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.info_outline,
+                            color: Colors.blue.shade700,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 8),
+                          const Expanded(
+                            child: Text(
+                              'Mevcut sınav sonuçları analiz edilecek. Sınava girmeyen öğrenciler ayrı listede görünecek.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.blue,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
           const SizedBox(height: 12),
-          SwitchListTile(contentPadding: EdgeInsets.zero, value: _soruCozumActive, onChanged: (v) => setState(() => _soruCozumActive = v), activeColor: Colors.orange, title: const Text('Başarılı Sınıfları Soru Çözüm Yap', style: TextStyle(fontWeight: FontWeight.w600)), subtitle: const Text('Başarılı sınıflara otomatik olarak Soru Çözüm atanır', style: TextStyle(fontSize: 11))),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _soruCozumActive,
+            onChanged: (v) => setState(() => _soruCozumActive = v),
+            activeColor: Colors.orange,
+            title: const Text(
+              'Başarılı Sınıfları Soru Çözüm Yap',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            subtitle: const Text(
+              'Başarılı sınıflara otomatik olarak Soru Çözüm atanır',
+              style: TextStyle(fontSize: 11),
+            ),
+          ),
           if (_soruCozumActive) ...[
-             const SizedBox(height: 8),
-             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Soru Çözüm Eşiği', style: TextStyle(fontWeight: FontWeight.w600)), Text('%${(_soruCozumThreshold * 100).toStringAsFixed(0)}', style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 16))]),
-             Slider(value: _soruCozumThreshold, min: 0.0, max: 1.0, divisions: 20, activeColor: Colors.orange, onChanged: (v) => setState(() => _soruCozumThreshold = v)),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Soru Çözüm Eşiği',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                Text(
+                  '%${(_soruCozumThreshold * 100).toStringAsFixed(0)}',
+                  style: const TextStyle(
+                    color: Colors.orange,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+              ],
+            ),
+            Slider(
+              value: _soruCozumThreshold,
+              min: 0.0,
+              max: 1.0,
+              divisions: 20,
+              activeColor: Colors.orange,
+              onChanged: (v) => setState(() => _soruCozumThreshold = v),
+            ),
           ],
           const SizedBox(height: 12),
-          SwitchListTile(contentPadding: EdgeInsets.zero, value: _dengele, onChanged: (v) => setState(() => _dengele = v), activeColor: Colors.teal, title: const Text('Geçmiş Katılımları Dengele', style: TextStyle(fontWeight: FontWeight.w600)), subtitle: const Text('Diğer programlardaki katılımları analiz eder', style: TextStyle(fontSize: 11))),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _dengele,
+            onChanged: (v) => setState(() => _dengele = v),
+            activeColor: Colors.teal,
+            title: const Text(
+              'Geçmiş Katılımları Dengele',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            subtitle: const Text(
+              'Diğer programlardaki katılımları analiz eder',
+              style: TextStyle(fontSize: 11),
+            ),
+          ),
           if (_dengele && _availablePastCycles.isNotEmpty) ...[
-             const SizedBox(height: 8),
-             Container(
-               padding: const EdgeInsets.all(12),
-               decoration: BoxDecoration(color: Colors.teal.shade50, borderRadius: BorderRadius.circular(10)),
-               child: Column(
-                 crossAxisAlignment: CrossAxisAlignment.start,
-                 children: [
-                   const Text('Referans alınacak programları seçin:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.teal)),
-                   const SizedBox(height: 8),
-                   SingleChildScrollView(
-                     scrollDirection: Axis.horizontal,
-                     child: Row(
-                       children: _availablePastCycles.map((c) {
-                         final isSelected = _selectedPastCycles.contains(c['id']);
-                         return Padding(
-                           padding: const EdgeInsets.only(right: 8),
-                           child: ChoiceChip(
-                             label: Text(c['name'], style: TextStyle(fontSize: 11)),
-                             selected: isSelected,
-                             selectedColor: Colors.teal.shade200,
-                             onSelected: (val) {
-                               setState(() {
-                                 if (val) _selectedPastCycles.add(c['id']);
-                                 else _selectedPastCycles.remove(c['id']);
-                               });
-                             },
-                           ),
-                         );
-                       }).toList(),
-                     ),
-                   ),
-                 ]
-               )
-             ),
-             const SizedBox(height: 12),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.teal.shade50,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Referans alınacak programları seçin:',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.teal,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: _availablePastCycles.map((c) {
+                        final isSelected = _selectedPastCycles.contains(
+                          c['id'],
+                        );
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text(
+                              c['name'],
+                              style: const TextStyle(fontSize: 11),
+                            ),
+                            selected: isSelected,
+                            selectedColor: Colors.teal.shade200,
+                            onSelected: (val) {
+                              setState(() {
+                                if (val)
+                                  _selectedPastCycles.add(c['id']);
+                                else
+                                  _selectedPastCycles.remove(c['id']);
+                              });
+                            },
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
           ],
           const SizedBox(height: 20),
-          SizedBox(width: double.infinity, child: ElevatedButton.icon(onPressed: _loading ? null : () async { setState(() => _loading = true); await widget.onGenerate(_esikBasariOrani, _sadeceDusukBasari, _dersBazliAcik ? _dersBazliEsikler : {}, _minGrupOgrenci, _dengele ? _selectedPastCycles : [], _soruCozumActive, _soruCozumThreshold); }, icon: _loading ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.play_arrow_rounded), label: const Text('Algoritmayı Çalıştır'), style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade700, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))))),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _loading
+                  ? null
+                  : () async {
+                      setState(() => _loading = true);
+                      await widget.onGenerate(
+                        _esikBasariOrani,
+                        _dersBazliSaatAktif ? false : _sadeceDusukBasari,
+                        _dersBazliAcik ? _dersBazliEsikler : {},
+                        _minGrupOgrenci,
+                        _dengele ? _selectedPastCycles : [],
+                        _soruCozumActive,
+                        _soruCozumThreshold,
+                        _dersBazliSaatAktif ? _dersBazliSaatSinirlari : {},
+                        _dersBazliZorlaAtama,
+                      );
+                    },
+              icon: _loading
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.play_arrow_rounded),
+              label: const Text('Algoritmayı Çalıştır'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange.shade700,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );

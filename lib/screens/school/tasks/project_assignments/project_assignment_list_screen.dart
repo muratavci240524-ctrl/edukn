@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import '../../../../models/project_assignment_model.dart';
 import '../../../../services/project_assignment_service.dart';
 import 'project_assignment_dashboard_screen.dart';
-import 'project_assignment_form_screen.dart';
+import 'project_assignment_form_screen.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+
 
 class ProjectAssignmentListScreen extends StatelessWidget {
   final String institutionId;
@@ -28,7 +29,7 @@ class ProjectAssignmentListScreen extends StatelessWidget {
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.black87),
       ),
-      body: StreamBuilder<List<ProjectAssignment>>(
+      body: SafeStreamBuilder<List<ProjectAssignment>>(
         stream: ProjectAssignmentService().getProjectAssignments(institutionId),
         builder: (context, snapshot) {
           if (snapshot.hasError) {

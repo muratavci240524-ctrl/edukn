@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:edukn/services/user_permission_service.dart';
+import 'package:edukn/services/crypto_service.dart';
 import 'package:excel/excel.dart' as xl;
 import 'package:file_picker/file_picker.dart';
 import 'dart:typed_data';
@@ -86,53 +87,69 @@ class _StaffListScreenState extends State<StaffListScreen>
       _isLoading = true;
     });
     try {
-      final user = FirebaseAuth.instance.currentUser;
+      var user = FirebaseAuth.instance.currentUser;
       if (user == null) {
-        setState(() {
-          _isLoading = false;
-        });
-        return;
+        // Web ortamında token rehydration için kısa bekleme
+        await Future.delayed(const Duration(milliseconds: 300));
+        user = FirebaseAuth.instance.currentUser;
+        if (user == null) {
+          if (mounted) setState(() => _isLoading = false);
+          return;
+        }
       }
 
       final email = user.email ?? '';
-      if (!email.contains('@')) {
-        setState(() {
-          _isLoading = false;
-        });
-        return;
-      }
-      
       userData = await UserPermissionService.loadUserData();
-      // instId'yi email'den parçalamak riskli, resolveInstitutionId kullan
       final institutionId = await UserPermissionService.resolveInstitutionId(email, userData: userData);
       _institutionId = institutionId;
 
-      final query = await FirebaseFirestore.instance
-          .collection('users')
-          .where('institutionId', isEqualTo: institutionId)
-          .get();
+      final instVariants = UserPermissionService.getInstitutionIdVariants(institutionId);
+      
+      QuerySnapshot<Map<String, dynamic>> query;
+      if (instVariants.length > 1) {
+        query = await FirebaseFirestore.instance
+            .collection('users')
+            .where('institutionId', whereIn: instVariants)
+            .get();
+      } else if (instVariants.length == 1) {
+        query = await FirebaseFirestore.instance
+            .collection('users')
+            .where('institutionId', isEqualTo: instVariants.first)
+            .get();
+      } else {
+        query = await FirebaseFirestore.instance
+            .collection('users')
+            .where('institutionId', isEqualTo: institutionId)
+            .get();
+      }
 
       final items = query.docs.map((doc) {
-        final data = doc.data();
+        var data = doc.data();
         data['id'] = doc.id;
+        data = CryptoService.decryptMap(data, institutionId: institutionId);
         return data;
       }).where((data) {
         final role = (data['role'] ?? '').toString().toLowerCase();
         return role != 'veli' && role != 'ogrenci' && role != 'öğrenci';
       }).toList();
 
-      setState(() {
-        _staff = items;
-        _applyFilters();
-        if (_filteredStaff.isNotEmpty) {
-          _selectedStaff = _filteredStaff.first;
-        }
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _staff = items;
+          _applyFilters();
+          if (_filteredStaff.isNotEmpty) {
+            _selectedStaff = _filteredStaff.first;
+          }
+          _isLoading = false;
+        });
+      }
     } catch (e) {
-      setState(() {
-        _isLoading = false;
-      });
+      print('❌ Personel listesi yüklenirken hata: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -670,13 +687,24 @@ class _StaffListScreenState extends State<StaffListScreen>
                               context,
                               MaterialPageRoute(
                                 builder: (_) => Scaffold(
+                                  backgroundColor: const Color(0xFFF8FAFC),
                                   appBar: AppBar(
-                                    title: const Text('Personel Detayı'),
+                                    elevation: 0,
+                                    backgroundColor: Colors.white,
+                                    leading: IconButton(
+                                      icon: Icon(Icons.arrow_back_rounded, color: Colors.grey.shade800),
+                                      onPressed: () => Navigator.pop(context),
+                                    ),
+                                    title: Text(
+                                      staff['fullName'] ?? 'Personel Detayı',
+                                      style: TextStyle(
+                                        color: Colors.grey.shade900,
+                                        fontSize: 17,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
                                   ),
-                                  body: Padding(
-                                    padding: const EdgeInsets.all(12),
-                                    child: StaffDetailScreen(staff: staff),
-                                  ),
+                                  body: StaffDetailScreen(staff: staff),
                                 ),
                               ),
                             );

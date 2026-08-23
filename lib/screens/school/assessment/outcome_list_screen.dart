@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../../services/assessment_service.dart';
 import '../../../models/assessment/outcome_list_model.dart';
-import 'outcome_list_form_screen.dart';
+import 'outcome_list_form_screen.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+
 
 class OutcomeListScreen extends StatefulWidget {
   final String institutionId;
@@ -293,7 +294,7 @@ class _OutcomeListScreenState extends State<OutcomeListScreen> {
                 ),
               ),
               Spacer(),
-              StreamBuilder<List<OutcomeList>>(
+              SafeStreamBuilder<List<OutcomeList>>(
                 stream: _service.getOutcomeLists(widget.institutionId),
                 builder: (context, snapshot) {
                   final list = snapshot.data ?? [];
@@ -411,7 +412,7 @@ class _OutcomeListScreenState extends State<OutcomeListScreen> {
   }
 
   Widget _buildList() {
-    return StreamBuilder<List<OutcomeList>>(
+    return SafeStreamBuilder<List<OutcomeList>>(
       stream: _service.getOutcomeLists(widget.institutionId),
       builder: (context, snapshot) {
         if (snapshot.hasError) return Center(child: Text('Hata!'));

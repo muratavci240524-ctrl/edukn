@@ -113,7 +113,7 @@ class _HrHubScreenState extends State<HrHubScreen> {
         backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: Colors.indigo, size: 24),
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.indigo, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
         title: const SizedBox.shrink(),

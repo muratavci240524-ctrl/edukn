@@ -6,6 +6,7 @@ class CampCycle {
   final String id;
   final String institutionId;
   final String schoolTypeId;
+  final String? workPeriodId;
   final String? title;
   final String referansDenemeSinavId;
   final String referansDenemeSinavAdi;
@@ -46,10 +47,17 @@ class CampCycle {
   final bool highSuccessSoruCozumActive;
   final double highSuccessSoruCozumThreshold;
 
+  // Ders Bazlı Saat Sınırları
+  /// dersId -> {'min': 3, 'max': 3}
+  final Map<String, Map<String, int>> dersBazliSaatSinirlari;
+  /// Minimum saate ulaşamayan öğrencileri zorla atasın mı?
+  final bool dersBazliZorlaAtama;
+
   CampCycle({
     required this.id,
     required this.institutionId,
     required this.schoolTypeId,
+    this.workPeriodId,
     this.title,
     required this.referansDenemeSinavId,
     required this.referansDenemeSinavAdi,
@@ -79,6 +87,8 @@ class CampCycle {
     this.draftSubjectThresholds = const {},
     this.highSuccessSoruCozumActive = true,
     this.highSuccessSoruCozumThreshold = 0.95,
+    this.dersBazliSaatSinirlari = const {},
+    this.dersBazliZorlaAtama = true,
   });
 
   String get statusLabel {
@@ -96,6 +106,7 @@ class CampCycle {
     return {
       'institutionId': institutionId,
       'schoolTypeId': schoolTypeId,
+      'workPeriodId': workPeriodId,
       'title': title,
       'referansDenemeSinavId': referansDenemeSinavId,
       'referansDenemeSinavAdi': referansDenemeSinavAdi,
@@ -125,6 +136,8 @@ class CampCycle {
       'draftSubjectThresholds': draftSubjectThresholds,
       'highSuccessSoruCozumActive': highSuccessSoruCozumActive,
       'highSuccessSoruCozumThreshold': highSuccessSoruCozumThreshold,
+      'dersBazliSaatSinirlari': dersBazliSaatSinirlari.map((k, v) => MapEntry(k, Map<String, dynamic>.from(v))),
+      'dersBazliZorlaAtama': dersBazliZorlaAtama,
     };
   }
 
@@ -133,6 +146,7 @@ class CampCycle {
       id: id,
       institutionId: map['institutionId'] ?? '',
       schoolTypeId: map['schoolTypeId'] ?? '',
+      workPeriodId: map['workPeriodId'] as String?,
       title: map['title'],
       referansDenemeSinavId: map['referansDenemeSinavId'] ?? '',
       referansDenemeSinavAdi: map['referansDenemeSinavAdi'] ?? '',
@@ -169,6 +183,10 @@ class CampCycle {
           ) ?? {},
       highSuccessSoruCozumActive: map['highSuccessSoruCozumActive'] ?? true,
       highSuccessSoruCozumThreshold: (map['highSuccessSoruCozumThreshold'] as num?)?.toDouble() ?? 0.95,
+      dersBazliSaatSinirlari: (map['dersBazliSaatSinirlari'] as Map<String, dynamic>?)?.map(
+            (k, v) => MapEntry(k, (v as Map<String, dynamic>).map((ik, iv) => MapEntry(ik, (iv as num).toInt()))),
+          ) ?? {},
+      dersBazliZorlaAtama: map['dersBazliZorlaAtama'] ?? true,
     );
   }
 
@@ -176,6 +194,7 @@ class CampCycle {
     String? id,
     String? institutionId,
     String? schoolTypeId,
+    String? workPeriodId,
     String? title,
     String? referansDenemeSinavId,
     String? referansDenemeSinavAdi,
@@ -205,11 +224,14 @@ class CampCycle {
     Map<String, double>? draftSubjectThresholds,
     bool? highSuccessSoruCozumActive,
     double? highSuccessSoruCozumThreshold,
+    Map<String, Map<String, int>>? dersBazliSaatSinirlari,
+    bool? dersBazliZorlaAtama,
   }) {
     return CampCycle(
       id: id ?? this.id,
       institutionId: institutionId ?? this.institutionId,
       schoolTypeId: schoolTypeId ?? this.schoolTypeId,
+      workPeriodId: workPeriodId ?? this.workPeriodId,
       title: title ?? this.title,
       referansDenemeSinavId: referansDenemeSinavId ?? this.referansDenemeSinavId,
       referansDenemeSinavAdi: referansDenemeSinavAdi ?? this.referansDenemeSinavAdi,
@@ -239,6 +261,8 @@ class CampCycle {
       draftSubjectThresholds: draftSubjectThresholds ?? this.draftSubjectThresholds,
       highSuccessSoruCozumActive: highSuccessSoruCozumActive ?? this.highSuccessSoruCozumActive,
       highSuccessSoruCozumThreshold: highSuccessSoruCozumThreshold ?? this.highSuccessSoruCozumThreshold,
+      dersBazliSaatSinirlari: dersBazliSaatSinirlari ?? this.dersBazliSaatSinirlari,
+      dersBazliZorlaAtama: dersBazliZorlaAtama ?? this.dersBazliZorlaAtama,
     );
   }
 }

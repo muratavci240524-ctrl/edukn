@@ -9,7 +9,8 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../services/announcement_service.dart';
 import '../../services/user_permission_service.dart';
 import '../announcements/announcement_detail_screen.dart';
-import '../announcements/announcement_card.dart';
+import '../announcements/announcement_card.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+
 
 class TeacherAnnouncementsScreen extends StatefulWidget {
   final String institutionId;
@@ -221,7 +222,7 @@ class _TeacherAnnouncementsScreenState extends State<TeacherAnnouncementsScreen>
           body: Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 800),
-                  child: StreamBuilder<QuerySnapshot>(
+                  child: SafeStreamBuilder<QuerySnapshot>(
                     stream: _getTeacherAnnouncements(),
                     builder: (context, snapshot) {
                       if (_isLoadingPermissions) {

@@ -55,8 +55,8 @@ class _MessageMonitoringScreenState extends State<MessageMonitoringScreen> {
     if (raw == null || raw.trim().isEmpty) return 'Kullanıcı';
     final lower = raw.toLowerCase().trim();
     if (lower == 'genel_mudur' || lower == 'genel mudur') return 'Genel Müdür';
+    if (lower == 'mudur_yardimcisi' || lower == 'mudur yardimcisi' || lower == 'müdür yardımcısı' || lower == 'muduryardimcisi' || (lower.contains('mudur') && lower.contains('yardimci')) || (lower.contains('müdür') && lower.contains('yardımcı'))) return 'Müdür Yardımcısı';
     if (lower == 'mudur' || lower == 'müdür') return 'Müdür';
-    if (lower == 'mudur_yardimcisi' || lower == 'mudur yardimcisi' || lower == 'müdür yardımcısı') return 'Müdür Yardımcısı';
     if (lower == 'ogretmen' || lower == 'öğretmen' || lower == 'teacher') return 'Öğretmen';
     if (lower == 'rehber_ogretmen' || lower == 'rehberlik') return 'Rehber Öğretmen';
     if (lower == 'ogrenci' || lower == 'öğrenci' || lower == 'student') return 'Öğrenci';

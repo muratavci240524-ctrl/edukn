@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import '../../../../services/activity_service.dart';
 import '../../../../models/activity/activity_model.dart';
 import 'activity_form_screen.dart';
-import 'activity_detail_screen.dart';
+import 'activity_detail_screen.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+
 import 'activity_statistics_screen.dart'; // We will create this later
 
 class ActivityListScreen extends StatefulWidget {
@@ -108,7 +109,7 @@ class _ActivityListScreenState extends State<ActivityListScreen>
   }
 
   Widget _buildActivityList(String type) {
-    return StreamBuilder<List<ActivityObservation>>(
+    return SafeStreamBuilder<List<ActivityObservation>>(
       stream: _activityService.getActivities(
         widget.institutionId,
         widget.schoolTypeId,

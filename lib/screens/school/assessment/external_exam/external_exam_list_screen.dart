@@ -5,6 +5,7 @@ import '../../../../models/assessment/external_exam_model.dart';
 import '../../../../services/external_exam_service.dart';
 import 'external_exam_form_screen.dart';
 import 'external_exam_detail_screen.dart';
+import 'package:edukn/widgets/safe_stream_builder.dart';
 
 class ExternalExamListScreen extends StatefulWidget {
   final String institutionId;
@@ -59,7 +60,7 @@ class _ExternalExamListScreenState extends State<ExternalExamListScreen> {
           style: GoogleFonts.inter(fontWeight: FontWeight.bold),
         ),
       ),
-      body: StreamBuilder<List<ExternalExam>>(
+      body: SafeStreamBuilder<List<ExternalExam>>(
         stream: _service.getExternalExams(widget.institutionId),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {

@@ -3,7 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/class_model.dart';
 import '../../services/term_service.dart';
-import 'class_management_screen_student_card.dart';
+import 'class_management_screen_student_card.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+
 
 class ClassManagementScreen extends StatefulWidget {
   final String schoolTypeId;
@@ -1024,7 +1025,7 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
                             ),
                           ),
                           Spacer(),
-                          StreamBuilder<QuerySnapshot>(
+                          SafeStreamBuilder<QuerySnapshot>(
                             stream: _getClassesStream(),
                             builder: (context, snapshot) {
                               final count = snapshot.hasData ? snapshot.data!.docs.length : 0;
@@ -1145,7 +1146,7 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
 
                 // Şube listesi
                 Expanded(
-                  child: StreamBuilder<QuerySnapshot>(
+                  child: SafeStreamBuilder<QuerySnapshot>(
                     stream: _getClassesStream(),
                     builder: (context, snapshot) {
                       if (snapshot.connectionState == ConnectionState.waiting) {

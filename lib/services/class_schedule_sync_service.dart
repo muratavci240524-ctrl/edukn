@@ -22,13 +22,13 @@ class ClassScheduleSyncService {
     required String lessonId,
     required String lessonName,
     required List<String> teacherIds,
+    String? termId, // Opsiyonel: Caller'dan cache'lenmiş termId
   }) async {
     try {
       // Create unique document ID - fixed backslashes
       final docId = '${periodId}_${classId}_${day}_$hourIndex';
-      print('DEBUG SYNC: Writing to docId=$docId');
 
-      final termId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
+      final effectiveTermId = termId ?? (await TermService().getSelectedTermId() ?? await TermService().getActiveTermId());
 
       // Prepare data
       final data = {
@@ -40,7 +40,7 @@ class ClassScheduleSyncService {
         'hourIndex': hourIndex,
         'lessonId': lessonId,
         'lessonName': lessonName,
-        'termId': termId,
+        'termId': effectiveTermId,
         'isActive': true, // CRITICAL: Required for query filtering
         'updatedAt': FieldValue.serverTimestamp(),
       };

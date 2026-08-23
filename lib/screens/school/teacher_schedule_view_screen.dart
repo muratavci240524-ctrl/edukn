@@ -935,6 +935,27 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
         print('DEBUG: Absence Docs: ${absenceSnap.docs.length}');
         print('DEBUG: Substitute Docs: ${substituteSnap.docs.length}');
 
+        // Resolve className from classes collection
+        final Set<String> classIdsToResolve = {};
+        for (var doc in substituteSnap.docs) {
+          final cid = doc.data()['classId']?.toString();
+          if (cid != null && cid.isNotEmpty) classIdsToResolve.add(cid);
+        }
+        final Map<String, String> classNameMap = {};
+        if (classIdsToResolve.isNotEmpty) {
+          final idList = classIdsToResolve.toList();
+          for (var i = 0; i < idList.length; i += 10) {
+            final chunk = idList.skip(i).take(10).toList();
+            final snap = await FirebaseFirestore.instance
+                .collection('classes')
+                .where(FieldPath.documentId, whereIn: chunk)
+                .get();
+            for (var d in snap.docs) {
+              classNameMap[d.id] = d.data()['name']?.toString() ?? '';
+            }
+          }
+        }
+
         Map<String, Map<String, dynamic>> updatedSchedule =
             Map<String, Map<String, dynamic>>.from(_scheduleData);
 
@@ -989,9 +1010,16 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
 
           final key = '${dayName}_$hourIndex';
 
+          // Resolve className: use stored name, fallback to classes collection
+          final classId = (data['classId'] ?? '').toString();
+          String resolvedClassName = (data['className'] ?? '').toString();
+          if (resolvedClassName.isEmpty || resolvedClassName == classId) {
+            resolvedClassName = classNameMap[classId] ?? resolvedClassName;
+          }
+
           updatedSchedule[key] = {
             'id': doc.id,
-            'className': (data['className'] ?? '').toString(),
+            'className': resolvedClassName,
             'lessonName': (data['lessonName'] ?? '').toString(),
             'isSubstitute': true,
             'originalTeacherName': origName,
@@ -1004,6 +1032,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
             'isTemporary': true,
           };
         }
+
 
         // ---------------------------------------------------------
         // ETÜT TALEPLERİNİ YÜKLE (ETUT REQUESTS)
@@ -4129,6 +4158,26 @@ class _TeacherScheduleDetailViewState
             .where('date', isLessThanOrEqualTo: Timestamp.fromDate(endOfWeek))
             .where('status', isEqualTo: 'published')
             .get();
+        // Resolve className from classes collection
+        final Set<String> classIdsToResolve2 = {};
+        for (var doc in substituteSnap.docs) {
+          final cid = doc.data()['classId']?.toString();
+          if (cid != null && cid.isNotEmpty) classIdsToResolve2.add(cid);
+        }
+        final Map<String, String> classNameMap2 = {};
+        if (classIdsToResolve2.isNotEmpty) {
+          final idList = classIdsToResolve2.toList();
+          for (var i = 0; i < idList.length; i += 10) {
+            final chunk = idList.skip(i).take(10).toList();
+            final snap = await FirebaseFirestore.instance
+                .collection('classes')
+                .where(FieldPath.documentId, whereIn: chunk)
+                .get();
+            for (var d in snap.docs) {
+              classNameMap2[d.id] = d.data()['name']?.toString() ?? '';
+            }
+          }
+        }
 
         for (var doc in absenceSnap.docs) {
           final data = doc.data();
@@ -4179,9 +4228,16 @@ class _TeacherScheduleDetailViewState
 
           final key = '${dayName}_$hourIndex';
 
+          // Resolve className: use stored name, fallback to classes collection
+          final classId = (data['classId'] ?? '').toString();
+          String resolvedClassName = (data['className'] ?? '').toString();
+          if (resolvedClassName.isEmpty || resolvedClassName == classId) {
+            resolvedClassName = classNameMap2[classId] ?? resolvedClassName;
+          }
+
           scheduleData[key] = {
             'id': doc.id,
-            'className': (data['className'] ?? '').toString(),
+            'className': resolvedClassName,
             'lessonName': (data['lessonName'] ?? '').toString(),
             'isSubstitute': true,
             'originalTeacherName': origName,

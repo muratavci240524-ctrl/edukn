@@ -10,6 +10,7 @@ import '../../../models/assessment/outcome_list_model.dart';
 import 'error_booklet/error_booklet_dashboard_screen.dart';
 import 'question_pool/question_pool_screen.dart';
 import 'external_exam/external_exam_list_screen.dart';
+import 'package:edukn/widgets/safe_stream_builder.dart';
 
 class AssessmentDashboardScreen extends StatefulWidget {
   final String institutionId;
@@ -217,13 +218,13 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
           ),
           const SizedBox(height: 32),
 
-          StreamBuilder<int>(
+          SafeStreamBuilder<int>(
             stream: _assessmentService.getExamTypes(widget.institutionId).map((list) => list.length),
             builder: (context, typeSnapshot) {
-              return StreamBuilder<int>(
+              return SafeStreamBuilder<int>(
                 stream: _assessmentService.getOpticalForms(widget.institutionId).map((list) => list.length),
                 builder: (context, formSnapshot) {
-                  return StreamBuilder<List<dynamic>>(
+                  return SafeStreamBuilder<List<dynamic>>(
                     stream: _assessmentService.getOutcomeLists(widget.institutionId),
                     builder: (context, outcomeSnapshot) {
                       int totalOutcomesCount = 0;
@@ -386,7 +387,7 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
                 )).toList(),
               ),
             if (isActive)
-              StreamBuilder<List<TrialExam>>(
+              SafeStreamBuilder<List<TrialExam>>(
                 stream: _assessmentService.getTrialExams(widget.institutionId),
                 builder: (context, snapshot) {
                   final activeCount = snapshot.data?.where((e) => e.isPublished).length ?? 0;

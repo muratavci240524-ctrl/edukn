@@ -10,6 +10,7 @@ import '../../../../models/assessment/external_exam_model.dart';
 import '../../../../models/assessment/external_exam_registration_model.dart';
 import '../../../../services/external_exam_service.dart';
 import 'external_exam_seating_list_screen.dart';
+import 'package:edukn/widgets/safe_stream_builder.dart';
 
 class ExternalExamVenueScreen extends StatefulWidget {
   final ExternalExam exam;
@@ -153,7 +154,7 @@ class _ExternalExamVenueScreenState extends State<ExternalExamVenueScreen> {
             ? 'Kelebek Sistemi'
             : 'Rastgele Dağılım';
 
-    return StreamBuilder<List<ExternalExamRegistration>>(
+    return SafeStreamBuilder<List<ExternalExamRegistration>>(
       stream: _registrationsStream,
       builder: (context, snapshot) {
         final regs = snapshot.data ?? [];

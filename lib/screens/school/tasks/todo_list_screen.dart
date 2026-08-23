@@ -7,6 +7,7 @@ import '../../../services/user_permission_service.dart';
 import '../../../services/term_service.dart';
 import 'create_task_screen.dart';
 import 'task_stats_screen.dart';
+import 'package:edukn/widgets/safe_stream_builder.dart';
 
 class ToDoListScreen extends StatefulWidget {
   final String institutionId;
@@ -269,7 +270,7 @@ class _ToDoListScreenState extends State<ToDoListScreen>
       query = query.where('creatorId', isEqualTo: _currentUserId);
     }
 
-    return StreamBuilder<QuerySnapshot>(
+    return SafeStreamBuilder<QuerySnapshot>(
       stream: query.snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {

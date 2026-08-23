@@ -41,6 +41,7 @@ import '../../services/user_permission_service.dart';
 import '../../constants/app_modules.dart';
 import '../../constants/school_type_modules.dart';
 import 'settings/sms_integration_screen.dart';
+import 'accounting/accounting_dashboard_screen.dart';
 
 class SchoolDashboardV2Screen extends StatefulWidget {
   const SchoolDashboardV2Screen({Key? key}) : super(key: key);
@@ -440,6 +441,15 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
           }
         }
 
+        // Rol şablonunu yükle (dashboard için — login cache'i kaybolmuş olabilir)
+        if (currentUserData != null && data != null) {
+          final userRole = (currentUserData['role'] ?? 'ogretmen').toString().toLowerCase();
+          final instId = (data['institutionId'] ?? '').toString();
+          if (instId.isNotEmpty) {
+            await UserPermissionService.loadAndCacheRoleTemplate(instId, userRole);
+          }
+        }
+
         if (mounted) {
           setState(() {
             schoolData = data;
@@ -562,10 +572,12 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
           }
         }
       } else {
+        debugPrint('⚠️ schoolData NULL kaldı! institutionId=$institutionId, email=${user?.email}');
         if (mounted) setState(() => isLoading = false);
       }
-    } catch (e) {
-      debugPrint('Error loading school data: $e');
+    } catch (e, stack) {
+      debugPrint('❌ Error loading school data: $e');
+      debugPrint('Stack: $stack');
       if (mounted) setState(() => isLoading = false);
     }
   }
@@ -630,25 +642,40 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
 
   Future<void> _switchToTerm(Map<String, dynamic> term) async { final isActive = term['isActive'] == true; if (isActive) await _termService.clearSelectedTerm(); else await _termService.setSelectedTerm(term['id'], term['termName'] ?? '${term['startYear']}-${term['endYear']}'); setState(() => isLoading = true); await _loadInitialData(); }
   bool _hasModuleAccess(String moduleKey) {
-    if (schoolData == null) return false;
+    if (schoolData == null) {
+      print('🔴 [$moduleKey] schoolData null');
+      return false;
+    }
+    
+    final role = userData?['role']?.toString().toLowerCase() ?? '';
+    final isTopAdmin = role == 'admin' || role == 'genel_mudur' || role == 'genel müdür' || role == 'genel mudur';
     
     // Sistem Ayarları her zaman görünür olmalı (yönetim için)
-    if (moduleKey != 'sistem_ayarlari') {
+    if (moduleKey != 'sistem_ayarlari' && !isTopAdmin) {
       // 1. Uygulama Ayarları (Global Gizleme) Kontrolü
       final appSettings = schoolData!['appSettings'] as Map<String, dynamic>?;
       final disabledModules = appSettings?['disabledModules'] as List<dynamic>? ?? [];
-      if (disabledModules.contains(moduleKey)) return false; // Yönetici dahi göremez
+      if (disabledModules.contains(moduleKey)) {
+        print('🔴 [$moduleKey] disabledModules listesinde → GİZLİ');
+        return false;
+      }
 
       // Okulun bu modülü aktif mi? (Lisans kontrolü gibi)
       final activeModules = schoolData!['activeModules'] as List<dynamic>? ?? [];
-      final role = userData?['role']?.toString().toLowerCase();
-      
-      // Admin ise ve modül lisansta varsa her zaman göster, yoksa listeye bak
-      if (role != 'admin' && !activeModules.contains(moduleKey)) return false;
+      if (activeModules.isNotEmpty && !activeModules.contains(moduleKey)) {
+        print('🔴 [$moduleKey] activeModules listesinde YOK (activeModules: $activeModules)');
+        return false;
+      }
     }
     
     // Kullanıcının yetkisi var mı?
-    return UserPermissionService.hasModuleAccess(moduleKey, userData);
+    final result = UserPermissionService.hasModuleAccess(moduleKey, userData);
+    if (!result) {
+      print('🔴 [$moduleKey] UserPermissionService → ERİŞİM YOK (template: ${UserPermissionService.getCachedRoleTemplate()?.keys})');
+    } else {
+      print('🟢 [$moduleKey] ERİŞİM VAR');
+    }
+    return result;
   }
 
   bool _hasSubModuleAccess(String moduleKey, String subKey) {
@@ -703,7 +730,22 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
   @override
   Widget build(BuildContext context) {
     if (isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    if (schoolData == null) return const Scaffold(body: Center(child: Text('Okul verileri yüklenemedi!')));
+    if (schoolData == null) {
+      // Ghost login durumu: Otomatik çıkış yap ve giriş ekranına yönlendir
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.remove('active_portal');
+          await prefs.remove('is_impersonating');
+          await prefs.remove('impersonated_user_email');
+          UserPermissionService.clearCache();
+          TermService().clearCache();
+          await FirebaseAuth.instance.signOut();
+        } catch (_) {}
+        if (mounted) Navigator.pushReplacementNamed(context, '/school-login');
+      });
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
     final size = MediaQuery.of(context).size; final isMobile = size.width < 1100;
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -1433,12 +1475,12 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
           category: 'Finans',
           showAllItems: isFiltered,
           items: [
-            if (_hasSubModuleAccess('mali_isler', 'gelir_kaydi')) {'title': 'Gelir Kaydı', 'onTap': () => Navigator.pushNamed(context, '/accounting')},
-            if (_hasSubModuleAccess('mali_isler', 'gider_kaydi')) {'title': 'Gider Kaydı', 'onTap': () => Navigator.pushNamed(context, '/accounting')},
-            if (_hasSubModuleAccess('mali_isler', 'veli_tahsilat')) {'title': 'Veli Tahsilat', 'onTap': () => Navigator.pushNamed(context, '/accounting')},
-            if (_hasSubModuleAccess('mali_isler', 'makbuz_al')) {'title': 'Makbuz Al', 'onTap': () => Navigator.pushNamed(context, '/accounting')},
+            {'title': 'Genel Finans Özeti', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountingDashboardScreen(initialTabIndex: 0)))},
+            {'title': 'Öğrenci Taksit Takibi', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountingDashboardScreen(initialTabIndex: 1)))},
+            {'title': 'Geciken Taksitler', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountingDashboardScreen(initialTabIndex: 2)))},
+            {'title': 'Kasa & Hareketler', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountingDashboardScreen(initialTabIndex: 3)))},
           ],
-          onTap: () => Navigator.pushNamed(context, '/accounting'),
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountingDashboardScreen())),
         ),
       if (_hasModuleAccess('hizmetler'))
         _ModuleCardWidget(

@@ -3,22 +3,18 @@
 <head>
   <base href="$FLUTTER_BASE_HREF">
 
-  <!-- Eski Flutter Service Worker'ı kaldır (Firebase SW'ye dokunma) -->
+  <!-- PWA Sürüm Güncelleme Dinleyicisi -->
   <script>
+    // Dart (Flutter) tarafında tanımlanacak olan fonksiyon.
+    window.onPwaUpdateAvailable = null;
+
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations().then(function(registrations) {
-        for (let registration of registrations) {
-          if (registration.active && registration.active.scriptURL.includes('flutter_service_worker.js')) {
-            console.log('🧹 Eski Flutter Service Worker kaldırılıyor...');
-            registration.unregister().then(function(success) {
-              if (success) {
-                console.log('✅ Eski Service Worker başarıyla kaldırıldı.');
-              }
-            });
-          }
+      navigator.serviceWorker.addEventListener('controllerchange', function() {
+        console.log('🔄 Yeni Service Worker kontrolü devraldı.');
+        if (window.onPwaUpdateAvailable) {
+          window.onPwaUpdateAvailable();
         }
       });
-      // NOT: Cache'ler silinMİYOR - uygulama verilerini korumak için.
     }
   </script>
 

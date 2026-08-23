@@ -12,9 +12,19 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../constants/turkey_address_data.dart';
 import '../../../widgets/edukn_dropdown.dart';
 import '../../../widgets/edukn_logo.dart';
+import '../../../widgets/custom_date_range_picker.dart';
 
 class PreRegistrationScreen extends StatefulWidget {
-  const PreRegistrationScreen({Key? key}) : super(key: key);
+  final String? fixedSchoolTypeId;
+  final String? fixedSchoolTypeName;
+  final String? fixedInstitutionId;
+
+  const PreRegistrationScreen({
+    Key? key,
+    this.fixedSchoolTypeId,
+    this.fixedSchoolTypeName,
+    this.fixedInstitutionId,
+  }) : super(key: key);
 
   @override
   _PreRegistrationScreenState createState() => _PreRegistrationScreenState();
@@ -51,6 +61,17 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
     _loadInitialData();
   }
 
+  bool _canEditPricingSettings() {
+    // Okul türü sayfasından açıldıysa fiyat ayarları butonu gizlenir (fiyatlar sadece ana menüden merkezi yönetilir)
+    if (widget.fixedSchoolTypeId != null) return false;
+
+    final role = (userData?['role'] as String?)?.toLowerCase() ?? '';
+    final isTopAdmin = role == 'admin' || role == 'genel_mudur' || role == 'genel müdür' || role == 'genel mudur';
+    if (isTopAdmin) return true;
+
+    return UserPermissionService.hasModuleAccess('mali_isler', userData);
+  }
+
   Future<void> _loadInitialData() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -60,7 +81,7 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
       setState(() => userData = data);
       
       final email = user.email!;
-      _institutionId = await UserPermissionService.resolveInstitutionId(email, userData: userData);
+      _institutionId = widget.fixedInstitutionId ?? await UserPermissionService.resolveInstitutionId(email, userData: userData);
 
       final termsQuery = await FirebaseFirestore.instance
           .collection('terms')
@@ -74,10 +95,8 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
           .get();
       _schoolTypes = schoolTypesQuery.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
 
-      if (_terms.isNotEmpty) {
-        // NOT: Dönem filtresi varsayılan olarak null bırakılıyor (TÜM kayıtlar görünsün)
-        // Kullanıcı üst filtreyi kullanarak döneme göre filtreleyebilir
-        // _selectedTermFilter = null; // = tümünü göster
+      if (widget.fixedSchoolTypeId != null) {
+        _schoolTypeFilter = widget.fixedSchoolTypeId;
       }
 
       // Load settings once and cache
@@ -85,7 +104,6 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
       if (settingsDoc.exists && settingsDoc.data() != null) {
         setState(() => _cachedSettings = settingsDoc.data()!);
       } else {
-        // Ayarlar dökümanı yoksa, sayfa yükleme döngüsünde kalmasın diye varsayılan ayarları atıyoruz
         setState(() => _cachedSettings = {
           'priceTypes': ['Eğitim', 'Yemek'],
           'prices': {},
@@ -108,7 +126,7 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
     } catch (e) {
       debugPrint('Error loading initial data: $e');
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -211,20 +229,24 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
         title: Text('Ön Kayıt ve Görüşme Yönetimi', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
         centerTitle: false,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.settings_outlined),
-            tooltip: 'Fiyat ve İndirim Ayarları',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => PreRegistrationSettingsScreen(
-                    institutionId: _institutionId!,
+          if (_canEditPricingSettings())
+            IconButton(
+              icon: const Icon(Icons.settings_outlined),
+              tooltip: 'Fiyat ve İndirim Ayarları',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => PreRegistrationSettingsScreen(
+                      institutionId: _institutionId!,
+                    ),
                   ),
-                ),
-              );
-            },
-          ),
+                ).then((_) {
+                  _cachedSettings.clear();
+                  _loadPreRegistrations();
+                });
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.add_task_rounded),
             onPressed: () => _handleAddNew(),
@@ -1292,29 +1314,27 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
             children: [
               // 1. Stats Row with date selector on top-right
               Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Expanded(
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
                       children: [
-                        _buildPriceCircle('TOPLAM', subtotal, Colors.indigo),
-                        _buildPriceCircle('İNDİRİM', totalDiscount, Colors.orange),
-                        _buildPriceCircle('NET TUTAR', anyPerTypeSelected ? perTypeGrandTotal : finalNetTotal, Colors.green),
+                        Expanded(child: _buildPriceCard('TOPLAM', subtotal, Colors.indigo, Icons.receipt_long_rounded)),
+                        const SizedBox(width: 10),
+                        Expanded(child: _buildPriceCard('İNDİRİM', totalDiscount, Colors.orange.shade800, Icons.discount_rounded)),
+                        const SizedBox(width: 10),
+                        Expanded(child: _buildPriceCard('NET TUTAR', anyPerTypeSelected ? perTypeGrandTotal : finalNetTotal, Colors.green.shade700, Icons.verified_rounded)),
                       ],
                     ),
                   ),
+                  const SizedBox(width: 12),
                   // Date selector button
                   GestureDetector(
                     onTap: () async {
                       final now = DateTime.now();
-                      final picked = await showDatePicker(
-                        context: context,
+                      final picked = await CustomDateRangePicker.showSingle(
+                        context,
                         initialDate: _priceDate ?? now,
-                        firstDate: DateTime(now.year - 3),
-                        lastDate: DateTime(now.year + 2),
-                        helpText: 'Fiyat Tarihi Seçin',
-                        locale: const Locale('tr', 'TR'),
                       );
                       if (picked != null) {
                         setState(() {
@@ -1736,26 +1756,67 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
     );
   }
 
-  Widget _buildPriceCircle(String label, double amount, Color color) {
-    return Column(
-      children: [
-        Container(
-          width: 80,
-          height: 80,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: color.withOpacity(0.1),
-            border: Border.all(color: color.withOpacity(0.3), width: 2),
+  Widget _buildPriceCard(String label, double amount, Color color, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withOpacity(0.25), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.06),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
           ),
-          alignment: Alignment.center,
-          child: Text(
-            NumberFormat.compact(locale: 'tr_TR').format(amount),
-            style: GoogleFonts.inter(fontWeight: FontWeight.w800, color: color, fontSize: 13),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Icon(icon, size: 14, color: color),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  label,
+                  style: GoogleFonts.inter(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF64748B),
+                    letterSpacing: 0.5,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
           ),
-        ),
-        const SizedBox(height: 8),
-        Text(label, style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700, color: const Color(0xFF64748B))),
-      ],
+          const SizedBox(height: 8),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              NumberFormat.currency(locale: 'tr_TR', symbol: '₺').format(amount),
+              style: GoogleFonts.inter(
+                fontSize: 17,
+                fontWeight: FontWeight.w900,
+                color: color,
+                letterSpacing: -0.5,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 

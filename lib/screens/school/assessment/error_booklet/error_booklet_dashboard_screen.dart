@@ -6,7 +6,8 @@ import '../../../../services/assessment_service.dart';
 import '../../../../models/assessment/trial_exam_model.dart';
 import 'error_booklet_editor_screen.dart';
 import 'error_booklet_student_list_screen.dart';
-import '../../../../services/user_permission_service.dart';
+import '../../../../services/user_permission_service.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+
 
 
 class ErrorBookletDashboardScreen extends StatefulWidget {
@@ -106,7 +107,7 @@ class _ErrorBookletDashboardScreenState extends State<ErrorBookletDashboardScree
       ),
       body: _isLoadingFilter 
         ? const Center(child: CircularProgressIndicator())
-        : StreamBuilder<List<TrialExam>>(
+        : SafeStreamBuilder<List<TrialExam>>(
         stream: _assessmentService.getTrialExams(
           _realInstitutionId ?? widget.institutionId, 
           classLevels: _filterClassLevels
@@ -246,7 +247,7 @@ class _ErrorBookletDashboardScreenState extends State<ErrorBookletDashboardScree
                     ),
                     const SizedBox(height: 4),
                     // Subtitle (thin text: Sınav Türü - Tarih - Soru/Soru)
-                    StreamBuilder<QuerySnapshot>(
+                    SafeStreamBuilder<QuerySnapshot>(
                       stream: FirebaseFirestore.instance
                           .collection('trial_exams')
                           .doc(exam.id)

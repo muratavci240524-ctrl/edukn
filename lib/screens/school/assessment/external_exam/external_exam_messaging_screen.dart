@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../../../models/assessment/external_exam_model.dart';
 import '../../../../models/assessment/external_exam_message_model.dart';
 import '../../../../services/external_exam_messaging_service.dart';
+import 'package:edukn/widgets/safe_stream_builder.dart';
 
 class ExternalExamMessagingScreen extends StatefulWidget {
   final ExternalExam exam;
@@ -411,7 +412,7 @@ class _ExternalExamMessagingScreenState
   }
 
   Widget _buildHistoryTab() {
-    return StreamBuilder<List<ExternalExamMessage>>(
+    return SafeStreamBuilder<List<ExternalExamMessage>>(
       stream: _messagingService.getMessageHistory(widget.exam.id ?? ''),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {

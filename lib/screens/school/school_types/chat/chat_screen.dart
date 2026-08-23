@@ -771,6 +771,11 @@ class _ChatScreenState extends State<ChatScreen>
         final title = data['title'] as String?;
 
         String displayRole = title ?? 'Personel';
+        if (displayRole == 'mudur_yardimcisi') displayRole = 'Müdür Yardımcısı';
+        else if (displayRole == 'mudur') displayRole = 'Müdür';
+        else if (displayRole == 'genel_mudur') displayRole = 'Genel Müdür';
+        else if (displayRole == 'admin') displayRole = 'Yönetici';
+
         if (branch != null && branch.isNotEmpty) {
           displayRole = branch;
         }

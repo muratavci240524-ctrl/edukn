@@ -3,7 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/user_permission_service.dart';
 import '../../services/term_service.dart';
-import '../school/school_types/school_type_social_media_screen.dart';
+import '../school/school_types/school_type_social_media_screen.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+
 
 class TeacherSocialMediaScreen extends StatefulWidget {
   final String institutionId;
@@ -122,7 +123,7 @@ class _TeacherSocialMediaScreenState extends State<TeacherSocialMediaScreen> {
               actions: [],
             ),
           ],
-          body: StreamBuilder<QuerySnapshot>(
+          body: SafeStreamBuilder<QuerySnapshot>(
             stream: Stream.fromFuture(TermService().getSelectedTermId()).asyncExpand((termId) {
               Query query = FirebaseFirestore.instance
                   .collection('social_media_posts')

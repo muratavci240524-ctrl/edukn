@@ -1,6 +1,7 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../../../models/school/duty_model.dart';
+import '../../../models/school/duty_model.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+
 
 class DutySettingsScreen extends StatefulWidget {
   final String institutionId;
@@ -68,7 +69,7 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
 
   // --- Rules Tab ---
   Widget _buildRulesTab() {
-    return StreamBuilder<QuerySnapshot>(
+    return SafeStreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('dutyRules')
           .where('institutionId', isEqualTo: widget.institutionId)
@@ -137,7 +138,7 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
         backgroundColor: const Color(0xFF4F46E5),
         child: const Icon(Icons.add),
       ),
-      body: StreamBuilder<QuerySnapshot>(
+      body: SafeStreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('dutyLocations')
             .where('institutionId', isEqualTo: widget.institutionId)
@@ -409,7 +410,7 @@ class _PoolConfigScreenState extends State<_PoolConfigScreen> {
         ),
 
         Expanded(
-          child: StreamBuilder<QuerySnapshot>(
+          child: SafeStreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance
                 .collection('dutyLocations')
                 .where('institutionId', isEqualTo: widget.institutionId)

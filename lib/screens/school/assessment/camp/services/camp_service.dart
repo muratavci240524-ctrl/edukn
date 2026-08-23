@@ -17,12 +17,13 @@ class CampService {
   String get _currentUserId => _auth.currentUser?.uid ?? '';
   String get _currentUserName => _auth.currentUser?.displayName ?? 'Bilinmeyen Kullanıcı';
 
-  Stream<List<CampCycle>> watchCycles(String institutionId, String schoolTypeId) => 
-      _repo.watchCycles(institutionId, schoolTypeId);
+  Stream<List<CampCycle>> watchCycles(String institutionId, String schoolTypeId, {String? workPeriodId}) => 
+      _repo.watchCycles(institutionId, schoolTypeId, workPeriodId: workPeriodId);
 
   Future<String> createCycle({
     required String institutionId,
     required String schoolTypeId,
+    String? workPeriodId,
     String? title,
     required String referansDenemeSinavId,
     required String referansDenemeSinavAdi,
@@ -42,6 +43,7 @@ class CampService {
       id: '',
       institutionId: institutionId,
       schoolTypeId: schoolTypeId,
+      workPeriodId: workPeriodId,
       title: title,
       referansDenemeSinavId: referansDenemeSinavId,
       referansDenemeSinavAdi: referansDenemeSinavAdi,
@@ -177,6 +179,10 @@ class CampService {
     double basariOrani = 0.5,
     bool isAbsent = false,
   }) async {
+    // institutionId'yi batch'den ÖNCE al (batch içinde await yapılmamalı)
+    final cycle = await _repo.getCycle(cycleId);
+    final institutionId = cycle?.institutionId ?? '';
+
     final batch = _db.batch();
     final atamaId = '${cycleId}_${ogrenciId}_${yeniGrupId}';
     final atamaRef = _db.collection('camp_assignments').doc(atamaId);
@@ -184,6 +190,7 @@ class CampService {
     batch.set(atamaRef, {
       'id': atamaId,
       'cycleId': cycleId,
+      'institutionId': institutionId,
       'ogrenciId': ogrenciId,
       'ogrenciAdi': ogrenciAdi,
       'subeId': subeId,
@@ -200,7 +207,7 @@ class CampService {
     final log = CampAssignmentLog(
       id: logRef.id,
       cycleId: cycleId,
-      institutionId: (await _repo.getCycle(cycleId))?.institutionId ?? '',
+      institutionId: institutionId,
       ogrenciId: ogrenciId,
       ogrenciAdi: ogrenciAdi,
       yeniGrupId: yeniGrupId,
@@ -227,6 +234,12 @@ class CampService {
   }
 
   Future<void> removeAssignments(List<CampAssignment> assignments) async {
+    if (assignments.isEmpty) return;
+
+    // institutionId'yi döngüden ÖNCE bir kez al (N+1 sorunu düzeltmesi)
+    final cycle = await _repo.getCycle(assignments.first.cycleId);
+    final institutionId = cycle?.institutionId ?? '';
+
     final batch = _db.batch();
     for (final a in assignments) {
       batch.delete(_db.collection('camp_assignments').doc(a.id));
@@ -237,7 +250,7 @@ class CampService {
       final log = CampAssignmentLog(
         id: logRef.id,
         cycleId: a.cycleId,
-        institutionId: (await _repo.getCycle(a.cycleId))?.institutionId ?? '',
+        institutionId: institutionId,
         ogrenciId: a.ogrenciId,
         ogrenciAdi: a.ogrenciAdi,
         eskiGrupId: a.groupId,
@@ -257,6 +270,12 @@ class CampService {
   }
 
   Future<void> moveAssignments(List<CampAssignment> assignments, String targetGroupId, String targetGroupName) async {
+    if (assignments.isEmpty) return;
+
+    // institutionId'yi döngüden ÖNCE bir kez al (N+1 sorunu düzeltmesi)
+    final cycle = await _repo.getCycle(assignments.first.cycleId);
+    final institutionId = cycle?.institutionId ?? '';
+
     final batch = _db.batch();
     for (final a in assignments) {
       batch.update(_db.collection('camp_assignments').doc(a.id), {
@@ -272,7 +291,7 @@ class CampService {
       final log = CampAssignmentLog(
         id: logRef.id,
         cycleId: a.cycleId,
-        institutionId: (await _repo.getCycle(a.cycleId))?.institutionId ?? '',
+        institutionId: institutionId,
         ogrenciId: a.ogrenciId,
         ogrenciAdi: a.ogrenciAdi,
         eskiGrupId: a.groupId,
@@ -343,19 +362,35 @@ class CampService {
   }) async {
     final batch = _db.batch();
     batch.update(_db.collection('camp_cycles').doc(cycle.id), {'status': CampCycleStatus.published.name});
+
+    // Kamp başlangıç tarihini kullanarak doğru hafta hesaplaması
+    // Başlangıç tarihinin haftasının Pazartesi'sini bul
     final cycleStartOfWeek = cycle.baslangicTarihi.subtract(Duration(days: cycle.baslangicTarihi.weekday - 1));
     final cycleStartTs = Timestamp.fromDate(DateTime(cycleStartOfWeek.year, cycleStartOfWeek.month, cycleStartOfWeek.day));
-    final cycleEndOfWeek = cycleStartOfWeek.add(const Duration(days: 6));
+    final cycleEndOfWeek = cycle.bitisTarihi; // Bitiş tarihi kampın son günü
     final cycleEndTs = Timestamp.fromDate(DateTime(cycleEndOfWeek.year, cycleEndOfWeek.month, cycleEndOfWeek.day, 23, 59, 59));
+
     final Map<String, List<CampAssignment>> assignmentsByGroup = {};
     for (final atama in atamalar) assignmentsByGroup.putIfAbsent(atama.groupId, () => []).add(atama);
+
     for (final entry in assignmentsByGroup.entries) {
       final groupId = entry.key;
       final groupAssignments = entry.value;
       final grup = gruplar.firstWhere((g) => g.id == groupId, orElse: () => gruplar.first);
       final etutRef = _db.collection('etut_requests').doc();
       final dayIndex = _dayNameToIndex(grup.gun);
-      final exactDate = cycleStartOfWeek.add(Duration(days: dayIndex - 1));
+
+      // Kamp başlangıcından itibaren doğru tarihi hesapla
+      // Eğer o gün kamp başlangıcından önceyse, bir sonraki haftayı kullan
+      DateTime exactDate = cycleStartOfWeek.add(Duration(days: dayIndex - 1));
+      if (exactDate.isBefore(DateTime(cycle.baslangicTarihi.year, cycle.baslangicTarihi.month, cycle.baslangicTarihi.day))) {
+        exactDate = exactDate.add(const Duration(days: 7)); // Bir sonraki haftaya al
+      }
+      // Eğer hesaplanan tarih kamp bitiş tarihinden sonraysa atla
+      if (exactDate.isAfter(cycle.bitisTarihi.add(const Duration(days: 1)))) {
+        continue;
+      }
+
       final startParts = grup.baslangicSaat.split(':');
       final endParts = grup.bitisSaat.split(':');
       DateTime? startTime, endTime;
@@ -363,10 +398,47 @@ class CampService {
         startTime = DateTime(exactDate.year, exactDate.month, exactDate.day, int.parse(startParts[0]), int.parse(startParts[1]));
         endTime = DateTime(exactDate.year, exactDate.month, exactDate.day, int.parse(endParts[0]), int.parse(endParts[1]));
       }
-      batch.set(etutRef, {'id': etutRef.id, 'institutionId': cycle.institutionId, 'studentId': groupAssignments.first.ogrenciId, 'studentIds': groupAssignments.map((a) => a.ogrenciId).toList(), 'recipientNames': {for (final a in groupAssignments) a.ogrenciId: '${a.ogrenciAdi}${a.sube != null && a.sube!.isNotEmpty ? " (${a.sube})" : ""}'}, 'teacherId': grup.ogretmenId, 'teacherName': grup.ogretmenAdi, 'dersId': grup.dersId, 'dersAdi': grup.dersAdi, 'lessonName': grup.dersAdi, 'gun': grup.gun, 'baslangicSaat': grup.baslangicSaat, 'bitisSaat': grup.bitisSaat, 'campCycleId': cycle.id, 'campGroupId': grup.id, 'date': Timestamp.fromDate(exactDate), 'startTime': startTime != null ? Timestamp.fromDate(startTime) : null, 'endTime': endTime != null ? Timestamp.fromDate(endTime) : null, 'className': 'Kamp - ${grup.saatDilimiAdi}', 'weekStart': cycleStartTs, 'weekEnd': cycleEndTs, 'status': 'active', 'type': 'Etut', 'isGroup': groupAssignments.length > 1, 'groupStudentCount': groupAssignments.length, 'createdAt': FieldValue.serverTimestamp(), 'createdBy': _currentUserId});
+
+      batch.set(etutRef, {
+        'id': etutRef.id,
+        'institutionId': cycle.institutionId,
+        'studentId': groupAssignments.first.ogrenciId,
+        'studentIds': groupAssignments.map((a) => a.ogrenciId).toList(),
+        'recipientNames': {for (final a in groupAssignments) a.ogrenciId: '${a.ogrenciAdi}${a.sube != null && a.sube!.isNotEmpty ? " (${a.sube})" : ""}'},
+        'teacherId': grup.ogretmenId,
+        'teacherName': grup.ogretmenAdi,
+        'dersId': grup.dersId,
+        'dersAdi': grup.dersAdi,
+        'lessonName': grup.dersAdi,
+        'gun': grup.gun,
+        'baslangicSaat': grup.baslangicSaat,
+        'bitisSaat': grup.bitisSaat,
+        'campCycleId': cycle.id,
+        'campGroupId': grup.id,
+        'date': Timestamp.fromDate(exactDate),
+        'startTime': startTime != null ? Timestamp.fromDate(startTime) : null,
+        'endTime': endTime != null ? Timestamp.fromDate(endTime) : null,
+        'className': 'Kamp - ${grup.saatDilimiAdi}',
+        'weekStart': cycleStartTs,
+        'weekEnd': cycleEndTs,
+        'status': 'active',
+        'type': 'Etut',
+        'isGroup': groupAssignments.length > 1,
+        'groupStudentCount': groupAssignments.length,
+        'createdAt': FieldValue.serverTimestamp(),
+        'createdBy': _currentUserId,
+      });
+
       for (final atama in groupAssignments) {
         final notifRef = _db.collection('notificationRequests').doc();
-        batch.set(notifRef, {'type': 'camp_assignment', 'recipientId': atama.ogrenciId, 'title': 'Kamp Programı Yayınlandı', 'body': '${grup.dersAdi} kamp etüdünüz ${grup.gun} ${grup.baslangicSaat}-${grup.bitisSaat} olarak oluşturuldu.', 'institutionId': cycle.institutionId, 'createdAt': FieldValue.serverTimestamp()});
+        batch.set(notifRef, {
+          'type': 'camp_assignment',
+          'recipientId': atama.ogrenciId,
+          'title': 'Kamp Programı Yayınlandı',
+          'body': '${grup.dersAdi} kamp etüdünüz ${grup.gun} ${grup.baslangicSaat}-${grup.bitisSaat} olarak oluşturuldu.',
+          'institutionId': cycle.institutionId,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
       }
     }
     await batch.commit();

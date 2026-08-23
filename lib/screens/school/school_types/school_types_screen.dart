@@ -6,7 +6,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'school_type_stats_screen.dart';
 import 'school_type_detail_screen.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:google_fonts/google_fonts.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+
 
 class SchoolTypesScreen extends StatefulWidget {
   const SchoolTypesScreen({Key? key}) : super(key: key);
@@ -449,7 +450,7 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
           elevation: 0,
           backgroundColor: Colors.white,
           leading: IconButton(
-            icon: Icon(Icons.arrow_back, color: Colors.indigo),
+            icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.indigo),
             onPressed: () {
               if (Navigator.canPop(context)) {
                 Navigator.pop(context);
@@ -492,7 +493,7 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
           leading: (userData != null && !UserPermissionService.hasAnyMainModuleAccess(userData))
               ? null
               : IconButton(
-                  icon: Icon(Icons.arrow_back, color: Colors.indigo),
+                  icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.indigo),
                   onPressed: () {
                     if (Navigator.canPop(context)) {
                       Navigator.pop(context);
@@ -516,7 +517,7 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
           SizedBox(width: 8),
         ],
       ),
-      body: StreamBuilder<QuerySnapshot>(
+      body: SafeStreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance.collection('schoolTypes').where('institutionId', isEqualTo: institutionId).snapshots(),
         builder: (context, snapshot) {
           if (snapshot.hasError) return Center(child: Text('Hata: ${snapshot.error}'));
@@ -903,7 +904,7 @@ class _SchoolTypeCardState extends State<_SchoolTypeCard> {
     required String label,
     required Color color
   }) {
-    return StreamBuilder<QuerySnapshot>(
+    return SafeStreamBuilder<QuerySnapshot>(
       stream: stream,
       builder: (context, snapshot) {
         final count = snapshot.hasData ? snapshot.data!.docs.length : 0;

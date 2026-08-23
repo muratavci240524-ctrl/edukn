@@ -14,7 +14,8 @@ import '../../services/role_permission_service.dart';
 import '../../services/crypto_service.dart';
 // Web için
 
-import 'dart:html' as html show window;
+import 'dart:html' as html show window;import 'package:edukn/widgets/safe_stream_builder.dart';
+
 
 class UserManagementScreen extends StatefulWidget {
   const UserManagementScreen({Key? key}) : super(key: key);
@@ -94,7 +95,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
 
   // Kullanıcı yönetimi modülünde düzenleme yetkisi var mı?
   bool _canEditUsers() {
-    return UserPermissionService.canEdit('kullanici_yonetimi', userData);
+    return UserPermissionService.canEditSubModule('sistem_ayarlari', 'kullanici_yonetimi', userData);
   }
 
   Future<void> _getSchoolInfo() async {
@@ -863,7 +864,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
           elevation: 0,
           backgroundColor: Colors.white,
           leading: IconButton(
-            icon: Icon(Icons.arrow_back, color: Colors.indigo),
+            icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.indigo),
             onPressed: () => Navigator.pop(context),
           ),
           title: Text(
@@ -987,7 +988,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
               ),
             ),
           Expanded(
-            child: StreamBuilder<QuerySnapshot>(
+            child: SafeStreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('users')
             .where('institutionId', isEqualTo: institutionId)
@@ -1622,9 +1623,21 @@ class _UserFormSheetState extends State<_UserFormSheet> {
         _selectedSchoolTypes = schoolTypesList.map((e) => e.toString()).toSet();
       }
 
-      // Modül yetkilerini yükle
+      // Okul türü yetkilerini yükle
+      final schoolTypePermsData = widget.userData!['schoolTypePermissions'];
+      if (schoolTypePermsData != null && schoolTypePermsData is Map) {
+        final schoolTypePerms = Map<String, dynamic>.from(schoolTypePermsData);
+        schoolTypePerms.forEach((stId, level) {
+          _schoolTypePermissions[stId.toString()] = level.toString();
+        });
+      }
+
+      // Kişisel modül yetkileri
       final modulePermsData = widget.userData!['modulePermissions'];
-      if (modulePermsData != null && modulePermsData is Map) {
+      final hasPersonalPerms = modulePermsData != null && modulePermsData is Map && (modulePermsData as Map).isNotEmpty;
+
+      if (hasPersonalPerms) {
+        // Kişisel izinler VARSA → direkt onları yükle (şablona düşme)
         final modulePerms = Map<String, dynamic>.from(modulePermsData);
         modulePerms.forEach((moduleKey, perms) {
           if (perms is Map) {
@@ -1635,15 +1648,9 @@ class _UserFormSheetState extends State<_UserFormSheet> {
             _modulePermissions[moduleKey] = pMap;
           }
         });
-      }
-
-      // Okul türü yetkilerini yükle
-      final schoolTypePermsData = widget.userData!['schoolTypePermissions'];
-      if (schoolTypePermsData != null && schoolTypePermsData is Map) {
-        final schoolTypePerms = Map<String, dynamic>.from(schoolTypePermsData);
-        schoolTypePerms.forEach((stId, level) {
-          _schoolTypePermissions[stId.toString()] = level.toString();
-        });
+      } else {
+        // Kişisel izinler YOKSA → rol şablonunu varsayılan olarak uygula
+        _applyRoleTemplate(_selectedRole);
       }
 
       // Okul türü modül yetkilerini yükle
@@ -2040,28 +2047,25 @@ class _UserFormSheetState extends State<_UserFormSheet> {
       // İletişim/Google login için ise eğer varsa girilen maili, yoksa oluşturulanı kullan
       final contactEmail = inputEmail.isNotEmpty ? inputEmail : generatedEmail;
 
-      // Sadece aktif modülleri filtrele
+      // Tüm modülleri (kapalı olanlar dahil) kaydet. Aksi takdirde admin/müdür girerken
+      // "eksik modül var" sanıp otomatik olarak hepsini tekrar 'editor' olarak açar.
       Map<String, dynamic> activeModules = {};
       _modulePermissions.forEach((key, value) {
-        if (value['enabled'] == true) {
-          activeModules[key] = {
-            'enabled': true, 
-            'level': value['level'],
-            if (value.containsKey('subModules')) 'subModules': value['subModules'],
-          };
-        }
+        activeModules[key] = {
+          'enabled': value['enabled'] ?? false, 
+          'level': value['level'] ?? 'viewer',
+          if (value.containsKey('subModules')) 'subModules': value['subModules'],
+        };
       });
 
-      // Sadece aktif okul türü modüllerini filtrele
+      // Aynı mantık okul türü modülleri için de geçerli
       Map<String, dynamic> activeSchoolTypeModules = {};
       _schoolTypeModulePermissions.forEach((key, value) {
-        if (value['enabled'] == true) {
-          activeSchoolTypeModules[key] = {
-            'enabled': true,
-            'level': value['level'],
-            if (value.containsKey('subModules')) 'subModules': value['subModules'],
-          };
-        }
+        activeSchoolTypeModules[key] = {
+          'enabled': value['enabled'] ?? false,
+          'level': value['level'] ?? 'viewer',
+          if (value.containsKey('subModules')) 'subModules': value['subModules'],
+        };
       });
 
 
@@ -2144,46 +2148,53 @@ class _UserFormSheetState extends State<_UserFormSheet> {
           }
         }
 
-
-        // En doğru dokümanı hedefle: önce targetUid varsa ve doküman mevcutsa onu güncelle
-        String? targetDocId;
-        if (targetUid != null) {
-          final authDoc = await FirebaseFirestore.instance
-              .collection('users')
-              .doc(targetUid)
-              .get();
-          if (authDoc.exists) {
-            targetDocId = targetUid;
-          }
-        }
-
-        // targetUid yoksa veya bulunamadıysa, widget.userId dokümanı var mı bak
-        if (targetDocId == null && widget.userId != null) {
+        // Güncelleme yapılacak olası dokümanları topla
+        bool updatedAny = false;
+        
+        // 1. Ekranda açılan orijinal dokümanı (widget.userId) KESİNLİKLE güncelle
+        if (widget.userId != null) {
           final legacyDoc = await FirebaseFirestore.instance
               .collection('users')
               .doc(widget.userId)
               .get();
           if (legacyDoc.exists) {
-            targetDocId = widget.userId;
+            print('🔍 Debug - Orijinal doküman güncelleniyor: users/${widget.userId}');
+            await FirebaseFirestore.instance
+                .collection('users')
+                .doc(widget.userId)
+                .update(userData);
+            updatedAny = true;
           }
         }
 
-        if (targetDocId != null) {
-          print('🔍 Debug - Güncelleme yapılacak doküman: users/$targetDocId');
-          await FirebaseFirestore.instance
+        // 2. Eğer targetUid (Auth UID) varsa ve farklıysa, onu da Senkronize Et
+        if (targetUid != null && targetUid != widget.userId) {
+          final authDoc = await FirebaseFirestore.instance
               .collection('users')
-              .doc(targetDocId)
-              .update(userData);
-        } else {
+              .doc(targetUid)
+              .get();
+          if (authDoc.exists) {
+            print('🔍 Debug - Auth dokümanı da güncelleniyor: users/$targetUid');
+            await FirebaseFirestore.instance
+                .collection('users')
+                .doc(targetUid)
+                .update(userData);
+            updatedAny = true;
+          }
+        }
+
+        if (!updatedAny) {
           // İki doküman da yok: veri tutarsızlığı. Çözüm: targetUid altında oluştur/merge et.
           final fallbackId = targetUid ?? widget.userId;
-          print(
-            '⚠️ Debug - Hedef doküman bulunamadı, set(merge) ile oluşturuluyor: users/$fallbackId',
-          );
-          await FirebaseFirestore.instance
-              .collection('users')
-              .doc(fallbackId!)
-              .set(userData, SetOptions(merge: true));
+          if (fallbackId != null) {
+            print(
+              '⚠️ Debug - Hedef doküman bulunamadı, set(merge) ile oluşturuluyor: users/$fallbackId',
+            );
+            await FirebaseFirestore.instance
+                .collection('users')
+                .doc(fallbackId)
+                .set(userData, SetOptions(merge: true));
+          }
         }
       } else {
         // Yeni kullanıcı - geçerli şifre ve benzersiz kullanıcı adı kontrolü

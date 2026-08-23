@@ -5,7 +5,8 @@ import '../../../models/school/temporary_teacher_assignment.dart';
 import '../../../services/pdf_service.dart';
 import '../../../services/term_service.dart';
 import 'package:printing/printing.dart';
-import 'create_substitute_assignment_screen.dart';
+import 'create_substitute_assignment_screen.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+
 
 class SubstituteTeacherListScreen extends StatefulWidget {
   final String institutionId;
@@ -346,12 +347,15 @@ class _SubstituteTeacherListScreenState
       end = start
           .add(const Duration(days: 7))
           .subtract(const Duration(milliseconds: 1));
+    } else if (_filterMode == 'custom' && _customStartDate != null && _customEndDate != null) {
+      start = DateTime(_customStartDate!.year, _customStartDate!.month, _customStartDate!.day);
+      end = DateTime(_customEndDate!.year, _customEndDate!.month, _customEndDate!.day, 23, 59, 59);
     } else {
       start = DateTime(d.year, d.month, 1);
       end = DateTime(d.year, d.month + 1, 0, 23, 59, 59);
     }
 
-    return StreamBuilder<QuerySnapshot>(
+    return SafeStreamBuilder<QuerySnapshot>(
       stream: (() {
         Query q = FirebaseFirestore.instance
             .collection('temporaryTeacherAssignments')
@@ -370,6 +374,32 @@ class _SubstituteTeacherListScreenState
         }
 
         if (snapshot.hasError) {
+          final errorStr = snapshot.error.toString();
+          // Check if it's a Firestore index error
+          if (errorStr.contains('requires an index')) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.cloud_sync, size: 48, color: Colors.orange.shade300),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Beklenmeyen Veri Hatası',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFFEF4444)),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Bu sorgu için veritabanı indexi oluşturulması gerekiyor.\nFirebase konsolundan index oluşturunuz.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Color(0xFF64748B), fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
           return Center(child: Text('Hata: ${snapshot.error}'));
         }
 
@@ -1588,7 +1618,7 @@ class _SubstituteTeacherListScreenState
                     ),
                   ),
                   const SizedBox(width: 8),
-                  StreamBuilder<QuerySnapshot>(
+                  SafeStreamBuilder<QuerySnapshot>(
                     stream: FirebaseFirestore.instance
                         .collection('temporaryTeacherAssignments')
                         .where('institutionId', isEqualTo: widget.institutionId)
@@ -1628,7 +1658,7 @@ class _SubstituteTeacherListScreenState
         ),
         const SizedBox(height: 16),
         Expanded(
-          child: StreamBuilder<QuerySnapshot>(
+          child: SafeStreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance
                 .collection('temporaryTeacherAssignments')
                 .where('institutionId', isEqualTo: widget.institutionId)

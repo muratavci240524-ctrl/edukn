@@ -71,6 +71,7 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
   String? _branch; // Branş için değişken (sadece öğretmenler için)
 
   bool _isSaving = false;
+  bool _obscurePassword = false; // Şifreyi varsayılan olarak açık/görünür göster
   String? _institutionId;
   
   // Dinamik branş listesi
@@ -318,12 +319,42 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
           : '$username@$_institutionId.edukn';
       final defaultPassword = _passwordController.text.trim();
 
+      final roleKey = _title ?? 'personel';
+      final isManager = ['mudur_yardimcisi', 'mudur', 'genel_mudur', 'yonetici'].contains(roleKey);
+
+      List<String> assignedSchoolTypes = [];
+      if (widget.fixedSchoolTypeId != null) {
+        assignedSchoolTypes = [widget.fixedSchoolTypeId!];
+      } else if (widget.fixedSchoolTypeName != null) {
+        assignedSchoolTypes = [widget.fixedSchoolTypeName!];
+      } else {
+        try {
+          final stSnap = await FirebaseFirestore.instance
+              .collection('schoolTypes')
+              .where('institutionId', isEqualTo: _institutionId)
+              .get();
+          assignedSchoolTypes = stSnap.docs.map((d) => d.id).toList();
+        } catch (_) {}
+      }
+
+      final Map<String, dynamic> defaultModulePermissions = {
+        'genel_duyurular': {'enabled': true, 'level': isManager ? 'admin' : 'editor'},
+        'okul_turleri': {'enabled': true, 'level': isManager ? 'admin' : 'viewer'},
+        'ogrenci_kayit': {'enabled': isManager, 'level': isManager ? 'admin' : 'viewer'},
+        'insan_kaynaklari': {'enabled': isManager, 'level': isManager ? 'admin' : 'viewer'},
+        'muhasebe': {'enabled': isManager, 'level': isManager ? 'editor' : 'viewer'},
+        'satin_alma': {'enabled': isManager, 'level': isManager ? 'editor' : 'viewer'},
+        'depo': {'enabled': isManager, 'level': isManager ? 'editor' : 'viewer'},
+        'destek_hizmetleri': {'enabled': isManager, 'level': isManager ? 'editor' : 'viewer'},
+        'kullanici_yonetimi': {'enabled': isManager, 'level': isManager ? 'editor' : 'viewer'},
+      };
+
       final data = <String, dynamic>{
-        'institutionId': _institutionId,
-        'tc': CryptoService.encrypt(_tcController.text.trim(), institutionId: _institutionId),
         'fullName': _fullNameController.text.trim(),
         'birthDate': _birthDateController.text.trim(),
         'birthPlace': _birthPlaceController.text.trim(),
+        'institutionId': _institutionId,
+        'tc': CryptoService.encrypt(_tcController.text.trim(), institutionId: _institutionId),
         'gender': _gender,
         'maritalStatus': _maritalStatus,
         'nationality': _nationalityController.text.trim(),
@@ -340,7 +371,7 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
         'photoUrl': _photoUrlController.text.trim(),
         'username': username,
         'email': authEmail,
-        'role': _title ?? 'personel',
+        'role': roleKey,
         'title': _title,
         'branch': _branch,
         'department': _title == 'ogretmen' ? 'Öğretim Departmanı' : null,
@@ -350,18 +381,8 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
         'type': 'staff',
         'tcKimlik': CryptoService.encrypt(_tcController.text.trim(), institutionId: _institutionId),
         'phone': _mobilePhoneController.text.trim(),
-        'schoolTypes': widget.fixedSchoolTypeId != null ? [widget.fixedSchoolTypeId] : (widget.fixedSchoolTypeName != null ? [widget.fixedSchoolTypeName] : []),
-        'modulePermissions': {
-          'genel_duyurular': {'enabled': true, 'level': 'editor'},
-          'okul_turleri': {'enabled': true, 'level': 'viewer'},
-          'ogrenci_kayit': {'enabled': false, 'level': 'viewer'},
-          'insan_kaynaklari': {'enabled': false, 'level': 'viewer'},
-          'muhasebe': {'enabled': false, 'level': 'viewer'},
-          'satin_alma': {'enabled': false, 'level': 'viewer'},
-          'depo': {'enabled': false, 'level': 'viewer'},
-          'destek_hizmetleri': {'enabled': false, 'level': 'viewer'},
-          'kullanici_yonetimi': {'enabled': false, 'level': 'viewer'},
-        },
+        'schoolTypes': assignedSchoolTypes,
+        'modulePermissions': defaultModulePermissions,
       };
 
       if (widget.staffId != null) {
@@ -420,7 +441,7 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
     }
   }
 
-  InputDecoration _inputDecoration(String label, {bool isRequired = false, IconData? icon}) {
+  InputDecoration _inputDecoration(String label, {bool isRequired = false, IconData? icon, Widget? suffixIcon}) {
     return InputDecoration(
       labelText: label,
       labelStyle: TextStyle(
@@ -429,6 +450,7 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
         fontSize: 14,
       ),
       prefixIcon: icon != null ? Icon(icon, color: Colors.indigo.shade300, size: 20) : null,
+      suffixIcon: suffixIcon,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
         borderSide: BorderSide(color: Colors.grey.shade300),
@@ -804,10 +826,24 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
                             setState(() {
                               _usernameController.text = last6;
                               _passwordController.text = last6;
+                              _obscurePassword = false;
                             });
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Kullanıcı Adı: $last6  |  Şifre: $last6'),
+                                backgroundColor: Colors.indigo,
+                                action: SnackBarAction(
+                                  label: 'Kopyala',
+                                  textColor: Colors.white,
+                                  onPressed: () {
+                                    Clipboard.setData(ClipboardData(text: 'Kullanıcı Adı: $last6\nŞifre: $last6'));
+                                  },
+                                ),
+                              ),
+                            );
                           },
                           icon: const Icon(Icons.auto_awesome_outlined, size: 18),
-                          label: const Text('Otomatik'),
+                          label: const Text('Otomatik Oluştur'),
                           style: TextButton.styleFrom(foregroundColor: Colors.indigo),
                         ),
                       ],
@@ -822,8 +858,39 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
                       ),
                       TextFormField(
                         controller: _passwordController,
-                        decoration: _inputDecoration('Şifre', isRequired: true, icon: Icons.lock_outline),
-                        obscureText: true,
+                        obscureText: _obscurePassword,
+                        decoration: _inputDecoration(
+                          'Şifre',
+                          isRequired: true,
+                          icon: Icons.lock_outline,
+                          suffixIcon: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: Icon(
+                                  _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                                  size: 20,
+                                  color: Colors.indigo.shade400,
+                                ),
+                                tooltip: _obscurePassword ? 'Şifreyi Göster' : 'Şifreyi Gizle',
+                                onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                              ),
+                              IconButton(
+                                icon: Icon(Icons.copy_rounded, size: 18, color: Colors.grey.shade600),
+                                tooltip: 'Şifreyi Kopyala',
+                                onPressed: () {
+                                  final pass = _passwordController.text.trim();
+                                  if (pass.isNotEmpty) {
+                                    Clipboard.setData(ClipboardData(text: pass));
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Şifre panoya kopyalandı'), backgroundColor: Colors.indigo),
+                                    );
+                                  }
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
                         validator: (value) => (value == null || value.length < 6) ? 'En az 6 karakter' : null,
                       ),
                       isWeb: isWeb,

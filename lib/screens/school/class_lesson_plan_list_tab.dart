@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
-import 'class_lesson_plan_entry_dialog.dart';
+import 'class_lesson_plan_entry_dialog.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+
 
 class ClassLessonPlanListTab extends StatefulWidget {
   final String institutionId;
@@ -72,7 +73,7 @@ class _ClassLessonPlanListTabState extends State<ClassLessonPlanListTab> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
+    return SafeStreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('classLessonPlans')
           .where('institutionId', isEqualTo: widget.institutionId)

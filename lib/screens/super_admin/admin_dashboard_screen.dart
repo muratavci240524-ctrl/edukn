@@ -6,6 +6,7 @@ import 'package:intl/intl.dart'; // Tarih formatlamak için
 import 'add_school_screen.dart';
 import 'admin_login_screen.dart';
 import '../admin/data_encryption_screen.dart';
+import 'package:edukn/widgets/safe_stream_builder.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   @override
@@ -786,7 +787,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 ),
               ),
               Expanded(
-                child: StreamBuilder<QuerySnapshot>(
+                child: SafeStreamBuilder<QuerySnapshot>(
                   stream: _schoolsStream,
                   builder: (BuildContext context, AsyncSnapshot<QuerySnapshot> snapshot) {
                     // Hata varsa

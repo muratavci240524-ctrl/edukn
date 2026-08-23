@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/lesson_model.dart';
-import '../../services/term_service.dart';
+import '../../services/term_service.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+
 
 int compareClassNamesNatural(String nameA, String nameB) {
   final reg = RegExp(r'\d+');
@@ -713,7 +714,7 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
         elevation: 0,
         backgroundColor: Colors.white,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Colors.indigo),
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.indigo),
           onPressed: () => Navigator.pop(context),
         ),
         title: Column(
@@ -845,7 +846,7 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
                 ),
               ),
               Spacer(),
-              StreamBuilder<QuerySnapshot>(
+              SafeStreamBuilder<QuerySnapshot>(
                 stream: _getLessonsStream(),
                 builder: (context, snapshot) {
                   final count = snapshot.hasData ? snapshot.data!.docs.length : 0;
@@ -995,7 +996,7 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
   }
 
   Widget _buildLessonList() {
-    return StreamBuilder<QuerySnapshot>(
+    return SafeStreamBuilder<QuerySnapshot>(
       stream: _getLessonsStream(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -1078,7 +1079,7 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     // Sınıf atama sayısı — canlı stream ile güncellenir
-                    StreamBuilder<int>(
+                    SafeStreamBuilder<int>(
                       stream: _getAssignmentCountStream(lesson.id!),
                       builder: (context, snap) {
                         if (snap.hasError) {
@@ -1943,7 +1944,7 @@ class _LessonDetailPageState extends State<_LessonDetailPage> {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             SizedBox(height: 12),
-            StreamBuilder<QuerySnapshot>(
+            SafeStreamBuilder<QuerySnapshot>(
               stream: _assignmentsStream,
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
@@ -2361,7 +2362,7 @@ class _LessonAssignmentsPanelState extends State<_LessonAssignmentsPanel> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
+    return SafeStreamBuilder<QuerySnapshot>(
       stream: _stream,
       builder: (context, snapshot) {
         if (snapshot.hasError) {

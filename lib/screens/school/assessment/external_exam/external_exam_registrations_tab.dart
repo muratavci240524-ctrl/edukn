@@ -10,6 +10,7 @@ import 'dart:typed_data';
 import '../../../../models/assessment/external_exam_model.dart';
 import '../../../../models/assessment/external_exam_registration_model.dart';
 import '../../../../services/external_exam_service.dart';
+import 'package:edukn/widgets/safe_stream_builder.dart';
 
 class ExternalExamRegistrationsTab extends StatefulWidget {
   final ExternalExam exam;
@@ -238,7 +239,7 @@ class _ExternalExamRegistrationsTabState
 
         // List
         Expanded(
-          child: StreamBuilder<List<ExternalExamRegistration>>(
+          child: SafeStreamBuilder<List<ExternalExamRegistration>>(
             stream: _service.getRegistrations(widget.exam.id ?? ''),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {

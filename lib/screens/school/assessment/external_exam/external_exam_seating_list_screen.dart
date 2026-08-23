@@ -8,6 +8,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../../../../models/assessment/external_exam_model.dart';
 import '../../../../models/assessment/external_exam_registration_model.dart';
+import 'package:edukn/widgets/safe_stream_builder.dart';
 
 class ExternalExamSeatingListScreen extends StatefulWidget {
   final ExternalExam exam;
@@ -94,7 +95,7 @@ class _ExternalExamSeatingListScreenState
   Widget build(BuildContext context) {
     final isMobile = MediaQuery.of(context).size.width < 768;
 
-    return StreamBuilder<List<ExternalExamRegistration>>(
+    return SafeStreamBuilder<List<ExternalExamRegistration>>(
       stream: _regsStream,
       initialData: widget.registrations,
       builder: (context, snapshot) {

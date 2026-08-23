@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import '../../../../models/assessment/optical_form_model.dart';
 import '../../../../models/assessment/exam_type_model.dart';
 import '../../../../services/assessment_service.dart';
-import './optical_form_definition_screen.dart';
+import './optical_form_definition_screen.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+
 
 class OpticalFormListScreen extends StatefulWidget {
   final String institutionId;
@@ -244,7 +245,7 @@ class _OpticalFormListScreenState extends State<OpticalFormListScreen> {
                 ),
               ),
               Spacer(),
-              StreamBuilder<List<OpticalForm>>(
+              SafeStreamBuilder<List<OpticalForm>>(
                 stream: _getStream(),
                 builder: (context, snapshot) {
                   final list = snapshot.data ?? [];
@@ -345,7 +346,7 @@ class _OpticalFormListScreenState extends State<OpticalFormListScreen> {
   }
 
   Widget _buildList({required bool isMobile}) {
-    return StreamBuilder<List<OpticalForm>>(
+    return SafeStreamBuilder<List<OpticalForm>>(
       stream: _getStream(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {

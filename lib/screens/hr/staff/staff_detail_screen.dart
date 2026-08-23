@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:printing/printing.dart';
 import 'package:pdf/pdf.dart';
@@ -418,29 +419,39 @@ class _StaffDetailScreenState extends State<StaffDetailScreen>
     final isMobile = MediaQuery.of(context).size.width < 600;
 
     return Padding(
-      padding: const EdgeInsets.all(16.0),
+      padding: EdgeInsets.symmetric(
+        horizontal: isMobile ? 4.0 : 16.0,
+        vertical: 8.0,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.badge, color: Colors.indigo),
+              const Icon(Icons.badge_outlined, color: Colors.indigo, size: 20),
               const SizedBox(width: 8),
-              const Text(
-                'Personel Detayı',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              const Expanded(
+                child: Text(
+                  'Personel Detayı',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
-              const Spacer(),
               if (isMobile) ...[
                 IconButton(
                   onPressed: _showExportDialog,
-                  icon: const Icon(Icons.print, color: Colors.indigo),
+                  icon: const Icon(Icons.print_outlined, color: Colors.indigo, size: 20),
                   tooltip: 'Yazdır / Dışa Aktar',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                 ),
+                const SizedBox(width: 4),
                 IconButton(
                   onPressed: _showDeleteConfirmation,
-                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
                   tooltip: 'Personeli Sil',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                 ),
               ] else ...[
                 FilledButton.icon(
@@ -459,10 +470,11 @@ class _StaffDetailScreenState extends State<StaffDetailScreen>
               ],
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           TabBar(
             controller: _tab,
             isScrollable: true,
+            tabAlignment: TabAlignment.start,
             labelColor: Colors.indigo,
             unselectedLabelColor: Colors.grey,
             tabs: const [
@@ -1029,8 +1041,9 @@ class _PersonalTabState extends State<_PersonalTab> {
   @override
   Widget build(BuildContext context) {
     final data = widget.staff;
+    final isMobile = MediaQuery.of(context).size.width < 600;
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(8),
+      padding: EdgeInsets.symmetric(horizontal: isMobile ? 4 : 8, vertical: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1150,17 +1163,18 @@ class _PersonalInfoCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
+            // Profil Üst Bölümü (Fotoğraf + İsim & Ünvan Rozeti)
             Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 // Fotoğraf alanı
                 Container(
-                  width: 90,
-                  height: 90,
+                  width: 64,
+                  height: 64,
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    color: Colors.grey.shade100,
-                    border: Border.all(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(14),
+                    color: Colors.indigo.shade50,
+                    border: Border.all(color: Colors.indigo.shade100),
                     image: photoUrl.isNotEmpty
                         ? DecorationImage(
                             image: NetworkImage(photoUrl),
@@ -1171,113 +1185,74 @@ class _PersonalInfoCard extends StatelessWidget {
                   child: photoUrl.isEmpty
                       ? Icon(
                           Icons.person,
-                          size: 40,
-                          color: Colors.grey.shade400,
+                          size: 36,
+                          color: Colors.indigo.shade300,
                         )
                       : null,
                 ),
-                const SizedBox(width: 16),
-                // Bilgi alanı
+                const SizedBox(width: 14),
+                // İsim ve Ünvan
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              fullName.isEmpty
-                                  ? 'Ad Soyad belirtilmemiş'
-                                  : fullName,
+                      Text(
+                        fullName.isEmpty
+                            ? 'Ad Soyad belirtilmemiş'
+                            : fullName,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF1E293B),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.indigo.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.indigo.shade100),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.work_outline,
+                              size: 13,
+                              color: Colors.indigo,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              _formatRole(role),
                               style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.indigo,
                               ),
                             ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.indigo.shade50,
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(
-                                  Icons.work_outline,
-                                  size: 16,
-                                  color: Colors.indigo,
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  _formatRole(role),
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: Colors.indigo,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      const Divider(),
-                      const SizedBox(height: 8),
-                      LayoutBuilder(
-                        builder: (context, constraints) {
-                          final isNarrow = constraints.maxWidth < 700;
-
-                          final leftLines = Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _infoLine('TC', tc),
-                              _infoLine('Doğum Tarihi', birthDate),
-                              _infoLine('Doğum Yeri', birthPlace),
-                            ],
-                          );
-
-                          final rightLines = Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _infoLine('Cinsiyet', gender),
-                              _infoLine('Medeni Durum', maritalStatus),
-                              _infoLine('Uyruk', nationality),
-                              _infoLine('Kan Grubu', bloodGroup),
-                            ],
-                          );
-
-                          if (isNarrow) {
-                            return Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                leftLines,
-                                const SizedBox(height: 4),
-                                rightLines,
-                              ],
-                            );
-                          }
-
-                          return Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(child: leftLines),
-                              const SizedBox(width: 40),
-                              Expanded(child: rightLines),
-                            ],
-                          );
-                        },
+                          ],
+                        ),
                       ),
                     ],
                   ),
                 ),
               ],
             ),
+            const SizedBox(height: 12),
+            Divider(height: 1, color: Colors.grey.shade200),
+            const SizedBox(height: 12),
+            // Bilgi Satırları
+            _infoLine('TC Kimlik No', tc),
+            _infoLine('Doğum Tarihi', birthDate),
+            _infoLine('Doğum Yeri', birthPlace),
+            _infoLine('Cinsiyet', gender),
+            _infoLine('Medeni Durum', maritalStatus),
+            _infoLine('Uyruk', nationality),
+            _infoLine('Kan Grubu', bloodGroup),
           ],
         ),
       ),
@@ -1312,17 +1287,30 @@ Widget _infoChip(String label, String value) {
 }
 
 Widget _infoLine(String label, String value) {
+  final cleanLabel = label.endsWith(':') ? label.substring(0, label.length - 1) : label;
   final showValue = value.isNotEmpty ? value : '-';
   return Padding(
-    padding: const EdgeInsets.only(bottom: 2.0),
-    child: Row(
+    padding: const EdgeInsets.only(bottom: 8.0),
+    child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '$label: ',
-          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+          cleanLabel,
+          style: TextStyle(
+            fontWeight: FontWeight.w500,
+            fontSize: 11,
+            color: Colors.grey.shade600,
+          ),
         ),
-        Expanded(child: Text(showValue, style: const TextStyle(fontSize: 12))),
+        const SizedBox(height: 2),
+        Text(
+          showValue,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF1E293B),
+          ),
+        ),
       ],
     ),
   );
@@ -2359,18 +2347,29 @@ class _JobTabState extends State<_JobTab> {
   }
 
   Widget _jobInfoLine(String label, String value) {
+    final cleanLabel = label.endsWith(':') ? label.substring(0, label.length - 1) : label;
     final showValue = (value).isNotEmpty ? value : '-';
     return Padding(
-      padding: const EdgeInsets.only(bottom: 2.0),
-      child: Row(
+      padding: const EdgeInsets.only(bottom: 8.0),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '$label: ',
-            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+            cleanLabel,
+            style: TextStyle(
+              fontWeight: FontWeight.w500,
+              fontSize: 11,
+              color: Colors.grey.shade600,
+            ),
           ),
-          Expanded(
-            child: Text(showValue, style: const TextStyle(fontSize: 12)),
+          const SizedBox(height: 2),
+          Text(
+            showValue,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF1E293B),
+            ),
           ),
         ],
       ),
@@ -2442,8 +2441,10 @@ class _JobTabState extends State<_JobTab> {
     final probationInfo = (staff['probationInfo'] ?? '-') as String;
     final employmentType = (staff['employmentType'] ?? '-') as String;
 
+    final isMobile = MediaQuery.of(context).size.width < 600;
+
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(8),
+      padding: EdgeInsets.symmetric(horizontal: isMobile ? 4 : 8, vertical: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -3639,18 +3640,29 @@ class _EducationTabState extends State<_EducationTab> {
   }
 
   Widget _eduLine(String label, String value) {
+    final cleanLabel = label.endsWith(':') ? label.substring(0, label.length - 1) : label;
     final showValue = value.isNotEmpty ? value : '-';
     return Padding(
-      padding: const EdgeInsets.only(bottom: 2.0),
-      child: Row(
+      padding: const EdgeInsets.only(bottom: 8.0),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '$label: ',
-            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+            cleanLabel,
+            style: TextStyle(
+              fontWeight: FontWeight.w500,
+              fontSize: 11,
+              color: Colors.grey.shade600,
+            ),
           ),
-          Expanded(
-            child: Text(showValue, style: const TextStyle(fontSize: 12)),
+          const SizedBox(height: 2),
+          Text(
+            showValue,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF1E293B),
+            ),
           ),
         ],
       ),
@@ -4227,18 +4239,29 @@ class _ExperienceTabState extends State<_ExperienceTab> {
   }
 
   Widget _expLine(String label, String value) {
+    final cleanLabel = label.endsWith(':') ? label.substring(0, label.length - 1) : label;
     final showValue = value.isNotEmpty ? value : '-';
     return Padding(
-      padding: const EdgeInsets.only(bottom: 2.0),
-      child: Row(
+      padding: const EdgeInsets.only(bottom: 8.0),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '$label: ',
-            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+            cleanLabel,
+            style: TextStyle(
+              fontWeight: FontWeight.w500,
+              fontSize: 11,
+              color: Colors.grey.shade600,
+            ),
           ),
-          Expanded(
-            child: Text(showValue, style: const TextStyle(fontSize: 12)),
+          const SizedBox(height: 2),
+          Text(
+            showValue,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF1E293B),
+            ),
           ),
         ],
       ),
@@ -5074,25 +5097,48 @@ class _StatusTabState extends State<_StatusTab> {
                                     ),
                                   ),
                                   const SizedBox(height: 4),
-                                  Text(
-                                    passwordStatus == 'ilk_giris'
-                                        ? (staff['defaultPassword'] ?? '123456').toString()
-                                        : '*****',
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w500,
-                                    ),
+                                  Row(
+                                    children: [
+                                      Text(
+                                        passwordStatus == 'ilk_giris'
+                                            ? (staff['defaultPassword'] ?? '123456').toString()
+                                            : '*****',
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600,
+                                          letterSpacing: 0.5,
+                                        ),
+                                      ),
+                                      if (passwordStatus == 'ilk_giris') ...[
+                                        const SizedBox(width: 8),
+                                        IconButton(
+                                          icon: const Icon(Icons.copy_rounded, size: 16, color: Colors.indigo),
+                                          tooltip: 'Giriş Bilgilerini Kopyala',
+                                          constraints: const BoxConstraints(),
+                                          padding: EdgeInsets.zero,
+                                          onPressed: () {
+                                            final u = staff['username'] ?? '';
+                                            final p = (staff['defaultPassword'] ?? '123456').toString();
+                                            Clipboard.setData(ClipboardData(text: 'Kullanıcı Adı: $u\nŞifre: $p'));
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              const SnackBar(content: Text('Giriş bilgileri panoya kopyalandı'), backgroundColor: Colors.indigo),
+                                            );
+                                          },
+                                        ),
+                                      ],
+                                    ],
                                   ),
                                   const SizedBox(height: 2),
                                   Text(
                                     passwordStatus == 'ilk_giris'
-                                        ? 'Varsayılan şifre'
+                                        ? 'Varsayılan şifre (Kullanıcıya iletiniz)'
                                         : 'Kullanıcı şifresini değiştirdi',
                                     style: TextStyle(
                                       fontSize: 11,
                                       color: passwordStatus == 'ilk_giris'
-                                          ? Colors.orange
-                                          : Colors.green,
+                                          ? Colors.orange.shade800
+                                          : Colors.green.shade700,
+                                      fontWeight: FontWeight.w500,
                                     ),
                                   ),
                                 ],
@@ -5166,9 +5212,7 @@ class _StatusTabState extends State<_StatusTab> {
                                     }
 
                                     if (authError != null && authError.contains('EMAIL_EXISTS')) {
-                                       // Email already exists, assume auth is valid? We shouldn't fail totally, but maybe show warning.
-                                       // Actually, let's show an error and not update if we failed to create a new one when expected to
-                                       throw 'Bu e-posta adresi sistemde zaten kayıtlı: $authError';
+                                       // Email already exists, assume auth is valid
                                     } else if (authError != null) {
                                        throw 'Kullanıcı hesabı oluşturulurken hata: $authError';
                                     }
@@ -5177,6 +5221,8 @@ class _StatusTabState extends State<_StatusTab> {
                                     final updates = <String, dynamic>{
                                       'passwordStatus': 'ilk_giris',
                                       'defaultPassword': '123456',
+                                      'password': '123456',
+                                      'updatedAt': FieldValue.serverTimestamp(),
                                     };
                                     if (emailToUse != currentEmail) {
                                       updates['email'] = emailToUse;
@@ -5205,36 +5251,27 @@ class _StatusTabState extends State<_StatusTab> {
 
                                     if (updatedAuthId.isNotEmpty && updatedAuthId != oldDocId) {
                                       // DOKÜMAN MİGRASYONU: Eski ID -> Auth UID
-                                      // 1. Mevcut veriyi al
                                       final currentDoc = await FirebaseFirestore.instance
                                           .collection('users')
                                           .doc(oldDocId)
                                           .get();
                                       
                                       final fullData = Map<String, dynamic>.from(currentDoc.data() ?? {});
-                                      
-                                      // 2. Yeni alanları ekle/güncelle
                                       fullData.addAll(updates);
                                       fullData['authUserId'] = updatedAuthId;
                                       
-                                      // 3. Yeni dokümanı oluştur
                                       await FirebaseFirestore.instance
                                           .collection('users')
                                           .doc(updatedAuthId)
                                           .set(fullData);
                                           
-                                      // 4. Eski dokümanı sil (id çakışması yoksa)
                                       await FirebaseFirestore.instance
                                           .collection('users')
                                           .doc(oldDocId)
                                           .delete();
                                       
-                                      print('✅ Kullanıcı dokümanı migre edildi: $oldDocId -> $updatedAuthId');
-                                      
-                                      // UI için ID güncelle
                                       staff['id'] = updatedAuthId;
                                     } else {
-                                      // Sadece güncelleme (zaten UID ile kayıtlı veya authId oluşturulamadı)
                                       if (updatedAuthId.isNotEmpty) {
                                         updates['authUserId'] = updatedAuthId;
                                       }
@@ -5244,10 +5281,16 @@ class _StatusTabState extends State<_StatusTab> {
                                           .update(updates);
                                     }
                                     
+                                    staff['passwordStatus'] = 'ilk_giris';
+                                    staff['defaultPassword'] = '123456';
+                                    _staffData['passwordStatus'] = 'ilk_giris';
+                                    _staffData['defaultPassword'] = '123456';
+
                                     setSheet(() {
                                       passwordStatus = 'ilk_giris';
                                       saving = false;
                                     });
+                                    setState(() {});
                                     
                                     if (!mounted) return;
                                     ScaffoldMessenger.of(context).showSnackBar(
@@ -5467,17 +5510,30 @@ class _StatusTabState extends State<_StatusTab> {
     }
 
     Widget statusLine(String label, String value) {
+      final cleanLabel = label.endsWith(':') ? label.substring(0, label.length - 1) : label;
       final show = value.isNotEmpty ? value : '-';
       return Padding(
-        padding: const EdgeInsets.only(bottom: 2.0),
-        child: Row(
+        padding: const EdgeInsets.only(bottom: 8.0),
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '$label: ',
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+              cleanLabel,
+              style: TextStyle(
+                fontWeight: FontWeight.w500,
+                fontSize: 11,
+                color: Colors.grey.shade600,
+              ),
             ),
-            Expanded(child: Text(show, style: const TextStyle(fontSize: 12))),
+            const SizedBox(height: 2),
+            Text(
+              show,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF1E293B),
+              ),
+            ),
           ],
         ),
       );

@@ -3,7 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'dart:ui';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:google_fonts/google_fonts.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+
 
 class PersonalNotesScreen extends StatefulWidget {
   const PersonalNotesScreen({Key? key}) : super(key: key);
@@ -52,7 +53,7 @@ class _PersonalNotesScreenState extends State<PersonalNotesScreen> {
           ),
         ],
       ),
-      body: StreamBuilder<QuerySnapshot>(
+      body: SafeStreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('users')
             .doc(user!.uid)

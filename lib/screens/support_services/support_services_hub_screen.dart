@@ -89,7 +89,7 @@ class SupportServicesHubScreen extends StatelessWidget {
       appBar: AppBar(
         automaticallyImplyLeading: false,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.indigo),
           onPressed: () {
             if (Navigator.of(context).canPop()) {
               Navigator.of(context).pop();

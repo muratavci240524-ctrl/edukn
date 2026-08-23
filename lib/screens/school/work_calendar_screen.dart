@@ -77,7 +77,7 @@ class _WorkCalendarScreenState extends State<WorkCalendarScreen>
         elevation: 0,
         backgroundColor: Colors.white,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Colors.green),
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.indigo),
           onPressed: () => Navigator.pop(context),
         ),
         title: Column(
@@ -99,7 +99,7 @@ class _WorkCalendarScreenState extends State<WorkCalendarScreen>
         ),
         actions: [
           IconButton(
-            icon: Icon(Icons.info_outline_rounded, color: Colors.green),
+            icon: Icon(Icons.info_outline_rounded, color: Colors.grey.shade800),
             tooltip: 'Takvim Rehberi',
             onPressed: () {
               Navigator.push(
@@ -135,38 +135,7 @@ class _WorkCalendarScreenState extends State<WorkCalendarScreen>
             ),
             child: Column(
               children: [
-                // Arama
-                Container(
-                  padding: EdgeInsets.all(16),
-                  child: TextField(
-                    onChanged: (value) => setState(() => _searchQuery = value),
-                    decoration: InputDecoration(
-                      hintText: 'Alt dönem ara...',
-                      prefixIcon: Icon(Icons.search, size: 20),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: Colors.grey.shade300),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: Colors.grey.shade300),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: Colors.green, width: 2),
-                      ),
-                      filled: true,
-                      fillColor: Colors.white,
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
-                      constraints: BoxConstraints(maxHeight: 40),
-                    ),
-                    style: TextStyle(fontSize: 14),
-                  ),
-                ),
-                SizedBox(height: 8),
+                const SizedBox(height: 8),
                 // Alt Dönemler Listesi
                 Expanded(child: _buildPeriodsList()),
               ],
@@ -281,7 +250,7 @@ class _WorkCalendarScreenState extends State<WorkCalendarScreen>
         }
 
         return ListView.builder(
-          padding: EdgeInsets.symmetric(horizontal: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           itemCount: periods.length,
           itemBuilder: (context, index) {
             final doc = periods[index];
@@ -290,123 +259,205 @@ class _WorkCalendarScreenState extends State<WorkCalendarScreen>
 
             final startDate = (data['startDate'] as Timestamp?)?.toDate();
             final endDate = (data['endDate'] as Timestamp?)?.toDate();
+            final periodName = data['periodName'] ?? 'İsimsiz Dönem';
 
-            return Card(
-              margin: EdgeInsets.only(bottom: 8),
-              elevation: isSelected ? 3 : 1,
-              color: isSelected ? Colors.green.shade50 : Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(
-                  color: isSelected ? Colors.green : Colors.transparent,
-                  width: 2,
+            return Container(
+              margin: const EdgeInsets.only(bottom: 10),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: isSelected ? Colors.green.shade400 : Colors.grey.shade200,
+                  width: isSelected ? 2 : 1,
                 ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.04),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
               ),
-              child: InkWell(
-                onTap: () {
-                  final isWideScreen = MediaQuery.of(context).size.width > 900;
-                  if (isWideScreen) {
-                    setState(() {
-                      _selectedPeriodId = doc.id;
-                      _selectedPeriod = {...data, 'id': doc.id};
-                    });
-                  } else {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => _PeriodDetailScreen(
-                          periodId: doc.id,
-                          periodData: {...data, 'id': doc.id},
-                          schoolTypeId: widget.schoolTypeId,
-                          schoolTypeName: widget.schoolTypeName,
-                          institutionId: widget.institutionId,
-                          onPeriodUpdated: () => setState(() {}),
-                          isTeacher: widget.isTeacher,
-                        ),
-                      ),
-                    );
-                  }
-                },
-                borderRadius: BorderRadius.circular(12),
-                child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          CircleAvatar(
-                            backgroundColor: Colors.green.shade100,
-                            child: Icon(
-                              Icons.calendar_month,
-                              color: Colors.green,
-                              size: 20,
-                            ),
+              child: Material(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(16),
+                child: InkWell(
+                  onTap: () {
+                    final isWideScreen = MediaQuery.of(context).size.width > 900;
+                    if (isWideScreen) {
+                      setState(() {
+                        _selectedPeriodId = doc.id;
+                        _selectedPeriod = {...data, 'id': doc.id};
+                      });
+                    } else {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => _PeriodDetailScreen(
+                            periodId: doc.id,
+                            periodData: {...data, 'id': doc.id},
+                            schoolTypeId: widget.schoolTypeId,
+                            schoolTypeName: widget.schoolTypeName,
+                            institutionId: widget.institutionId,
+                            onPeriodUpdated: () => setState(() {}),
+                            isTeacher: widget.isTeacher,
                           ),
-                          SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              data['periodName'] ?? '',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
+                        ),
+                      );
+                    }
+                  },
+                  borderRadius: BorderRadius.circular(16),
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Üst Kısım: İkon + Dönem Adı + Ok
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Container(
+                              width: 42,
+                              height: 42,
+                              decoration: BoxDecoration(
+                                color: Colors.green.shade50,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.green.shade100),
+                              ),
+                              child: Icon(
+                                Icons.calendar_month_rounded,
+                                color: Colors.green.shade700,
+                                size: 22,
                               ),
                             ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    periodName,
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF1E293B),
+                                    ),
+                                  ),
+                                  if (startDate != null && endDate != null) ...[
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      children: [
+                                        Icon(
+                                          Icons.access_time_rounded,
+                                          size: 13,
+                                          color: Colors.grey.shade500,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          '${_dateFormat.format(startDate)} - ${_dateFormat.format(endDate)}',
+                                          style: TextStyle(
+                                            color: Colors.grey.shade600,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                            Icon(
+                              Icons.chevron_right_rounded,
+                              color: isSelected ? Colors.green.shade700 : Colors.grey.shade400,
+                              size: 24,
+                            ),
+                          ],
+                        ),
+                        // Alt Aksiyon Çubuğu: Planları Aç + Düzenle / Sil
+                        const SizedBox(height: 10),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
                           ),
-                          if (!widget.isTeacher)
-                            PopupMenuButton<String>(
-                              icon: Icon(Icons.more_vert, color: Colors.grey),
-                              onSelected: (value) {
-                                if (value == 'edit') {
-                                  _showPeriodFormDialog(
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade50,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: Colors.grey.shade100),
+                          ),
+                          child: Row(
+                            children: [
+                              Text(
+                                'Planları Aç',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.green.shade700,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Icon(
+                                Icons.arrow_forward_rounded,
+                                size: 13,
+                                color: Colors.green.shade700,
+                              ),
+                              const Spacer(),
+                              if (!widget.isTeacher) ...[
+                                InkWell(
+                                  onTap: () => _showPeriodFormDialog(
                                     periodId: doc.id,
                                     existingData: data,
-                                  );
-                                } else if (value == 'delete') {
-                                  _deletePeriod(doc.id, data['periodName']);
-                                }
-                              },
-                              itemBuilder: (context) => [
-                                PopupMenuItem(
-                                  value: 'edit',
-                                  child: Text('Düzenle'),
+                                  ),
+                                  borderRadius: BorderRadius.circular(6),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.edit_outlined, size: 14, color: Colors.indigo.shade700),
+                                        const SizedBox(width: 3),
+                                        Text(
+                                          'Düzenle',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.indigo.shade700,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                                 ),
-                                PopupMenuItem(
-                                  value: 'delete',
-                                  child: Text(
-                                    'Sil',
-                                    style: TextStyle(color: Colors.red),
+                                const SizedBox(width: 4),
+                                InkWell(
+                                  onTap: () => _deletePeriod(doc.id, data['periodName']),
+                                  borderRadius: BorderRadius.circular(6),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.delete_outline, size: 14, color: Colors.red.shade700),
+                                        const SizedBox(width: 3),
+                                        Text(
+                                          'Sil',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.red.shade700,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ],
-                            ),
-                        ],
-                      ),
-                      SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Icon(Icons.date_range, size: 16, color: Colors.grey),
-                          SizedBox(width: 8),
-                          Text(
-                            startDate != null
-                                ? _dateFormat.format(startDate)
-                                : '-',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.grey.shade700,
-                            ),
+                            ],
                           ),
-                          Text(' - ', style: TextStyle(color: Colors.grey)),
-                          Text(
-                            endDate != null ? _dateFormat.format(endDate) : '-',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.grey.shade700,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -2359,7 +2410,7 @@ class _PlanDetailScreenState extends State<_PlanDetailScreen> {
         elevation: 0,
         backgroundColor: Colors.white,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Colors.green),
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.indigo),
           onPressed: () => Navigator.pop(context),
         ),
         title: Column(

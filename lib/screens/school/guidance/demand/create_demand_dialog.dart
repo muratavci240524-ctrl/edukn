@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../../models/guidance/demand_model.dart';
 import '../../../../services/guidance/demand_service.dart';
 import '../../../../services/term_service.dart';
+import 'package:edukn/widgets/safe_stream_builder.dart';
 
 class CreateDemandDialog extends StatefulWidget {
   final String institutionId;
@@ -417,7 +418,7 @@ class _SearchSelectorModalState extends State<_SearchSelectorModal> {
           ),
           const SizedBox(height: 16),
           Expanded(
-            child: StreamBuilder<QuerySnapshot>(
+            child: SafeStreamBuilder<QuerySnapshot>(
               stream: widget.stream,
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());

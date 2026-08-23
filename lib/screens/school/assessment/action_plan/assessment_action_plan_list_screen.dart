@@ -7,6 +7,7 @@ import 'assessment_action_plan_stats_screen.dart';
 import '../../../../models/assessment/assessment_action_plan_model.dart';
 import '../../../../services/assessment_service.dart';
 import '../../../../widgets/edukn_logo.dart';
+import 'package:edukn/widgets/safe_stream_builder.dart';
 
 class AssessmentActionPlanListScreen extends StatefulWidget {
   final String institutionId;
@@ -60,7 +61,7 @@ class _AssessmentActionPlanListScreenState extends State<AssessmentActionPlanLis
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<AssessmentActionPlan>>(
+    return SafeStreamBuilder<List<AssessmentActionPlan>>(
       stream: _service.getAssessmentActionPlans(widget.institutionId, widget.schoolTypeId),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {

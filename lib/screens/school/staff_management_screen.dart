@@ -168,7 +168,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
         elevation: 0,
         backgroundColor: Colors.white,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Colors.indigo),
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.indigo),
           onPressed: () => Navigator.pop(context),
         ),
         title: Column(

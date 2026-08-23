@@ -184,7 +184,12 @@ class _TeacherLessonsScreenState extends State<TeacherLessonsScreen> {
 
     if (schoolTypes.isEmpty) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Derslerim'), backgroundColor: Colors.indigo),
+        appBar: AppBar(
+          title: const Text('Derslerim'),
+          backgroundColor: Colors.indigo,
+          foregroundColor: Colors.white,
+          iconTheme: const IconThemeData(color: Colors.white),
+        ),
         body: const Center(child: Text('Size tanımlı bir okul türü bulunamadı.')),
       );
     }
@@ -203,6 +208,8 @@ class _TeacherLessonsScreenState extends State<TeacherLessonsScreen> {
       appBar: AppBar(
         title: const Text('Okul Türü Seçin'),
         backgroundColor: Colors.indigo,
+        foregroundColor: Colors.white,
+        iconTheme: const IconThemeData(color: Colors.white),
         elevation: 0,
       ),
       body: ListView.builder(

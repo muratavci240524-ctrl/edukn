@@ -36,25 +36,21 @@ class _StudentDetailViewScreenState extends State<StudentDetailViewScreen>
         backgroundColor: Colors.white,
         elevation: 1,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.indigo),
+          icon: Icon(Icons.arrow_back_rounded, color: Colors.grey.shade800),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Row(
-          children: [
-            const Icon(Icons.school, color: Colors.indigo),
-            const SizedBox(width: 8),
-            Text(
-              'Öğrenci Detayı',
-              style: TextStyle(
-                color: Colors.grey.shade900,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
+        title: Text(
+          'Öğrenci Detayı',
+          style: TextStyle(
+            color: Colors.grey.shade900,
+            fontSize: 17,
+            fontWeight: FontWeight.bold,
+          ),
         ),
         bottom: TabBar(
           controller: _tabController,
+          isScrollable: true,
+          tabAlignment: TabAlignment.start,
           labelColor: Colors.indigo,
           unselectedLabelColor: Colors.grey,
           indicatorColor: Colors.indigo,
@@ -77,8 +73,9 @@ class _StudentDetailViewScreenState extends State<StudentDetailViewScreen>
   }
 
   Widget _buildPersonalInfoTab() {
+    final isMobile = MediaQuery.of(context).size.width <= 900;
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.symmetric(horizontal: isMobile ? 6 : 16, vertical: 10),
       child: Column(
         children: [
           _buildInfoCard(
@@ -126,8 +123,9 @@ class _StudentDetailViewScreenState extends State<StudentDetailViewScreen>
   }
 
   Widget _buildSchoolInfoTab() {
+    final isMobile = MediaQuery.of(context).size.width <= 900;
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.symmetric(horizontal: isMobile ? 6 : 16, vertical: 10),
       child: Column(
         children: [
           _buildInfoCard(
@@ -308,22 +306,28 @@ class _StudentDetailViewScreenState extends State<StudentDetailViewScreen>
   }
 
   Widget _buildInfoRow(String label, String value) {
+    final cleanLabel = label.endsWith(':') ? label.substring(0, label.length - 1) : label;
+    final showValue = value.isNotEmpty ? value : '-';
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 140,
-            child: Text(
-              label,
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+          Text(
+            cleanLabel,
+            style: TextStyle(
+              color: Colors.grey.shade600,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
             ),
           ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+          const SizedBox(height: 2),
+          Text(
+            showValue,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF1E293B),
             ),
           ),
         ],

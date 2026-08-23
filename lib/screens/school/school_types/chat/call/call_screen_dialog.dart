@@ -326,8 +326,14 @@ class _CallScreenDialogState extends State<CallScreenDialog>
     _statusSubscription = _callService
         .listenToCallStatus(_currentSession.id)
         .listen((updatedSession) {
-      if (updatedSession == null || !mounted) return;
-
+      if (!mounted) return;
+      if (updatedSession == null) {
+        _stopRingtone();
+        _stopRingbackTone();
+        _stopWebRtc();
+        _showToastAndClose('Arama Sonlandırıldı');
+        return;
+      }
       final previousStatus = _currentSession.status;
       setState(() => _currentSession = updatedSession);
 

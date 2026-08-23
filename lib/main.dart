@@ -40,6 +40,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'screens/school/school_types/chat/call/call_service.dart';
 import 'screens/school/school_types/chat/call/call_screen_dialog.dart';
 import 'screens/school/school_types/chat/call/call_models.dart';
+import 'services/pwa_update_service.dart';
 // --- BİTTİ ---
 
 // --- Firebase'i uygulama başlamadan önce başlat ---
@@ -92,16 +93,31 @@ void main() async {
 
     if (kIsWeb) {
       try {
-        // UYARI: persistenceEnabled: true → cloud_firestore_web 5.3.x ile
-        // INTERNAL ASSERTION FAILED (ID: b815/ca9) hatasına neden oluyor.
-        // Persistence kapalı bırakıyoruz, güncellenmiş SDK sürümünde tekrar açılabilir.
+        // Web için Firestore Cache ve Persistence Ayarları
+        // Ghost Login (hayalet oturum) önbellek sorunlarını çözmek için
         FirebaseFirestore.instance.settings = const Settings(
-          persistenceEnabled: false,
+          persistenceEnabled: true,
+          cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
         );
-        print('✅ Firestore Web ayarları uygulandı (persistence=false).');
+        print('✅ Firestore Web ayarları uygulandı (persistence=true, cache=UNLIMITED).');
       } catch (e) {
         print('⚠️ Firestore Settings hatası: $e');
       }
+    }
+
+    // 🔒 GHOST LOGIN (HAYALET OTURUM) ÇÖZÜMÜ: Token Zorla Yenileme
+    // Uygulama açılışında, oturum açmış bir kullanıcı varsa token'ını zorla yenile.
+    // Eğer hesap silinmiş, pasif edilmiş veya token geçersizleşmişse, hata verecek ve oturum kapatılacak.
+    try {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser != null) {
+        print('🔄 Mevcut kullanıcı bulundu, Auth Token zorla yenileniyor...');
+        await currentUser.getIdTokenResult(true);
+        print('✅ Auth Token başarıyla yenilendi.');
+      }
+    } catch (e) {
+      print('❌ Auth Token yenileme hatası! Oturum geçersiz. Çıkış yapılıyor: $e');
+      await FirebaseAuth.instance.signOut();
     }
 
     // 🔐 Firebase App Check — Bot ve yetkisiz erişime karşı koruma
@@ -147,6 +163,10 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     // NotificationService'e navigatorKey'i bağla
     NotificationService.navigatorKey = navigatorKey;
+    
+    // PWA Sürüm Güncelleme servisini başlat
+    PwaUpdateService.initialize(navigatorKey);
+    
     return _buildApp(context);
   }
 
@@ -174,11 +194,23 @@ class MyApp extends StatelessWidget {
             lightBackgroundColor, // Tüm sayfa arka planları
         fontFamily:
             GoogleFonts.inter().fontFamily, // Modern ve okunaklı bir font
-        // 2. APPBAR TEMASI (Üst Başlık)
+        // 2. TÜM UYGULAMA İÇİN DİNAMİK KONTRAST GERİ BUTONU TEMASI
+        actionIconTheme: ActionIconThemeData(
+          backButtonIconBuilder: (BuildContext context) {
+            final iconColor = IconTheme.of(context).color ?? Colors.indigo;
+            return Icon(
+              Icons.arrow_back_ios_new_rounded,
+              size: 20,
+              color: iconColor,
+            );
+          },
+        ),
+        // 3. APPBAR TEMASI (Üst Başlık)
         appBarTheme: AppBarTheme(
           backgroundColor: cardBackgroundColor, // Beyaz appbar
           elevation: 1, // Hafif bir gölge
-          iconTheme: IconThemeData(color: Colors.black87), // Geri butonu vb.
+          iconTheme: const IconThemeData(color: Colors.indigo, size: 20), // Beyaz appbar için varsayılan indigo
+          actionsIconTheme: const IconThemeData(color: Colors.indigo, size: 20),
           titleTextStyle: GoogleFonts.inter(
             color: Colors.black87,
             fontWeight: FontWeight.w600,

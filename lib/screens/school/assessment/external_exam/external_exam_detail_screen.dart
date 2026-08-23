@@ -14,6 +14,7 @@ import 'external_exam_entry_card_screen.dart';
 import 'external_exam_attendance_stats_screen.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../../../screens/public/external_exam_attendance_screen.dart';
+import 'package:edukn/widgets/safe_stream_builder.dart';
 
 class ExternalExamDetailScreen extends StatefulWidget {
   final ExternalExam exam;
@@ -61,7 +62,7 @@ class _ExternalExamDetailScreenState extends State<ExternalExamDetailScreen>
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<ExternalExam>(
+    return SafeStreamBuilder<ExternalExam>(
       stream: _examStream,
       initialData: widget.exam,
       builder: (context, snapshot) {
@@ -181,7 +182,7 @@ class _ExternalExamDetailScreenState extends State<ExternalExamDetailScreen>
   Widget _buildEntryCardsTab(ExternalExam exam) {
     final isMobile = MediaQuery.of(context).size.width < 768;
 
-    return StreamBuilder<List<ExternalExamRegistration>>(
+    return SafeStreamBuilder<List<ExternalExamRegistration>>(
       stream: _service.getRegistrations(_exam.id ?? ''),
       builder: (context, snapshot) {
         final regs = snapshot.data ?? [];

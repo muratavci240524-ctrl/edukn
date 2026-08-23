@@ -15,6 +15,7 @@ import '../../../widgets/haberlesme_hub_widget.dart';
 import 'school_type_announcements_screen.dart';
 import 'school_type_social_media_screen.dart';
 import '../student_registration_screen.dart';
+import '../registration/pre_registration_screen.dart';
 import 'student_promotion_transfer_screens.dart';
 import 'chat/chat_screen.dart';
 import '../../hr/staff/staff_list_screen.dart';
@@ -72,6 +73,8 @@ import '../guidance/demand/demand_dashboard_screen.dart';
 import '../notes/personal_notes_screen.dart';
 import '../assessment/camp/screens/camp_dashboard_screen.dart';
 import '../assessment/agm/screens/agm_dashboard_screen.dart';
+import 'package:edukn/widgets/safe_stream_builder.dart';
+
 
 class SchoolTypeDetailScreen extends StatefulWidget {
   final String schoolTypeId;
@@ -111,9 +114,9 @@ class _SchoolTypeDetailScreenState extends State<SchoolTypeDetailScreen> {
           if (!schoolTypes.contains(widget.schoolTypeId)) {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Bu okul türüne erişim yetkiniz bulunmamaktadır.'),
-                  backgroundColor: Colors.red,
+                SnackBar(
+                  content: const Text('Bu okul türüne erişim yetkiniz bulunmamaktadır.'),
+                  backgroundColor: Colors.grey.shade900,
                 ),
               );
               Navigator.of(context).pushReplacementNamed('/school-dashboard');
@@ -1319,7 +1322,7 @@ class _OperationsTabState extends State<_OperationsTab> {
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(children: [
-          Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(12)), child: const Icon(Icons.logout_rounded, color: Colors.red, size: 22)),
+          Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(12)), child: Icon(Icons.logout_rounded, color: Colors.grey.shade900, size: 22)),
           const SizedBox(width: 12),
           const Text('Çıkış Yap', style: TextStyle(fontWeight: FontWeight.bold)),
         ]),
@@ -1327,7 +1330,7 @@ class _OperationsTabState extends State<_OperationsTab> {
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('İptal')),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.grey.shade900, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Çıkış Yap'),
           ),
@@ -1418,6 +1421,8 @@ class _OperationsTabState extends State<_OperationsTab> {
           category: 'Kayıt',
           showAllItems: isFiltered,
           items: [
+            if (_hasSubModuleAccess('egitim', 'on_kayit'))
+              {'title': 'Ön Kayıt', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => PreRegistrationScreen(fixedSchoolTypeId: widget.schoolTypeId, fixedSchoolTypeName: widget.schoolTypeName, fixedInstitutionId: widget.institutionId)))},
             if (_hasSubModuleAccess('egitim', 'ogrenci_kaydi'))
               {'title': 'Öğrenci Listesi', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => StudentRegistrationScreen(fixedSchoolTypeId: widget.schoolTypeId, fixedSchoolTypeName: widget.schoolTypeName, fixedInstitutionId: widget.institutionId)))},
             if (_hasSubModuleAccess('insan_kaynaklari', 'personel_bilgi'))
@@ -2198,7 +2203,7 @@ class SharedNotificationSection extends StatelessWidget {
             ),
           ),
           Expanded(
-            child: StreamBuilder<QuerySnapshot>(
+            child: SafeStreamBuilder<QuerySnapshot>(
               stream: FirebaseAuth.instance.currentUser != null
                   ? FirebaseFirestore.instance
                       .collection('conversations')
@@ -2238,7 +2243,7 @@ class SharedNotificationSection extends StatelessWidget {
                   }
                 }
 
-                return StreamBuilder<QuerySnapshot>(
+                return SafeStreamBuilder<QuerySnapshot>(
                   stream: FirebaseFirestore.instance
                       .collection('activities')
                       .where('institutionId', isEqualTo: institutionId)

@@ -2,6 +2,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'crypto_service.dart';
+import 'role_permission_service.dart';
+import '../constants/app_modules.dart';
 
 /// Merkezi kullanıcı yetki yönetim servisi
 /// Tüm modüller bu servisi kullanarak kullanıcı verilerini ve yetkilerini alır
@@ -11,10 +13,17 @@ class UserPermissionService {
   static Future<Map<String, dynamic>?>? _loadFuture;
   // resolveInstitutionId sonucunu cache'le — her ekran açılışında Firestore'a gitmemek için
   static String? _cachedInstitutionId;
+  // Rol şablonu cache — login sonrası yüklenir
+  static Map<String, dynamic>? _cachedRoleTemplate;
 
   /// Kullanıcı verilerini yükle (normal veya impersonation)
   static Future<Map<String, dynamic>?> loadUserData({bool forceRefresh = false}) async {
-    if (_loadFuture != null && !forceRefresh) return _loadFuture;
+    if (!forceRefresh && _cachedUserData != null) return _cachedUserData;
+    if (!forceRefresh && _loadFuture != null) {
+      final result = await _loadFuture!;
+      if (result != null) return result;
+      // Önceki sonuç null ise tekrar dene
+    }
     
     _loadFuture = _internalLoadUserData();
     return _loadFuture;
@@ -170,13 +179,135 @@ class UserPermissionService {
     return _cachedUserData;
   }
 
+  /// Institution ID cache'ini dışarıdan ayarla (login sonrası için)
+  static void setInstitutionIdCache(String institutionId) {
+    if (institutionId.isNotEmpty && institutionId.toUpperCase() != 'GMAIL') {
+      _cachedInstitutionId = institutionId;
+      print('📌 InstitutionId cache ayarlandı: $institutionId');
+    }
+  }
+
+  /// Kullanıcı verisi cache'ini dışarıdan ayarla (login sonrası için)
+  static void setCachedUserData(Map<String, dynamic>? data) {
+    _cachedUserData = data;
+    _loadFuture = data != null ? Future.value(data) : null;
+  }
+
+  /// Rol şablonu cache'ini ayarla
+  static void setRoleTemplateCache(Map<String, dynamic>? template) {
+    _cachedRoleTemplate = template;
+    print('📌 Rol şablonu cache ayarlandı: ${template != null ? "yüklendi" : "null"}');
+  }
+
+  /// Rol şablonunu Firestore'dan yükle ve cache'le
+  static Future<void> loadAndCacheRoleTemplate(String institutionId, String role) async {
+    try {
+      final template = await RolePermissionService().loadRoleTemplate(institutionId, role);
+      if (template != null) {
+        _cachedRoleTemplate = template;
+        print('✅ Rol şablonu yüklendi: $role');
+        // Debug: Şablondaki modülleri listele
+        final appPerms = template['appPermissions'] as Map<String, dynamic>?;
+        if (appPerms != null) {
+          print('📋 Şablon modülleri ($role):');
+          appPerms.forEach((key, value) {
+            if (value is Map) {
+              print('   ${value['enabled'] == true ? "✅" : "❌"} $key (${value['level'] ?? "yok"})');
+            }
+          });
+        } else {
+          print('⚠️ Şablonda appPermissions yok! Anahtarlar: ${template.keys.toList()}');
+        }
+      } else {
+        // Varsayılan şablonu oluştur
+        _cachedRoleTemplate = {
+          'appPermissions': RolePermissionService.getDefaultPermissions(role),
+          'schoolTypePermissions': RolePermissionService.getDefaultSchoolTypePermissions(role),
+        };
+        print('ℹ️ Varsayılan rol şablonu kullanıldı: $role');
+      }
+    } catch (e) {
+      print('⚠️ Rol şablonu yüklenemedi: $e');
+      _cachedRoleTemplate = null;
+    }
+  }
+
+  /// Cache'lenmiş rol şablonunu al
+  static Map<String, dynamic>? getCachedRoleTemplate() => _cachedRoleTemplate;
+
   /// Cache'i temizle (logout veya impersonation değişikliğinde)
   static void clearCache() {
     _cachedUserData = null;
     _cachedInstitutionId = null;
+    _cachedRoleTemplate = null;
     _isImpersonating = false;
     _loadFuture = null;
     CryptoService.clearCache();
+  }
+
+  // ─── Yardımcı: Rol kontrolü ───
+  static bool _isTopAdmin(String role) {
+    return role == 'admin' || role == 'genel_mudur' || role == 'genel müdür' || role == 'genel mudur';
+  }
+
+  /// Modül yetkisini önce kişisel izinlerden, yoksa rol şablonundan kontrol et
+  /// Kişisel izinler VARSA → sadece onlar geçerli (kişiye özel override)
+  /// Kişisel izinler YOKSA (null/boş) → rol şablonu varsayılan olarak kullanılır
+  static Map<String, dynamic>? _getEffectiveModulePerm(String moduleKey, Map<String, dynamic>? userData) {
+    final personalPerms = userData?['modulePermissions'] as Map<String, dynamic>?;
+    final schoolTypePerms = userData?['schoolTypeModulePermissions'] as Map<String, dynamic>?;
+    
+    final hasPersonalPerms = personalPerms != null && personalPerms.isNotEmpty;
+    final hasSchoolTypePerms = schoolTypePerms != null && schoolTypePerms.isNotEmpty;
+    
+    // Kişisel izinler tanımlıysa → SADECE kişisel izinleri kullan
+    if (hasPersonalPerms || hasSchoolTypePerms) {
+      if (hasPersonalPerms && personalPerms.containsKey(moduleKey)) {
+        final perm = personalPerms[moduleKey];
+        if (perm is Map) return Map<String, dynamic>.from(perm);
+      }
+      
+      // Ana modüller arasında yoksa, okul türü modülleri arasında var mı bak
+      if (hasSchoolTypePerms && schoolTypePerms.containsKey(moduleKey)) {
+        final perm = schoolTypePerms[moduleKey];
+        if (perm is Map) return Map<String, dynamic>.from(perm);
+      }
+      
+      // Kişisel izinlerde bu modül tanımlı değil → erişim yok
+      return null;
+    }
+    
+    // Kişisel izinler BOŞ veya NULL → Rol şablonunu varsayılan olarak kullan
+    if (_cachedRoleTemplate != null) {
+      final templatePerms = _cachedRoleTemplate!['appPermissions'] as Map<String, dynamic>?;
+      if (templatePerms != null && templatePerms.containsKey(moduleKey)) {
+        final perm = templatePerms[moduleKey];
+        if (perm is Map) {
+          // Şablonda level tanımlıysa modül aktif demektir — normalize et
+          final normalized = Map<String, dynamic>.from(perm);
+          if (normalized.containsKey('level') && normalized['level'] != null) {
+            normalized['enabled'] = true;
+          }
+          // Alt modülleri de normalize et
+          if (normalized['subModules'] is Map) {
+            final subs = Map<String, dynamic>.from(normalized['subModules']);
+            subs.forEach((subKey, subVal) {
+              if (subVal is Map) {
+                final subNorm = Map<String, dynamic>.from(subVal);
+                if (subNorm.containsKey('level') && subNorm['level'] != null) {
+                  subNorm['enabled'] = true;
+                }
+                subs[subKey] = subNorm;
+              }
+            });
+            normalized['subModules'] = subs;
+          }
+          return normalized;
+        }
+      }
+    }
+
+    return null;
   }
 
   /// Belirli bir modüle erişim yetkisi var mı?
@@ -186,38 +317,25 @@ class UserPermissionService {
   ) {
     if (userData == null) return true; // Admin has full access
 
-    final role = (userData['role'] as String?)?.toLowerCase();
-    // Admin veya Genel Müdür her zaman tam yetkilidir
-    if (role == 'admin' || role == 'genel_mudur' || role == 'genel müdür' || role == 'genel mudur') return true;
+    final role = (userData['role'] as String?)?.toLowerCase() ?? '';
+    if (_isTopAdmin(role)) return true;
 
-    final modulePerms = userData['modulePermissions'] as Map<String, dynamic>?;
+    final effectivePerm = _getEffectiveModulePerm(moduleKey, userData);
 
-    // Modül bazlı kısıtlama kontrolü
-    if (modulePerms != null && modulePerms.isNotEmpty) {
-      final modulePerm = modulePerms[moduleKey] as Map<String, dynamic>?;
-      if (modulePerm != null) {
-        // Ana modül aktifse veya herhangi bir alt modülü aktifse erişim vardır
-        if (modulePerm['enabled'] == true) return true;
-        
-        final subModules = modulePerm['subModules'] as Map<String, dynamic>?;
-        if (subModules != null) {
-          for (var sub in subModules.values) {
-            if (sub is Map && sub['enabled'] == true) return true;
-          }
+    if (effectivePerm != null) {
+      // Ana modül aktifse veya herhangi bir alt modülü aktifse erişim vardır
+      if (effectivePerm['enabled'] == true) return true;
+
+      final subModules = effectivePerm['subModules'] as Map<String, dynamic>?;
+      if (subModules != null) {
+        for (var sub in subModules.values) {
+          if (sub is Map && sub['enabled'] == true) return true;
         }
-        
-        // Eğer modül ve alt modülleri kapalıysa false dön (Müdür olsa bile kısıtlanmış demektir)
-        return false;
-      } else {
-        // Eğer modül listesi var ama bu modül içinde yoksa ve bu bir kısıtlanmış rol ise erişimi kapat
-        // Admin (genel_mudur) hariç, mudur ve diğerleri sadece listedekileri görebilir
-        if (role != 'genel_mudur') return false;
       }
+      return false;
     }
 
-    // Modül bazlı kısıtlama yoksa rol bazlı tam erişim (Genel Müdür veya kısıtlanmamış Müdür)
-    if (role == 'genel_mudur' || role == 'mudur') return true;
-
+    // Ne kişisel ne şablon izni tanımlı → erişim yok
     return false;
   }
 
@@ -225,24 +343,17 @@ class UserPermissionService {
   static bool canEdit(String moduleKey, Map<String, dynamic>? userData) {
     if (userData == null) return true;
 
-    final role = (userData['role'] as String?)?.toLowerCase();
-    if (role == 'genel_mudur' || role == 'genel müdür' || role == 'genel mudur' || role == 'admin') return true;
+    final role = (userData['role'] as String?)?.toLowerCase() ?? '';
+    if (_isTopAdmin(role)) return true;
 
-    final modulePerms = userData['modulePermissions'] as Map<String, dynamic>?;
+    final effectivePerm = _getEffectiveModulePerm(moduleKey, userData);
 
-    // Modül bazlı kısıtlama kontrolü
-    if (modulePerms != null && modulePerms.isNotEmpty) {
-      final modulePerm = modulePerms[moduleKey] as Map<String, dynamic>?;
-      if (modulePerm != null) {
-        if (modulePerm['level'] == 'editor') return true;
-        if (modulePerm['level'] == 'viewer') return false;
-      } else {
-        if (role != 'genel_mudur') return false;
-      }
+    if (effectivePerm != null) {
+      if (effectivePerm['enabled'] != true) return false;
+      final level = effectivePerm['level']?.toString();
+      if (level == 'editor' || level == 'admin') return true;
+      return false; // viewer
     }
-
-    // Modül bazlı seviye belirtilmemişse rol bazlı tam erişim (Genel Müdür veya kısıtlanmamış Müdür)
-    if (role == 'genel_mudur' || role == 'mudur') return true;
 
     return false;
   }
@@ -255,29 +366,22 @@ class UserPermissionService {
   ) {
     if (userData == null) return true;
 
-    final role = (userData['role'] as String?)?.toLowerCase();
-    if (role == 'genel_mudur' || role == 'genel müdür' || role == 'genel mudur' || role == 'admin') return true;
+    final role = (userData['role'] as String?)?.toLowerCase() ?? '';
+    if (_isTopAdmin(role)) return true;
 
-    final modulePerms = userData['modulePermissions'] as Map<String, dynamic>?;
+    final effectivePerm = _getEffectiveModulePerm(moduleKey, userData);
 
-    // Alt modül bazlı kısıtlama kontrolü
-    if (modulePerms != null && modulePerms.isNotEmpty) {
-      final modulePerm = modulePerms[moduleKey] as Map<String, dynamic>?;
-      if (modulePerm != null) {
-        final subModules = modulePerm['subModules'] as Map<String, dynamic>?;
-        if (subModules != null && subModules.containsKey(subModuleKey)) {
-          final subPerm = subModules[subModuleKey] as Map<String, dynamic>?;
-          return subPerm?['enabled'] == true;
-        }
-        // Ana modül listesinde var ama bu alt modül yoksa veya alt modül listesi yoksa
-        if (role != 'genel_mudur') return false; 
-      } else {
-        if (role != 'genel_mudur') return false;
+    if (effectivePerm != null) {
+      if (effectivePerm['enabled'] != true) return false;
+
+      final subModules = effectivePerm['subModules'] as Map<String, dynamic>?;
+      if (subModules != null && subModules.containsKey(subModuleKey)) {
+        final subPerm = subModules[subModuleKey];
+        if (subPerm is Map) return subPerm['enabled'] == true;
       }
+      // Alt modül tanımlı değil ama ana modül açık → erişim var
+      return true;
     }
-
-    // Alt modül belirtilmemişse rol bazlı tam erişim (Genel Müdür veya kısıtlanmamış Müdür)
-    if (role == 'genel_mudur' || role == 'mudur') return true;
 
     return false;
   }
@@ -290,29 +394,28 @@ class UserPermissionService {
   ) {
     if (userData == null) return true;
 
-    final role = (userData['role'] as String?)?.toLowerCase();
-    if (role == 'genel_mudur' || role == 'genel müdür' || role == 'genel mudur' || role == 'admin') return true;
+    final role = (userData['role'] as String?)?.toLowerCase() ?? '';
+    if (_isTopAdmin(role)) return true;
 
-    final modulePerms = userData['modulePermissions'] as Map<String, dynamic>?;
+    final effectivePerm = _getEffectiveModulePerm(moduleKey, userData);
 
-    // Alt modül bazlı seviye kontrolü
-    if (modulePerms != null && modulePerms.isNotEmpty) {
-      final modulePerm = modulePerms[moduleKey] as Map<String, dynamic>?;
-      if (modulePerm != null) {
-        final subModules = modulePerm['subModules'] as Map<String, dynamic>?;
-        if (subModules != null && subModules.containsKey(subModuleKey)) {
-          final subPerm = subModules[subModuleKey] as Map<String, dynamic>?;
-          if (subPerm?['level'] == 'editor') return true;
-          if (subPerm?['level'] == 'viewer') return false;
+    if (effectivePerm != null) {
+      if (effectivePerm['enabled'] != true) return false;
+
+      final subModules = effectivePerm['subModules'] as Map<String, dynamic>?;
+      if (subModules != null && subModules.containsKey(subModuleKey)) {
+        final subPerm = subModules[subModuleKey];
+        if (subPerm is Map) {
+          final level = subPerm['level']?.toString();
+          if (level == 'editor' || level == 'admin') return true;
+          return false; // viewer
         }
-        if (role != 'genel_mudur') return false;
-      } else {
-        if (role != 'genel_mudur') return false;
       }
+      // Alt modül tanımlı değil → ana modül seviyesine bak
+      final level = effectivePerm['level']?.toString();
+      if (level == 'editor' || level == 'admin') return true;
+      return false;
     }
-
-    // Alt modül seviyesi belirtilmemişse rol bazlı tam erişim (Genel Müdür veya kısıtlanmamış Müdür)
-    if (role == 'genel_mudur' || role == 'mudur') return true;
 
     return false;
   }
@@ -320,17 +423,37 @@ class UserPermissionService {
   /// Kullanıcının HERHANGİ bir ana modüle (dashboard modülü) erişimi var mı?
   static bool hasAnyMainModuleAccess(Map<String, dynamic>? userData) {
     if (userData == null) return false;
-    
-    final role = (userData['role'] as String?)?.toLowerCase();
-    if (role == 'genel_mudur' || role == 'admin') return true; // Genel müdür ve admin her zaman erişir
+
+    final role = (userData['role'] as String?)?.toLowerCase() ?? '';
+    if (_isTopAdmin(role)) return true;
+
+    // Sadece gerçek ana modül key'lerini kontrol et (AppModules'daki tanımlı modüller)
+    final mainModuleKeys = AppModules.allModuleKeys;
 
     final modulePerms = userData['modulePermissions'] as Map<String, dynamic>?;
-    if (modulePerms == null) return false;
     
-    for (var entry in modulePerms.entries) {
-      if (hasModuleAccess(entry.key, userData)) return true;
+    // Kişisel izinler VARSA → sadece ana modül key'lerine bak
+    if (modulePerms != null && modulePerms.isNotEmpty) {
+      for (var key in mainModuleKeys) {
+        final perm = modulePerms[key];
+        if (perm is Map && perm['enabled'] == true) return true;
+      }
+      return false; // Kişisel izinlerde hiçbir ana modül aktif değil
     }
-    
+
+    // Kişisel izinler YOKSA → rol şablonuna bak
+    if (_cachedRoleTemplate != null) {
+      final templatePerms = _cachedRoleTemplate!['appPermissions'] as Map<String, dynamic>?;
+      if (templatePerms != null) {
+        for (var key in mainModuleKeys) {
+          final perm = templatePerms[key];
+          if (perm is Map) {
+            if (perm['enabled'] == true || (perm['level'] != null)) return true;
+          }
+        }
+      }
+    }
+
     return false;
   }
 
@@ -348,25 +471,48 @@ class UserPermissionService {
     return 'Yönetici';
   }
 
+  /// Kurum ID varyantlarını (büyük, küçük, orijinal) döner - Firestore case-sensitivity çözümüdür
+  static List<String> getInstitutionIdVariants(String? institutionId) {
+    if (institutionId == null || institutionId.trim().isEmpty) return [];
+    final trimmed = institutionId.trim();
+    return {
+      trimmed,
+      trimmed.toUpperCase(),
+      trimmed.toLowerCase(),
+    }.where((s) => s.isNotEmpty && s.toUpperCase() != 'GMAIL').toList();
+  }
+
   /// Kurum ID'sini çözümler
   /// Öncelik sırası: 1. userData['institutionId'], 2. Email domain (kurumsal ise)
   static Future<String> resolveInstitutionId(String email, {Map<String, dynamic>? userData}) async {
     // Cache'de varsa hemen dön — Firestore'a gitme
-    if (_cachedInstitutionId != null && _cachedInstitutionId!.isNotEmpty && _cachedInstitutionId!.toUpperCase() != 'GMAIL') {
+    if (_cachedInstitutionId != null &&
+        _cachedInstitutionId!.isNotEmpty &&
+        _cachedInstitutionId!.toUpperCase() != 'GMAIL') {
       return _cachedInstitutionId!;
     }
 
+    // userData verilmemişse cache veya loadUserData'dan al
+    userData ??= _cachedUserData;
+    if (userData == null) {
+      userData = await loadUserData();
+    }
+
     if (userData != null) {
-      // ÖNEMLİ DÜZELTME: Büyük/küçük harf uyuşmazlıklarını (örn: ABC06 vs abc06) aşmak için,
-      // varsa önce schoolId üzerinden schools koleksiyonundaki orijinal (canonical) institutionId'yi al.
+      // 1. Varsa önce schoolId üzerinden schools koleksiyonundaki orijinal (canonical) institutionId'yi al.
       final schoolId = userData['schoolId'];
       if (schoolId != null && schoolId.toString().isNotEmpty) {
         try {
-          final schoolDoc = await FirebaseFirestore.instance.collection('schools').doc(schoolId).get();
+          final schoolDoc = await FirebaseFirestore.instance
+              .collection('schools')
+              .doc(schoolId.toString())
+              .get();
           if (schoolDoc.exists) {
             final realInstId = schoolDoc.data()?['institutionId'];
-            if (realInstId != null && realInstId.toString().isNotEmpty) {
-              _cachedInstitutionId = realInstId.toString();
+            if (realInstId != null &&
+                realInstId.toString().trim().isNotEmpty &&
+                realInstId.toString().toUpperCase() != 'GMAIL') {
+              _cachedInstitutionId = realInstId.toString().trim();
               return _cachedInstitutionId!;
             }
           }
@@ -375,14 +521,15 @@ class UserPermissionService {
         }
       }
 
-      // Eğer schoolId yoksa veya bulunamadıysa, userData içindeki değere geri dön
-      if (userData.containsKey('institutionId') && userData['institutionId'] != null) {
-        _cachedInstitutionId = userData['institutionId'].toString();
+      // 2. userData içindeki institutionId / instId değerine bak
+      final userInst = (userData['institutionId'] ?? userData['instId'])?.toString().trim();
+      if (userInst != null && userInst.isNotEmpty && userInst.toUpperCase() != 'GMAIL') {
+        _cachedInstitutionId = userInst;
         return _cachedInstitutionId!;
       }
     }
 
-    final lowerEmail = email.toLowerCase();
+    final lowerEmail = email.toLowerCase().trim();
     if (lowerEmail.contains('@')) {
       final domain = lowerEmail.split('@')[1];
       final genericDomains = [
@@ -392,11 +539,13 @@ class UserPermissionService {
 
       if (!genericDomains.contains(domain) && domain.contains('.')) {
         final result = domain.split('.')[0].toUpperCase();
-        _cachedInstitutionId = result;
-        return result;
+        if (result.isNotEmpty && result != 'GMAIL') {
+          _cachedInstitutionId = result;
+          return result;
+        }
       }
     }
 
-    return 'GMAIL';
+    return _cachedInstitutionId ?? 'GMAIL';
   }
 }

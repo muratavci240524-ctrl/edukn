@@ -24,6 +24,10 @@ class _NotificationSettingsScreenState
     'messages': true,
     'exams': true,
     'socialMedia': true,
+    'attendance': true,
+    'duty': true,
+    'leave_requests': true,
+    'schedule': true,
   };
 
   final List<_NotifItem> _items = [
@@ -39,6 +43,14 @@ class _NotificationSettingsScreenState
         'Sınav sonuçları ve not bildirimleri', Icons.analytics_outlined, const Color(0xFFF59E0B)),
     _NotifItem('socialMedia', 'Sosyal Medya',
         'Yeni paylaşım ve beğeni bildirimleri', Icons.thumb_up_outlined, const Color(0xFFEC4899)),
+    _NotifItem('attendance', 'Yoklama Bildirimleri',
+        'Devamsızlık ve yoklama hatırlatıcıları', Icons.fact_check_outlined, const Color(0xFFEAB308)),
+    _NotifItem('duty', 'Nöbet Görevleri',
+        'Nöbet hatırlatmaları ve değişiklikleri', Icons.security_outlined, const Color(0xFFEF4444)),
+    _NotifItem('leave_requests', 'İzin Talepleri',
+        'İzin onayı, reddi ve yeni izin bildirimleri', Icons.flight_takeoff_outlined, const Color(0xFF14B8A6)),
+    _NotifItem('schedule', 'Ders Programı',
+        'Yeni program ve geçici ders atamaları', Icons.calendar_month_outlined, const Color(0xFF06B6D4)),
   ];
 
   @override

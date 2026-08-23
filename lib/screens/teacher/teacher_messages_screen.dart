@@ -343,6 +343,8 @@ class _TeacherMessagesScreenState extends State<TeacherMessagesScreen>
         return Scaffold(
           appBar: AppBar(
             backgroundColor: Colors.indigo,
+            foregroundColor: Colors.white,
+            iconTheme: const IconThemeData(color: Colors.white),
             title: _isSearching
                 ? TextField(
                     controller: _searchController,

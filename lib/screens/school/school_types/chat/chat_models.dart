@@ -152,12 +152,20 @@ class ChatUser {
         for (var v in lowerValues) {
           if (v == null) continue;
           if (v.contains('genel müdür') || v == 'genel_mudur') return 'Genel Müdür';
+          // Check for "Müdür Yardımcısı" BEFORE checking for "Müdür" to avoid false matches
+          if (v.contains('mudur_yardimcisi') || v.contains('müdür yardımcısı') || v.contains('muduryardimcisi') || (v.contains('mudur') && v.contains('yardimci')) || (v.contains('müdür') && v.contains('yardımcı'))) {
+            return 'Müdür Yardımcısı';
+          }
           if (v == 'müdür' || v == 'mudur' || v == 'okul müdürü') return 'Müdür';
-          if (v == 'müdür yardımcısı' || v == 'mudur_yardimcisi' || v.contains('müdür yardımcısı')) return 'Müdür Yardımcısı';
           if (v == 'admin' || v == 'kurum yöneticisi') return 'Yönetici';
         }
         
-        return roleTitle ?? role ?? title;
+        final raw = roleTitle ?? role ?? title;
+        if (raw == 'mudur_yardimcisi') return 'Müdür Yardımcısı';
+        if (raw == 'mudur') return 'Müdür';
+        if (raw == 'genel_mudur') return 'Genel Müdür';
+        if (raw == 'admin') return 'Yönetici';
+        return raw;
       }(),
       schoolTypeId: data['schoolTypeId'],
       motherName: data['motherName'] ?? data['anneAdi'],

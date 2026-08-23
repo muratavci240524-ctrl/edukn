@@ -1893,7 +1893,7 @@ class _TakeAttendanceViewState extends State<_TakeAttendanceView>
             children: [
               ListTile(
                 leading: IconButton(
-                  icon: Icon(Icons.arrow_back),
+                  icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.indigo),
                   onPressed: widget.onBack,
                 ),
                 title: Text(

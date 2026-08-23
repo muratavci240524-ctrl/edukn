@@ -82,9 +82,9 @@ class CampSlotTeacherEntry {
   final String ogretmenAdi;
   final String dersId;
   final String dersAdi;
-  String? derslikId;
-  String? derslikAdi;
-  int kapasite;
+  final String? derslikId;
+  final String? derslikAdi;
+  final int kapasite;
 
   CampSlotTeacherEntry({
     required this.ogretmenId,
@@ -95,6 +95,26 @@ class CampSlotTeacherEntry {
     this.derslikAdi,
     this.kapasite = 24,
   });
+
+  CampSlotTeacherEntry copyWith({
+    String? ogretmenId,
+    String? ogretmenAdi,
+    String? dersId,
+    String? dersAdi,
+    String? derslikId,
+    String? derslikAdi,
+    int? kapasite,
+  }) {
+    return CampSlotTeacherEntry(
+      ogretmenId: ogretmenId ?? this.ogretmenId,
+      ogretmenAdi: ogretmenAdi ?? this.ogretmenAdi,
+      dersId: dersId ?? this.dersId,
+      dersAdi: dersAdi ?? this.dersAdi,
+      derslikId: derslikId ?? this.derslikId,
+      derslikAdi: derslikAdi ?? this.derslikAdi,
+      kapasite: kapasite ?? this.kapasite,
+    );
+  }
 
   Map<String, dynamic> toMap() {
     return {

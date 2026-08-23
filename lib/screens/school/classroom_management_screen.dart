@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/classroom_model.dart';
-import '../../services/term_service.dart';
+import '../../services/term_service.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+
 
 class ClassroomManagementScreen extends StatefulWidget {
   final String schoolTypeId;
@@ -419,7 +420,7 @@ class _ClassroomManagementScreenState extends State<ClassroomManagementScreen>
                 ),
               ),
               Spacer(),
-              StreamBuilder<QuerySnapshot>(
+              SafeStreamBuilder<QuerySnapshot>(
                 stream: _getClassroomsStream(),
                 builder: (context, snapshot) {
                   final count = snapshot.hasData
@@ -577,7 +578,7 @@ class _ClassroomManagementScreenState extends State<ClassroomManagementScreen>
   }
 
   Widget _buildClassroomList() {
-    return StreamBuilder<QuerySnapshot>(
+    return SafeStreamBuilder<QuerySnapshot>(
       stream: _getClassroomsStream(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -891,7 +892,7 @@ class _ClassroomManagementScreenState extends State<ClassroomManagementScreen>
   }
 
   Widget _buildAssignedLessonsList(String classroomId) {
-    return StreamBuilder<QuerySnapshot>(
+    return SafeStreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('classroomLessons')
           .where('classroomId', isEqualTo: classroomId)
@@ -2151,7 +2152,7 @@ class _ClassroomDetailPage extends StatelessWidget {
   }
 
   Widget _buildAssignedLessons(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
+    return SafeStreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('classroomLessons')
           .where('classroomId', isEqualTo: classroom.id)

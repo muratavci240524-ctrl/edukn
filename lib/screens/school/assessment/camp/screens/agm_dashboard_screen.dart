@@ -6,7 +6,8 @@ import '../repository/agm_repository.dart';
 import '../services/agm_service.dart';
 import 'agm_cycle_setup_screen.dart';
 import 'agm_group_grid_screen.dart';
-import '../../../classroom_management_screen.dart';
+import '../../../classroom_management_screen.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+
 
 /// AGM Ana Ekranı – Tüm cycle'ların listesi
 class AgmDashboardScreen extends StatefulWidget {
@@ -62,7 +63,7 @@ class _AgmDashboardScreenState extends State<AgmDashboardScreen> {
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1200),
-          child: StreamBuilder<List<AgmCycle>>(
+          child: SafeStreamBuilder<List<AgmCycle>>(
             stream: _service.watchCycles(
               widget.institutionId,
               widget.schoolTypeId,

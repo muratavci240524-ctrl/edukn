@@ -4,7 +4,8 @@ import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
 import '../../../services/pdf_service.dart';
 import '../../../models/school/duty_model.dart';
-import 'duty_settings_screen.dart';
+import 'duty_settings_screen.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+
 
 class DutyProgramDetailScreen extends StatefulWidget {
   final String periodId;
@@ -1211,7 +1212,7 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
         content: SizedBox(
           width: double.maxFinite,
           height: 400,
-          child: StreamBuilder<QuerySnapshot>(
+          child: SafeStreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance
                 .collection('users')
                 .where('institutionId', isEqualTo: widget.institutionId)

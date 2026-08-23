@@ -5,7 +5,8 @@ import '../../../services/survey_service.dart';
 import 'create_survey_screen.dart';
 import 'survey_stats_screen.dart';
 import 'survey_guide_page.dart';
-import '../../../services/term_service.dart';
+import '../../../services/term_service.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+
 
 class SurveyListScreen extends StatefulWidget {
   final String institutionId;
@@ -179,7 +180,7 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
                   ? const Center(child: CircularProgressIndicator())
                   : ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 800),
-                      child: StreamBuilder<List<Survey>>(
+                      child: SafeStreamBuilder<List<Survey>>(
                         stream: widget.isTeacher
                             ? _surveyService.getFilteredSurveys(
                                 institutionId: widget.institutionId,

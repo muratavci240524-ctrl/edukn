@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'exam_creation_dialog.dart';
-import 'grade_entry_dialog.dart';
+import 'grade_entry_dialog.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+
 
 class GradeListTab extends StatefulWidget {
   final String institutionId;
@@ -47,7 +48,7 @@ class _GradeListTabState extends State<GradeListTab> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
+    return SafeStreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('class_exams')
           .where('institutionId', isEqualTo: widget.institutionId)

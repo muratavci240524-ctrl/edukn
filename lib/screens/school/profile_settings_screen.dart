@@ -309,6 +309,18 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
           );
           await user.reauthenticateWithCredential(credential);
           await user.updatePassword(_newPasswordController.text);
+          try {
+            await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+              'passwordStatus': 'degistirildi',
+              'updatedAt': FieldValue.serverTimestamp(),
+            }, SetOptions(merge: true));
+            if (user.email != null) {
+              final q = await FirebaseFirestore.instance.collection('users').where('email', isEqualTo: user.email).get();
+              for (var d in q.docs) {
+                await d.reference.set({'passwordStatus': 'degistirildi', 'updatedAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
+              }
+            }
+          } catch (_) {}
           _currentPasswordController.clear();
           _newPasswordController.clear();
           _confirmPasswordController.clear();
@@ -344,7 +356,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
         elevation: 0,
         backgroundColor: Colors.white,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Colors.indigo),
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.indigo),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(title, style: TextStyle(color: Colors.grey.shade900, fontSize: 18, fontWeight: FontWeight.bold)),

@@ -132,6 +132,27 @@ service cloud.firestore {
     match /registrationRequests/{requestId} {
       allow read, write: if isAuthenticated() || isSuperAdmin();
     }
+    match /payment_plans/{planId} {
+      allow read, write: if true;
+    }
+    match /paymentPlans/{planId} {
+      allow read, write: if true;
+    }
+    match /cashes/{cashId} {
+      allow read, write: if true;
+    }
+    match /transactions/{transId} {
+      allow read, write: if true;
+    }
+    match /pre_registration_settings/{settingId} {
+      allow read, write: if true;
+    }
+    match /preRegistrationSettings/{settingId} {
+      allow read, write: if true;
+    }
+    match /pre_registrations/{preRegId} {
+      allow read, write: if true;
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // 👤 KULLANICILAR — KRİTİK: getUserData() buraya bağlı
@@ -1073,42 +1094,6 @@ service cloud.firestore {
       allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // 🏕️ KAMP PROGRAMI
-    // ═══════════════════════════════════════════════════════════════
-    match /camp_cycles/{cycleId} {
-      allow read: if isAuthenticated() && isSameInstitution(resource.data);
-      allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isAdminOrManager();
-      allow update: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
-      allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
-    }
-
-    match /camp_groups/{groupId} {
-      allow read: if isAuthenticated() && isSameInstitution(resource.data);
-      allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isAdminOrManager();
-      allow update: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
-      allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
-    }
-
-    match /camp_assignments/{assignmentId} {
-      allow read: if isAuthenticated() && isSameInstitution(resource.data);
-      allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isAdminOrManager();
-      allow update: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
-      allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
-    }
-
-    match /camp_assignment_logs/{logId} {
-      allow read: if isAuthenticated() && isSameInstitution(resource.data);
-      allow create: if isAuthenticated() && isSameInstitution(request.resource.data);
-      allow update, delete: if false; // Değiştirilemez log kaydı
-    }
-
-    match /camp_time_slots/{slotId} {
-      allow read: if isAuthenticated() && isSameInstitution(resource.data);
-      allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isAdminOrManager();
-      allow update: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
-      allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
-    }
 
     // ═══════════════════════════════════════════════════════════════
     // 📋 DEĞERLENDİRME AKSİYON PLANLARI
@@ -1370,6 +1355,54 @@ service cloud.firestore {
       allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isAdminOrManager();
       allow update: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
       allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 🏕️ KAMP PROGRAMI
+    // ═══════════════════════════════════════════════════════════════
+    match /camp_cycles/{cycleId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isTeacherOrAbove();
+      allow update: if isAuthenticated() && isTeacherOrAbove();
+      allow delete: if isAuthenticated() && isTeacherOrAbove();
+    }
+
+    match /camp_groups/{groupId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isTeacherOrAbove();
+      allow update: if isAuthenticated() && isTeacherOrAbove();
+      allow delete: if isAuthenticated() && isTeacherOrAbove();
+    }
+
+    match /camp_assignments/{assignmentId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isTeacherOrAbove();
+      allow update: if isAuthenticated() && isTeacherOrAbove();
+      allow delete: if isAuthenticated() && isTeacherOrAbove();
+    }
+
+    match /camp_time_slots/{slotId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isTeacherOrAbove();
+      allow update: if isAuthenticated() && isTeacherOrAbove();
+      allow delete: if isAuthenticated() && isTeacherOrAbove();
+    }
+
+    match /camp_assignment_logs/{logId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isTeacherOrAbove();
+      allow update: if false; // Loglar değiştirilemez
+      allow delete: if isAuthenticated() && isTeacherOrAbove();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 📖 ETÜT TALEPLERİ (Kamp programı yayınlandığında oluşturulur)
+    // ═══════════════════════════════════════════════════════════════
+    match /etut_requests/{requestId} {
+      allow read: if isAuthenticated() && isSameInstitution(resource.data);
+      allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isManagement();
+      allow update: if isAuthenticated() && isSameInstitution(resource.data) && isTeacherOrAbove();
+      allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isManagement();
     }
   }
 }

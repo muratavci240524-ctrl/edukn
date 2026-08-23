@@ -3,7 +3,8 @@ import 'package:intl/intl.dart';
 import '../../../../models/field_trip_model.dart';
 import '../../../../services/field_trip_service.dart';
 import 'field_trip_form_screen.dart';
-import 'field_trip_detail_screen.dart';
+import 'field_trip_detail_screen.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+
 
 class FieldTripListScreen extends StatefulWidget {
   final String institutionId;
@@ -70,7 +71,7 @@ class _FieldTripListScreenState extends State<FieldTripListScreen> {
           ),
           SliverPadding(
             padding: const EdgeInsets.all(16),
-            sliver: StreamBuilder<List<FieldTrip>>(
+            sliver: SafeStreamBuilder<List<FieldTrip>>(
               stream: _service.getFieldTrips(
                 widget.institutionId,
                 widget.schoolTypeId,

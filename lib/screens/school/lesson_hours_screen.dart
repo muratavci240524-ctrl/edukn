@@ -69,7 +69,7 @@ class _LessonHoursScreenState extends State<LessonHoursScreen> with WidgetsBindi
         elevation: 0,
         backgroundColor: Colors.white,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Colors.blue),
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.indigo),
           onPressed: () => Navigator.pop(context),
         ),
         title: Column(
@@ -91,7 +91,7 @@ class _LessonHoursScreenState extends State<LessonHoursScreen> with WidgetsBindi
         ),
         actions: [
           IconButton(
-            icon: Icon(Icons.info_outline_rounded, color: Colors.blue),
+            icon: Icon(Icons.info_outline_rounded, color: Colors.grey.shade800),
             tooltip: 'Saat Programı Rehberi',
             onPressed: () {
               Navigator.push(
@@ -116,35 +116,7 @@ class _LessonHoursScreenState extends State<LessonHoursScreen> with WidgetsBindi
             ),
             child: Column(
               children: [
-                // Arama
-                Container(
-                  padding: EdgeInsets.all(16),
-                  child: TextField(
-                    onChanged: (value) => setState(() => _searchQuery = value),
-                    decoration: InputDecoration(
-                      hintText: 'Alt dönem ara...',
-                      prefixIcon: Icon(Icons.search, size: 20),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: Colors.grey.shade300),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: Colors.grey.shade300),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: Colors.blue, width: 2),
-                      ),
-                      filled: true,
-                      fillColor: Colors.white,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      constraints: BoxConstraints(maxHeight: 40),
-                    ),
-                    style: TextStyle(fontSize: 14),
-                  ),
-                ),
-                SizedBox(height: 8),
+                const SizedBox(height: 8),
                 // Alt Dönemler Listesi
                 Expanded(
                   child: _buildPeriodsList(),
@@ -234,7 +206,7 @@ class _LessonHoursScreenState extends State<LessonHoursScreen> with WidgetsBindi
         }
 
         return ListView.builder(
-          padding: EdgeInsets.symmetric(horizontal: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           itemCount: periods.length,
           itemBuilder: (context, index) {
             final doc = periods[index];
@@ -243,106 +215,186 @@ class _LessonHoursScreenState extends State<LessonHoursScreen> with WidgetsBindi
 
             final startDate = (data['startDate'] as Timestamp?)?.toDate();
             final endDate = (data['endDate'] as Timestamp?)?.toDate();
+            final periodName = data['periodName'] ?? 'İsimsiz Dönem';
+            final hasHours = data['lessonHours'] != null;
 
-            return Card(
-              margin: EdgeInsets.only(bottom: 8),
-              elevation: isSelected ? 3 : 1,
-              color: isSelected ? Colors.blue.shade50 : Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(
-                  color: isSelected ? Colors.blue : Colors.transparent,
-                  width: 2,
+            return Container(
+              margin: const EdgeInsets.only(bottom: 10),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: isSelected ? Colors.blue.shade400 : Colors.grey.shade200,
+                  width: isSelected ? 2 : 1,
                 ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.04),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
               ),
-              child: InkWell(
-                onTap: () {
-                  final isWideScreen = MediaQuery.of(context).size.width > 900;
-                  if (isWideScreen) {
-                    setState(() {
-                      _selectedPeriodId = doc.id;
-                      _selectedPeriod = {...data, 'id': doc.id};
-                    });
-                  } else {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => Scaffold(
-                          body: _LessonHoursDetailScreen(
-                            periodId: doc.id,
-                            periodData: {...data, 'id': doc.id},
-                            schoolTypeId: widget.schoolTypeId,
-                            institutionId: widget.institutionId,
-                            onCopyFromPeriod: _showCopyFromPeriodDialog,
-                            isViewingPastTerm: _isViewingPastTerm,
-                          ),
-                        ),
-                      ),
-                    );
-                  }
-                },
-                borderRadius: BorderRadius.circular(12),
-                child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          CircleAvatar(
-                            backgroundColor: Colors.blue.shade100,
-                            child: Icon(Icons.access_time, color: Colors.blue, size: 20),
-                          ),
-                          SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              data['periodName'] ?? '',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                              ),
+              child: Material(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(16),
+                child: InkWell(
+                  onTap: () {
+                    final isWideScreen = MediaQuery.of(context).size.width > 900;
+                    if (isWideScreen) {
+                      setState(() {
+                        _selectedPeriodId = doc.id;
+                        _selectedPeriod = {...data, 'id': doc.id};
+                      });
+                    } else {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => Scaffold(
+                            body: _LessonHoursDetailScreen(
+                              periodId: doc.id,
+                              periodData: {...data, 'id': doc.id},
+                              schoolTypeId: widget.schoolTypeId,
+                              institutionId: widget.institutionId,
+                              onCopyFromPeriod: _showCopyFromPeriodDialog,
+                              isViewingPastTerm: _isViewingPastTerm,
                             ),
                           ),
-                          // Ders saati tanımlı mı badge (workPeriods içindeki lessonHours alanından kontrol)
-                          Builder(
-                            builder: (context) {
-                              final hasHours = data['lessonHours'] != null;
-                              return Container(
-                                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: hasHours ? Colors.green.shade100 : Colors.orange.shade100,
-                                  borderRadius: BorderRadius.circular(8),
+                        ),
+                      );
+                    }
+                  },
+                  borderRadius: BorderRadius.circular(16),
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Üst Kısım: İkon + Dönem Adı + Tanımlı/Tanımsız Rozeti + Ok
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Container(
+                              width: 42,
+                              height: 42,
+                              decoration: BoxDecoration(
+                                color: hasHours ? Colors.blue.shade50 : Colors.orange.shade50,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: hasHours ? Colors.blue.shade100 : Colors.orange.shade100,
                                 ),
-                                child: Text(
-                                  hasHours ? 'Tanımlı' : 'Tanımsız',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                    color: hasHours ? Colors.green.shade700 : Colors.orange.shade700,
+                              ),
+                              child: Icon(
+                                Icons.access_time_rounded,
+                                color: hasHours ? Colors.blue.shade700 : Colors.orange.shade700,
+                                size: 22,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Wrap(
+                                    crossAxisAlignment: WrapCrossAlignment.center,
+                                    spacing: 6,
+                                    runSpacing: 4,
+                                    children: [
+                                      Text(
+                                        periodName,
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFF1E293B),
+                                        ),
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 7,
+                                          vertical: 2,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: hasHours ? Colors.green.shade50 : Colors.orange.shade50,
+                                          borderRadius: BorderRadius.circular(12),
+                                          border: Border.all(
+                                            color: hasHours ? Colors.green.shade300 : Colors.orange.shade300,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          hasHours ? 'Tanımlı' : 'Tanımsız',
+                                          style: TextStyle(
+                                            color: hasHours ? Colors.green.shade800 : Colors.orange.shade800,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
+                                  if (startDate != null && endDate != null) ...[
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      children: [
+                                        Icon(
+                                          Icons.access_time_rounded,
+                                          size: 13,
+                                          color: Colors.grey.shade500,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          '${_dateFormat.format(startDate)} - ${_dateFormat.format(endDate)}',
+                                          style: TextStyle(
+                                            color: Colors.grey.shade600,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                            Icon(
+                              Icons.chevron_right_rounded,
+                              color: isSelected ? Colors.blue.shade700 : Colors.grey.shade400,
+                              size: 24,
+                            ),
+                          ],
+                        ),
+                        // Alt Aksiyon Çubuğu: Ders Saatlerini Düzenle
+                        const SizedBox(height: 10),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade50,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: Colors.grey.shade100),
+                          ),
+                          child: Row(
+                            children: [
+                              Text(
+                                'Ders Saatlerini Düzenle',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.blue.shade700,
                                 ),
-                              );
-                            },
+                              ),
+                              const SizedBox(width: 4),
+                              Icon(
+                                Icons.arrow_forward_rounded,
+                                size: 13,
+                                color: Colors.blue.shade700,
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                      SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Icon(Icons.date_range, size: 16, color: Colors.grey),
-                          SizedBox(width: 8),
-                          Text(
-                            startDate != null ? _dateFormat.format(startDate) : '-',
-                            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                          ),
-                          Text(' - ', style: TextStyle(color: Colors.grey)),
-                          Text(
-                            endDate != null ? _dateFormat.format(endDate) : '-',
-                            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                          ),
-                        ],
-                      ),
-                    ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -696,7 +748,7 @@ class _LessonHoursDetailScreenState extends State<_LessonHoursDetailScreen> {
         backgroundColor: Colors.white,
         leading: Navigator.canPop(context)
             ? IconButton(
-                icon: Icon(Icons.arrow_back, color: Colors.blue),
+                icon: Icon(Icons.arrow_back_rounded, color: Colors.grey.shade800),
                 onPressed: () => Navigator.pop(context),
               )
             : null,

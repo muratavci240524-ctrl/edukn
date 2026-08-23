@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../models/guidance/study_template_model.dart';
 import '../../../services/guidance_service.dart';
+import 'package:edukn/widgets/safe_stream_builder.dart';
 
 class SavedTemplatesScreen extends StatefulWidget {
   final String institutionId;
@@ -529,7 +530,7 @@ class _SavedTemplatesScreenState extends State<SavedTemplatesScreen> {
             ),
           ),
           Expanded(
-            child: StreamBuilder<List<StudyTemplate>>(
+            child: SafeStreamBuilder<List<StudyTemplate>>(
               stream: _guidanceService.getStudyTemplates(widget.institutionId),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {

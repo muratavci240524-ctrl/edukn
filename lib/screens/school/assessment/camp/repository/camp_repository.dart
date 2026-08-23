@@ -50,28 +50,39 @@ class CampRepository {
     List<String>? underAssignedAdd,
     List<String>? underAssignedRemove,
   }) async {
-    final Map<String, dynamic> updates = {};
-    if (unassignedAdd != null && unassignedAdd.isNotEmpty) {
-      updates['unassignedStudentIds'] = FieldValue.arrayUnion(unassignedAdd);
-    }
+    final docRef = _db.collection('camp_cycles').doc(cycleId);
+
+    // Aynı field'a hem arrayUnion hem arrayRemove tek update'te gönderilemez,
+    // bu yüzden önce remove, sonra add olmak üzere iki ayrı update yapılır.
+
+    // 1. Önce remove işlemlerini yap
+    final Map<String, dynamic> removeUpdates = {};
     if (unassignedRemove != null && unassignedRemove.isNotEmpty) {
-      updates['unassignedStudentIds'] = FieldValue.arrayRemove(unassignedRemove);
-    }
-    if (absentAdd != null && absentAdd.isNotEmpty) {
-      updates['absentStudentIds'] = FieldValue.arrayUnion(absentAdd);
+      removeUpdates['unassignedStudentIds'] = FieldValue.arrayRemove(unassignedRemove);
     }
     if (absentRemove != null && absentRemove.isNotEmpty) {
-      updates['absentStudentIds'] = FieldValue.arrayRemove(absentRemove);
-    }
-    if (underAssignedAdd != null && underAssignedAdd.isNotEmpty) {
-      updates['underAssignedStudentIds'] = FieldValue.arrayUnion(underAssignedAdd);
+      removeUpdates['absentStudentIds'] = FieldValue.arrayRemove(absentRemove);
     }
     if (underAssignedRemove != null && underAssignedRemove.isNotEmpty) {
-      updates['underAssignedStudentIds'] = FieldValue.arrayRemove(underAssignedRemove);
+      removeUpdates['underAssignedStudentIds'] = FieldValue.arrayRemove(underAssignedRemove);
+    }
+    if (removeUpdates.isNotEmpty) {
+      await docRef.update(removeUpdates);
     }
 
-    if (updates.isNotEmpty) {
-      await _db.collection('camp_cycles').doc(cycleId).update(updates);
+    // 2. Sonra add işlemlerini yap
+    final Map<String, dynamic> addUpdates = {};
+    if (unassignedAdd != null && unassignedAdd.isNotEmpty) {
+      addUpdates['unassignedStudentIds'] = FieldValue.arrayUnion(unassignedAdd);
+    }
+    if (absentAdd != null && absentAdd.isNotEmpty) {
+      addUpdates['absentStudentIds'] = FieldValue.arrayUnion(absentAdd);
+    }
+    if (underAssignedAdd != null && underAssignedAdd.isNotEmpty) {
+      addUpdates['underAssignedStudentIds'] = FieldValue.arrayUnion(underAssignedAdd);
+    }
+    if (addUpdates.isNotEmpty) {
+      await docRef.update(addUpdates);
     }
   }
 
@@ -122,7 +133,7 @@ class CampRepository {
     }
   }
 
-  Stream<List<CampCycle>> watchCycles(String institutionId, String schoolTypeId) {
+  Stream<List<CampCycle>> watchCycles(String institutionId, String schoolTypeId, {String? workPeriodId}) {
     return _db
         .collection('camp_cycles')
         .where('institutionId', isEqualTo: institutionId)
@@ -130,8 +141,14 @@ class CampRepository {
         .snapshots()
         .map((snap) {
       final list = snap.docs.map((d) => CampCycle.fromMap(d.data(), d.id)).toList();
-      list.sort((a, b) => b.olusturulmaZamani.compareTo(a.olusturulmaZamani));
-      return list;
+      
+      // workPeriodId filtresi
+      final filteredList = (workPeriodId != null && workPeriodId.isNotEmpty)
+          ? list.where((c) => c.workPeriodId == workPeriodId || (c.workPeriodId == null || c.workPeriodId!.isEmpty)).toList()
+          : list;
+
+      filteredList.sort((a, b) => b.olusturulmaZamani.compareTo(a.olusturulmaZamani));
+      return filteredList;
     });
   }
 

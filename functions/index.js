@@ -1,5 +1,10 @@
 const { onCall, HttpsError, onRequest } = require("firebase-functions/v2/https");
-const { onDocumentCreated } = require("firebase-functions/v2/firestore");
+const { onDocumentCreated, onDocumentUpdated, onDocumentWritten, onDocumentDeleted } = require("firebase-functions/v2/firestore");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { setGlobalOptions } = require("firebase-functions/v2");
+
+// CPU Quota limitine takılmamak için maxInstances değerini kısıtlıyoruz
+setGlobalOptions({ maxInstances: 2 });
 const { defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 const nodemailer = require("nodemailer");
@@ -505,7 +510,7 @@ exports.verifyCodeAndResetPassword = onCall({ enforceAppCheck: true }, async (re
  * 'analyzeStudentPerformance' — Gemini AI ile öğrenci performans analizi.
  * API key sunucu tarafında kalıyor, istemciye gönderilmiyor.
  */
-exports.analyzeStudentPerformance = onCall(
+/* exports.analyzeStudentPerformance = onCall(
     { secrets: [geminiApiKey], enforceAppCheck: true },
     async (request) => {
         const { auth, data } = request;
@@ -568,7 +573,7 @@ KURALLAR:
             throw new HttpsError("internal", "AI analizi oluşturulamadı.");
         }
     }
-);
+); */
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // E-POSTA SERVİSLERİ
@@ -714,75 +719,76 @@ async function sendNotifications({ recipientUids, title, body, route, type, enti
         const channelId = isCallNotification ? "incoming_call_channel" : "high_importance_channel";
 
         const message = {
-            notification: { title, body },
             data: {
                 route: route || "/school-dashboard",
                 entityId: entityId || "",
                 type: type || "general",
-                // Arama bildirimleri için ekstra veri
-                ...(isCallNotification && { isCall: "true" }),
+                ...(isCallNotification && { isCall: "true", title, body }),
             },
             tokens: allTokens,
-            android: {
-                notification: {
-                    icon: "ic_notification",
-                    color: "#1976D2",
-                    channelId: channelId,
-                    sound: isCallNotification ? "ringtone" : "default",
-                    priority: isCallNotification ? "max" : "high",
-                    // Arama için Yanıtla/Reddet butonları
-                    ...(isCallNotification && {
-                        clickAction: "INCOMING_CALL",
-                    }),
-                },
-                priority: "high",
-            },
-            apns: {
-                payload: {
-                    aps: {
-                        alert: { title, body },
-                        sound: isCallNotification ? "ringtone.caf" : "default",
-                        badge: 1,
-                        "content-available": 1,
-                        ...(isCallNotification && { "interruption-level": "critical" }),
+            ...(!isCallNotification && {
+                notification: { title, body },
+                android: {
+                    priority: "high",
+                    notification: {
+                        color: "#1976D2",
+                        channelId: channelId,
                     },
                 },
-            },
-            webpush: {
-                notification: {
-                    icon: "/icons/Icon-192.png",
-                    badge: "/icons/Icon-192.png",
-                    click_action: route || "/school-dashboard",
-                    ...(isCallNotification && {
-                        actions: [
-                            { action: "answer", title: "✅ Yanıtla" },
-                            { action: "decline", title: "❌ Reddet" },
-                        ],
-                        requireInteraction: true,
-                        vibrate: [300, 200, 300, 200, 300],
-                    }),
+                apns: {
+                    payload: {
+                        aps: {
+                            sound: "default",
+                            badge: 1,
+                            alert: {
+                                title: title,
+                                body: body,
+                            },
+                        },
+                    },
                 },
-            },
+                webpush: {
+                    notification: {
+                        icon: "/icons/Icon-192.png",
+                        badge: "/icons/Icon-192.png",
+                        click_action: route || "/school-dashboard",
+                    },
+                },
+            }),
         };
 
         try {
-            const response = await admin.messaging().sendEachForMulticast(message);
-            console.log(`FCM: ${response.successCount} başarılı, ${response.failureCount} başarısız.`);
+            const maxTokensPerBatch = 500;
+            const tokenBatches = [];
+            for (let i = 0; i < allTokens.length; i += maxTokensPerBatch) {
+                tokenBatches.push(allTokens.slice(i, i + maxTokensPerBatch));
+            }
 
-            // Geçersiz token'ları temizle
-            response.responses.forEach(async (resp, idx) => {
-                if (!resp.success && (
-                    resp.error?.code === "messaging/invalid-registration-token" ||
-                    resp.error?.code === "messaging/registration-token-not-registered"
-                )) {
-                    const invalidToken = allTokens[idx];
-                    for (const uid of uniqueUids) {
-                        await db.collection("users").doc(uid).update({
-                            fcmTokens: admin.firestore.FieldValue.arrayRemove(invalidToken),
-                        }).catch(() => {});
+            let totalSuccess = 0;
+            let totalFailure = 0;
+
+            for (const batchTokens of tokenBatches) {
+                const batchMessage = { ...message, tokens: batchTokens };
+                const response = await admin.messaging().sendEachForMulticast(batchMessage);
+                totalSuccess += response.successCount;
+                totalFailure += response.failureCount;
+
+                // Geçersiz token'ları temizle
+                response.responses.forEach(async (resp, idx) => {
+                    if (!resp.success && (
+                        resp.error?.code === "messaging/invalid-registration-token" ||
+                        resp.error?.code === "messaging/registration-token-not-registered"
+                    )) {
+                        const invalidToken = batchTokens[idx];
+                        for (const uid of uniqueUids) {
+                            await db.collection("users").doc(uid).update({
+                                fcmTokens: admin.firestore.FieldValue.arrayRemove(invalidToken),
+                            }).catch(() => {});
+                        }
                     }
-                }
-            });
+                });
+            }
+            console.log(`FCM: ${totalSuccess} başarılı, ${totalFailure} başarısız.`);
         } catch (err) {
             console.error("FCM gönderme hatası:", err);
         }
@@ -857,7 +863,22 @@ exports.onMessageSent = onDocumentCreated(
     async (event) => {
         const message = event.data?.data();
         if (!message) return;
-        const { senderId, senderName, content, participants = [] } = message;
+        const { senderId, content, participants = [] } = message;
+        let { senderName } = message;
+        
+        // Eğer senderName verilmemişse Firestore'dan çek (Kullanıcının isteği: gönderen adı yazsın)
+        if (!senderName && senderId) {
+            try {
+                const senderDoc = await db.collection("users").doc(senderId).get();
+                if (senderDoc.exists) {
+                    const d = senderDoc.data();
+                    senderName = d.name || d.displayName || d.fullName || d.title;
+                }
+            } catch (err) {
+                console.error("Sender name fetch error:", err);
+            }
+        }
+
         const recipientUids = participants.filter(uid => uid !== senderId);
         if (recipientUids.length === 0) return;
         await sendNotifications({
@@ -977,7 +998,7 @@ exports.onSmsQueued = onDocumentCreated("sms_queue/{docId}", async (event) => {
 });
 
 // ─── Trigger: Deneme Sınavı Oluşturulduğunda ─────────────────────────────────
-exports.onTrialExamCreated = onDocumentCreated("trial_exams/{examId}", async (event) => {
+/* exports.onTrialExamCreated = onDocumentCreated("trial_exams/{examId}", async (event) => {
     const exam = event.data?.data();
     if (!exam) return;
     const { institutionId, examName } = exam;
@@ -991,7 +1012,7 @@ exports.onTrialExamCreated = onDocumentCreated("trial_exams/{examId}", async (ev
         type: "exam",
         entityId: event.params.examId,
     });
-});
+}); */
 
 // ─── Trigger: Sesli/Görüntülü Arama Yapıldığında ─────────────────────────────
 exports.onCallCreated = onDocumentCreated("calls/{callId}", async (event) => {
@@ -1013,6 +1034,44 @@ exports.onCallCreated = onDocumentCreated("calls/{callId}", async (event) => {
         type: "call",
         entityId: event.params.callId,
     });
+});
+
+// ─── Trigger: Arama İptal Edildiğinde / Sonlandığında ────────────────────────
+exports.onCallDeleted = onDocumentDeleted("calls/{callId}", async (event) => {
+    const call = event.data?.data();
+    if (!call) return;
+    
+    const { receiverId } = call;
+    if (!receiverId) return;
+
+    await sendNotifications({
+        recipientUids: [receiverId],
+        title: "Arama Sonlandı",
+        body: "",
+        route: "/school-dashboard",
+        type: "call_ended",
+        entityId: event.params.callId,
+    });
+});
+
+exports.onCallUpdated = onDocumentUpdated("calls/{callId}", async (event) => {
+    const after = event.data.after?.data();
+    if (!after) return;
+    
+    // Eğer durum ended, rejected vs olduysa iptal sinyali gönder
+    if (after.status === 'ended' || after.status === 'rejected' || after.status === 'missed') {
+        const { receiverId } = after;
+        if (!receiverId) return;
+
+        await sendNotifications({
+            recipientUids: [receiverId],
+            title: "Arama Sonlandı",
+            body: "",
+            route: "/school-dashboard",
+            type: "call_ended",
+            entityId: event.params.callId,
+        });
+    }
 });
 
 // ─── Trigger: Sosyal Medya Paylaşımı Yapıldığında ────────────────────────────
@@ -1492,4 +1551,159 @@ exports.validateSsoToken = onRequest(
         }
     }
 );
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EK BİLDİRİM TETİKLEYİCİLERİ (İzin, Geçici Ders, Yoklama, Cron Jobs)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── Trigger: Notification Request Created (Geçici ders vb.) ─────────
+exports.processNotificationRequest = onDocumentCreated("notificationRequests/{docId}", async (event) => {
+    const request = event.data?.data();
+    if (!request) return;
+
+    const { teacherIds, recipientUids, title, message, type } = request;
+    const targetUids = recipientUids || teacherIds || [];
+    
+    if (targetUids.length > 0) {
+        await sendNotifications({
+            recipientUids: targetUids,
+            title: title || "Yeni Bildirim",
+            body: message || "",
+            route: "/school-dashboard",
+            type: type || "general",
+            entityId: event.params.docId,
+        });
+    }
+    
+    await event.data.ref.update({ status: 'processed' }).catch(() => {});
+});
+
+// ─── Trigger: İzin Talebi Oluşturuldu ─────────
+exports.processLeaveRequestCreated = onDocumentCreated("leave_requests/{leaveId}", async (event) => {
+    const leave = event.data?.data();
+    if (!leave) return;
+
+    const { institutionId, staffName, type } = leave;
+    const adminsSnapshot = await db.collection("users")
+        .where("institutionId", "==", institutionId)
+        .where("role", "in", ["admin", "principal"])
+        .get();
+        
+    const recipientUids = adminsSnapshot.docs.map(d => d.id);
+    
+    await sendNotifications({
+        recipientUids,
+        title: "✈️ Yeni İzin Talebi",
+        body: `${staffName || 'Bir personel'} yeni bir ${type || 'izin'} talebinde bulundu.`,
+        route: "/leave-approvals",
+        type: "leave_requests",
+        entityId: event.params.leaveId,
+    });
+});
+
+// ─── Trigger: İzin Talebi Güncellendi ─────────
+exports.processLeaveRequestUpdated = onDocumentUpdated("leave_requests/{leaveId}", async (event) => {
+    const before = event.data.before.data();
+    const after = event.data.after.data();
+    if (!before || !after) return;
+
+    if (before.status !== after.status && (after.status === 'approved' || after.status === 'rejected')) {
+        const title = after.status === 'approved' ? "✅ İzin Talebiniz Onaylandı" : "❌ İzin Talebiniz Reddedildi";
+        
+        await sendNotifications({
+            recipientUids: [after.staffId],
+            title: title,
+            body: `İzin talebiniz yöneticiniz tarafından ${after.status === 'approved' ? 'onaylandı' : 'reddedildi'}.`,
+            route: "/my-leaves",
+            type: "leave_requests",
+            entityId: event.params.leaveId,
+        });
+    }
+});
+
+// ─── Trigger: Yoklama Kaydedildi ─────────
+exports.processLessonAttendanceWritten = onDocumentWritten("lessonAttendance/{docId}", async (event) => {
+    const beforeData = event.data.before ? event.data.before.data() : null;
+    const afterData = event.data.after ? event.data.after.data() : null;
+    
+    if (!afterData) return;
+    
+    const beforeStatuses = beforeData?.studentStatuses || {};
+    const afterStatuses = afterData.studentStatuses || {};
+    const { lessonName, date } = afterData;
+    
+    for (const [studentId, status] of Object.entries(afterStatuses)) {
+        const beforeStatus = beforeStatuses[studentId];
+        if (status !== beforeStatus && (status === 'absent' || status === 'late')) {
+            try {
+                const studentDoc = await db.collection("students").doc(studentId).get();
+                if (!studentDoc.exists) continue;
+                const student = studentDoc.data();
+                
+                const parentTcNos = student.parentTcNos || [];
+                for (const tcNo of parentTcNos) {
+                    const parentQuery = await db.collection("users")
+                        .where("tcNo", "==", tcNo)
+                        .where("role", "==", "parent")
+                        .limit(1).get();
+                    if (!parentQuery.empty) {
+                        const parentId = parentQuery.docs[0].id;
+                        const statusTr = status === 'absent' ? 'Yok (Devamsız)' : 'Geç (Geç Kaldı)';
+                        
+                        await sendNotifications({
+                            recipientUids: [parentId],
+                            title: "📝 Yoklama Bildirimi",
+                            body: `Öğrenciniz ${student.name} ${student.surname}, ${date} tarihindeki ${lessonName || 'ders'} dersine ${statusTr} olarak işaretlendi.`,
+                            route: "/student-attendance",
+                            type: "attendance",
+                            entityId: event.params.docId,
+                        });
+                    }
+                }
+            } catch(e) {
+                console.error("Yoklama veli bulma hatası:", e);
+            }
+        }
+    }
+});
+
+// ─── Cron Job: Missing Attendance Reminder (Every 5 mins) ─────────
+exports.missingAttendanceReminder = onSchedule("every 5 minutes", async (event) => {
+    // Note: Implementing complex cross-collection time queries for generic schedules.
+    // This cron runs every 5 minutes. Real implementation requires checking active 
+    // workPeriods and classSchedules which depends on school-specific time slots.
+    console.log("Missing attendance reminder cron triggered. Waiting for schedule structure mapping.");
+});
+
+// ─── Cron Job: Daily Duty Reminder (Every day at 08:00 AM) ─────────
+exports.dailyDutyReminder = onSchedule("0 8 * * *", async (event) => {
+    console.log("Daily duty reminder cron triggered.");
+    
+    try {
+        const todayStr = new Date().toISOString().split('T')[0];
+        
+        const dutiesSnapshot = await db.collection("dutyScheduleItems")
+            .where("date", "==", todayStr)
+            .get();
+            
+        const teacherUids = [];
+        dutiesSnapshot.forEach(doc => {
+            const data = doc.data();
+            if (data.teacherId) teacherUids.push(data.teacherId);
+        });
+        
+        if (teacherUids.length > 0) {
+            await sendNotifications({
+                recipientUids: [...new Set(teacherUids)],
+                title: "🛡️ Nöbet Hatırlatması",
+                body: "Bugün nöbet göreviniz bulunmaktadır. Kolay gelsin!",
+                route: "/my-duties",
+                type: "duty",
+                entityId: "daily-duty",
+            });
+        }
+    } catch(e) {
+        console.error("Nöbet hatırlatma hatası:", e);
+    }
+});
 

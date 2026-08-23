@@ -551,40 +551,45 @@ class _ScheduleSettingsPanelState extends State<ScheduleSettingsPanel>
                 borderRadius: BorderRadius.circular(14),
               ),
               padding: const EdgeInsets.all(4),
-              child: TabBar(
-                controller: _tabController,
-                indicator: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(10),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.08),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    )
-                  ],
-                ),
-                labelColor: Colors.indigo.shade800,
-                unselectedLabelColor: Colors.grey.shade500,
-                labelStyle: const TextStyle(
-                    fontSize: 11, fontWeight: FontWeight.bold),
-                unselectedLabelStyle: const TextStyle(fontSize: 11),
-                indicatorSize: TabBarIndicatorSize.tab,
-                dividerColor: Colors.transparent,
-                tabs: const [
-                  Tab(
-                      icon: Icon(Icons.view_column_rounded, size: 18),
-                      text: 'Dağılım'),
-                  Tab(
-                      icon: Icon(Icons.merge_type_rounded, size: 18),
-                      text: 'Birleştir'),
-                  Tab(
-                      icon: Icon(Icons.block_rounded, size: 18),
-                      text: 'Saati Kapat'),
-                  Tab(
-                      icon: Icon(Icons.timelapse_rounded, size: 18),
-                      text: 'Ders Limiti'),
-                ],
+              child: LayoutBuilder(
+                builder: (context, tabConstraints) {
+                  final isNarrow = tabConstraints.maxWidth < 360;
+                  return TabBar(
+                    controller: _tabController,
+                    indicator: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.08),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        )
+                      ],
+                    ),
+                    labelColor: Colors.indigo.shade800,
+                    unselectedLabelColor: Colors.grey.shade500,
+                    labelStyle: const TextStyle(
+                        fontSize: 11, fontWeight: FontWeight.bold),
+                    unselectedLabelStyle: const TextStyle(fontSize: 11),
+                    indicatorSize: TabBarIndicatorSize.tab,
+                    dividerColor: Colors.transparent,
+                    tabs: [
+                      Tab(
+                          icon: const Icon(Icons.view_column_rounded, size: 18),
+                          text: isNarrow ? null : 'Dağılım'),
+                      Tab(
+                          icon: const Icon(Icons.merge_type_rounded, size: 18),
+                          text: isNarrow ? null : 'Birleştir'),
+                      Tab(
+                          icon: const Icon(Icons.block_rounded, size: 18),
+                          text: isNarrow ? null : 'Saati Kapat'),
+                      Tab(
+                          icon: const Icon(Icons.timelapse_rounded, size: 18),
+                          text: isNarrow ? null : 'Ders Limiti'),
+                    ],
+                  );
+                },
               ),
             ),
           ),
@@ -610,130 +615,90 @@ class _ScheduleSettingsPanelState extends State<ScheduleSettingsPanel>
   // SEKME 1: Blok Dağılım
   // ══════════════════════════════════════════════════════════
   Widget _buildBlockPatternTab() {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 230,
-          decoration: BoxDecoration(
-            border: Border(right: BorderSide(color: Colors.grey.shade200)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isMobile = constraints.maxWidth < 500;
+        
+        if (isMobile) {
+          // ── MOBİL: Üstte yatay scroll ders grupları + altta editor ──
+          return Column(
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: Text(
-                  'Ders Grupları',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.grey.shade700,
-                    letterSpacing: 0.5,
-                  ),
+              // Ders grupları - yatay kaydırılabilir
+              Container(
+                height: 70,
+                decoration: BoxDecoration(
+                  border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
                 ),
-              ),
-              Expanded(
                 child: _allAssignments.isEmpty
                     ? Center(
-                        child: Text(
-                          'Ders ataması yok',
-                          style: TextStyle(
-                              color: Colors.grey.shade400, fontSize: 12),
-                        ),
+                        child: Text('Ders ataması yok',
+                            style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
                       )
                     : ListView.builder(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                         itemCount: _allAssignments.length,
                         itemBuilder: (_, i) {
                           final a = _allAssignments[i];
                           final key = a['groupKey'] as String;
                           final isSelected = _selectedLessonGroupKey == key;
-                          final hasPattern =
-                              (_lessonBlockPatterns[key] ?? []).isNotEmpty;
-                          final classNames =
-                              (a['classNames'] as List).join(', ');
-
+                          final hasPattern = (_lessonBlockPatterns[key] ?? []).isNotEmpty;
+                          
                           return GestureDetector(
-                            onTap: () =>
-                                setState(() => _selectedLessonGroupKey = key),
+                            onTap: () => setState(() => _selectedLessonGroupKey = key),
                             child: AnimatedContainer(
                               duration: const Duration(milliseconds: 180),
-                              margin: const EdgeInsets.only(bottom: 4),
-                              padding: const EdgeInsets.all(10),
+                              margin: const EdgeInsets.only(right: 6),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                               decoration: BoxDecoration(
-                                color: isSelected
-                                    ? Colors.indigo.shade50
-                                    : Colors.transparent,
-                                borderRadius: BorderRadius.circular(10),
+                                color: isSelected ? Colors.indigo.shade50 : Colors.grey.shade50,
+                                borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
-                                  color: isSelected
-                                      ? Colors.indigo.shade300
-                                      : Colors.transparent,
+                                  color: isSelected ? Colors.indigo.shade400 : Colors.grey.shade200,
+                                  width: isSelected ? 1.5 : 1,
                                 ),
                               ),
-                              child: Row(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Container(
-                                    width: 32,
-                                    height: 32,
-                                    alignment: Alignment.center,
-                                    decoration: BoxDecoration(
-                                      color: isSelected
-                                          ? Colors.indigo.shade100
-                                          : Colors.grey.shade100,
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Text(
-                                      '${a['weeklyHours']}',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 13,
-                                        color: isSelected
-                                            ? Colors.indigo.shade800
-                                            : Colors.grey.shade700,
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Container(
+                                        width: 22, height: 22,
+                                        alignment: Alignment.center,
+                                        decoration: BoxDecoration(
+                                          color: isSelected ? Colors.indigo.shade100 : Colors.grey.shade200,
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: Text(
+                                          '${a['weeklyHours']}',
+                                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11,
+                                            color: isSelected ? Colors.indigo.shade800 : Colors.grey.shade600),
+                                        ),
                                       ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          a['lessonName'] as String,
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.w600,
-                                            fontSize: 12,
-                                            color: isSelected
-                                                ? Colors.indigo.shade900
-                                                : Colors.grey.shade800,
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        (a['lessonName'] as String).length > 12
+                                            ? '${(a['lessonName'] as String).substring(0, 12)}…'
+                                            : a['lessonName'] as String,
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w600, fontSize: 11,
+                                          color: isSelected ? Colors.indigo.shade900 : Colors.grey.shade700,
                                         ),
-                                        Text(
-                                          classNames,
-                                          style: TextStyle(
-                                              fontSize: 10,
-                                              color: Colors.grey.shade500),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
+                                      ),
+                                      if (hasPattern) ...[
+                                        const SizedBox(width: 4),
+                                        Container(width: 6, height: 6,
+                                          decoration: BoxDecoration(color: Colors.green.shade500, shape: BoxShape.circle)),
                                       ],
-                                    ),
+                                    ],
                                   ),
-                                  if (hasPattern)
-                                    Container(
-                                      width: 8,
-                                      height: 8,
-                                      decoration: BoxDecoration(
-                                        color: Colors.green.shade500,
-                                        shape: BoxShape.circle,
-                                      ),
-                                    ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '${(a['classNames'] as List).length} sınıf',
+                                    style: TextStyle(fontSize: 9, color: Colors.grey.shade500),
+                                  ),
                                 ],
                               ),
                             ),
@@ -741,40 +706,197 @@ class _ScheduleSettingsPanelState extends State<ScheduleSettingsPanel>
                         },
                       ),
               ),
+              // Editor
+              Expanded(
+                child: _selectedLessonGroupKey == null
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.swipe_rounded, size: 40, color: Colors.grey.shade300),
+                              const SizedBox(height: 8),
+                              Text('Yukarıdan bir ders grubu seçin',
+                                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey.shade600, fontSize: 13)),
+                            ],
+                          ),
+                        ),
+                      )
+                    : _buildBlockEditor(),
+              ),
             ],
-          ),
-        ),
-        Expanded(
-          child: _selectedLessonGroupKey == null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(32),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.touch_app_rounded,
-                            size: 48, color: Colors.grey.shade300),
-                        const SizedBox(height: 12),
-                        Text(
-                          'Sol taraftan bir ders grubu seçin',
-                          style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.grey.shade600),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Seçilen ders grubunun blok dağılımını burada düzenleyebilirsiniz.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                              fontSize: 12, color: Colors.grey.shade500),
-                        ),
-                      ],
+          );
+        }
+        
+        // ── WEB: Sol liste + sağ editor (orijinal layout) ──
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 230,
+              decoration: BoxDecoration(
+                border: Border(right: BorderSide(color: Colors.grey.shade200)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                    child: Text(
+                      'Ders Grupları',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey.shade700,
+                        letterSpacing: 0.5,
+                      ),
                     ),
                   ),
-                )
-              : _buildBlockEditor(),
-        ),
-      ],
+                  Expanded(
+                    child: _allAssignments.isEmpty
+                        ? Center(
+                            child: Text(
+                              'Ders ataması yok',
+                              style: TextStyle(
+                                  color: Colors.grey.shade400, fontSize: 12),
+                            ),
+                          )
+                        : ListView.builder(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
+                            itemCount: _allAssignments.length,
+                            itemBuilder: (_, i) {
+                              final a = _allAssignments[i];
+                              final key = a['groupKey'] as String;
+                              final isSelected = _selectedLessonGroupKey == key;
+                              final hasPattern =
+                                  (_lessonBlockPatterns[key] ?? []).isNotEmpty;
+                              final classNames =
+                                  (a['classNames'] as List).join(', ');
+
+                              return GestureDetector(
+                                onTap: () =>
+                                    setState(() => _selectedLessonGroupKey = key),
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 180),
+                                  margin: const EdgeInsets.only(bottom: 4),
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: isSelected
+                                        ? Colors.indigo.shade50
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: isSelected
+                                          ? Colors.indigo.shade300
+                                          : Colors.transparent,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 32,
+                                        height: 32,
+                                        alignment: Alignment.center,
+                                        decoration: BoxDecoration(
+                                          color: isSelected
+                                              ? Colors.indigo.shade100
+                                              : Colors.grey.shade100,
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: Text(
+                                          '${a['weeklyHours']}',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 13,
+                                            color: isSelected
+                                                ? Colors.indigo.shade800
+                                                : Colors.grey.shade700,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              a['lessonName'] as String,
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w600,
+                                                fontSize: 12,
+                                                color: isSelected
+                                                    ? Colors.indigo.shade900
+                                                    : Colors.grey.shade800,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            Text(
+                                              classNames,
+                                              style: TextStyle(
+                                                  fontSize: 10,
+                                                  color: Colors.grey.shade500),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      if (hasPattern)
+                                        Container(
+                                          width: 8,
+                                          height: 8,
+                                          decoration: BoxDecoration(
+                                            color: Colors.green.shade500,
+                                            shape: BoxShape.circle,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: _selectedLessonGroupKey == null
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(32),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.touch_app_rounded,
+                                size: 48, color: Colors.grey.shade300),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Sol taraftan bir ders grubu seçin',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.grey.shade600),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Seçilen ders grubunun blok dağılımını burada düzenleyebilirsiniz.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  fontSize: 12, color: Colors.grey.shade500),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : _buildBlockEditor(),
+            ),
+          ],
+        );
+      },
     );
   }
 

@@ -5,7 +5,8 @@ import '../../../services/development_report_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../models/guidance/development_report/development_criterion_model.dart';
 import 'development_report_session_detail_screen.dart';
-import 'development_report_export_dialogs.dart';
+import 'development_report_export_dialogs.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+
 
 class DevelopmentReportManagementScreen extends StatefulWidget {
   final String institutionId;
@@ -53,7 +54,7 @@ class _DevelopmentReportManagementScreenState
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
       ),
-      body: StreamBuilder<List<DevelopmentReportSession>>(
+      body: SafeStreamBuilder<List<DevelopmentReportSession>>(
         stream: _service.getSessions(widget.institutionId),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting)

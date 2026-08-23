@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
@@ -35,7 +35,8 @@ import '../../services/guidance_service.dart';
 import '../student/student_homework_stats_screen.dart';
 import '../student/student_attendance_stats_screen.dart';
 import '../student/student_etut_stats_screen.dart';
-import '../student/student_exam_stats_screen.dart';
+import '../student/student_exam_stats_screen.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+
 
 class PortfolioScreen extends StatefulWidget {
   final String institutionId;
@@ -1993,7 +1994,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
             ),
           ]),
         ),
-        Expanded(child: StreamBuilder<List<TrialExam>>(
+        Expanded(child: SafeStreamBuilder<List<TrialExam>>(
       stream: _trialExamsStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -3142,7 +3143,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
             ),
           ]),
         ),
-        Expanded(child: StreamBuilder<QuerySnapshot>(
+        Expanded(child: SafeStreamBuilder<QuerySnapshot>(
       stream: _writtenExamsStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting)
@@ -3319,7 +3320,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
             ),
           ]),
         ),
-        Expanded(child: StreamBuilder<QuerySnapshot>(
+        Expanded(child: SafeStreamBuilder<QuerySnapshot>(
       stream: _homeworksStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting)
@@ -3865,7 +3866,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
             ),
           ]),
         ),
-        Expanded(child: StreamBuilder<QuerySnapshot>(
+        Expanded(child: SafeStreamBuilder<QuerySnapshot>(
           stream: _attendanceStream,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
@@ -4101,7 +4102,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
             ),
           ]),
         ),
-        Expanded(child: StreamBuilder<QuerySnapshot>(
+        Expanded(child: SafeStreamBuilder<QuerySnapshot>(
       stream: _etutlerStream,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
@@ -4272,7 +4273,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
   }
 
   Widget _buildEylemPlanlariTab() {
-    return StreamBuilder<QuerySnapshot>(
+    return SafeStreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('assessment_action_plans')
           .where('institutionId', isEqualTo: widget.institutionId)
@@ -4508,7 +4509,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
           ),
         ),
         Expanded(
-          child: StreamBuilder<QuerySnapshot>(
+          child: SafeStreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance
                 .collection('book_assignments')
                 .where('institutionId', isEqualTo: widget.institutionId)
@@ -4740,7 +4741,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
   }
 
   Widget _buildInterviewsTab() {
-    return StreamBuilder<QuerySnapshot>(
+    return SafeStreamBuilder<QuerySnapshot>(
       stream: _interviewsStream,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
@@ -4926,7 +4927,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
   }
 
   Widget _buildDevelopmentReportTab() {
-    return StreamBuilder<QuerySnapshot>(
+    return SafeStreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('development_reports')
           .where('targetId', isEqualTo: widget.student['id'])
@@ -5075,7 +5076,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
   Widget _buildGuidanceTestsTab() {
     // Note: Assuming 'applied_tests' or similar. If 'surveys' is used, this needs update.
     // For now, keeping as placeholder query but standardizing on institutionId if possible.
-    return StreamBuilder<QuerySnapshot>(
+    return SafeStreamBuilder<QuerySnapshot>(
       stream: _guidanceTestsStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting)
@@ -5115,7 +5116,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
   }
 
   Widget _buildStudyProgramsTab() {
-    return StreamBuilder<QuerySnapshot>(
+    return SafeStreamBuilder<QuerySnapshot>(
       stream: _studyProgramsStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting)
@@ -5775,7 +5776,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
 
   // --- 8. ETKİNLİK RAPORLARI TAB ---
   Widget _buildActivityReportsTab() {
-    return StreamBuilder<QuerySnapshot>(
+    return SafeStreamBuilder<QuerySnapshot>(
       stream: _activityReportsStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting)
@@ -5889,7 +5890,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
           ),
         ),
         Expanded(
-          child: StreamBuilder<List<DemandModel>>(
+          child: SafeStreamBuilder<List<DemandModel>>(
             stream: DemandService().streamDemands(
               institutionId: widget.institutionId,
               schoolTypeId: widget.student['schoolTypeId'] ?? '',

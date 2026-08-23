@@ -675,7 +675,7 @@ class _TermsScreenState extends State<TermsScreen> {
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
-          icon: Icon(Icons.arrow_back),
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.white),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text('Dönem Yönetimi'),

@@ -15,6 +15,7 @@ class CampCycleSetupScreen extends StatefulWidget {
   final String institutionId;
   final String schoolTypeId;
   final String? schoolTypeName;
+  final String? workPeriodId;
   final CampCycle? initialCycle;
   final int initialTabIndex;
 
@@ -23,6 +24,7 @@ class CampCycleSetupScreen extends StatefulWidget {
     required this.institutionId,
     required this.schoolTypeId,
     this.schoolTypeName,
+    this.workPeriodId,
     this.initialCycle,
     this.initialTabIndex = 0,
   }) : super(key: key);
@@ -1573,8 +1575,7 @@ class _CampCycleSetupScreenState extends State<CampCycleSetupScreen>
           for (final room in classroomList) {
             final rid = room['id']!;
             if (!(usage[slot.gun]?[slotKey]?.contains(rid) ?? false)) {
-              updatedEntries[j].derslikId = rid;
-              updatedEntries[j].derslikAdi = room['name'];
+              updatedEntries[j] = entry.copyWith(derslikId: rid, derslikAdi: room['name']);
               usage.putIfAbsent(slot.gun, () => {}).putIfAbsent(slotKey, () => {}).add(rid);
               slotChanged = true;
               break;
@@ -2321,6 +2322,7 @@ class _CampCycleSetupScreenState extends State<CampCycleSetupScreen>
         id: widget.initialCycle?.id ?? '',
         institutionId: widget.institutionId,
         schoolTypeId: widget.schoolTypeId,
+        workPeriodId: widget.workPeriodId ?? widget.initialCycle?.workPeriodId,
         title: _titleController.text,
         referansDenemeSinavId: _selectedExamIds.first,
         referansDenemeSinavAdi: _selectedExamNames.first,

@@ -168,6 +168,11 @@ class _PreRegistrationFormWidgetState extends State<PreRegistrationFormWidget> {
 
   Future<void> _loadAdminUsers() async {
     try {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      final currentEmail = currentUser?.email?.toLowerCase();
+      final userData = await UserPermissionService.loadUserData();
+      final currentUserId = userData?['id'] ?? userData?['uid'] ?? currentUser?.uid;
+
       final query = await FirebaseFirestore.instance
           .collection('users')
           .where('institutionId', isEqualTo: widget.institutionId)
@@ -175,10 +180,39 @@ class _PreRegistrationFormWidgetState extends State<PreRegistrationFormWidget> {
       
       final admins = query.docs.map((doc) => {'id': doc.id, ...doc.data()}).where((u) {
         final role = u['role']?.toString().toLowerCase();
-        return ['genel_mudur', 'mudur', 'mudur_yardimcisi', 'admin', 'hr', 'muhasebe', 'satin_alma', 'depo', 'destek_hizmetleri'].contains(role);
+        return ['genel_mudur', 'mudur', 'mudur_yardimcisi', 'admin', 'hr', 'muhasebe', 'satin_alma', 'depo', 'destek_hizmetleri', 'rehberlik', 'ogretmen', 'teacher', 'staff'].contains(role) || u['fullName'] != null;
       }).toList();
-      
-      setState(() => _adminUsers = admins);
+
+      // Otomatik Seçim: Giriş yapan kullanıcının hesabı
+      String? autoSelectedId;
+      for (var u in admins) {
+        final uEmail = u['email']?.toString().toLowerCase();
+        final uName = u['fullName']?.toString().trim();
+        final userName = userData?['fullName']?.toString().trim();
+        if ((currentUserId != null && u['id'] == currentUserId) ||
+            (currentEmail != null && uEmail == currentEmail) ||
+            (userName != null && userName.isNotEmpty && uName == userName)) {
+          autoSelectedId = u['id'] as String?;
+          break;
+        }
+      }
+
+      if (autoSelectedId == null && userData != null) {
+        final selfUser = {
+          'id': currentUserId ?? 'current_user',
+          'fullName': userData['fullName'] ?? currentUser?.displayName ?? currentUser?.email ?? 'Giriş Yapan Kullanıcı',
+          'email': currentEmail,
+        };
+        admins.insert(0, selfUser);
+        autoSelectedId = selfUser['id'] as String;
+      }
+
+      setState(() {
+        _adminUsers = admins;
+        if (_selectedInterviewers.isEmpty && widget.preRegistrationId == null && autoSelectedId != null) {
+          _selectedInterviewers = [autoSelectedId];
+        }
+      });
     } catch (e) {
       print('Error loading admin users: $e');
     }

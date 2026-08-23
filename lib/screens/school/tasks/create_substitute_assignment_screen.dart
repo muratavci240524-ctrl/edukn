@@ -62,6 +62,14 @@ class _CreateSubstituteAssignmentScreenState
     _activeTermId = await TermService().getActiveTermId();
   }
 
+  // Yönetim kadrosu rolleri - bunlar öğretmen seçim listesinde görünmeyecek
+  static const _managementRoles = {
+    'genel_mudur', 'mudur', 'mudur_yardimcisi',
+    'admin', 'manager', 'hr', 'muhasebe',
+    'satin_alma', 'depo', 'destek_hizmetleri',
+    'super_admin',
+  };
+
   Future<void> _loadAllTeachers() async {
     try {
       final snap = await FirebaseFirestore.instance
@@ -75,6 +83,10 @@ class _CreateSubstituteAssignmentScreenState
           final data = d.data();
           data['id'] = d.id;
           return data;
+        }).where((user) {
+          // Yönetim kadrosunu filtrele - sadece öğretmenler kalsın
+          final role = (user['role'] ?? '').toString().toLowerCase();
+          return !_managementRoles.contains(role);
         }).toList();
       });
     } catch (e) {
@@ -465,7 +477,7 @@ class _CreateSubstituteAssignmentScreenState
                       ? _customReasonController.text
                       : _selectedReasonType) ??
                   'Görevli',
-              'status': 'published',
+              'status': 'pending',
               'createdAt': FieldValue.serverTimestamp(),
               'creatorId': user.uid,
               if (_activeTermId != null) 'termId': _activeTermId,
@@ -808,58 +820,33 @@ class _CreateSubstituteAssignmentScreenState
     // We only use this for selecting ABSENT teacher now, since substitute is selected via list
     if (isSubstitute) return;
 
-    showModalBottomSheet(
+    showDialog(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (_) {
-        return DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.7,
-          builder: (_, controller) {
-            return ListView.builder(
-              controller: controller,
-              padding: const EdgeInsets.all(16),
-              itemCount: _allTeachers.length,
-              itemBuilder: (context, index) {
-                final user = _allTeachers[index];
-                return ListTile(
-                  leading: CircleAvatar(
-                    child: Text((user['fullName'] ?? '?')[0]),
-                  ),
-                  title: Text(user['fullName'] ?? ''),
-                  subtitle: Text(
-                    (user['branches'] as List?)?.firstOrNull ??
-                        (user['branch'] as String? ?? ''),
-                  ),
-                  onTap: () {
-                    // Normalize branches for the absent teacher
-                    final List<String> bList = [];
-                    if (user['branches'] is List) {
-                      bList.addAll(
-                        (user['branches'] as List).map((e) => e.toString()),
-                      );
-                    }
-                    if (user['branch'] is String &&
-                        (user['branch'] as String).isNotEmpty) {
-                      bList.add(user['branch']);
-                    }
+      builder: (dialogContext) {
+        return _TeacherSelectDialog(
+          teachers: _allTeachers,
+          onSelected: (user) {
+            // Normalize branches for the absent teacher
+            final List<String> bList = [];
+            if (user['branches'] is List) {
+              bList.addAll(
+                (user['branches'] as List).map((e) => e.toString()),
+              );
+            }
+            if (user['branch'] is String &&
+                (user['branch'] as String).isNotEmpty) {
+              bList.add(user['branch']);
+            }
 
-                    setState(() {
-                      _selectedAbsentTeacher = {
-                        'id': user['id'],
-                        'name': user['fullName'],
-                        'branches': bList,
-                      };
-                      _selectedSlots = [];
-                    });
-                    _loadTeacherSchedule(user['id']);
-                    Navigator.pop(context);
-                  },
-                );
-              },
-            );
+            setState(() {
+              _selectedAbsentTeacher = {
+                'id': user['id'],
+                'name': user['fullName'],
+                'branches': bList,
+              };
+              _selectedSlots = [];
+            });
+            _loadTeacherSchedule(user['id']);
           },
         );
       },
@@ -919,23 +906,41 @@ class _CreateSubstituteAssignmentScreenState
 
       if (periodDoc == null) {
         // 1. Get Selected/Active Term ID from Service
-        String? targetPeriodId;
+        String? targetTermId;
         try {
           final selectedId = await TermService().getSelectedTermId();
           final activeId = await TermService().getActiveTermId();
-          targetPeriodId = selectedId ?? activeId;
-          print('DEBUG: Target Period ID: $targetPeriodId');
+          targetTermId = selectedId ?? activeId;
+          print('DEBUG: Target Term ID (from TermService): $targetTermId');
         } catch (e) {
           print('Error fetching term ID: $e');
         }
 
-        // 2. Find matching document
-        if (targetPeriodId != null) {
+        // 2. Find matching period by termId field (NOT doc.id)
+        if (targetTermId != null) {
           try {
+            // First try: match by termId AND isActive
             periodDoc = periodSnapshot.docs.firstWhere(
-              (d) => d.id == targetPeriodId,
+              (d) => d.data()['termId'] == targetTermId && d.data()['isActive'] == true,
             );
-          } catch (_) {}
+          } catch (_) {
+            try {
+              // Second try: match by termId only
+              periodDoc = periodSnapshot.docs.firstWhere(
+                (d) => d.data()['termId'] == targetTermId,
+              );
+            } catch (_) {
+              // Third try: match by doc.id (legacy support)
+              try {
+                periodDoc = periodSnapshot.docs.firstWhere(
+                  (d) => d.id == targetTermId,
+                );
+              } catch (_) {}
+            }
+          }
+          if (periodDoc != null) {
+            print('DEBUG: Found period by termId match: ${periodDoc!.id}');
+          }
         }
       }
 
@@ -986,6 +991,16 @@ class _CreateSubstituteAssignmentScreenState
       print('DEBUG: DayName: $dayName');
       print('DEBUG: DailyLimit: $dailyLimit');
       print('DEBUG: TeacherID: $teacherId');
+
+      // Fetch classes to resolve names properly
+      final classSnap = await FirebaseFirestore.instance
+          .collection('classes')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .get();
+      final classNames = <String, String>{};
+      for (var doc in classSnap.docs) {
+        classNames[doc.id] = doc['name']?.toString() ?? '';
+      }
 
       // 1. Fetch Existing Substitutions
       final startOfDay = DateTime(
@@ -1140,6 +1155,13 @@ class _CreateSubstituteAssignmentScreenState
           // Use hourIndex + classId as composite key to prevent data loss
           final hourIdx = data['hourIndex'];
           final classId = data['classId'];
+          
+          if (data['className'] == null || data['className'].toString().isEmpty || data['className'] == data['classId']) {
+            if (classId != null && classNames.containsKey(classId)) {
+              data['className'] = classNames[classId];
+            }
+          }
+
           if (hourIdx != null && classId != null) {
             final compositeKey = '${hourIdx}_$classId';
             uniqueSlots[compositeKey] = data;
@@ -1447,7 +1469,7 @@ class _SubstituteAssignmentCardState extends State<SubstituteAssignmentCard> {
               'Pazar',
             ][widget.selectedDate.weekday],
             'reason': reason,
-            'status': 'published',
+            'status': 'pending',
             'createdAt': FieldValue.serverTimestamp(),
             'creatorId': user.uid,
             if (widget.activeTermId != null) 'termId': widget.activeTermId,
@@ -1803,6 +1825,406 @@ class _SubstituteAssignmentCardState extends State<SubstituteAssignmentCard> {
                   },
                 ),
             ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Premium Teacher Select Dialog ───────────────────────────────────────────
+
+class _TeacherSelectDialog extends StatefulWidget {
+  final List<Map<String, dynamic>> teachers;
+  final void Function(Map<String, dynamic> user) onSelected;
+
+  const _TeacherSelectDialog({
+    required this.teachers,
+    required this.onSelected,
+  });
+
+  @override
+  State<_TeacherSelectDialog> createState() => _TeacherSelectDialogState();
+}
+
+class _TeacherSelectDialogState extends State<_TeacherSelectDialog> {
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  String _getBranch(Map<String, dynamic> user) {
+    if (user['branches'] is List && (user['branches'] as List).isNotEmpty) {
+      return (user['branches'] as List).first.toString();
+    }
+    if (user['branch'] is String && (user['branch'] as String).isNotEmpty) {
+      return user['branch'];
+    }
+    return 'Diğer';
+  }
+
+  // Branş renkleri
+  Color _getBranchColor(String branch) {
+    final colors = [
+      const Color(0xFF4F46E5), // indigo
+      const Color(0xFF0EA5E9), // sky blue
+      const Color(0xFF10B981), // emerald
+      const Color(0xFFEF4444), // red
+      const Color(0xFFF59E0B), // amber
+      const Color(0xFF8B5CF6), // violet
+      const Color(0xFFEC4899), // pink
+      const Color(0xFF14B8A6), // teal
+      const Color(0xFFF97316), // orange
+      const Color(0xFF6366F1), // blue-indigo
+    ];
+    return colors[branch.hashCode.abs() % colors.length];
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Filter by search
+    final filteredTeachers = _searchQuery.isEmpty
+        ? widget.teachers
+        : widget.teachers.where((t) {
+            final name = (t['fullName'] ?? '').toString().toLowerCase();
+            final branch = _getBranch(t).toLowerCase();
+            final q = _searchQuery.toLowerCase();
+            return name.contains(q) || branch.contains(q);
+          }).toList();
+
+    // Group by branch
+    final Map<String, List<Map<String, dynamic>>> grouped = {};
+    for (final t in filteredTeachers) {
+      final branch = _getBranch(t);
+      grouped.putIfAbsent(branch, () => []).add(t);
+    }
+
+    // Sort branches alphabetically
+    final sortedBranches = grouped.keys.toList()..sort((a, b) => a.compareTo(b));
+
+    // Sort teachers within each branch alphabetically
+    for (final branch in sortedBranches) {
+      grouped[branch]!.sort((a, b) {
+        final nameA = (a['fullName'] ?? '').toString();
+        final nameB = (b['fullName'] ?? '').toString();
+        return nameA.compareTo(nameB);
+      });
+    }
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
+      child: Container(
+        constraints: BoxConstraints(
+          maxWidth: 500,
+          maxHeight: MediaQuery.of(context).size.height * 0.8,
+        ),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.15),
+              blurRadius: 30,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            // Header
+            Container(
+              padding: const EdgeInsets.fromLTRB(24, 20, 16, 0),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Icon(Icons.person_search, color: Colors.white, size: 22),
+                  ),
+                  const SizedBox(width: 14),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Öğretmen Seçin',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF1E293B),
+                          ),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'Gelmeyen öğretmeni seçiniz',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF94A3B8),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Color(0xFF64748B)),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+
+            // Search Bar
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF4F46E5).withOpacity(0.04),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: TextField(
+                  controller: _searchController,
+                  onChanged: (v) => setState(() => _searchQuery = v),
+                  decoration: InputDecoration(
+                    hintText: 'İsim veya branş ile ara...',
+                    hintStyle: const TextStyle(
+                      color: Color(0xFFCBD5E1),
+                      fontSize: 14,
+                    ),
+                    prefixIcon: const Icon(
+                      Icons.search,
+                      color: Color(0xFF94A3B8),
+                      size: 20,
+                    ),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear, size: 18, color: Color(0xFF94A3B8)),
+                            onPressed: () {
+                              _searchController.clear();
+                              setState(() => _searchQuery = '');
+                            },
+                          )
+                        : null,
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  ),
+                ),
+              ),
+            ),
+
+            // Results count
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Row(
+                children: [
+                  Text(
+                    '${filteredTeachers.length} öğretmen',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF94A3B8),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  if (sortedBranches.isNotEmpty) ...[
+                    const Text(' · ', style: TextStyle(color: Color(0xFFCBD5E1))),
+                    Text(
+                      '${sortedBranches.length} branş',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF94A3B8),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            // Teacher List grouped by branch
+            Expanded(
+              child: filteredTeachers.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.search_off, size: 48, color: Colors.grey.shade300),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Öğretmen bulunamadı',
+                            style: TextStyle(color: Colors.grey.shade500, fontSize: 14),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+                      itemCount: sortedBranches.length,
+                      itemBuilder: (context, branchIdx) {
+                        final branch = sortedBranches[branchIdx];
+                        final teachers = grouped[branch]!;
+                        final branchColor = _getBranchColor(branch);
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Branch Header
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(8, 12, 8, 8),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 4,
+                                    height: 20,
+                                    decoration: BoxDecoration(
+                                      color: branchColor,
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      branch.toUpperCase(),
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                        color: branchColor,
+                                        letterSpacing: 0.8,
+                                      ),
+                                    ),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: branchColor.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Text(
+                                      '${teachers.length}',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: branchColor,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            // Teachers in this branch
+                            ...teachers.map((user) {
+                              final name = user['fullName'] ?? '?';
+                              final initials = name.toString().isNotEmpty
+                                  ? name.toString().substring(0, 1).toUpperCase()
+                                  : '?';
+
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 2),
+                                child: Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(14),
+                                    onTap: () {
+                                      Navigator.pop(context);
+                                      widget.onSelected(user);
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(14),
+                                        border: Border.all(color: const Color(0xFFF1F5F9)),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          // Avatar
+                                          Container(
+                                            width: 40,
+                                            height: 40,
+                                            decoration: BoxDecoration(
+                                              gradient: LinearGradient(
+                                                begin: Alignment.topLeft,
+                                                end: Alignment.bottomRight,
+                                                colors: [
+                                                  branchColor.withOpacity(0.15),
+                                                  branchColor.withOpacity(0.05),
+                                                ],
+                                              ),
+                                              borderRadius: BorderRadius.circular(12),
+                                            ),
+                                            child: Center(
+                                              child: Text(
+                                                initials,
+                                                style: TextStyle(
+                                                  fontSize: 16,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: branchColor,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          // Name & Branch
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  name,
+                                                  style: const TextStyle(
+                                                    fontSize: 14,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: Color(0xFF1E293B),
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  branch,
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    color: branchColor.withOpacity(0.8),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          // Arrow
+                                          Icon(
+                                            Icons.chevron_right,
+                                            size: 18,
+                                            color: Colors.grey.shade300,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }),
+                          ],
+                        );
+                      },
+                    ),
+            ),
           ],
         ),
       ),

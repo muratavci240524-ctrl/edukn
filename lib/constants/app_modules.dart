@@ -73,6 +73,7 @@ class AppModules {
         'hata_kitapcigi': 'Hata Kitapçığı',
         'soru_havuzu': 'Soru Havuzu',
         'dis_katilimli_sinav': 'Dış Katılımlı Sınav',
+        'kamp_programi': 'Kamp Programı',
       },
     ),
 
@@ -83,12 +84,12 @@ class AppModules {
       icon: Icons.account_balance_wallet_outlined,
       color: Colors.blue,
       category: 'Finans',
-      description: 'Gelir, gider, tahsilat ve makbuz işlemleri',
+      description: 'Öğrenci taksitleri, kasa, geciken ödemeler ve finansal raporlar',
       subModules: {
-        'gelir_kaydi': 'Gelir Kaydı',
-        'gider_kaydi': 'Gider Kaydı',
-        'veli_tahsilat': 'Veli Tahsilat',
-        'makbuz_al': 'Makbuz Al',
+        'genel_finans_ozeti': 'Genel Finans Özeti',
+        'ogrenci_taksit_takibi': 'Öğrenci Taksit Takibi',
+        'geciken_taksitler': 'Geciken Taksitler',
+        'kasa_hareketler': 'Kasa & Hareketler',
       },
     ),
 

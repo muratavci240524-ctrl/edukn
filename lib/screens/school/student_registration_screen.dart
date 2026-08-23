@@ -24,6 +24,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:edukn/widgets/safe_stream_builder.dart';
+import 'accounting/student_payment_plan_widget.dart';
+
 
 // Helper metodlar - Her iki class da kullanabilir
 
@@ -265,7 +268,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
 
   // Öğrenci kayıt modülüne düzenleme yetkisi var mı?
   bool _canEditStudents() {
-    return UserPermissionService.canEdit('ogrenci_kayit', userData);
+    return UserPermissionService.canEditSubModule('kayit', 'ogrenci_kayit_duzenle', userData);
   }
 
   @override
@@ -2058,32 +2061,62 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
 
   Future<void> _loadData() async {
     try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
+      var user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        await Future.delayed(const Duration(milliseconds: 300));
+        user = FirebaseAuth.instance.currentUser;
+        if (user == null) {
+          if (mounted) setState(() => _isLoading = false);
+          return;
+        }
+      }
 
-      final email = user.email!;
+      final email = user.email ?? '';
+      userData = await UserPermissionService.loadUserData();
       final institutionId = await UserPermissionService.resolveInstitutionId(email, userData: userData);
+      final instVariants = UserPermissionService.getInstitutionIdVariants(institutionId);
 
-      final schoolTypesQuery = await FirebaseFirestore.instance
-          .collection('schoolTypes')
-          .where('institutionId', isEqualTo: institutionId)
-          .get();
+      QuerySnapshot<Map<String, dynamic>> schoolTypesQuery;
+      QuerySnapshot<Map<String, dynamic>> termsQuery;
+      QuerySnapshot<Map<String, dynamic>> studentsQuery;
 
-      // Dönemleri yükle
-      final termsQuery = await FirebaseFirestore.instance
-          .collection('terms')
-          .where('institutionId', isEqualTo: institutionId)
-          .get();
+      if (instVariants.length > 1) {
+        schoolTypesQuery = await FirebaseFirestore.instance
+            .collection('schoolTypes')
+            .where('institutionId', whereIn: instVariants)
+            .get();
+
+        termsQuery = await FirebaseFirestore.instance
+            .collection('terms')
+            .where('institutionId', whereIn: instVariants)
+            .get();
+
+        studentsQuery = await FirebaseFirestore.instance
+            .collection('students')
+            .where('institutionId', whereIn: instVariants)
+            .get();
+      } else {
+        final targetInstId = instVariants.isNotEmpty ? instVariants.first : institutionId;
+        schoolTypesQuery = await FirebaseFirestore.instance
+            .collection('schoolTypes')
+            .where('institutionId', isEqualTo: targetInstId)
+            .get();
+
+        termsQuery = await FirebaseFirestore.instance
+            .collection('terms')
+            .where('institutionId', isEqualTo: targetInstId)
+            .get();
+
+        studentsQuery = await FirebaseFirestore.instance
+            .collection('students')
+            .where('institutionId', isEqualTo: targetInstId)
+            .get();
+      }
 
       // Seçili dönemi al (TermService'den)
       final selectedTermId = await TermService().getSelectedTermId();
 
-      // Tüm öğrencileri çek, dönem filtresi client-side yapılacak
-      final studentsQuery = await FirebaseFirestore.instance
-          .collection('students')
-          .where('institutionId', isEqualTo: institutionId)
-          .orderBy('createdAt', descending: true)
-          .get();
+      if (!mounted) return;
 
       setState(() {
         _institutionId = institutionId;
@@ -2119,17 +2152,20 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
           return CryptoService.decryptMap(data, institutionId: institutionId);
         }).toList();
 
+        // İstemci tarafında createdAt'e göre sırala (eksik alan veya indeks hatalarından korunmak için)
+        _students.sort((a, b) {
+          final aDate = a['createdAt'];
+          final bDate = b['createdAt'];
+          if (aDate == null && bDate == null) return 0;
+          if (aDate == null) return 1;
+          if (bDate == null) return -1;
+          if (aDate is Timestamp && bDate is Timestamp) {
+            return bDate.compareTo(aDate);
+          }
+          return bDate.toString().compareTo(aDate.toString());
+        });
+
         _filteredStudents = List.from(_students);
-
-        // İlk öğrenciyi otomatik seçme - kullanıcı manuel seçsin
-
-        // Debug: Okul türlerini kontrol et
-        print('📚 Yüklenen okul sayısı: ${_schoolTypes.length}');
-        for (var st in _schoolTypes) {
-          print(
-            '  - ${st['schoolTypeName'] ?? st['typeName']} (Tür: ${st['schoolType']})',
-          );
-        }
 
         _isLoading = false;
       });
@@ -2145,7 +2181,6 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
             _selectedStudent = initialStudent;
             _selectedStudentId = initialStudent['id'];
           });
-          // Tab 1'e (Düzenleme/Detay) geçmek isteyebiliriz ama genellikle liste ekranında seçili kalması yeterlidir
         }
       }
 
@@ -2153,7 +2188,9 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
       _filterStudents();
     } catch (e) {
       print('❌ Veri yükleme hatası: $e');
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -2349,7 +2386,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
-          icon: Icon(Icons.arrow_back),
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.indigo),
           onPressed: () => Navigator.pop(context),
           tooltip: 'Geri',
         ),
@@ -3026,21 +3063,12 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
                             _selectedStudentId = studentId;
                           });
 
-                          // Mobilde yeni ekran olarak aç
+                          // Mobilde ogrenci detay ekranini ac
                           if (!isWide) {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (context) =>
-                                    _StudentRegistrationFormScreen(
-                                      onSave: () {
-                                        _loadData();
-                                      },
-                                      existingStudent: student,
-                                      isViewingPastTerm: _isViewingPastTerm,
-                                      fixedSchoolTypeId:
-                                          widget.fixedSchoolTypeId,
-                                    ),
+                                builder: (context) => _buildRegistrationForm(),
                               ),
                             );
                           }
@@ -3302,8 +3330,12 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
       return _buildEmptyFormPlaceholder();
     }
 
+    // Muhasebe tabı: Sadece okul türü dışındayken ve kullanıcının Mali İşler yetkisi varsa gösterilir
+    final showAccountingTab = widget.fixedSchoolTypeId == null &&
+        UserPermissionService.hasModuleAccess('mali_isler', userData);
+
     return DefaultTabController(
-      length: 4,
+      length: showAccountingTab ? 4 : 3,
       child: Scaffold(
         backgroundColor: Colors.grey.shade50,
         appBar: AppBar(
@@ -3311,82 +3343,50 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
           elevation: 1,
           leading: MediaQuery.of(context).size.width <= 900
               ? IconButton(
-                  icon: Icon(Icons.arrow_back),
+                  icon: Icon(Icons.arrow_back_rounded, color: Colors.grey.shade800),
                   onPressed: () => Navigator.pop(context),
                 )
               : null,
           automaticallyImplyLeading: false,
-          title: Row(
-            children: [
-              Icon(Icons.school, color: Colors.indigo),
-              SizedBox(width: 8),
-              Text(
-                'Öğrenci Detayı',
-                style: TextStyle(
-                  color: Colors.grey.shade900,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
+          title: Text(
+            'Öğrenci Detayı',
+            style: TextStyle(
+              color: Colors.grey.shade900,
+              fontSize: 17,
+              fontWeight: FontWeight.bold,
+            ),
           ),
           actions: [
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final isMobile = MediaQuery.of(context).size.width <= 900;
-                return Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    isMobile
-                        ? IconButton(
-                            icon: Icon(Icons.print),
-                            onPressed: () => _printSingleStudentReport(_selectedStudent),
-                            tooltip: 'Yazdır / Dışa Aktar',
-                          )
-                        : TextButton.icon(
-                            onPressed: () => _printSingleStudentReport(_selectedStudent),
-                            icon: Icon(Icons.print, size: 18),
-                            label: Text('Yazdır'),
-                            style: TextButton.styleFrom(
-                              foregroundColor: Colors.indigo,
-                            ),
-                          ),
-                    if (_canEditStudents())
-                      isMobile
-                          ? IconButton(
-                              icon: Icon(
-                                Icons.delete_outline,
-                                color: Colors.red,
-                              ),
-                              onPressed: _showDeleteConfirmation,
-                              tooltip: 'Öğrenciyi Sil',
-                            )
-                          : TextButton.icon(
-                              onPressed: _showDeleteConfirmation,
-                              icon: Icon(
-                                Icons.delete_outline,
-                                size: 18,
-                                color: Colors.red,
-                              ),
-                              label: Text('Sil'),
-                              style: TextButton.styleFrom(
-                                foregroundColor: Colors.red,
-                              ),
-                            ),
-                  ],
-                );
-              },
+            IconButton(
+              icon: const Icon(Icons.print_outlined, color: Colors.indigo, size: 20),
+              onPressed: () => _printSingleStudentReport(_selectedStudent),
+              tooltip: 'Yazdır / Dışa Aktar',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
             ),
+            if (_canEditStudents()) ...[
+              const SizedBox(width: 4),
+              IconButton(
+                icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                onPressed: _showDeleteConfirmation,
+                tooltip: 'Öğrenciyi Sil',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+              ),
+            ],
+            const SizedBox(width: 8),
           ],
           bottom: TabBar(
+            isScrollable: true,
+            tabAlignment: TabAlignment.start,
             labelColor: Colors.indigo,
             unselectedLabelColor: Colors.grey,
             indicatorColor: Colors.indigo,
             tabs: [
-              Tab(text: 'Kişisel Bilgiler'),
-              Tab(text: 'Okul Bilgileri'),
-              Tab(text: 'Veli Bilgileri'),
-              Tab(text: 'Muhasebe'),
+              const Tab(text: 'Kişisel Bilgiler'),
+              const Tab(text: 'Okul Bilgileri'),
+              const Tab(text: 'Veli Bilgileri'),
+              if (showAccountingTab) const Tab(text: 'Muhasebe'),
             ],
           ),
         ),
@@ -3395,7 +3395,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
             _buildPersonalInfoTab(),
             _buildSchoolInfoTab(),
             _buildParentInfoTabNew(),
-            _buildAccountingTab(),
+            if (showAccountingTab) _buildAccountingTab(),
           ],
         ),
       ),
@@ -3403,104 +3403,23 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
   }
 
   Widget _buildAccountingTab() {
-    final studentId = _selectedStudentId;
-    if (studentId == null) return Container();
+    final studentId = _selectedStudent?['id'] ?? _selectedStudentId ?? '';
+    if (studentId.isEmpty) return Container();
 
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('payment_plans')
-          .where('studentId', isEqualTo: studentId)
-          .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) return Center(child: Text('Hata: ${snapshot.error}'));
-        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-
-        final plans = snapshot.data!.docs;
-
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8.0),
-                child: Text('Ödeme ve Taksit Takibi', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.indigo)),
-              ),
-              if (plans.isEmpty)
-                _buildNoPlanView()
-              else
-                ...plans.map((doc) => _buildPaymentPlanCard(doc.id, doc.data() as Map<String, dynamic>)).toList(),
-              const SizedBox(height: 100), // Action button space
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildNoPlanView() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(32),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
-      child: Column(
-        children: [
-          Icon(Icons.money_off, size: 64, color: Colors.grey.shade300),
-          const SizedBox(height: 16),
-          const Text('Kayıtlı ödeme planı bulunamadı', style: TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          const Text('Bu öğrenci için yeni bir ödeme planı oluşturun.', style: TextStyle(color: Colors.grey), textAlign: TextAlign.center),
-          const SizedBox(height: 24),
-          ElevatedButton.icon(
-            onPressed: () => _showPaymentPlanRobot(),
-            icon: const Icon(Icons.smart_toy),
-            label: const Text('Ödeme Planı Robotunu Başlat'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPaymentPlanCard(String planId, Map<String, dynamic> data) {
-    final installments = List<dynamic>.from(data['installments'] ?? []);
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      child: ExpansionTile(
-        title: Text('${data['name'] ?? 'Eğitim Ödemesi'}', style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text('Öğrenci Borç Takibi'),
-        children: [
-          ...installments.map((inst) {
-            final instData = inst as Map<String, dynamic>;
-            final isPaid = instData['status'] == 'paid';
-            return ListTile(
-              leading: Icon(isPaid ? Icons.check_circle : Icons.pending_actions, color: isPaid ? Colors.green : Colors.orange),
-              title: Text('Taksit: ${instData['amount']} ₺'),
-              subtitle: Text('Vade: ${instData['dueDate']}'),
-            );
-          }).toList(),
-        ],
-      ),
-    );
-  }
-
-  void _showPaymentPlanRobot() {
-    showDialog(
-      context: context, 
-      builder: (context) => AlertDialog(
-        title: const Text('Ödeme Planı Robotu'),
-        content: const Text('Bu robot seçili öğrenci için ödeme planı oluşturmanıza yardımcı olur.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Kapat')),
-        ]
-      )
+    return StudentPaymentPlanWidget(
+      key: ValueKey('student_accounting_$studentId'),
+      studentId: studentId,
+      studentData: _selectedStudent,
+      institutionId: _institutionId ?? _selectedStudent?['institutionId'],
     );
   }
 
 
   // Kişisel Bilgiler Tab
   Widget _buildPersonalInfoTab() {
+    final isMobile = MediaQuery.of(context).size.width <= 900;
     return SingleChildScrollView(
-      padding: EdgeInsets.all(16),
+      padding: EdgeInsets.symmetric(horizontal: isMobile ? 6 : 16, vertical: 10),
       child: Column(
         children: [
           _buildInfoCard(
@@ -3647,8 +3566,9 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
 
   // Okul Bilgileri Tab
   Widget _buildSchoolInfoTab() {
+    final isMobile = MediaQuery.of(context).size.width <= 900;
     return SingleChildScrollView(
-      padding: EdgeInsets.all(16),
+      padding: EdgeInsets.symmetric(horizontal: isMobile ? 6 : 16, vertical: 10),
       child: Column(
         children: [
           _buildInfoCard(
@@ -3726,10 +3646,12 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
   // Veli Bilgileri Tab
   Widget _buildParentInfoTabNew() {
     final parents = _selectedStudent?['parents'] as List? ?? [];
+    final isMobile = MediaQuery.of(context).size.width <= 900;
 
     return SingleChildScrollView(
-      padding: EdgeInsets.all(16),
+      padding: EdgeInsets.symmetric(horizontal: isMobile ? 6 : 16, vertical: 10),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // Veli Ekle Butonu
           Card(
@@ -3824,6 +3746,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
         side: BorderSide(color: Colors.grey.shade200),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Başlık
           Container(
@@ -3899,18 +3822,52 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
               ],
             ),
           ),
-          // İçerik
+          // İçerik (Sola yaslı ve düzenli görünüm)
           Padding(
             padding: EdgeInsets.all(16),
-            child: Column(
-              children: [
-                _buildInfoRow('TC Kimlik No:', parent['tcNo'] ?? '-'),
-                _buildInfoRow('Telefon:', phone),
-                _buildInfoRow('E-posta:', email),
-                _buildInfoRow('Adres:', parent['address'] ?? '-'),
-                _buildInfoRow('Meslek:', parent['occupation'] ?? '-'),
-                _buildInfoRow('İş Yeri:', parent['workplace'] ?? '-'),
-              ],
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final isMobile = constraints.maxWidth < 600;
+                if (isMobile) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildInfoRow('TC Kimlik No:', parent['tcNo'] ?? '-'),
+                      _buildInfoRow('Telefon:', phone),
+                      _buildInfoRow('E-posta:', email),
+                      _buildInfoRow('Adres:', parent['address'] ?? '-'),
+                      _buildInfoRow('Meslek:', parent['occupation'] ?? '-'),
+                      _buildInfoRow('İş Yeri:', parent['workplace'] ?? '-'),
+                    ],
+                  );
+                }
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildInfoRow('TC Kimlik No:', parent['tcNo'] ?? '-'),
+                          _buildInfoRow('Telefon:', phone),
+                          _buildInfoRow('E-posta:', email),
+                        ],
+                      ),
+                    ),
+                    SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildInfoRow('Adres:', parent['address'] ?? '-'),
+                          _buildInfoRow('Meslek:', parent['occupation'] ?? '-'),
+                          _buildInfoRow('İş Yeri:', parent['workplace'] ?? '-'),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
         ],
@@ -6439,27 +6396,36 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
     return term['name'];
   }
 
-  // Bilgi satırı
+  // Bilgi satırı (Mobilde alt alta, ferah ve modern görünüm)
   Widget _buildInfoRow(String label, String value) {
-    return Padding(
-      padding: EdgeInsets.only(bottom: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 140,
-            child: Text(
-              label,
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+    final cleanLabel = label.endsWith(':') ? label.substring(0, label.length - 1) : label;
+    final showValue = value.isNotEmpty ? value : '-';
+    return SizedBox(
+      width: double.infinity,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              cleanLabel,
+              style: TextStyle(
+                color: Colors.grey.shade600,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
             ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+            const SizedBox(height: 2),
+            Text(
+              showValue,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF1E293B),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

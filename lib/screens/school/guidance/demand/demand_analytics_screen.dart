@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../../models/guidance/demand_model.dart';
 import '../../../../services/guidance/demand_service.dart';
+import 'package:edukn/widgets/safe_stream_builder.dart';
 
 class DemandAnalyticsScreen extends StatefulWidget {
   final String institutionId;
@@ -86,7 +87,7 @@ class _DemandAnalyticsScreenState extends State<DemandAnalyticsScreen> {
         children: [
           if (widget.showAllSchoolTypes) _buildSchoolTypeFilter(),
           Expanded(
-            child: StreamBuilder<List<DemandModel>>(
+            child: SafeStreamBuilder<List<DemandModel>>(
               stream: _demandService.streamDemands(
                 institutionId: widget.institutionId,
                 schoolTypeId: _selectedSchoolTypeId,

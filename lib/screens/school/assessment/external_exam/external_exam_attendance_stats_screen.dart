@@ -10,6 +10,7 @@ import 'package:printing/printing.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'dart:async';
+import 'package:edukn/widgets/safe_stream_builder.dart';
 
 class ExternalExamAttendanceStatsScreen extends StatefulWidget {
   final ExternalExam exam;
@@ -303,7 +304,7 @@ class _ExternalExamAttendanceStatsScreenState extends State<ExternalExamAttendan
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<ExternalExamRegistration>>(
+    return SafeStreamBuilder<List<ExternalExamRegistration>>(
       stream: _registrationsStream,
       initialData: widget.allRegistrations,
       builder: (context, snapshot) {

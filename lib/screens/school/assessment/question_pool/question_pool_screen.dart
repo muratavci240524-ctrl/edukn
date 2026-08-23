@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../services/assessment_service.dart';
+import 'package:edukn/widgets/safe_stream_builder.dart';
 
 // ─── Models ───────────────────────────────────────────────────────────────────
 
@@ -182,7 +183,7 @@ class _QuestionPoolScreenState extends State<QuestionPoolScreen> {
       );
 
   Widget _buildTestsTab() {
-    return StreamBuilder<QuerySnapshot>(
+    return SafeStreamBuilder<QuerySnapshot>(
       stream: _testsStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -212,7 +213,7 @@ class _QuestionPoolScreenState extends State<QuestionPoolScreen> {
   }
 
   Widget _buildPoolTab() {
-    return StreamBuilder<QuerySnapshot>(
+    return SafeStreamBuilder<QuerySnapshot>(
       stream: _assessmentService.getGlobalQuestionsPool(widget.institutionId),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -1075,7 +1076,7 @@ class _TestCreationWizardState extends State<_TestCreationWizard>
 
   // ── Step 4: Soru Seçimi ─────────────────────────────────────────────────────
   Widget _buildStep4() {
-    return StreamBuilder<QuerySnapshot>(
+    return SafeStreamBuilder<QuerySnapshot>(
       stream: AssessmentService().getGlobalQuestionsPool(widget.institutionId),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {

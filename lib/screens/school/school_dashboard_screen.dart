@@ -272,6 +272,15 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
           print('ℹ️ Admin kullanıcısı - Tüm yetkiler var');
         }
 
+        // Rol şablonunu yükle
+        if (currentUserData != null && data != null) {
+          final userRole = (currentUserData['role'] ?? 'ogretmen').toString().toLowerCase();
+          final instId = (data['institutionId'] ?? '').toString();
+          if (instId.isNotEmpty) {
+            await UserPermissionService.loadAndCacheRoleTemplate(instId, userRole);
+          }
+        }
+
         setState(() {
           schoolData = data;
           userData = currentUserData;
@@ -300,58 +309,27 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
 
   // Modül kontrolü - Kullanıcının bu modüle erişimi var mı?
   bool _hasModuleAccess(String moduleKey) {
-    // Önce okulda bu modül aktif mi kontrol et
     if (schoolData == null) return false;
-    final activeModules = schoolData!['activeModules'] as List<dynamic>? ?? [];
-
-    // Okulda modül aktif değilse, kimse erişemez
-    if (!activeModules.contains(moduleKey)) {
-      print('⚠️ Modül okulda aktif değil: $moduleKey');
-      return false;
+    
+    final role = userData?['role']?.toString().toLowerCase() ?? '';
+    final isTopAdmin = role == 'admin' || role == 'genel_mudur' || role == 'genel müdür' || role == 'genel mudur';
+    
+    // Genel müdür / admin dışındakiler için activeModules kontrolü
+    if (!isTopAdmin) {
+      final activeModules = schoolData!['activeModules'] as List<dynamic>? ?? [];
+      if (activeModules.isNotEmpty && !activeModules.contains(moduleKey)) {
+        return false;
+      }
     }
 
-    // Admin kullanıcısı (userData yok) - Okulda aktif olan her modüle erişebilir
-    if (userData == null) {
-      return true;
-    }
-
-    // Normal kullanıcı - modulePermissions kontrol et
-    final modulePerms = userData!['modulePermissions'] as Map<String, dynamic>?;
-    if (modulePerms == null) {
-      print('⚠️ Kullanıcının modül yetkisi yok');
-      return false;
-    }
-
-    final modulePerm = modulePerms[moduleKey] as Map<String, dynamic>?;
-    if (modulePerm == null) {
-      print('⚠️ Kullanıcının $moduleKey modülüne yetkisi yok');
-      return false;
-    }
-
-    // Modül kullanıcı için aktif mi?
-    final hasAccess = modulePerm['enabled'] == true;
-    if (!hasAccess) {
-      print('⚠️ Kullanıcı için $moduleKey modülü pasif');
-    }
-    return hasAccess;
+    // Yetki kontrolü (kişisel + rol şablonu fallback)
+    return UserPermissionService.hasModuleAccess(moduleKey, userData);
   }
 
   // Düzenleme yetkisi var mı? (viewer ise false, editor ise true)
   bool _canEdit(String moduleKey) {
-    // Önce modüle erişimi var mı kontrol et
     if (!_hasModuleAccess(moduleKey)) return false;
-
-    // Admin - Her zaman düzenleyebilir
-    if (userData == null) return true;
-
-    final modulePerms = userData!['modulePermissions'] as Map<String, dynamic>?;
-    if (modulePerms == null) return false;
-
-    final modulePerm = modulePerms[moduleKey] as Map<String, dynamic>?;
-    if (modulePerm == null) return false;
-
-    // level: 'editor' ise true, 'viewer' ise false
-    return modulePerm['level'] == 'editor';
+    return UserPermissionService.canEdit(moduleKey, userData);
   }
 
   // Okul türü yetkisi var mı?
@@ -989,8 +967,8 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
                 ),
               // Kullanıcı Ekle (Admin her zaman görebilir)
               if ((userData == null) ||
-                  (_hasModuleAccess('kullanici_yonetimi') &&
-                      _canEdit('kullanici_yonetimi')))
+                  (_hasModuleAccess('sistem_ayarlari') &&
+                      UserPermissionService.canEditSubModule('sistem_ayarlari', 'kullanici_yonetimi', userData)))
                 PopupMenuItem(
                   value: 'add-user',
                   child: Row(
@@ -1005,8 +983,8 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
                     ],
                   ),
                 ),
-              if (_hasModuleAccess('kullanici_yonetimi') &&
-                  _canEdit('kullanici_yonetimi'))
+              if (_hasModuleAccess('sistem_ayarlari') &&
+                  UserPermissionService.canEditSubModule('sistem_ayarlari', 'kullanici_yonetimi', userData))
                 PopupMenuDivider(),
               PopupMenuItem(
                 value: 'logout',

@@ -8,7 +8,8 @@ import 'dart:async';
 import 'package:excel/excel.dart' as excel_pkg;
 import 'package:file_picker/file_picker.dart';
 import 'package:file_saver/file_saver.dart';
-import 'dart:typed_data';
+import 'dart:typed_data';import 'package:edukn/widgets/safe_stream_builder.dart';
+
 
 class BookManagementScreen extends StatefulWidget {
   final String institutionId;
@@ -1005,7 +1006,7 @@ class _BookManagementScreenState extends State<BookManagementScreen>
   }
 
   Widget _buildAssignmentListForBook(String bookId) {
-    return StreamBuilder<QuerySnapshot>(
+    return SafeStreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('book_assignments')
           .where('institutionId', isEqualTo: widget.institutionId)

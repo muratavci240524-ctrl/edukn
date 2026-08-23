@@ -78,7 +78,7 @@ class CallService {
     }
 
     // 📞 Arayan kişi de başka bir görüşmede mi? (Çift yönlü kontrol)
-    final callerBusy = await isUserBusy(uid);
+    final callerBusy = await isUserBusy(uid, isInitiator: true);
     if (callerBusy != null) {
       debugPrint('📵 Arayan kişi zaten görüşmede ($callerBusy)');
       throw CallBusyException(
@@ -158,9 +158,9 @@ class CallService {
 
   /// 📵 Kullanıcının aktif bir görüşmesi var mı kontrol et
   /// Dönüş: null = müsait, String = meşgul durumu açıklaması
-  Future<String?> isUserBusy(String userId) async {
+  Future<String?> isUserBusy(String userId, {bool isInitiator = false}) async {
     try {
-      // Kullanıcı arayan mı? (caller olarak aktif arama)
+      // 1. Kullanıcı arayan (caller) pozisyonunda mı?
       final callerCalls = await _firestore
           .collection('calls')
           .where('callerId', isEqualTo: userId)
@@ -169,33 +169,33 @@ class CallService {
           .get();
 
       if (callerCalls.docs.isNotEmpty) {
-        final callData = callerCalls.docs.first.data();
+        final doc = callerCalls.docs.first;
+        final callData = doc.data();
         final createdAt = callData['createdAt'] as dynamic;
         
-        // 60 saniyeden eski "ringing" aramaları otomatik sonlandır (asılı kalmayı önle)
-        if (callData['status'] == 'ringing' && createdAt != null) {
-          DateTime callTime;
-          if (createdAt is DateTime) {
-            callTime = createdAt;
-          } else if (createdAt.toDate != null) {
-            callTime = createdAt.toDate();
-          } else {
-            callTime = DateTime.now();
-          }
+        DateTime callTime = DateTime.now();
+        if (createdAt != null) {
+          if (createdAt is DateTime) callTime = createdAt;
+          else if (createdAt.toDate != null) callTime = createdAt.toDate();
+        }
+
+        final secondsOld = DateTime.now().difference(callTime).inSeconds;
+
+        // EĞER ARAMAYI BAŞLATAN KİŞİ KENDİSİYSE (Yeni arama tuşuna bastıysa), eski takılı aramayı acımadan kapat!
+        // VEYA arama 'ringing' ise ve 60 saniyeden eskiyse
+        // VEYA arama 'accepted' ise ve 4 saatten (14400 sn) eskiyse (unutulmuş arama)
+        if (isInitiator || 
+           (callData['status'] == 'ringing' && secondsOld > 60) ||
+           (callData['status'] == 'accepted' && secondsOld > 14400)) {
           
-          if (DateTime.now().difference(callTime).inSeconds > 60) {
-            // Eski asılı kalmış arama, otomatik temizle
-            await _firestore.collection('calls').doc(callerCalls.docs.first.id).update({
-              'status': 'ended',
-            });
-            return null; // Müsait
-          }
+          await _firestore.collection('calls').doc(doc.id).update({'status': 'ended'});
+          return null; // Müsait kılındı
         }
         
         return 'Arayan olarak görüşmede';
       }
 
-      // Kullanıcı aranan mı? (receiver olarak aktif arama)
+      // 2. Kullanıcı aranan (receiver) pozisyonunda mı?
       final receiverCalls = await _firestore
           .collection('calls')
           .where('receiverId', isEqualTo: userId)
@@ -204,26 +204,26 @@ class CallService {
           .get();
 
       if (receiverCalls.docs.isNotEmpty) {
-        final callData = receiverCalls.docs.first.data();
+        final doc = receiverCalls.docs.first;
+        final callData = doc.data();
         final createdAt = callData['createdAt'] as dynamic;
         
-        // 60 saniyeden eski "ringing" aramaları otomatik sonlandır
-        if (callData['status'] == 'ringing' && createdAt != null) {
-          DateTime callTime;
-          if (createdAt is DateTime) {
-            callTime = createdAt;
-          } else if (createdAt.toDate != null) {
-            callTime = createdAt.toDate();
-          } else {
-            callTime = DateTime.now();
-          }
+        DateTime callTime = DateTime.now();
+        if (createdAt != null) {
+          if (createdAt is DateTime) callTime = createdAt;
+          else if (createdAt.toDate != null) callTime = createdAt.toDate();
+        }
+
+        final secondsOld = DateTime.now().difference(callTime).inSeconds;
+
+        // EĞER ARAMAYI BAŞLATAN KİŞİ KENDİSİYSE (Kendi kendine yeni arama başlatıyorsa), eski takılı aramayı kapat!
+        // VEYA ringing > 60s, VEYA accepted > 4 hours
+        if (isInitiator || 
+           (callData['status'] == 'ringing' && secondsOld > 60) ||
+           (callData['status'] == 'accepted' && secondsOld > 14400)) {
           
-          if (DateTime.now().difference(callTime).inSeconds > 60) {
-            await _firestore.collection('calls').doc(receiverCalls.docs.first.id).update({
-              'status': 'ended',
-            });
-            return null; // Müsait
-          }
+          await _firestore.collection('calls').doc(doc.id).update({'status': 'ended'});
+          return null; // Müsait kılındı
         }
         
         return 'Aranan olarak görüşmede';
@@ -246,7 +246,13 @@ class CallService {
       if (role == 'genel_mudur' || role == 'genel mudur' || title.toLowerCase().contains('genel müdür') || title.toLowerCase().contains('genel mudur')) {
         return 'GENEL MÜDÜR';
       }
-      if (role == 'mudur' || role == 'müdür' || role == 'manager' || role == 'school_manager' || title.toLowerCase().contains('müdür')) {
+      if (role.contains('mudur_yardimcisi') || role.contains('müdür yardımcısı') || role.contains('muduryardimcisi') || (role.contains('mudur') && role.contains('yardimci')) || (role.contains('müdür') && role.contains('yardımcı'))) {
+        return 'MÜDÜR YARDIMCISI';
+      }
+      if (title.toLowerCase().contains('mudur_yardimcisi') || title.toLowerCase().contains('müdür yardımcısı') || title.toLowerCase().contains('muduryardimcisi') || (title.toLowerCase().contains('mudur') && title.toLowerCase().contains('yardimci')) || (title.toLowerCase().contains('müdür') && title.toLowerCase().contains('yardımcı'))) {
+        return 'MÜDÜR YARDIMCISI';
+      }
+      if (role == 'mudur' || role == 'müdür' || role == 'manager' || role == 'school_manager' || title.toLowerCase().contains('müdür') || title.toLowerCase().contains('mudur')) {
         return 'MÜDÜR';
       }
       if (userType == 'teacher' || role == 'ogretmen' || role == 'öğretmen' || role == 'teacher') {
@@ -265,6 +271,7 @@ class CallService {
     final lower = rawRole.toLowerCase().trim();
 
     if (lower.contains('genel müdür') || lower.contains('genel_mudur') || lower == 'genel mudur') return 'GENEL MÜDÜR';
+    if (lower.contains('mudur_yardimcisi') || lower.contains('müdür yardımcısı') || lower.contains('muduryardimcisi') || (lower.contains('mudur') && lower.contains('yardimci')) || (lower.contains('müdür') && lower.contains('yardımcı'))) return 'MÜDÜR YARDIMCISI';
     if (lower.contains('müdür') || lower.contains('mudur') || lower == 'manager' || lower == 'school_manager') return 'MÜDÜR';
     if (lower.contains('öğretmen') || lower.contains('ogretmen') || lower == 'teacher') return 'ÖĞRETMEN';
     if (lower.contains('öğrenci') || lower.contains('ogrenci') || lower == 'student') return 'ÖĞRENCİ';

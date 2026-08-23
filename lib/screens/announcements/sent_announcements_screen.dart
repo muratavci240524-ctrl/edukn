@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/announcement_service.dart';
 import 'announcement_detail_screen.dart';
+import 'package:edukn/widgets/safe_stream_builder.dart';
 
 class SentAnnouncementsScreen extends StatefulWidget {
   const SentAnnouncementsScreen({super.key});
@@ -250,7 +251,7 @@ class _SentAnnouncementsScreenState extends State<SentAnnouncementsScreen> {
               const SizedBox(height: 16),
               // Duyuru Listesi
               Expanded(
-                child: StreamBuilder<QuerySnapshot>(
+                child: SafeStreamBuilder<QuerySnapshot>(
                   stream: _getSentAnnouncements(),
                   builder: (context, snapshot) {
                     if (snapshot.connectionState == ConnectionState.waiting) {

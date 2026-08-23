@@ -78,13 +78,16 @@ class CampAssignmentEngine {
     List<CampAssignment>? mevcutAtamalar,
     bool highSuccessSoruCozumActive = true,
     double highSuccessSoruCozumThreshold = 0.95,
+    Map<String, Map<String, int>> dersBazliSaatSinirlari = const {},
+    bool dersBazliZorlaAtama = true,
   }) async {
     final Set<String> disabledGroupIds = {};
     CampDraftResult? finalResult;
 
     // Maksimum 10 iterasyon (AGM Assignment Engine logic)
     for (int iter = 0; iter < 10; iter++) {
-      final passResult = _runPass(
+      // İlk çalıştırma
+      CampDraftResult bestPass = _runPass(
         ogrenciProfiller: ogrenciProfiller,
         gruplar: gruplar,
         disabledGroupIds: disabledGroupIds,
@@ -97,7 +100,45 @@ class CampAssignmentEngine {
         mevcutAtamalar: mevcutAtamalar,
         highSuccessSoruCozumActive: highSuccessSoruCozumActive,
         highSuccessSoruCozumThreshold: highSuccessSoruCozumThreshold,
+        dersBazliSaatSinirlari: dersBazliSaatSinirlari,
+        dersBazliZorlaAtama: dersBazliZorlaAtama,
       );
+
+      // Eğer ders bazlı modda eksik kalan varsa veya homojenliği artırmak için farklı stratejileri dene
+      if (dersBazliSaatSinirlari.isNotEmpty) {
+        final List<double> candidatePenalties = [0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.35, 0.5];
+        for (final p in candidatePenalties) {
+          final cand = _runPass(
+            ogrenciProfiller: ogrenciProfiller,
+            gruplar: gruplar,
+            disabledGroupIds: disabledGroupIds,
+            esikBasariOrani: esikBasariOrani,
+            sadeceDusukBasari: sadeceDusukBasari,
+            specialClassCriteria: specialClassCriteria,
+            dersBazliEsikler: dersBazliEsikler,
+            gecmisKatilimlar: gecmisKatilimlar,
+            penaltyMultiplier: p,
+            mevcutAtamalar: mevcutAtamalar,
+            highSuccessSoruCozumActive: highSuccessSoruCozumActive,
+            highSuccessSoruCozumThreshold: highSuccessSoruCozumThreshold,
+            dersBazliSaatSinirlari: dersBazliSaatSinirlari,
+            dersBazliZorlaAtama: dersBazliZorlaAtama,
+          );
+
+          final bestUnplaced = bestPass.eksikAtananOgrenciIds.length + bestPass.yerlesmeyenOgrenciIds.length;
+          final candUnplaced = cand.eksikAtananOgrenciIds.length + cand.yerlesmeyenOgrenciIds.length;
+
+          if (candUnplaced < bestUnplaced) {
+            bestPass = cand;
+            if (candUnplaced == 0) break; // Kusursuz %100 yerleşim bulundu!
+          } else if (candUnplaced == bestUnplaced && candUnplaced == 0) {
+            bestPass = cand;
+            break;
+          }
+        }
+      }
+
+      final passResult = bestPass;
 
       if (minimumGrupOgrenciSayisi == null || minimumGrupOgrenciSayisi! <= 1) {
         finalResult = passResult;
@@ -180,9 +221,13 @@ class CampAssignmentEngine {
     List<CampAssignment>? mevcutAtamalar,
     bool highSuccessSoruCozumActive = true,
     double highSuccessSoruCozumThreshold = 0.95,
+    Map<String, Map<String, int>> dersBazliSaatSinirlari = const {},
+    bool dersBazliZorlaAtama = true,
   }) {
+    final bool dersBazliAktif = dersBazliSaatSinirlari.isNotEmpty;
     final Map<String, Set<String>> ogrenciDoluSlot = {};
     final Map<String, int> ogrenciSaatSayisi = {};
+    final Map<String, Map<String, int>> ogrenciDersSayisi = {}; // ogrenciId -> dersId -> atanma sayısı
     final Map<String, int> grupMevcut = {for (final g in gruplar) g.id: 0};
     final Map<String, List<String>> yerlesmemeNedenleri = {};
     final List<CampAssignment> atamalar = [];
@@ -193,6 +238,7 @@ class CampAssignmentEngine {
     final Map<String, Map<String, int>> grupKazanimFrekanslari = {for (final g in gruplar) g.id: {}};
 
     // 1. ÖZEL SINIF YERLEŞTİRMESİ
+    final Set<String> specialClassStudentIds = {};
     final specialGroups = gruplar.where((g) => g.isSpecial && !disabledGroupIds.contains(g.id)).toList();
     
     if (mevcutAtamalar != null && mevcutAtamalar.isNotEmpty) {
@@ -203,7 +249,10 @@ class CampAssignmentEngine {
           ogrenciDoluSlot.putIfAbsent(a.ogrenciId, () => {}).add(g.saatDilimiId);
           grupMevcut[g.id] = (grupMevcut[g.id] ?? 0) + 1;
           ogrenciSaatSayisi[a.ogrenciId] = (ogrenciSaatSayisi[a.ogrenciId] ?? 0) + 1;
-          if (g.isSpecial) grupKazanimFrekanslari[g.id]!['Soru Çözüm'] = 100;
+          if (g.isSpecial) {
+            grupKazanimFrekanslari[g.id]!['Soru Çözüm'] = 100;
+            specialClassStudentIds.add(a.ogrenciId);
+          }
         } catch(e) {}
       }
     } else if (specialGroups.isNotEmpty) {
@@ -223,6 +272,7 @@ class CampAssignmentEngine {
       final topStudents = basariliOgrenciler.take(capacity).toList();
       for (final profil in topStudents) {
         final ogrenciId = profil.ogrenciId;
+        specialClassStudentIds.add(ogrenciId);
         ogrenciDoluSlot.putIfAbsent(ogrenciId, () => {});
         ogrenciSaatSayisi.putIfAbsent(ogrenciId, () => 0);
 
@@ -231,6 +281,7 @@ class CampAssignmentEngine {
           atamalar.add(CampAssignment(
             id: '${cycleId}_${ogrenciId}_${g.id}',
             cycleId: cycleId,
+            institutionId: institutionId,
             groupId: g.id,
             groupName: g.dersAdi,
             ogrenciId: ogrenciId,
@@ -315,6 +366,9 @@ class CampAssignmentEngine {
 
       for (final profil in siralanmisProfiller) {
         final ogrenciId = profil.ogrenciId;
+        // Özel sınıfa atanmış öğrenciler normal branş gruplarına atanmaz
+        if (specialClassStudentIds.contains(ogrenciId)) continue;
+
         ogrenciDoluSlot.putIfAbsent(ogrenciId, () => {});
         ogrenciSaatSayisi.putIfAbsent(ogrenciId, () => 0);
         yerlesmemeNedenleri.putIfAbsent(ogrenciId, () => []);
@@ -322,6 +376,17 @@ class CampAssignmentEngine {
         final ogrenciGecmis = workingGecmisKatilimlar.putIfAbsent(ogrenciId, () => {});
         
         final siraliDersler = profil.dersIhtiyaclari.entries.toList()..sort((a, b) {
+          if (dersBazliAktif) {
+            // Ders bazlı modda henüz hedefine ulaşmamış ve en az atanmış derse öncelik ver
+            final countA = ogrenciDersSayisi[ogrenciId]?[a.key] ?? 0;
+            final countB = ogrenciDersSayisi[ogrenciId]?[b.key] ?? 0;
+            final minA = dersBazliSaatSinirlari[a.key]?['min'] ?? 0;
+            final minB = dersBazliSaatSinirlari[b.key]?['min'] ?? 0;
+            final needA = minA - countA;
+            final needB = minB - countB;
+            if (needA != needB) return needB.compareTo(needA); // İhtiyacı çok olan ders önce
+          }
+
           // Geçmiş katılım cezası hesapla (Eğer öğrenci daha önce bu derse atandıysa önceliği düşür)
           final pastA = ogrenciGecmis[a.key] ?? 0;
           final pastB = ogrenciGecmis[b.key] ?? 0;
@@ -340,11 +405,18 @@ class CampAssignmentEngine {
           final basariOrani = profil.dersBasariOranlari[dersId] ?? 0.0;
           final esik = dersBazliEsikler[dersId] ?? esikBasariOrani;
 
-          if (sadeceDusukBasari && basariOrani > esik) continue;
+          // Ders bazlı saat sınırı aktifken başarı filtresi devre dışı
+          if (!dersBazliAktif && sadeceDusukBasari && basariOrani > esik) continue;
 
           if (haftalikMaksimumSaat != null && ogrenciSaatSayisi[ogrenciId]! >= haftalikMaksimumSaat!) {
             yerlesmemeNedenleri[ogrenciId]!.add('$dersId: Maksimum saat limitine takıldı.');
             continue;
+          }
+
+          // Ders bazlı maksimum saat kontrolü
+          final maxSaat = dersBazliSaatSinirlari[dersId]?['max'];
+          if (maxSaat != null && (ogrenciDersSayisi[ogrenciId]?[dersId] ?? 0) >= maxSaat) {
+            continue; // Bu ders için max'a ulaştı, sessizce sonraki derse geç
           }
 
           final findResult = _findBestGroup(
@@ -356,6 +428,7 @@ class CampAssignmentEngine {
             grupTargetValues: grupTargetValue,
             ogrenciKazanimlar: profil.kazanimIhtiyaclari[dersId] ?? {},
             grupKazanimFrekanslari: grupKazanimFrekanslari,
+            grupBasarilari: grupBasarilari,
             disabledGroupIds: disabledGroupIds,
           );
 
@@ -364,6 +437,7 @@ class CampAssignmentEngine {
             atamalar.add(CampAssignment(
               id: '${cycleId}_${ogrenciId}_${g.id}',
               cycleId: cycleId,
+              institutionId: institutionId,
               groupId: g.id,
               groupName: '${g.dersId} - ${g.ogretmenAdi}',
               ogrenciId: ogrenciId,
@@ -378,6 +452,7 @@ class CampAssignmentEngine {
             ogrenciDoluSlot[ogrenciId]!.add(g.saatDilimiId);
             grupMevcut[g.id] = grupMevcut[g.id]! + 1;
             ogrenciSaatSayisi[ogrenciId] = ogrenciSaatSayisi[ogrenciId]! + 1;
+            ogrenciDersSayisi.putIfAbsent(ogrenciId, () => {})[dersId] = (ogrenciDersSayisi[ogrenciId]?[dersId] ?? 0) + 1;
             grupBasarilari.putIfAbsent(g.id, () => []).add(basariOrani);
             
             // Atandığı dersi geçmiş katılımlara anında ekle (Sonraki gün veya seansta ceza yesin)
@@ -396,11 +471,159 @@ class CampAssignmentEngine {
       }
     }
 
+    // ═══ DERS BAZLI MİNİMUM SAAT ZORLAMA PASS'I ═══
+    if (dersBazliAktif && dersBazliZorlaAtama) {
+      final allNonSpecialGroups = gruplar.where((g) => !g.isSpecial && !disabledGroupIds.contains(g.id)).toList();
+      for (final profil in ogrenciProfiller) {
+        final ogrenciId = profil.ogrenciId;
+        // Özel sınıfa atanmış öğrenciler minimum saat zorlama pass'ından muaf tutulur
+        if (specialClassStudentIds.contains(ogrenciId)) continue;
+
+        ogrenciDoluSlot.putIfAbsent(ogrenciId, () => {});
+        ogrenciSaatSayisi.putIfAbsent(ogrenciId, () => 0);
+        ogrenciDersSayisi.putIfAbsent(ogrenciId, () => {});
+        yerlesmemeNedenleri.putIfAbsent(ogrenciId, () => []);
+
+        for (final entry in dersBazliSaatSinirlari.entries) {
+          final dersId = entry.key;
+          final minSaat = entry.value['min'] ?? 0;
+          final maxSaat = entry.value['max'];
+          final atanmis = ogrenciDersSayisi[ogrenciId]?[dersId] ?? 0;
+
+          if (atanmis >= minSaat) continue; // Minimum zaten dolu
+
+          // Eksik olan saatleri doldurmaya çalış
+          final ihtiyac = minSaat - atanmis;
+          for (int i = 0; i < ihtiyac; i++) {
+            if (haftalikMaksimumSaat != null && ogrenciSaatSayisi[ogrenciId]! >= haftalikMaksimumSaat!) break;
+            if (maxSaat != null && (ogrenciDersSayisi[ogrenciId]?[dersId] ?? 0) >= maxSaat) break;
+
+            final basariOrani = profil.dersBasariOranlari[dersId] ?? 0.0;
+            var findResult = _findBestGroup(
+              dersId: dersId,
+              ogrenciBasariOrani: basariOrani,
+              ogrenciDoluSlot: ogrenciDoluSlot[ogrenciId]!,
+              gruplar: allNonSpecialGroups,
+              grupMevcut: grupMevcut,
+              grupTargetValues: grupTargetValue,
+              ogrenciKazanimlar: profil.kazanimIhtiyaclari[dersId] ?? {},
+              grupKazanimFrekanslari: grupKazanimFrekanslari,
+              grupBasarilari: grupBasarilari,
+              disabledGroupIds: disabledGroupIds,
+            );
+
+            // ── AKILLI SLOT SWAP (Yer Değiştirerek Yer Açma) ──
+            // Eğer doğrudan boş grup bulunamadıysa ama öğrencinin başka saatte kaydırılabilecek dersi varsa:
+            if (findResult.group == null) {
+              final studentAssigns = atamalar.where((a) => a.ogrenciId == ogrenciId && !specialClassStudentIds.contains(a.ogrenciId)).toList();
+              for (final existingA in studentAssigns) {
+                final existingG = allNonSpecialGroups.firstWhere((g) => g.id == existingA.groupId, orElse: () => allNonSpecialGroups.first);
+                // Bu ders için öğrencinin boş olduğu BAŞKA bir saat diliminde alternatif açık grup var mı?
+                final alternativeGroups = allNonSpecialGroups.where((altG) =>
+                  altG.id != existingG.id &&
+                  altG.dersId == existingG.dersId &&
+                  altG.saatDilimiId != existingG.saatDilimiId &&
+                  !ogrenciDoluSlot[ogrenciId]!.contains(altG.saatDilimiId) &&
+                  (grupMevcut[altG.id] ?? 0) < altG.kapasite
+                ).toList();
+
+                if (alternativeGroups.isNotEmpty) {
+                  final altG = alternativeGroups.first;
+                  // Geçici olarak mevcut dersi kaydıralım
+                  ogrenciDoluSlot[ogrenciId]!.remove(existingG.saatDilimiId);
+                  ogrenciDoluSlot[ogrenciId]!.add(altG.saatDilimiId);
+
+                  // Şimdi aradığımız eksik ders için bu boşalan saatte grup var mı kontrol edelim
+                  final testFind = _findBestGroup(
+                    dersId: dersId,
+                    ogrenciBasariOrani: basariOrani,
+                    ogrenciDoluSlot: ogrenciDoluSlot[ogrenciId]!,
+                    gruplar: allNonSpecialGroups,
+                    grupMevcut: grupMevcut,
+                    grupTargetValues: grupTargetValue,
+                    ogrenciKazanimlar: profil.kazanimIhtiyaclari[dersId] ?? {},
+                    grupKazanimFrekanslari: grupKazanimFrekanslari,
+                    grupBasarilari: grupBasarilari,
+                    disabledGroupIds: disabledGroupIds,
+                  );
+
+                  if (testFind.group != null) {
+                    // Başarılı swap! Eski atamayı güncelle
+                    atamalar.remove(existingA);
+                    grupMevcut[existingG.id] = (grupMevcut[existingG.id] ?? 1) - 1;
+
+                    atamalar.add(existingA.copyWith(
+                      groupId: altG.id,
+                      groupName: '${altG.dersId} - ${altG.ogretmenAdi}',
+                    ));
+                    grupMevcut[altG.id] = (grupMevcut[altG.id] ?? 0) + 1;
+
+                    findResult = testFind;
+                    break;
+                  } else {
+                    // Geri al
+                    ogrenciDoluSlot[ogrenciId]!.remove(altG.saatDilimiId);
+                    ogrenciDoluSlot[ogrenciId]!.add(existingG.saatDilimiId);
+                  }
+                }
+              }
+            }
+
+            if (findResult.group != null) {
+              final g = findResult.group!;
+              atamalar.add(CampAssignment(
+                id: '${cycleId}_${ogrenciId}_${g.id}_minforce',
+                cycleId: cycleId,
+                institutionId: institutionId,
+                groupId: g.id,
+                groupName: '${g.dersId} - ${g.ogretmenAdi}',
+                ogrenciId: ogrenciId,
+                ogrenciAdi: profil.ogrenciAdi,
+                sube: profil.subeAdi,
+                subeId: profil.subeId,
+                atamaTipi: CampAssignmentType.auto,
+                basariOrani: basariOrani,
+                ihtiyacSkoru: 0.0,
+              ));
+              ogrenciDoluSlot[ogrenciId]!.add(g.saatDilimiId);
+              grupMevcut[g.id] = (grupMevcut[g.id] ?? 0) + 1;
+              ogrenciSaatSayisi[ogrenciId] = (ogrenciSaatSayisi[ogrenciId] ?? 0) + 1;
+              ogrenciDersSayisi[ogrenciId]![dersId] = (ogrenciDersSayisi[ogrenciId]![dersId] ?? 0) + 1;
+              grupBasarilari.putIfAbsent(g.id, () => []).add(basariOrani);
+            } else {
+              yerlesmemeNedenleri[ogrenciId]!.add('$dersId: Min. saat zorlamasında uygun grup bulunamadı (${findResult.reason})');
+              break; // Bu ders için daha fazla denemeye gerek yok
+            }
+          }
+        }
+      }
+    }
+
     final List<String> eksikAtananIds = [];
     for (final profil in ogrenciProfiller) {
+      // Özel sınıfa yerleştirilmiş öğrenciler eksik veya yerleşmeyen sayılamaz
+      if (specialClassStudentIds.contains(profil.ogrenciId)) continue;
+
       final atananSayisi = atamalar.where((a) => a.ogrenciId == profil.ogrenciId).length;
-      if (atananSayisi == 0) yerlesmeyenIds.add(profil.ogrenciId);
-      else if (_minimumDersSayisi != null && atananSayisi < _minimumDersSayisi!) eksikAtananIds.add(profil.ogrenciId);
+      if (atananSayisi == 0) {
+        yerlesmeyenIds.add(profil.ogrenciId);
+      } else if (_minimumDersSayisi != null && atananSayisi < _minimumDersSayisi!) {
+        eksikAtananIds.add(profil.ogrenciId);
+      }
+      // Ders bazlı minimum saat kontrolü
+      if (dersBazliAktif && atananSayisi > 0) {
+        final dersAtamalari = ogrenciDersSayisi[profil.ogrenciId] ?? {};
+        for (final entry in dersBazliSaatSinirlari.entries) {
+          final minSaat = entry.value['min'] ?? 0;
+          final atanmis = dersAtamalari[entry.key] ?? 0;
+          if (atanmis < minSaat) {
+            if (!eksikAtananIds.contains(profil.ogrenciId)) eksikAtananIds.add(profil.ogrenciId);
+            yerlesmemeNedenleri.putIfAbsent(profil.ogrenciId, () => []).add(
+              '${entry.key}: Minimum $minSaat saat gerekli, $atanmis saat atandı.'
+            );
+          }
+        }
+      }
     }
 
     // 3. Grupları ve Kazanımları Güncelle
@@ -454,6 +677,7 @@ class CampAssignmentEngine {
                 atamalar.add(CampAssignment(
                   id: '${cycleId}_${ogrenciId}_${g.id}_fallback',
                   cycleId: cycleId,
+                  institutionId: institutionId,
                   groupId: g.id,
                   groupName: '${g.dersId} - ${g.ogretmenAdi}',
                   ogrenciId: ogrenciId,
@@ -499,13 +723,15 @@ class CampAssignmentEngine {
     required Map<String, double> grupTargetValues,
     required Set<String> ogrenciKazanimlar,
     required Map<String, Map<String, int>> grupKazanimFrekanslari,
+    required Map<String, List<double>> grupBasarilari,
     required Set<String> disabledGroupIds,
+    bool strictSpread = true,
   }) {
     final uygunGruplar = gruplar.where((g) => 
       !disabledGroupIds.contains(g.id) &&
       (g.dersId == dersId || g.dersAdi == dersId) && 
       !ogrenciDoluSlot.contains(g.saatDilimiId) && 
-      grupMevcut[g.id]! < g.kapasite
+      (grupMevcut[g.id] ?? 0) < g.kapasite
     ).toList();
 
     if (uygunGruplar.isEmpty) {
@@ -516,22 +742,64 @@ class CampAssignmentEngine {
     }
 
     uygunGruplar.sort((a, b) {
-      // 1. Seviye Uyumu (AGM gibi homojen gruplar için)
+      // 0. Homojenlik Kuralı: Grup içi min-max başarı farkı en fazla %50 olmalı!
+      final scoresA = grupBasarilari[a.id] ?? [];
+      final scoresB = grupBasarilari[b.id] ?? [];
+
+      double spreadA = 0.0;
+      if (scoresA.isNotEmpty) {
+        double minA = scoresA.first;
+        double maxA = scoresA.first;
+        for (final s in scoresA) {
+          if (s < minA) minA = s;
+          if (s > maxA) maxA = s;
+        }
+        final newMinA = ogrenciBasariOrani < minA ? ogrenciBasariOrani : minA;
+        final newMaxA = ogrenciBasariOrani > maxA ? ogrenciBasariOrani : maxA;
+        spreadA = newMaxA - newMinA;
+      }
+
+      double spreadB = 0.0;
+      if (scoresB.isNotEmpty) {
+        double minB = scoresB.first;
+        double maxB = scoresB.first;
+        for (final s in scoresB) {
+          if (s < minB) minB = s;
+          if (s > maxB) maxB = s;
+        }
+        final newMinB = ogrenciBasariOrani < minB ? ogrenciBasariOrani : minB;
+        final newMaxB = ogrenciBasariOrani > maxB ? ogrenciBasariOrani : maxB;
+        spreadB = newMaxB - newMinB;
+      }
+
+      // %50 (0.50) üstü fark cezalandırılır, %60 (0.60) üstü uç farklar en sona atılır
+      final aViolatesHard = spreadA > 0.60;
+      final bViolatesHard = spreadB > 0.60;
+      if (aViolatesHard != bViolatesHard) return aViolatesHard ? 1 : -1;
+
+      final aViolatesSoft = spreadA > 0.50;
+      final bViolatesSoft = spreadB > 0.50;
+      if (aViolatesSoft != bViolatesSoft) return aViolatesSoft ? 1 : -1;
+
+      // 1. Seviye Uyumu (Öğrencinin başarı yüzdesine en yakın seviye hedefli grup)
       final aTarget = grupTargetValues[a.id] ?? 0.5;
       final bTarget = grupTargetValues[b.id] ?? 0.5;
       final aDist = (aTarget - ogrenciBasariOrani).abs();
       final bDist = (bTarget - ogrenciBasariOrani).abs();
       if ((aDist - bDist).abs() > 0.05) return aDist.compareTo(bDist);
 
-      // 2. Kazanım Uyumu
+      // 2. Homojenlik Spread Karşılaştırması (Grup içi fark ne kadar azsa o kadar iyi)
+      if ((spreadA - spreadB).abs() > 0.08) return spreadA.compareTo(spreadB);
+
+      // 3. Kazanım Uyumu
       final aK = (grupKazanimFrekanslari[a.id] ?? {}).keys.toSet();
       final bK = (grupKazanimFrekanslari[b.id] ?? {}).keys.toSet();
       final aMatch = ogrenciKazanimlar.intersection(aK).length;
       final bMatch = ogrenciKazanimlar.intersection(bK).length;
       if (aMatch != bMatch) return bMatch.compareTo(aMatch);
 
-      // 3. Doluluk Dengesi
-      return grupMevcut[a.id]!.compareTo(grupMevcut[b.id]!);
+      // 4. Doluluk Dengesi
+      return (grupMevcut[a.id] ?? 0).compareTo(grupMevcut[b.id] ?? 0);
     });
 
     return _FindResult(uygunGruplar.first, '');
@@ -565,6 +833,7 @@ class CampAssignmentEngine {
         atamalar.add(CampAssignment(
           id: '${cycleId}_${profil.ogrenciId}_${g.id}',
           cycleId: cycleId,
+          institutionId: institutionId,
           groupId: g.id,
           groupName: g.dersAdi,
           ogrenciId: profil.ogrenciId,

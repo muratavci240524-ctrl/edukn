@@ -4,7 +4,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../../../models/activity/activity_model.dart';
 import '../../../../models/survey_model.dart'; // For SurveyQuestion
 import '../../../../services/activity_service.dart';
-import '../../../../models/class_model.dart';
+import '../../../../models/class_model.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+
 
 class ActivityFormScreen extends StatefulWidget {
   final String institutionId;
@@ -954,7 +955,7 @@ class _StudentMultiSelectState extends State<StudentMultiSelect> {
           ),
         ),
         Expanded(
-          child: StreamBuilder<QuerySnapshot>(
+          child: SafeStreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance
                 .collection('students')
                 .where('institutionId', isEqualTo: widget.institutionId)

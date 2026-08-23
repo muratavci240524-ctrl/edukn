@@ -2,7 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../models/school/homework_model.dart';
-import 'homework_detail_screen.dart';
+import 'homework_detail_screen.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+
 
 class HomeworkListTab extends StatefulWidget {
   final String institutionId;
@@ -23,7 +24,7 @@ class HomeworkListTab extends StatefulWidget {
 class _HomeworkListTabState extends State<HomeworkListTab> {
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
+    return SafeStreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('homeworks')
           .where('institutionId', isEqualTo: widget.institutionId)

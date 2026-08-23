@@ -11,6 +11,7 @@ import '../../announcements/create_announcement_screen_v2.dart';
 import '../../announcements/sent_announcements_screen.dart';
 import '../../announcements/announcement_detail_screen.dart';
 import '../../announcements/announcement_card.dart';
+import 'package:edukn/widgets/safe_stream_builder.dart';
 
 class SchoolTypeAnnouncementsScreen extends StatefulWidget {
   final String schoolTypeId;
@@ -501,7 +502,7 @@ class _SchoolTypeAnnouncementsScreenState
 
             // Duyuru Listesi
             Expanded(
-              child: StreamBuilder<QuerySnapshot>(
+              child: SafeStreamBuilder<QuerySnapshot>(
                     stream: _announcementService.getAnnouncements(),
                     builder: (context, snapshot) {
                       if (_isLoadingPermissions || snapshot.connectionState == ConnectionState.waiting) {

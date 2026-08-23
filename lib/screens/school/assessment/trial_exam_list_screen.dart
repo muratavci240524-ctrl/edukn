@@ -6,7 +6,8 @@ import '../../../../services/assessment_service.dart';
 import '../../../../services/user_permission_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'trial_exam_form.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:google_fonts/google_fonts.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+
 
 
 class TrialExamListScreen extends StatefulWidget {
@@ -326,7 +327,7 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
                 ),
               ),
               Spacer(),
-              StreamBuilder<List<TrialExam>>(
+              SafeStreamBuilder<List<TrialExam>>(
                 stream: _getStream(),
                 builder: (context, snapshot) {
                   final count = snapshot.hasData ? snapshot.data!.length : 0;
@@ -400,7 +401,7 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
   }
 
   Widget _buildList({required bool isMobile}) {
-    return StreamBuilder<List<TrialExam>>(
+    return SafeStreamBuilder<List<TrialExam>>(
       stream: _getStream(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {

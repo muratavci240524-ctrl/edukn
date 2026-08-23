@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
-import '../../models/survey_model.dart';
+import '../../models/survey_model.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+
 import '../school/survey/survey_stats_screen.dart'; // To view results
 
 class GuidanceTestHistoryScreen extends StatelessWidget {
@@ -23,7 +24,7 @@ class GuidanceTestHistoryScreen extends StatelessWidget {
       appBar: AppBar(
         title: Text('Geçmiş Paylaşımlar', style: GoogleFonts.inter()),
       ),
-      body: StreamBuilder<QuerySnapshot>(
+      body: SafeStreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('surveys')
             .where('institutionId', isEqualTo: institutionId)

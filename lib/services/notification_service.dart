@@ -6,12 +6,71 @@ import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'web_notification/web_notification.dart' if (dart.library.html) 'web_notification/web_notification_web.dart';
 
-/// Uygulama açıkken gelen arka plan mesajlarını işler (top-level function gerekiyor)
+import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
+import 'package:flutter_callkit_incoming/entities/entities.dart';
+
+/// Uygulama kapalıyken veya arka plandayken gelen mesajları işler
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  // Arka planda mesaj geldiğinde Firestore'a zaten Cloud Function yazmış olacak.
-  // Burada ekstra işlem gerekmez.
   debugPrint('📬 Arka plan mesajı: ${message.messageId}');
+  
+  final type = message.data['type'] ?? 'general';
+  
+  if (type == 'call_ended' && !kIsWeb) {
+    debugPrint('🛑 Arama sonlandı sinyali alındı, çağrı kapatılıyor.');
+    await FlutterCallkitIncoming.endAllCalls();
+    return;
+  }
+  
+  final isCall = message.data['isCall'] == 'true' || type == 'call';
+  
+  if (isCall && !kIsWeb) {
+    final title = message.data['title'] ?? 'Gelen Arama';
+    final body = message.data['body'] ?? '';
+    final callerName = message.data['callerName'] ?? title.replaceAll('📹 ', '').replaceAll('📞 ', '');
+    
+    final callParams = CallKitParams(
+      id: message.data['entityId'] ?? message.messageId ?? 'unknown_call',
+      nameCaller: callerName,
+      appName: 'eduKN',
+      avatar: 'https://i.pravatar.cc/100', // Opsiyonel avatar URL'si
+      handle: body,
+      type: 0,
+      duration: 30000,
+      missedCallNotification: const NotificationParams(
+        showNotification: true,
+        isShowCallback: true,
+        subtitle: 'Cevapsız Arama',
+        callbackText: 'Geri Ara',
+      ),
+      extra: <String, dynamic>{'route': message.data['route']},
+      android: const AndroidParams(
+        isCustomNotification: true,
+        isShowLogo: false,
+        ringtonePath: '', // Boş bırakınca sistemin varsayılan çalma sesine döner
+        backgroundColor: '#0955fa',
+        backgroundUrl: 'assets/test.png',
+        actionColor: '#4CAF50',
+      ),
+      ios: const IOSParams(
+        iconName: 'CallKitLogo',
+        handleType: 'generic',
+        supportsVideo: true,
+        maximumCallGroups: 2,
+        maximumCallsPerCallGroup: 1,
+        audioSessionMode: 'default',
+        audioSessionActive: true,
+        audioSessionPreferredSampleRate: 44100.0,
+        audioSessionPreferredIOBufferDuration: 0.005,
+        supportsDTMF: true,
+        supportsHolding: true,
+        supportsGrouping: false,
+        supportsUngrouping: false,
+        ringtonePath: 'system_ringtone_default',
+      ),
+    );
+    await FlutterCallkitIncoming.showCallkitIncoming(callParams);
+  }
 }
 
 class NotificationService {
@@ -116,51 +175,63 @@ class NotificationService {
       final title = message.notification?.title ?? message.data['title'] ?? 'Yeni Bildirim';
       final body = message.notification?.body ?? message.data['body'] ?? '';
       final type = message.data['type'] ?? 'general';
+      
+      if (type == 'call_ended' && !kIsWeb) {
+        debugPrint('🛑 Arama sonlandı sinyali alındı (Foreground), çağrı kapatılıyor.');
+        FlutterCallkitIncoming.endAllCalls();
+        return;
+      }
+      
       final isCall = message.data['isCall'] == 'true' || type == 'call';
 
       if (kIsWeb) {
         showWebNotification(title, body);
       } else {
         if (isCall) {
-          // 📞 Arama bildirimi: Özel kanal + Yanıtla/Reddet butonları
-          _localNotifications?.show(
-            id: message.hashCode,
-            title: title,
-            body: body,
-            notificationDetails: const NotificationDetails(
-              android: AndroidNotificationDetails(
-                'incoming_call_channel',
-                'Gelen Aramalar',
-                channelDescription: 'Sesli ve görüntülü arama bildirimleri.',
-                importance: Importance.max,
-                priority: Priority.max,
-                icon: '@mipmap/ic_launcher',
-                fullScreenIntent: true,
-                ongoing: true,
-                autoCancel: false,
-                category: AndroidNotificationCategory.call,
-                visibility: NotificationVisibility.public,
-                actions: <AndroidNotificationAction>[
-                  AndroidNotificationAction(
-                    'answer_call',
-                    '✅ Yanıtla',
-                    showsUserInterface: true,
-                  ),
-                  AndroidNotificationAction(
-                    'decline_call',
-                    '❌ Reddet',
-                    cancelNotification: true,
-                  ),
-                ],
-              ),
-              iOS: DarwinNotificationDetails(
-                presentAlert: true,
-                presentBadge: true,
-                presentSound: true,
-                interruptionLevel: InterruptionLevel.critical,
-              ),
+          // 📞 Arama bildirimi: CallKit ile tam ekran VoIP çaldır
+          final callerName = message.data['callerName'] ?? title.replaceAll('📹 ', '').replaceAll('📞 ', '');
+          
+          final callParams = CallKitParams(
+            id: message.data['entityId'] ?? message.messageId ?? 'unknown_call',
+            nameCaller: callerName,
+            appName: 'eduKN',
+            avatar: 'https://i.pravatar.cc/100', // Opsiyonel avatar URL'si
+            handle: body,
+            type: 0,
+            duration: 30000,
+            missedCallNotification: const NotificationParams(
+              showNotification: true,
+              isShowCallback: true,
+              subtitle: 'Cevapsız Arama',
+              callbackText: 'Geri Ara',
+            ),
+            extra: <String, dynamic>{'route': message.data['route']},
+            android: const AndroidParams(
+              isCustomNotification: true,
+              isShowLogo: false,
+              ringtonePath: '', // Boş bırakınca sistemin varsayılan çalma sesine döner
+              backgroundColor: '#0955fa',
+              backgroundUrl: 'assets/test.png',
+              actionColor: '#4CAF50',
+            ),
+            ios: const IOSParams(
+              iconName: 'CallKitLogo',
+              handleType: 'generic',
+              supportsVideo: true,
+              maximumCallGroups: 2,
+              maximumCallsPerCallGroup: 1,
+              audioSessionMode: 'default',
+              audioSessionActive: true,
+              audioSessionPreferredSampleRate: 44100.0,
+              audioSessionPreferredIOBufferDuration: 0.005,
+              supportsDTMF: true,
+              supportsHolding: true,
+              supportsGrouping: false,
+              supportsUngrouping: false,
+              ringtonePath: 'system_ringtone_default',
             ),
           );
+          FlutterCallkitIncoming.showCallkitIncoming(callParams);
         } else {
           // 📩 Normal bildirim
           _localNotifications?.show(
@@ -200,6 +271,20 @@ class NotificationService {
       // Kısa gecikme: Navigator hazır olsun
       Future.delayed(const Duration(milliseconds: 1500), () {
         _handleNotificationTap(initialMessage.data);
+      });
+    }
+
+    if (!kIsWeb) {
+      FlutterCallkitIncoming.onEvent.listen((CallEvent? event) {
+        if (event is CallEventActionCallAccept) {
+          debugPrint('✅ Arama kabul edildi: ${event.callKitParams.id}');
+          final route = event.callKitParams.extra?['route'] as String?;
+          if (route != null) {
+            _handleNotificationTap({'route': route});
+          }
+        } else if (event is CallEventActionCallDecline) {
+          debugPrint('❌ Arama reddedildi: ${event.callKitParams.id}');
+        }
       });
     }
   }

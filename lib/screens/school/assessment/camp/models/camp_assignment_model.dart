@@ -3,6 +3,7 @@ enum CampAssignmentType { auto, manual }
 class CampAssignment {
   final String id;
   final String cycleId;
+  final String institutionId;
   final String groupId;
   final String groupName; // Mirroring AGM naming
   final String ogrenciId;
@@ -17,6 +18,7 @@ class CampAssignment {
   CampAssignment({
     required this.id,
     required this.cycleId,
+    this.institutionId = '',
     required this.groupId,
     required this.groupName,
     required this.ogrenciId,
@@ -32,6 +34,7 @@ class CampAssignment {
   Map<String, dynamic> toMap() {
     return {
       'cycleId': cycleId,
+      'institutionId': institutionId,
       'groupId': groupId,
       'groupName': groupName,
       'ogrenciId': ogrenciId,
@@ -49,6 +52,7 @@ class CampAssignment {
     return CampAssignment(
       id: id,
       cycleId: map['cycleId'] ?? '',
+      institutionId: map['institutionId'] ?? '',
       groupId: map['groupId'] ?? '',
       groupName: map['groupName'] ?? map['groupAdi'] ?? '',
       ogrenciId: map['ogrenciId'] ?? '',
@@ -62,6 +66,38 @@ class CampAssignment {
       ihtiyacSkoru: (map['ihtiyacSkoru'] ?? 0.0).toDouble(),
       basariOrani: (map['basariOrani'] ?? 0.0).toDouble(),
       isAbsent: map['isAbsent'] ?? false,
+    );
+  }
+
+  CampAssignment copyWith({
+    String? id,
+    String? cycleId,
+    String? institutionId,
+    String? groupId,
+    String? groupName,
+    String? ogrenciId,
+    String? ogrenciAdi,
+    String? sube,
+    String? subeId,
+    CampAssignmentType? atamaTipi,
+    double? ihtiyacSkoru,
+    double? basariOrani,
+    bool? isAbsent,
+  }) {
+    return CampAssignment(
+      id: id ?? this.id,
+      cycleId: cycleId ?? this.cycleId,
+      institutionId: institutionId ?? this.institutionId,
+      groupId: groupId ?? this.groupId,
+      groupName: groupName ?? this.groupName,
+      ogrenciId: ogrenciId ?? this.ogrenciId,
+      ogrenciAdi: ogrenciAdi ?? this.ogrenciAdi,
+      sube: sube ?? this.sube,
+      subeId: subeId ?? this.subeId,
+      atamaTipi: atamaTipi ?? this.atamaTipi,
+      ihtiyacSkoru: ihtiyacSkoru ?? this.ihtiyacSkoru,
+      basariOrani: basariOrani ?? this.basariOrani,
+      isAbsent: isAbsent ?? this.isAbsent,
     );
   }
 }

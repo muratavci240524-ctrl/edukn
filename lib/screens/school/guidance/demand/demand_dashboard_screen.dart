@@ -9,6 +9,7 @@ import '../../../../models/guidance/demand_model.dart';
 import '../../../../services/guidance/demand_service.dart';
 import 'create_demand_dialog.dart';
 import 'demand_analytics_screen.dart';
+import 'package:edukn/widgets/safe_stream_builder.dart';
 
 class DemandDashboardScreen extends StatefulWidget {
   final String institutionId;
@@ -169,7 +170,7 @@ class _DemandDashboardScreenState extends State<DemandDashboardScreen> with Sing
         if (widget.showAllSchoolTypes) _buildSchoolTypeFilter(),
         _buildFilterBar(),
         Expanded(
-          child: StreamBuilder<List<DemandModel>>(
+          child: SafeStreamBuilder<List<DemandModel>>(
             stream: _demandService.streamDemands(
               institutionId: widget.institutionId,
               schoolTypeId: _activeSchoolTypeId,

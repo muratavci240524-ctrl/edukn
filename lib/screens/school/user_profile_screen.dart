@@ -188,6 +188,18 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
       // Şifreyi güncelle
       await user.updatePassword(_newPasswordController.text);
+      try {
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+          'passwordStatus': 'degistirildi',
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        if (user.email != null) {
+          final q = await FirebaseFirestore.instance.collection('users').where('email', isEqualTo: user.email).get();
+          for (var d in q.docs) {
+            await d.reference.set({'passwordStatus': 'degistirildi', 'updatedAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
+          }
+        }
+      } catch (_) {}
 
       _currentPasswordController.clear();
       _newPasswordController.clear();

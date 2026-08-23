@@ -15,6 +15,7 @@ import 'package:url_launcher/url_launcher.dart';
 // ignore: avoid_web_libraries_in_flutter
 import 'dart:ui_web' as ui;
 import '../../../widgets/user_avatar.dart';
+import 'package:edukn/widgets/safe_stream_builder.dart';
 
 class SchoolTypeSocialMediaScreen extends StatefulWidget {
   final String schoolTypeId;
@@ -388,7 +389,7 @@ class _SchoolTypeSocialMediaScreenState
               ),
             ),
           ],
-          body: StreamBuilder<QuerySnapshot>(
+          body: SafeStreamBuilder<QuerySnapshot>(
             stream: Stream.fromFuture(TermService().getSelectedTermId()).asyncExpand((termId) {
               Query query = FirebaseFirestore.instance
                   .collection('social_media_posts')

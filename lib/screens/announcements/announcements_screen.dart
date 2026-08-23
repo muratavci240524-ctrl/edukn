@@ -13,6 +13,7 @@ import 'sent_announcements_screen.dart';
 import 'announcement_detail_screen.dart';
 import 'create_announcement_screen_v2.dart';
 import 'announcement_card.dart';
+import 'package:edukn/widgets/safe_stream_builder.dart';
 
 class AnnouncementsScreen extends StatefulWidget {
   static const routeName = '/announcements';
@@ -543,7 +544,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen>
   }
 
   Widget _buildAnnouncementList() {
-    return StreamBuilder<QuerySnapshot>(
+    return SafeStreamBuilder<QuerySnapshot>(
       stream: _announcementsStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {

@@ -17,6 +17,7 @@ import '../student/parent_main_screen.dart';
 import '../../services/notification_service.dart';
 import '../../services/user_permission_service.dart';
 import '../../services/term_service.dart';
+import '../../services/crypto_service.dart';
 import 'school_types/school_type_detail_screen.dart';
 
 class SchoolLoginScreen extends StatefulWidget {
@@ -43,13 +44,16 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
     _checkExistingSession();
   }
 
-  Future<String?> _registerOrUpdateAuthUser(String email, String password) async {
+  /// Auth hesabı oluşturur veya mevcut hesabın şifresini günceller.
+  /// [oldPasswords] bilinen eski şifreleri içerir (Firestore'dan okunan).
+  Future<String?> _registerOrUpdateAuthUser(String email, String password, {List<String>? oldPasswords}) async {
     try {
       final apiKey = DefaultFirebaseOptions.currentPlatform.apiKey;
-      final url = 'https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=$apiKey';
 
-      final response = await http.post(
-        Uri.parse(url),
+      // 1. Hesap oluşturmayı dene
+      final signUpUrl = 'https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=$apiKey';
+      final signUpResponse = await http.post(
+        Uri.parse(signUpUrl),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({
           'email': email,
@@ -58,25 +62,76 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         }),
       );
 
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
+      if (signUpResponse.statusCode == 200) {
+        final data = json.decode(signUpResponse.body);
+        print('✅ Yeni Auth hesabı oluşturuldu: $email');
         return data['localId'] as String;
-      } else {
-        final error = json.decode(response.body);
-        final msg = (error['error'] != null ? error['error']['message'] : '').toString();
-        print('⚠️ REST SignUp: $msg');
-        if (msg == 'EMAIL_EXISTS') {
-          try {
-            await FirebaseFunctions.instance
-                .httpsCallable('updateUserCredentials')
-                .call({'email': email, 'newPassword': password});
-            print('✅ Cloud Function ile Auth şifresi güncellendi.');
-          } catch (cfErr) {
-            print('⚠️ Cloud Function Auth güncelleme hatası: $cfErr');
-          }
-        }
-        return null;
       }
+
+      final error = json.decode(signUpResponse.body);
+      final msg = (error['error'] != null ? error['error']['message'] : '').toString();
+
+      if (msg == 'EMAIL_EXISTS') {
+        // 2. Hesap zaten var — şifre güncelleme gerekiyorsa dene
+        // Önce Cloud Function ile
+        try {
+          await FirebaseFunctions.instance
+              .httpsCallable('updateUserCredentials')
+              .call({'email': email, 'newPassword': password});
+          print('✅ Cloud Function ile şifre güncellendi: $email');
+          return null;
+        } catch (cfErr) {
+          print('⚠️ Cloud Function başarısız: $cfErr');
+        }
+
+        // 3. Bilinen eski şifrelerle REST API üzerinden güncelle
+        final passwordsToTry = <String>{password};
+        if (oldPasswords != null) passwordsToTry.addAll(oldPasswords);
+        passwordsToTry.addAll(['123456']); // varsayılan şifre
+
+        for (final tryPass in passwordsToTry) {
+          try {
+            final signInUrl = 'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=$apiKey';
+            final signInResponse = await http.post(
+              Uri.parse(signInUrl),
+              headers: {'Content-Type': 'application/json'},
+              body: json.encode({
+                'email': email,
+                'password': tryPass,
+                'returnSecureToken': true,
+              }),
+            );
+
+            if (signInResponse.statusCode == 200) {
+              final signInData = json.decode(signInResponse.body);
+              print('✅ REST sign-in başarılı ($tryPass): $email');
+
+              // Eski şifre farklıysa güncelle
+              if (tryPass != password) {
+                final idToken = signInData['idToken'] as String;
+                final updateUrl = 'https://identitytoolkit.googleapis.com/v1/accounts:update?key=$apiKey';
+                await http.post(
+                  Uri.parse(updateUrl),
+                  headers: {'Content-Type': 'application/json'},
+                  body: json.encode({
+                    'idToken': idToken,
+                    'password': password,
+                    'returnSecureToken': true,
+                  }),
+                );
+                print('✅ Auth şifresi güncellendi: $email');
+              }
+              // NOT: signOut YAPMA — REST API SDK auth state'i etkilemez
+              return signInData['localId'] as String;
+            }
+          } catch (_) {}
+        }
+        print('ℹ️ Mevcut hesap, şifre değiştirilmedi: $email');
+      } else {
+        print('⚠️ REST SignUp hatası: $msg ($email)');
+      }
+
+      return null;
     } catch (e) {
       print('❌ Auth oluşturma/güncelleme hatası: $e');
       return null;
@@ -197,345 +252,264 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
 
     setState(() => _isLoading = true);
 
-    final username = _usernameController.text.trim().toLowerCase().replaceAll(' ', '');
+    final inputUser = _usernameController.text.trim().replaceAll(' ', '');
+    final inputUserLower = inputUser.toLowerCase();
+    final username = inputUser;
     final password = _passwordController.text.trim();
-    final institutionId = _institutionController.text.trim().toUpperCase().replaceAll(' ', '');
+    final inputInstitutionId = _institutionController.text.trim().replaceAll(' ', '');
+    final institutionId = inputInstitutionId.toUpperCase();
+    final instIdsToTry = UserPermissionService.getInstitutionIdVariants(inputInstitutionId);
+    if (!instIdsToTry.contains(institutionId)) instIdsToTry.add(institutionId);
+    if (!instIdsToTry.contains(inputInstitutionId)) instIdsToTry.add(inputInstitutionId);
 
     try {
-      // Eğer girilen kullanıcı adı zaten bir email ise (gerçek mail ile kayıt olunmuşsa) onu kullan
-      // Değilse kurumsal formatta oluştur
-      String email;
-      if (username.contains('@') && username.contains('.')) {
-        email = username;
-      } else {
-        email = '$username@$institutionId.edukn';
+      print('🔍 Giriş denemesi: User=$inputUser, Inst=$institutionId');
+
+      // ── Önceki oturumu temizle (Çıkış sonrası kalan kalıntıları engelle) ──
+      try {
+        await FirebaseAuth.instance.signOut();
+      } catch (_) {}
+      UserPermissionService.clearCache();
+
+      final List<String> candidateEmails = [];
+      String? tempPass;
+      Map<String, dynamic>? foundUserData;
+      bool isAdminLogin = false;
+      String? adminSyncEmail;
+      List<String> knownOldPasswords = [];
+
+      // ── ADIM 0: Sanal e-posta ekle ──
+      if (inputUser.contains('@')) candidateEmails.add(inputUser);
+      candidateEmails.add('$inputUserLower@$institutionId.edukn'.toLowerCase());
+      candidateEmails.add('$inputUserLower@${institutionId.toLowerCase()}.edukn');
+
+      // ── ADIM 1: Okul bilgilerini yükle ──
+      Map<String, dynamic>? schoolData;
+      for (final instId in instIdsToTry) {
+        if (schoolData != null) break;
+        try {
+          final sQuery = await FirebaseFirestore.instance
+              .collection('schools')
+              .where('institutionId', isEqualTo: instId)
+              .limit(1)
+              .get();
+          if (sQuery.docs.isNotEmpty) {
+            schoolData = sQuery.docs.first.data();
+            if (schoolData['isActive'] != true) throw 'Bu okul şu an pasif durumda!';
+            break;
+          }
+        } catch (e) {
+          if (e.toString().contains('pasif')) rethrow;
+        }
       }
 
-      // 1. Giriş Bilgilerini Hazırla
-      print('🔍 Giriş denemesi: User=$username, Inst=$institutionId');
-      String emailToUse;
-      if (username.contains('@')) {
-        emailToUse = username;
-        print('📧 Email formatı algılandı: $emailToUse. Firestore araması yapılıyor...');
+      if (schoolData != null) {
+        final adminEmail = schoolData['adminEmail']?.toString().trim();
+        final contactEmail = schoolData['email']?.toString().trim();
+        final adminUser = (schoolData['adminUsername'] ?? '').toString().trim().toLowerCase();
+        final adminPass = schoolData['adminPassword']?.toString();
+
+        if (adminEmail != null && adminEmail.isNotEmpty) candidateEmails.add(adminEmail);
+        if (contactEmail != null && contactEmail.isNotEmpty) candidateEmails.add(contactEmail);
+
+        if (inputUserLower == adminUser) {
+          isAdminLogin = true;
+          adminSyncEmail = (adminEmail != null && adminEmail.isNotEmpty)
+              ? adminEmail
+              : '$inputUserLower@$institutionId.edukn'.toLowerCase();
+          if (adminPass != null && adminPass.isNotEmpty) knownOldPasswords.add(adminPass);
+        }
+      }
+
+      // ── ADIM 2: users koleksiyonunda ara ──
+      for (final instId in instIdsToTry) {
+        if (foundUserData != null) break;
         try {
-          final results = await Future.wait([
-            FirebaseFirestore.instance
-                .collection('users')
-                .where('institutionId', isEqualTo: institutionId)
-                .where('email', isEqualTo: username)
-                .limit(1)
-                .get(),
-            FirebaseFirestore.instance
-                .collection('users')
-                .where('institutionId', isEqualTo: institutionId)
-                .where('corporateEmail', isEqualTo: username)
-                .limit(1)
-                .get(),
-            FirebaseFirestore.instance
-                .collection('users')
-                .where('institutionId', isEqualTo: institutionId)
-                .where('personalEmail', isEqualTo: username)
-                .limit(1)
-                .get(),
-            FirebaseFirestore.instance
-                .collection('students')
-                .where('institutionId', isEqualTo: institutionId)
-                .where('email', isEqualTo: username)
-                .limit(1)
-                .get(),
-            FirebaseFirestore.instance
-                .collection('parents')
-                .where('institutionId', isEqualTo: institutionId)
-                .where('email', isEqualTo: username)
-                .limit(1)
-                .get(),
-          ]);
+          // A) Kullanıcı adına göre
+          var uQuery = await FirebaseFirestore.instance
+              .collection('users')
+              .where('institutionId', isEqualTo: instId)
+              .where('username', isEqualTo: inputUserLower)
+              .limit(1)
+              .get();
 
-          DocumentSnapshot? matchedDoc;
-          bool isStudentOrParentDoc = false;
-          String matchedRole = 'student';
-
-          for (int i = 0; i < results.length; i++) {
-            final snap = results[i];
-            if (snap.docs.isNotEmpty) {
-              matchedDoc = snap.docs.first;
-              if (i >= 3) {
-                isStudentOrParentDoc = true;
-                matchedRole = (i == 3) ? 'student' : 'parent';
-              }
-              break;
-            }
+          // B) E-postaya göre
+          if (uQuery.docs.isEmpty) {
+            uQuery = await FirebaseFirestore.instance
+                .collection('users')
+                .where('institutionId', isEqualTo: instId)
+                .where('email', isEqualTo: inputUserLower)
+                .limit(1)
+                .get();
           }
 
-          if (matchedDoc != null) {
-            final data = matchedDoc.data() as Map<String, dynamic>;
-            final dbAuthEmail = data['email'] as String?;
-            final storedPassword = data['password']?.toString();
-            final realUsername = data['username']?.toString() ?? username.split('@').first;
+          // C) Kurumsal e-postaya göre
+          if (uQuery.docs.isEmpty) {
+            uQuery = await FirebaseFirestore.instance
+                .collection('users')
+                .where('institutionId', isEqualTo: instId)
+                .where('corporateEmail', isEqualTo: inputUserLower)
+                .limit(1)
+                .get();
+          }
 
-            if (dbAuthEmail != null && dbAuthEmail.isNotEmpty) {
-              emailToUse = dbAuthEmail;
+          // D) Kişisel e-postaya göre
+          if (uQuery.docs.isEmpty) {
+            uQuery = await FirebaseFirestore.instance
+                .collection('users')
+                .where('institutionId', isEqualTo: instId)
+                .where('personalEmail', isEqualTo: inputUserLower)
+                .limit(1)
+                .get();
+          }
+
+          // E) TC'ye göre
+          if (uQuery.docs.isEmpty) {
+            final encryptedTc = CryptoService.encrypt(inputUser, institutionId: instId);
+            uQuery = await FirebaseFirestore.instance
+                .collection('users')
+                .where('institutionId', isEqualTo: instId)
+                .where('tcKimlik', isEqualTo: encryptedTc)
+                .limit(1)
+                .get();
+          }
+
+          if (uQuery.docs.isNotEmpty) {
+            final doc = uQuery.docs.first;
+            foundUserData = Map<String, dynamic>.from(doc.data());
+            foundUserData['id'] = doc.id;
+            tempPass = foundUserData['_tempPassword'] as String?;
+            break;
+          }
+        } catch (e) {
+          print('⚠️ users sorgu hatası: $e');
+        }
+      }
+
+      // Kullanıcı bulunduysa e-postalarını ekle
+      if (foundUserData != null) {
+        final corpEmail = foundUserData['corporateEmail']?.toString().trim();
+        final persEmail = foundUserData['personalEmail']?.toString().trim();
+        final dbEmail = foundUserData['email']?.toString().trim();
+        final uName = (foundUserData['username'] ?? inputUserLower).toString().trim().toLowerCase();
+
+        if (corpEmail != null && corpEmail.isNotEmpty) candidateEmails.insert(0, corpEmail);
+        if (persEmail != null && persEmail.isNotEmpty) candidateEmails.insert(0, persEmail);
+        if (dbEmail != null && dbEmail.isNotEmpty) candidateEmails.insert(0, dbEmail);
+        candidateEmails.add('$uName@$institutionId.edukn'.toLowerCase());
+        candidateEmails.add('$uName@${institutionId.toLowerCase()}.edukn');
+
+        // Bilinen eski şifreleri topla
+        final defPass = foundUserData['defaultPassword']?.toString();
+        final storedPass = foundUserData['password']?.toString();
+        if (defPass != null && defPass.isNotEmpty) knownOldPasswords.add(defPass);
+        if (storedPass != null && storedPass.isNotEmpty) knownOldPasswords.add(storedPass);
+      } else if (!isAdminLogin) {
+        // ── ADIM 2b: Öğrenci/Veli ara ──
+        DocumentSnapshot? matchedStudentDoc;
+        DocumentSnapshot? matchedParentDoc;
+
+        for (final instId in instIdsToTry) {
+          if (matchedStudentDoc != null || matchedParentDoc != null) break;
+          try {
+            var sQuery = await FirebaseFirestore.instance
+                .collection('students')
+                .where('institutionId', isEqualTo: instId)
+                .where('username', isEqualTo: inputUserLower)
+                .limit(1)
+                .get();
+            if (sQuery.docs.isEmpty) {
+              sQuery = await FirebaseFirestore.instance
+                  .collection('students')
+                  .where('institutionId', isEqualTo: instId)
+                  .where('studentNumber', isEqualTo: inputUser)
+                  .limit(1)
+                  .get();
             }
+            if (sQuery.docs.isEmpty) {
+              sQuery = await FirebaseFirestore.instance
+                  .collection('students')
+                  .where('institutionId', isEqualTo: instId)
+                  .where('tcNo', isEqualTo: inputUser)
+                  .limit(1)
+                  .get();
+            }
+            if (sQuery.docs.isNotEmpty) { matchedStudentDoc = sQuery.docs.first; break; }
 
-            if (isStudentOrParentDoc && (storedPassword == password || storedPassword == null || storedPassword.isEmpty)) {
-              final corporateEmail = '$realUsername@$institutionId.edukn'.toLowerCase();
-              final uid1 = await _registerOrUpdateAuthUser(emailToUse, password);
-              final uid2 = await _registerOrUpdateAuthUser(corporateEmail, password);
-              final uid = uid1 ?? uid2 ?? matchedDoc.id;
+            var pQuery = await FirebaseFirestore.instance
+                .collection('parents')
+                .where('institutionId', isEqualTo: instId)
+                .where('username', isEqualTo: inputUserLower)
+                .limit(1)
+                .get();
+            if (pQuery.docs.isEmpty) {
+              pQuery = await FirebaseFirestore.instance
+                  .collection('parents')
+                  .where('institutionId', isEqualTo: instId)
+                  .where('tcNo', isEqualTo: inputUser)
+                  .limit(1)
+                  .get();
+            }
+            if (pQuery.docs.isNotEmpty) { matchedParentDoc = pQuery.docs.first; break; }
+          } catch (e) {
+            print('⚠️ student/parent sorgu hatası: $e');
+          }
+        }
 
-              await FirebaseFirestore.instance.collection('users').doc(uid).set({
-                'uid': uid,
+        final targetDoc = matchedStudentDoc ?? matchedParentDoc;
+        if (targetDoc != null) {
+          final docData = targetDoc.data() as Map<String, dynamic>;
+          final storedPassword = docData['password']?.toString();
+          final isStudent = matchedStudentDoc != null;
+          final realUsername = docData['username']?.toString() ?? inputUserLower;
+          final targetEmail = (docData['email'] ?? '$realUsername@$institutionId.edukn').toString().toLowerCase();
+
+          candidateEmails.add(targetEmail);
+          candidateEmails.add('$realUsername@$institutionId.edukn'.toLowerCase());
+          if (storedPassword != null) knownOldPasswords.add(storedPassword);
+
+          // Öğrenci/veli için auth hesabı oluştur (sadece yeni hesap — mevcut hesaba dokunma)
+          if (storedPassword == password || storedPassword == null || storedPassword.isEmpty) {
+            final newUid = await _registerOrUpdateAuthUser(targetEmail, password);
+            if (newUid != null) {
+              await FirebaseFirestore.instance.collection('users').doc(newUid).set({
+                'uid': newUid,
                 'institutionId': institutionId,
                 'username': realUsername,
-                'email': emailToUse,
-                'corporateEmail': corporateEmail,
-                'personalEmail': emailToUse,
-                'role': matchedRole,
-                'name': data['name'] ?? '',
-                'surname': data['surname'] ?? '',
-                'tcNo': data['tcNo'] ?? '',
+                'email': targetEmail,
+                'role': isStudent ? 'student' : 'parent',
+                'name': docData['name']?.toString() ?? '',
+                'surname': docData['surname']?.toString() ?? '',
+                'tcNo': docData['tcNo']?.toString() ?? '',
                 'isActive': true,
                 'updatedAt': FieldValue.serverTimestamp(),
               }, SetOptions(merge: true));
             }
-            print('✅ E-posta eşleşmesi bulundu! Kullanılacak Auth e-postası: $emailToUse');
           }
-        } catch (e) {
-          print('❌ E-posta Firestore arama hatası: $e');
-        }
-      } else {
-        // Önce Firestore'dan bu kullanıcı adının gerçek mailini bulmayı dene
-        print('🔍 Firestore\'da kullanıcı adı aranıyor: $username');
-        try {
-          final userLookup = await FirebaseFirestore.instance
-              .collection('users')
-              .where('institutionId', isEqualTo: institutionId)
-              .where('username', isEqualTo: username)
-              .limit(1)
-              .get();
-          
-          if (userLookup.docs.isNotEmpty) {
-            emailToUse = userLookup.docs.first.get('email') ?? '$username@$institutionId.edukn';
-            print('✅ Kullanıcı bulundu, kayıtlı email: $emailToUse');
-          } else {
-            // Öğrenci veya Veli araması yap (students ve parents koleksiyonlarında)
-            QueryDocumentSnapshot? matchedStudentDoc;
-            QueryDocumentSnapshot? matchedParentDoc;
-
-            // 1. Students arama (username, studentNumber veya tcNo)
-            final instIdsToTry = <String>{institutionId, institutionId.toUpperCase(), institutionId.toLowerCase()};
-            for (final instId in instIdsToTry) {
-              if (matchedStudentDoc != null) break;
-              var stQuery = await FirebaseFirestore.instance
-                  .collection('students')
-                  .where('institutionId', isEqualTo: instId)
-                  .where('username', isEqualTo: username)
-                  .limit(1)
-                  .get();
-              if (stQuery.docs.isNotEmpty) {
-                matchedStudentDoc = stQuery.docs.first;
-                break;
-              }
-
-              stQuery = await FirebaseFirestore.instance
-                  .collection('students')
-                  .where('institutionId', isEqualTo: instId)
-                  .where('studentNumber', isEqualTo: username)
-                  .limit(1)
-                  .get();
-              if (stQuery.docs.isNotEmpty) {
-                matchedStudentDoc = stQuery.docs.first;
-                break;
-              }
-            }
-
-            // 2. Parents arama (username veya tcNo)
-            if (matchedStudentDoc == null) {
-              for (final instId in instIdsToTry) {
-                if (matchedParentDoc != null) break;
-                var prQuery = await FirebaseFirestore.instance
-                    .collection('parents')
-                    .where('institutionId', isEqualTo: instId)
-                    .where('username', isEqualTo: username)
-                    .limit(1)
-                    .get();
-                if (prQuery.docs.isNotEmpty) {
-                  matchedParentDoc = prQuery.docs.first;
-                  break;
-                }
-
-                prQuery = await FirebaseFirestore.instance
-                    .collection('parents')
-                    .where('institutionId', isEqualTo: instId)
-                    .where('tcNo', isEqualTo: username)
-                    .limit(1)
-                    .get();
-                if (prQuery.docs.isNotEmpty) {
-                  matchedParentDoc = prQuery.docs.first;
-                  break;
-                }
-              }
-            }
-
-            final targetDoc = matchedStudentDoc ?? matchedParentDoc;
-            if (targetDoc != null) {
-              final docData = targetDoc.data() as Map<String, dynamic>;
-              final storedPassword = docData['password']?.toString();
-              final isStudent = matchedStudentDoc != null;
-              final roleName = isStudent ? 'student' : 'parent';
-              final name = docData['name']?.toString() ?? '';
-              final surname = docData['surname']?.toString() ?? '';
-              final tcNo = docData['tcNo']?.toString() ?? '';
-
-              print('✅ ${isStudent ? 'Öğrenci' : 'Veli'} kaydı bulundu ($username). Şifre kontrol ediliyor...');
-
-              if (storedPassword == password || (storedPassword == null || storedPassword.isEmpty)) {
-                final targetEmail = '$username@$institutionId.edukn'.toLowerCase();
-                emailToUse = targetEmail;
-
-                final newUid = await _registerOrUpdateAuthUser(targetEmail, password);
-                if (newUid != null) {
-                  await FirebaseFirestore.instance.collection('users').doc(newUid).set({
-                    'uid': newUid,
-                    'institutionId': institutionId,
-                    'username': username,
-                    'email': targetEmail,
-                    'role': roleName,
-                    'name': name,
-                    'surname': surname,
-                    'tcNo': tcNo,
-                    'isActive': true,
-                    'createdAt': FieldValue.serverTimestamp(),
-                    'updatedAt': FieldValue.serverTimestamp(),
-                  }, SetOptions(merge: true));
-                  print('✨ Kullanıcı Auth & Users koleksiyonuna senkronize edildi: $newUid');
-                } else {
-                  final uQ = await FirebaseFirestore.instance
-                      .collection('users')
-                      .where('institutionId', isEqualTo: institutionId)
-                      .where('username', isEqualTo: username)
-                      .limit(1)
-                      .get();
-                  String existingUid = uQ.docs.isNotEmpty ? uQ.docs.first.id : targetDoc.id;
-                  await FirebaseFirestore.instance.collection('users').doc(existingUid).set({
-                    'uid': existingUid,
-                    'institutionId': institutionId,
-                    'username': username,
-                    'email': targetEmail,
-                    'role': roleName,
-                    'name': name,
-                    'surname': surname,
-                    'tcNo': tcNo,
-                    'isActive': true,
-                    'updatedAt': FieldValue.serverTimestamp(),
-                  }, SetOptions(merge: true));
-                }
-              } else {
-                emailToUse = '$username@$institutionId.edukn';
-              }
-            } else {
-              emailToUse = '$username@$institutionId.edukn';
-              print('⚠️ Kullanıcı Firestore\'da bulunamadı, varsayılan email denenecek: $emailToUse');
-            }
-          }
-        } catch (e) {
-          print('❌ Firestore arama hatası: $e');
-          emailToUse = '$username@$institutionId.edukn';
         }
       }
 
-      // Okul kontrolü (Pre-login - Yetki varsa çalışır, yoksa post-login aşamasına bırakılır)
-      Map<String, dynamic>? schoolData;
-      try {
-        final schoolQuery = await FirebaseFirestore.instance
-            .collection('schools')
-            .where('institutionId', isEqualTo: institutionId)
-            .limit(1)
-            .get()
-            .timeout(const Duration(seconds: 15));
-
-        if (schoolQuery.docs.isNotEmpty) {
-          schoolData = schoolQuery.docs.first.data();
-          if (schoolData['isActive'] != true) throw 'Bu okul şu an pasif durumda!';
-        } else {
-          throw 'Bu kurum ID ile kayıtlı okul bulunamadı!';
-        }
-      } catch (e) {
-        print('⚠️ Giriş öncesi okul kontrolü atlandı (Auth sonrasında yapılacak): $e');
-        if (e.toString().contains('pasif') || e.toString().contains('bulunamadı')) {
-          rethrow;
-        }
-      }
-
-      // 2. Firebase Auth ile Giriş Yap
-      // Strateji: Firestore'daki email → başarısız olursa generate format → temp şifre ile de dene
-      print('🔐 Firebase Auth denemesi (1): $emailToUse');
-      final generatedEmail = '$username@$institutionId.edukn'.toLowerCase();
-      UserCredential? userCredential;
-      String? successEmail; // hangi email ile giriş başarılı oldu
-
-      // Tüm deneme kombinasyonları
-      // [email, password] şeklinde
-      String? tempPass;
-      try {
-        final tempQ = await FirebaseFirestore.instance
-            .collection('users')
-            .where('institutionId', isEqualTo: institutionId)
-            .where('username', isEqualTo: username)
-            .limit(1)
-            .get();
-        if (tempQ.docs.isNotEmpty) {
-          tempPass = tempQ.docs.first.data()['_tempPassword'] as String?;
-        }
-      } catch (_) {}
-
-      final emailsToTry = <String>{emailToUse, generatedEmail}.toList();
+      // ── ADIM 3: Firebase Auth ile Giriş Yap ──
+      final uniqueEmails = candidateEmails.toSet().toList();
       final passwordsToTry = <String>[password, if (tempPass != null && tempPass.isNotEmpty) tempPass];
 
+      print('📧 Aday e-postalar: $uniqueEmails');
+
+      UserCredential? userCredential;
+      String? successEmail;
       bool loginSuccess = false;
-      for (final tryEmail in emailsToTry) {
+
+      for (final tryEmail in uniqueEmails) {
         for (final tryPass in passwordsToTry) {
           if (loginSuccess) break;
           try {
-            print('🔐 Deneniyor: $tryEmail / ${tryPass.replaceAll(RegExp(r'.'), '*')}');
+            print('🔐 Deneniyor: $tryEmail');
             userCredential = await FirebaseAuth.instance
                 .signInWithEmailAndPassword(email: tryEmail, password: tryPass)
                 .timeout(const Duration(seconds: 15));
             print('✅ Giriş başarılı: $tryEmail');
             successEmail = tryEmail;
             loginSuccess = true;
-
-            // Temp şifre kullanıldıysa Firestore'dan temizle
-            if (tryPass == tempPass) {
-              try {
-                final tQ = await FirebaseFirestore.instance
-                    .collection('users')
-                    .where('institutionId', isEqualTo: institutionId)
-                    .where('username', isEqualTo: username)
-                    .limit(1)
-                    .get();
-                if (tQ.docs.isNotEmpty) {
-                  await tQ.docs.first.reference.update({'_tempPassword': FieldValue.delete()});
-                  print('🧹 _tempPassword temizlendi');
-                }
-              } catch (_) {}
-            }
-
-            // Eğer generate email ile başarılı olduysa, Firestore'daki email'i güncelle
-            if (successEmail == generatedEmail && emailToUse != generatedEmail) {
-              try {
-                final uQ = await FirebaseFirestore.instance
-                    .collection('users')
-                    .where('institutionId', isEqualTo: institutionId)
-                    .where('username', isEqualTo: username)
-                    .limit(1)
-                    .get();
-                if (uQ.docs.isNotEmpty) {
-                  await uQ.docs.first.reference.update({'email': generatedEmail});
-                  print('🔄 Firestore email güncellendi: $generatedEmail');
-                }
-              } catch (_) {}
-            }
           } on FirebaseAuthException catch (authErr) {
             print('⚠️ Başarısız: $tryEmail [${authErr.code}]');
             if (authErr.code == 'too-many-requests') {
@@ -551,6 +525,40 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         if (loginSuccess) break;
       }
 
+      // ── ADIM 4: Giriş başarısızsa → Senkronize et ve tekrar dene ──
+      if (!loginSuccess && (foundUserData != null || isAdminLogin)) {
+        print('🔄 Giriş başarısız, Auth senkronizasyonu deneniyor...');
+        
+        // Senkronize edilecek birincil e-posta
+        String? syncEmail;
+        if (isAdminLogin) {
+          syncEmail = adminSyncEmail;
+        } else if (foundUserData != null) {
+          final dbEmail = foundUserData['email']?.toString().trim();
+          final uName = (foundUserData['username'] ?? inputUserLower).toString().trim().toLowerCase();
+          syncEmail = (dbEmail != null && dbEmail.isNotEmpty)
+              ? dbEmail
+              : '$uName@$institutionId.edukn'.toLowerCase();
+        }
+
+        if (syncEmail != null) {
+          await _registerOrUpdateAuthUser(syncEmail, password, oldPasswords: knownOldPasswords);
+
+          // Tekrar giriş dene
+          for (final tryEmail in uniqueEmails) {
+            if (loginSuccess) break;
+            try {
+              userCredential = await FirebaseAuth.instance
+                  .signInWithEmailAndPassword(email: tryEmail, password: password)
+                  .timeout(const Duration(seconds: 10));
+              successEmail = tryEmail;
+              loginSuccess = true;
+              print('✅ Senkronizasyon sonrası giriş başarılı: $tryEmail');
+            } catch (_) {}
+          }
+        }
+      }
+
       if (!loginSuccess) {
         throw 'Kullanıcı adı veya şifre hatalı.';
       }
@@ -558,60 +566,60 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       final uid = userCredential?.user?.uid;
       if (uid == null) throw 'Kullanıcı kimliği alınamadı.';
 
-      // 🔔 FCM Token kaydet (bildirim sistemi için)
+      // Temp şifre kullanıldıysa temizle
+      if (foundUserData != null && tempPass != null) {
+        try {
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(foundUserData['id'])
+              .update({'_tempPassword': FieldValue.delete()});
+        } catch (_) {}
+      }
+
+      // 🔔 FCM Token kaydet
       NotificationService().initialize(uid: uid).catchError((e) {
         print('⚠️ FCM init hatası (kritik değil): $e');
       });
 
-      // Giriş Sonrası Okul Doğrulaması (Pre-login aşamasında yetki hatası alındıysa)
-      if (schoolData == null) {
-        print('🔍 Giriş sonrası okul doğrulaması yapılıyor...');
+      // ── ADIM 5: Kullanıcı dokümanını bul ve doğrula ──
+      Map<String, dynamic>? userData;
+      if (foundUserData != null) {
+        userData = foundUserData;
+      } else {
         try {
-          final schoolQueryPost = await FirebaseFirestore.instance
-              .collection('schools')
-              .where('institutionId', isEqualTo: institutionId)
-              .limit(1)
-              .get()
-              .timeout(const Duration(seconds: 15));
+          final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get()
+              .timeout(const Duration(seconds: 10));
+          if (userDoc.exists) {
+            userData = userDoc.data();
+            userData?['id'] = userDoc.id;
+          }
+        } catch (_) {}
 
-          if (schoolQueryPost.docs.isEmpty) {
-            await FirebaseAuth.instance.signOut();
-            throw 'Bu kurum ID ile kayıtlı okul bulunamadı!';
+        if (userData == null && successEmail != null) {
+          for (final instId in instIdsToTry) {
+            if (userData != null) break;
+            try {
+              final fallbackQuery = await FirebaseFirestore.instance
+                  .collection('users')
+                  .where('institutionId', isEqualTo: instId)
+                  .where('email', isEqualTo: successEmail)
+                  .limit(1)
+                  .get();
+              if (fallbackQuery.docs.isNotEmpty) {
+                userData = fallbackQuery.docs.first.data();
+                userData['id'] = fallbackQuery.docs.first.id;
+              }
+            } catch (_) {}
           }
-
-          schoolData = schoolQueryPost.docs.first.data();
-          if (schoolData['isActive'] != true) {
-            await FirebaseAuth.instance.signOut();
-            throw 'Bu okul şu an pasif durumda!';
-          }
-          print('✅ Giriş sonrası okul doğrulandı.');
-        } catch (e) {
-          print('❌ Giriş sonrası okul doğrulama hatası: $e');
-          await FirebaseAuth.instance.signOut();
-          if (e.toString().contains('pasif') || e.toString().contains('bulunamadı')) {
-            rethrow;
-          }
-          throw 'Okul doğrulaması başarısız oldu: $e';
         }
       }
 
-      final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get()
-          .timeout(const Duration(seconds: 15), onTimeout: () => throw 'Kullanıcı verisi alınırken zaman aşımı oluştu.');
+      final isAdminUser = schoolData != null &&
+          (schoolData['adminUsername']?.toString().trim().toLowerCase() == inputUserLower ||
+           schoolData['adminEmail']?.toString().trim().toLowerCase() == successEmail?.toLowerCase() ||
+           schoolData['email']?.toString().trim().toLowerCase() == successEmail?.toLowerCase());
 
-      Map<String, dynamic>? userData;
-      if (userDoc.exists) {
-        userData = userDoc.data();
-      } else {
-        final fallbackQuery = await FirebaseFirestore.instance
-            .collection('users')
-            .where('institutionId', isEqualTo: institutionId)
-            .where('email', isEqualTo: successEmail)
-            .limit(1)
-            .get();
-        if (fallbackQuery.docs.isNotEmpty) userData = fallbackQuery.docs.first.data();
-      }
-
-      if (userData == null && schoolData['adminUsername'] != username) {
+      if (userData == null && !isAdminUser) {
         await FirebaseAuth.instance.signOut();
         throw 'Kullanıcı kaydı bulunamadı!';
       }
@@ -621,6 +629,20 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         throw 'Hesabınız pasif durumda!';
       }
 
+      // ── Cache'i hazırla: Tüm ekranlar doğru institutionId ile sorgulasın ──
+      UserPermissionService.setInstitutionIdCache(institutionId);
+      if (userData != null) {
+        // userData'da institutionId eksikse ekle
+        userData['institutionId'] ??= institutionId;
+        UserPermissionService.setCachedUserData(userData);
+        print('📌 Kullanıcı cache hazırlandı: ${userData['fullName'] ?? userData['username']} / $institutionId');
+      }
+
+      // ── Rol şablonunu yükle (yetkilendirme sistemi için) ──
+      final userRole = (userData?['role'] ?? (isAdminLogin ? 'genel_mudur' : 'ogretmen')).toString().toLowerCase();
+      await UserPermissionService.loadAndCacheRoleTemplate(institutionId, userRole);
+
+      // ── ADIM 6: Yönlendirme ──
       if (mounted) {
         showDialog(
           context: context,
@@ -631,7 +653,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
           ),
         );
 
-        await Future.delayed(const Duration(milliseconds: 2000));
+        await Future.delayed(const Duration(milliseconds: 1500));
         if (!mounted) return;
         Navigator.pop(context);
 
@@ -1400,28 +1422,23 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
     try {
       User? user;
 
-      if (kIsWeb) {
-        // Web: Firebase Auth'un kendi popup akışını kullan (google_sign_in_web gerektirmez)
-        final provider = GoogleAuthProvider();
-        provider.addScope('email');
-        final userCredential = await FirebaseAuth.instance.signInWithPopup(provider);
-        user = userCredential.user;
-      } else {
-        // Native (iOS/Android): google_sign_in paketi ile
+        // Web ve Native ortak Google Girişi (Popup engelleyicilere takılmaz, GIS kullanır)
         final GoogleSignIn googleSignIn = GoogleSignIn();
         final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+        
         if (googleUser == null) {
           if (mounted) setState(() => _isLoading = false);
           return;
         }
+        
         final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
         final AuthCredential credential = GoogleAuthProvider.credential(
           accessToken: googleAuth.accessToken,
           idToken: googleAuth.idToken,
         );
+        
         final userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
         user = userCredential.user;
-      }
 
       if (user != null && user.email != null) {
         final googleEmail = user.email!.trim().toLowerCase();
@@ -1472,40 +1489,43 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
           throw 'Bu Google hesabı ($googleEmail) ile kayıtlı bir kullanıcı bulunamadı. Lütfen okul yönetiminiz ile iletişime geçin.';
         }
 
-        final docData = matchedDoc.data() as Map<String, dynamic>;
+        final docData = Map<String, dynamic>.from(matchedDoc.data() as Map<String, dynamic>);
+        docData['id'] = matchedDoc.id;
         if (docData['isActive'] == false) {
           await FirebaseAuth.instance.signOut();
           throw 'Hesabınız pasif durumda!';
         }
 
-        final role = (docData['role'] ?? (matchedCollection == 'students' ? 'student' : (matchedCollection == 'parents' ? 'parent' : 'user'))).toString();
         final instId = (docData['institutionId'] ?? _institutionController.text.trim()).toString();
 
-        // Google UID ile users dokümanını güncelle
-        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-          'uid': user.uid,
-          'institutionId': instId,
-          'email': googleEmail,
-          'personalEmail': googleEmail,
-          'role': role,
-          'name': docData['name'] ?? '',
-          'surname': docData['surname'] ?? '',
-          'tcNo': docData['tcNo'] ?? '',
-          'isActive': true,
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+        // 1. Orijinal users/students/parents dokümanını güncelle
+        try {
+          await matchedDoc.reference.update({
+            'authUserId': user.uid,
+            'googleUid': user.uid,
+            'personalEmail': googleEmail,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        } catch (_) {}
+
+        // 2. Eğer doküman ID'si Google UID'den farklıysa, tüm yetkileri ve verileri users.doc(user.uid) üzerine kopyala
+        if (matchedDoc.id != user.uid) {
+          final fullUserClone = Map<String, dynamic>.from(docData);
+          fullUserClone['uid'] = user.uid;
+          fullUserClone['authUserId'] = user.uid;
+          fullUserClone['googleUid'] = user.uid;
+          fullUserClone['personalEmail'] = googleEmail;
+          fullUserClone['updatedAt'] = FieldValue.serverTimestamp();
+          await FirebaseFirestore.instance.collection('users').doc(user.uid).set(fullUserClone, SetOptions(merge: true));
+        }
 
         if (mounted) {
-          if (role == 'student' || role == 'parent') {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                builder: (context) => ParentMainScreen(institutionId: instId),
-              ),
-            );
-          } else {
-            Navigator.pushReplacementNamed(context, '/school-dashboard');
-          }
+          // Rol şablonunu yükle (Google giriş için de)
+          UserPermissionService.setInstitutionIdCache(instId);
+          UserPermissionService.setCachedUserData(docData);
+          final googleRole = (docData['role'] ?? 'ogretmen').toString().toLowerCase();
+          await UserPermissionService.loadAndCacheRoleTemplate(instId, googleRole);
+          await _routeUserAfterLoadingData(docData, instId);
         }
       }
     } catch (e) {
