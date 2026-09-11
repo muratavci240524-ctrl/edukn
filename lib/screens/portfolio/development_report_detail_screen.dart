@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import '../guidance/reports/development_report_pdf_helper.dart';
 import '../../models/guidance/development_report/development_report_model.dart';
 
@@ -16,17 +17,8 @@ class DevelopmentReportDetailScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: Text('${studentName} - Gelişim Raporu'),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        centerTitle: false,
-        titleTextStyle: TextStyle(
-          color: Color(0xFF1E293B),
-          fontWeight: FontWeight.bold,
-          fontSize: 18,
-        ),
-        iconTheme: IconThemeData(color: Color(0xFF1E293B)),
+      appBar: EduknAppBar(
+        title: '${studentName} - Gelişim Raporu',
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 8.0),

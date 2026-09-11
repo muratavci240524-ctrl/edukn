@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
@@ -78,14 +79,8 @@ class _GuidanceStatisticsScreenState extends State<GuidanceStatisticsScreen> {
     return DefaultTabController(
       length: 2,
       child: Scaffold(
-        appBar: AppBar(
-          title: Text(
-            'Rehberlik İstatistikleri',
-            style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
-          ),
-          backgroundColor: Colors.white,
-          iconTheme: IconThemeData(color: Colors.black),
-          elevation: 0,
+        appBar: EduknAppBar(
+          title: 'Rehberlik İstatistikleri',
           bottom: TabBar(
             labelColor: Colors.indigo,
             unselectedLabelColor: Colors.grey,

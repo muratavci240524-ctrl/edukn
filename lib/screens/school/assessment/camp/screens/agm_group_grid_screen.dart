@@ -1,7 +1,8 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 
 import '../../../../../screens/school/assessment/evaluation_models.dart';
 import '../models/agm_assignment_model.dart';
@@ -279,21 +280,10 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
 
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        title: Text(
-          (widget.cycle.title != null && widget.cycle.title!.isNotEmpty)
+      appBar: EduknAppBar(
+        title: (widget.cycle.title != null && widget.cycle.title!.isNotEmpty)
               ? widget.cycle.title!
               : widget.cycle.referansDenemeSinavAdi,
-          style: const TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
-        backgroundColor: Colors.deepOrange,
-        iconTheme: const IconThemeData(color: Colors.white),
-        centerTitle: true,
-        elevation: 0,
         actions: [
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert, color: Colors.white),

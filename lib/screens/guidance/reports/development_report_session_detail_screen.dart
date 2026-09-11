@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -168,7 +169,7 @@ class _DevelopmentReportSessionDetailScreenState
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Scaffold(
-        appBar: AppBar(title: Text("Oturum Yükleniyor...")),
+        appBar: EduknAppBar(title: 'Oturum Yükleniyor...'),
         body: Center(child: CircularProgressIndicator()),
       );
     }
@@ -176,18 +177,15 @@ class _DevelopmentReportSessionDetailScreenState
     bool isWide = MediaQuery.of(context).size.width > 800;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.session.title),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.indigo,
-        elevation: 1,
+      appBar: EduknAppBar(
+        title: widget.session.title,
         actions: [
           IconButton(
             tooltip: 'Değerlendirici İstatistikleri',
-            icon: Icon(Icons.analytics),
+            icon: const Icon(Icons.analytics, color: Colors.indigo),
             onPressed: _showStatisticsFullScreenDialog,
           ),
-          SizedBox(width: 8),
+          const SizedBox(width: 8),
         ],
       ),
       body: _buildTargetsTab(isWide),
@@ -401,11 +399,8 @@ class _DevelopmentReportSessionDetailScreenState
           final totalTargets = widget.session.targetUserIds.length;
 
           return Scaffold(
-            appBar: AppBar(
-              title: Text("Değerlendirici İstatistikleri"),
-              backgroundColor: Colors.white,
-              foregroundColor: Colors.indigo,
-              elevation: 1,
+            appBar: EduknAppBar(
+              title: 'Değerlendirici İstatistikleri',
               leading: IconButton(
                 icon: Icon(Icons.close),
                 onPressed: () => Navigator.pop(context),

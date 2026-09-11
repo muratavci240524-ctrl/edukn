@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
@@ -71,20 +72,12 @@ class _TeacherDashboardTabState extends State<TeacherDashboardTab> {
             length: 2,
             child: Scaffold(
               backgroundColor: Colors.white,
-              appBar: AppBar(
-                backgroundColor: Colors.white,
-                elevation: 0,
-                title: Text(
-                  'Dashboard',
-                  style: TextStyle(
-                    color: Colors.blue.shade700,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+              appBar: EduknAppBar(
+                title: 'Dashboard',
                 bottom: TabBar(
-                  labelColor: Colors.blue.shade700,
+                  labelColor: Colors.indigo,
                   unselectedLabelColor: Colors.grey,
-                  indicatorColor: Colors.blue.shade700,
+                  indicatorColor: Colors.indigo,
                   indicatorSize: TabBarIndicatorSize.label,
                   tabs: [
                     Tab(

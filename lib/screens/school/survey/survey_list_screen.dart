@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../models/survey_model.dart';
 import '../../../services/survey_service.dart';
@@ -153,9 +154,9 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Anket İşlemleri'),
-        centerTitle: false,
+      appBar: EduknAppBar(
+        title: 'Anket İşlemleri',
+        subtitle: widget.schoolTypeName,
         actions: [
           IconButton(
             icon: const Icon(Icons.info_outline_rounded),

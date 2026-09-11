@@ -1,5 +1,6 @@
-import 'package:edukn/services/user_permission_service.dart';
+﻿import 'package:edukn/services/user_permission_service.dart';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'dart:async';
@@ -60,23 +61,12 @@ class _AttendanceQrPageState extends State<AttendanceQrPage> {
 
     return Scaffold(
       backgroundColor: const Color(0xFF1E2661), 
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        toolbarHeight: isShortScreen ? 50 : 70,
+      appBar: EduknAppBar(
+        title: 'Giriş / Çıkış Paneli',
         leading: IconButton(
           icon: Icon(Icons.close_rounded, color: Colors.white, size: isShortScreen ? 24 : 30),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Text(
-          'Giriş / Çıkış Paneli',
-          style: TextStyle(
-            color: Colors.white, 
-            fontWeight: FontWeight.bold,
-            fontSize: isShortScreen ? 18 : 20,
-          ),
-        ),
-        centerTitle: true,
       ),
       body: Container(
         width: double.infinity,

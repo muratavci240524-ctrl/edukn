@@ -1,7 +1,8 @@
-import 'dart:typed_data';
+﻿import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
@@ -174,24 +175,19 @@ class _ParentWeeklyUpdateDetailScreenState extends State<ParentWeeklyUpdateDetai
     final weekLabel = _formatWeekRangeTr(_startOfWeek(widget.weekStart));
 
     return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Mektup Detayı', style: TextStyle(fontWeight: FontWeight.w800)),
-            Text('${widget.className} • ${widget.lessonName}', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-          ],
-        ),
+      appBar: EduknAppBar(
+        title: 'Mektup Detayı',
+        subtitle: '${widget.className} • ${widget.lessonName}',
         actions: [
           IconButton(
             tooltip: 'Paylaş',
             onPressed: _loading ? null : _share,
-            icon: const Icon(Icons.share_outlined),
+            icon: const Icon(Icons.share_outlined, color: Colors.indigo),
           ),
           IconButton(
             tooltip: 'Yazdır',
             onPressed: _loading ? null : _print,
-            icon: const Icon(Icons.print_outlined),
+            icon: const Icon(Icons.print_outlined, color: Colors.indigo),
           ),
         ],
       ),

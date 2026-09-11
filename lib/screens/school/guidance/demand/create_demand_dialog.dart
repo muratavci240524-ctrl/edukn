@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../../models/guidance/demand_model.dart';
@@ -52,11 +53,9 @@ class _CreateDemandDialogState extends State<CreateDemandDialog> {
     if (isMobile) {
       return Scaffold(
         backgroundColor: const Color(0xFFF8FAFC),
-        appBar: AppBar(
-          backgroundColor: Colors.white,
-          elevation: 0.5,
+        appBar: EduknAppBar(
+          title: 'Yeni Talep',
           leading: IconButton(icon: const Icon(Icons.close, color: Color(0xFF1E293B)), onPressed: () => Navigator.pop(context)),
-          title: Text('Yeni Talep', style: GoogleFonts.inter(color: const Color(0xFF1E293B), fontWeight: FontWeight.bold, fontSize: 18)),
           actions: [
             Padding(
               padding: const EdgeInsets.only(right: 8),

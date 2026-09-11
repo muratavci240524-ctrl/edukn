@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -230,8 +231,10 @@ class _StudentPaymentPlanWidgetState extends State<StudentPaymentPlanWidget> {
     final remainingDebt = (totalContract - totalCollected).clamp(0.0, double.infinity);
     final progress = totalContract > 0 ? (totalCollected / totalContract).clamp(0.0, 1.0) : 0.0;
 
+    final isMobileView = MediaQuery.of(context).size.width < 500;
+
     return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      padding: EdgeInsets.symmetric(horizontal: isMobileView ? 10 : 20, vertical: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -343,7 +346,7 @@ class _StudentPaymentPlanWidgetState extends State<StudentPaymentPlanWidget> {
               final overdueCard = _buildMetricCard('Geciken Taksitler', _currencyFormat.format(totalOverdue), Icons.error_outline_rounded, totalOverdue > 0 ? const Color(0xFFEF4444) : const Color(0xFF64748B), totalOverdue > 0 ? const Color(0xFFFEF2F2) : const Color(0xFFF8FAFC));
 
               return Container(
-                padding: const EdgeInsets.all(20),
+                padding: EdgeInsets.all(isNarrow ? 12 : 20),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(20),
@@ -362,15 +365,15 @@ class _StudentPaymentPlanWidgetState extends State<StudentPaymentPlanWidget> {
                       Row(
                         children: [
                           Expanded(child: contractCard),
-                          const SizedBox(width: 12),
+                          const SizedBox(width: 8),
                           Expanded(child: collectedCard),
                         ],
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 8),
                       Row(
                         children: [
                           Expanded(child: remainingCard),
-                          const SizedBox(width: 12),
+                          const SizedBox(width: 8),
                           Expanded(child: overdueCard),
                         ],
                       ),
@@ -387,29 +390,32 @@ class _StudentPaymentPlanWidgetState extends State<StudentPaymentPlanWidget> {
                         ],
                       ),
                     ],
-                    const SizedBox(height: 20),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      alignment: WrapAlignment.spaceBetween,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         Text(
-                          'Tahsilat İlerlemesi: %${(progress * 100).toStringAsFixed(1)}',
+                          'Tahsilat: %${(progress * 100).toStringAsFixed(1)}',
                           style: GoogleFonts.inter(
-                            fontSize: 13,
+                            fontSize: 12,
                             fontWeight: FontWeight.w700,
                             color: const Color(0xFF334155),
                           ),
                         ),
                         Text(
-                          '$paidInstallments / $totalInstallments Taksit Tamamlandı',
+                          '$paidInstallments / $totalInstallments Taksit',
                           style: GoogleFonts.inter(
-                            fontSize: 12,
+                            fontSize: 11,
                             fontWeight: FontWeight.w600,
                             color: const Color(0xFF64748B),
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 8),
                     ClipRRect(
                       borderRadius: BorderRadius.circular(8),
                       child: LinearProgressIndicator(
@@ -442,11 +448,7 @@ class _StudentPaymentPlanWidgetState extends State<StudentPaymentPlanWidget> {
         context,
         MaterialPageRoute(
           builder: (context) => Scaffold(
-            appBar: AppBar(
-              title: Text('Ödeme Planı & Sözleşme', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
-              backgroundColor: Colors.white,
-              elevation: 1,
-            ),
+            appBar: EduknAppBar(title: 'Ödeme Planı & Sözleşme'),
             body: _FullOfferPaymentPlanBuilder(
               studentId: widget.studentId,
               studentData: widget.studentData,
@@ -532,42 +534,37 @@ class _StudentPaymentPlanWidgetState extends State<StudentPaymentPlanWidget> {
 
   Widget _buildMetricCard(String title, String value, IconData icon, Color color, Color bg) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: color.withOpacity(0.2)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(color: color.withOpacity(0.12), shape: BoxShape.circle),
-            child: Icon(icon, color: color, size: 22),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
+          Row(
+            children: [
+              Icon(icon, color: color, size: 16),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
                   title,
-                  style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: const Color(0xFF64748B)),
+                  style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w600, color: const Color(0xFF64748B)),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(height: 4),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    value,
-                    style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w800, color: color),
-                  ),
-                ),
-              ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w800, color: color),
             ),
           ),
         ],
@@ -602,6 +599,7 @@ class _StudentPaymentPlanWidgetState extends State<StudentPaymentPlanWidget> {
       }
     }
 
+    final isMobile = MediaQuery.of(context).size.width < 500;
     return Container(
       margin: const EdgeInsets.only(bottom: 20),
       decoration: BoxDecoration(
@@ -620,19 +618,51 @@ class _StudentPaymentPlanWidgetState extends State<StudentPaymentPlanWidget> {
         data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
         child: ExpansionTile(
           initiallyExpanded: true,
-          tilePadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-          childrenPadding: const EdgeInsets.all(20),
-          leading: Container(
+          tilePadding: EdgeInsets.symmetric(horizontal: isMobile ? 12 : 20, vertical: 8),
+          childrenPadding: EdgeInsets.all(isMobile ? 12 : 20),
+          leading: isMobile ? null : Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(color: const Color(0xFFEEF2FF), borderRadius: BorderRadius.circular(12)),
             child: const Icon(Icons.description_rounded, color: Color(0xFF4F46E5), size: 24),
           ),
-          title: Text(name, style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 16, color: const Color(0xFF1E293B))),
-          subtitle: Text(
-            'Net Bedel: ${_currencyFormat.format(netTotal)}  •  Kalan: ${_currencyFormat.format(remaining)}',
-            style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: remaining <= 0 ? const Color(0xFF10B981) : const Color(0xFF4F46E5)),
+          title: Text(name, style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: isMobile ? 14 : 16, color: const Color(0xFF1E293B)), maxLines: 2, overflow: TextOverflow.ellipsis),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Net: ${_currencyFormat.format(netTotal)}  •  Kalan: ${_currencyFormat.format(remaining)}',
+                style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: remaining <= 0 ? const Color(0xFF10B981) : const Color(0xFF4F46E5)),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              if (isMobile) ...[
+                const SizedBox(height: 6),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    InkWell(
+                      onTap: () => _printContractPdf(data),
+                      child: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(color: const Color(0xFFEEF2FF), borderRadius: BorderRadius.circular(8)),
+                        child: const Icon(Icons.print_rounded, color: Color(0xFF4F46E5), size: 18),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    InkWell(
+                      onTap: () => _confirmDelete(planId, name),
+                      child: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(color: const Color(0xFFFEF2F2), borderRadius: BorderRadius.circular(8)),
+                        child: const Icon(Icons.delete_outline_rounded, color: Color(0xFFEF4444), size: 18),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
           ),
-          trailing: Row(
+          trailing: isMobile ? null : Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               IconButton(
@@ -655,44 +685,43 @@ class _StudentPaymentPlanWidgetState extends State<StudentPaymentPlanWidget> {
                 child: Text('Hizmet Kalemleri ve Seçilen Ödeme Şekilleri', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13, color: const Color(0xFF1E293B))),
               ),
               const SizedBox(height: 10),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: items.map((it) {
-                  final itAmt = (it['amount'] ?? 0).toDouble();
-                  final pType = it['paymentType'] == 'cash' ? 'Peşin' : 'Taksitli';
-                  final instCount = it['installmentCount'];
-                  return Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF8FAFC),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFFE2E8F0)),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(_getIconForPriceType(it['name']), size: 16, color: const Color(0xFF4F46E5)),
-                        const SizedBox(width: 8),
-                        Text('${it['name']}: ', style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 12, color: const Color(0xFF334155))),
-                        Text(_currencyFormat.format(itAmt), style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 13, color: const Color(0xFF1E293B))),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: pType == 'Peşin' ? const Color(0xFFFEF3C7) : const Color(0xFFEEF2FF),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            pType == 'Peşin' ? 'Peşin' : (instCount != null ? '$instCount Taksit' : 'Taksitli'),
-                            style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w700, color: pType == 'Peşin' ? const Color(0xFFB45309) : const Color(0xFF4338CA)),
-                          ),
+              ...items.map((it) {
+                final itAmt = (it['amount'] ?? 0).toDouble();
+                final pType = it['paymentType'] == 'cash' ? 'Peşin' : 'Taksitli';
+                final instCount = it['installmentCount'];
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(_getIconForPriceType(it['name']), size: 16, color: const Color(0xFF4F46E5)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text('${it['name']}:', style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 12, color: const Color(0xFF334155)), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(_currencyFormat.format(itAmt), style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 13, color: const Color(0xFF1E293B))),
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: pType == 'Peşin' ? const Color(0xFFFEF3C7) : const Color(0xFFEEF2FF),
+                          borderRadius: BorderRadius.circular(6),
                         ),
-                      ],
-                    ),
-                  );
-                }).toList(),
-              ),
+                        child: Text(
+                          pType == 'Peşin' ? 'Peşin' : (instCount != null ? '$instCount T' : 'Taksit'),
+                          style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w700, color: pType == 'Peşin' ? const Color(0xFFB45309) : const Color(0xFF4338CA)),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
               const SizedBox(height: 16),
             ],
 
@@ -703,27 +732,29 @@ class _StudentPaymentPlanWidgetState extends State<StudentPaymentPlanWidget> {
                 child: Text('Uygulanan Burs & İndirimler', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13, color: const Color(0xFF1E293B))),
               ),
               const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: discounts.map((d) {
-                  return Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFECFDF5),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFFA7F3D0)),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.check_circle_rounded, size: 14, color: Color(0xFF059669)),
-                        const SizedBox(width: 6),
-                        Text('${d['name']} (%${d['percentage'] ?? 0})', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 12, color: const Color(0xFF065F46))),
-                      ],
-                    ),
-                  );
-                }).toList(),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: discounts.map((d) {
+                    return Container(
+                      margin: const EdgeInsets.only(right: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFECFDF5),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFA7F3D0)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.check_circle_rounded, size: 14, color: Color(0xFF059669)),
+                          const SizedBox(width: 4),
+                          Text('${d['name']} (%${d['percentage'] ?? 0})', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 11, color: const Color(0xFF065F46))),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ),
               ),
               const SizedBox(height: 16),
             ],
@@ -738,31 +769,73 @@ class _StudentPaymentPlanWidgetState extends State<StudentPaymentPlanWidget> {
                   borderRadius: BorderRadius.circular(14),
                   border: Border.all(color: downPaymentPaid ? const Color(0xFFA7F3D0) : const Color(0xFFFDE68A)),
                 ),
-                child: Row(
-                  children: [
-                    Icon(downPaymentPaid ? Icons.check_circle_rounded : Icons.pending_actions_rounded, color: downPaymentPaid ? const Color(0xFF10B981) : const Color(0xFFD97706), size: 24),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isNarrow = constraints.maxWidth < 400;
+                    if (isNarrow) {
+                      return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Peşin Alınacak Tutar / Peşinat', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: const Color(0xFF475569))),
-                          Text(_currencyFormat.format(downPayment), style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w800, color: const Color(0xFF1E293B))),
+                          Row(
+                            children: [
+                              Icon(downPaymentPaid ? Icons.check_circle_rounded : Icons.pending_actions_rounded, color: downPaymentPaid ? const Color(0xFF10B981) : const Color(0xFFD97706), size: 24),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('Peşin Alınacak Tutar', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: const Color(0xFF475569))),
+                                    Text(_currencyFormat.format(downPayment), style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w800, color: const Color(0xFF1E293B))),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              onPressed: () => _toggleDownPayment(planId, data, !downPaymentPaid),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: downPaymentPaid ? Colors.white : const Color(0xFF10B981),
+                                foregroundColor: downPaymentPaid ? const Color(0xFF334155) : Colors.white,
+                                elevation: 0,
+                                side: downPaymentPaid ? const BorderSide(color: Color(0xFFCBD5E1)) : BorderSide.none,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              child: Text(downPaymentPaid ? 'Tahsilatı İptal Et' : 'Ödendi İşaretle', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700)),
+                            ),
+                          ),
                         ],
-                      ),
-                    ),
-                    ElevatedButton(
-                      onPressed: () => _toggleDownPayment(planId, data, !downPaymentPaid),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: downPaymentPaid ? Colors.white : const Color(0xFF10B981),
-                        foregroundColor: downPaymentPaid ? const Color(0xFF334155) : Colors.white,
-                        elevation: 0,
-                        side: downPaymentPaid ? const BorderSide(color: Color(0xFFCBD5E1)) : BorderSide.none,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      ),
-                      child: Text(downPaymentPaid ? 'Tahsilatı İptal Et' : 'Ödendi İşaretle', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700)),
-                    ),
-                  ],
+                      );
+                    }
+                    return Row(
+                      children: [
+                        Icon(downPaymentPaid ? Icons.check_circle_rounded : Icons.pending_actions_rounded, color: downPaymentPaid ? const Color(0xFF10B981) : const Color(0xFFD97706), size: 24),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Peşin Alınacak Tutar / Peşinat', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: const Color(0xFF475569))),
+                              Text(_currencyFormat.format(downPayment), style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w800, color: const Color(0xFF1E293B))),
+                            ],
+                          ),
+                        ),
+                        ElevatedButton(
+                          onPressed: () => _toggleDownPayment(planId, data, !downPaymentPaid),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: downPaymentPaid ? Colors.white : const Color(0xFF10B981),
+                            foregroundColor: downPaymentPaid ? const Color(0xFF334155) : Colors.white,
+                            elevation: 0,
+                            side: downPaymentPaid ? const BorderSide(color: Color(0xFFCBD5E1)) : BorderSide.none,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          child: Text(downPaymentPaid ? 'Tahsilatı İptal Et' : 'Ödendi İşaretle', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700)),
+                        ),
+                      ],
+                    );
+                  },
                 ),
               ),
             ],
@@ -786,29 +859,26 @@ class _StudentPaymentPlanWidgetState extends State<StudentPaymentPlanWidget> {
                   children: [
                     // Grup Başlığı
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                       decoration: const BoxDecoration(
                         color: Color(0xFFF1F5F9),
                         borderRadius: BorderRadius.only(topLeft: Radius.circular(15), topRight: Radius.circular(15)),
                         border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
                       ),
                       child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Row(
-                            children: [
-                              Icon(_getIconForPriceType(groupName), size: 18, color: const Color(0xFF4F46E5)),
-                              const SizedBox(width: 8),
-                              Text('$groupName Taksit Planı', style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 13, color: const Color(0xFF1E293B))),
-                              const SizedBox(width: 8),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(color: const Color(0xFFEEF2FF), borderRadius: BorderRadius.circular(6)),
-                                child: Text('${groupInsts.length} Taksit', style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w700, color: const Color(0xFF4F46E5))),
-                              ),
-                            ],
+                          Icon(_getIconForPriceType(groupName), size: 18, color: const Color(0xFF4F46E5)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('$groupName Taksit Planı', style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 13, color: const Color(0xFF1E293B)), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                const SizedBox(height: 2),
+                                Text('${groupInsts.length} Taksit • Toplam: ${_currencyFormat.format(groupTotal)}', style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 11, color: const Color(0xFF64748B)), maxLines: 1, overflow: TextOverflow.ellipsis),
+                              ],
+                            ),
                           ),
-                          Text('Toplam: ${_currencyFormat.format(groupTotal)}', style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 13, color: const Color(0xFF1E293B))),
                         ],
                       ),
                     ),
@@ -826,53 +896,118 @@ class _StudentPaymentPlanWidgetState extends State<StudentPaymentPlanWidget> {
                         final dueDate = inst['dueDate']?.toString() ?? '-';
                         final title = inst['title'] ?? '${gIdx + 1}. Taksit';
 
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                          child: Row(
-                            children: [
-                              CircleAvatar(
-                                radius: 13,
-                                backgroundColor: isPaid ? const Color(0xFFD1FAE5) : const Color(0xFFEEF2FF),
-                                child: Text('${gIdx + 1}', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700, color: isPaid ? const Color(0xFF059669) : const Color(0xFF4F46E5))),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
+                        return LayoutBuilder(
+                          builder: (context, rowConstraints) {
+                            final isNarrowRow = rowConstraints.maxWidth < 450;
+                            if (isNarrowRow) {
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(title, style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13, color: const Color(0xFF1E293B))),
-                                    Text('Vade: $dueDate', style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B))),
+                                    Row(
+                                      children: [
+                                        CircleAvatar(
+                                          radius: 13,
+                                          backgroundColor: isPaid ? const Color(0xFFD1FAE5) : const Color(0xFFEEF2FF),
+                                          child: Text('${gIdx + 1}', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700, color: isPaid ? const Color(0xFF059669) : const Color(0xFF4F46E5))),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(title, style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13, color: const Color(0xFF1E293B)), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                              Text('Vade: $dueDate', style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B))),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(_currencyFormat.format(amount), style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w800, color: isPaid ? const Color(0xFF059669) : const Color(0xFF1E293B))),
+                                        isPaid
+                                            ? ElevatedButton.icon(
+                                                onPressed: () => _cancelPayment(planId, data, globalIdx >= 0 ? globalIdx : gIdx),
+                                                icon: const Icon(Icons.check_rounded, size: 13),
+                                                label: const Text('Ödendi'),
+                                                style: ElevatedButton.styleFrom(
+                                                  backgroundColor: const Color(0xFFECFDF5),
+                                                  foregroundColor: const Color(0xFF059669),
+                                                  elevation: 0,
+                                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                                ),
+                                              )
+                                            : ElevatedButton(
+                                                onPressed: () => _openCollectDialog(planId, data, globalIdx >= 0 ? globalIdx : gIdx, inst),
+                                                style: ElevatedButton.styleFrom(
+                                                  backgroundColor: const Color(0xFF4F46E5),
+                                                  foregroundColor: Colors.white,
+                                                  elevation: 0,
+                                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                                ),
+                                                child: Text('Tahsil Et', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700)),
+                                              ),
+                                      ],
+                                    ),
                                   ],
                                 ),
-                              ),
-                              Text(_currencyFormat.format(amount), style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w800, color: isPaid ? const Color(0xFF059669) : const Color(0xFF1E293B))),
-                              const SizedBox(width: 14),
-                              isPaid
-                                  ? ElevatedButton.icon(
-                                      onPressed: () => _cancelPayment(planId, data, globalIdx >= 0 ? globalIdx : gIdx),
-                                      icon: const Icon(Icons.check_rounded, size: 13),
-                                      label: const Text('Ödendi'),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(0xFFECFDF5),
-                                        foregroundColor: const Color(0xFF059669),
-                                        elevation: 0,
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                      ),
-                                    )
-                                  : ElevatedButton(
-                                      onPressed: () => _openCollectDialog(planId, data, globalIdx >= 0 ? globalIdx : gIdx, inst),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(0xFF4F46E5),
-                                        foregroundColor: Colors.white,
-                                        elevation: 0,
-                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                      ),
-                                      child: Text('Tahsil Et', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700)),
+                              );
+                            }
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                              child: Row(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 13,
+                                    backgroundColor: isPaid ? const Color(0xFFD1FAE5) : const Color(0xFFEEF2FF),
+                                    child: Text('${gIdx + 1}', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700, color: isPaid ? const Color(0xFF059669) : const Color(0xFF4F46E5))),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(title, style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13, color: const Color(0xFF1E293B))),
+                                        Text('Vade: $dueDate', style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B))),
+                                      ],
                                     ),
-                            ],
-                          ),
+                                  ),
+                                  Text(_currencyFormat.format(amount), style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w800, color: isPaid ? const Color(0xFF059669) : const Color(0xFF1E293B))),
+                                  const SizedBox(width: 14),
+                                  isPaid
+                                      ? ElevatedButton.icon(
+                                          onPressed: () => _cancelPayment(planId, data, globalIdx >= 0 ? globalIdx : gIdx),
+                                          icon: const Icon(Icons.check_rounded, size: 13),
+                                          label: const Text('Ödendi'),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: const Color(0xFFECFDF5),
+                                            foregroundColor: const Color(0xFF059669),
+                                            elevation: 0,
+                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                          ),
+                                        )
+                                      : ElevatedButton(
+                                          onPressed: () => _openCollectDialog(planId, data, globalIdx >= 0 ? globalIdx : gIdx, inst),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: const Color(0xFF4F46E5),
+                                            foregroundColor: Colors.white,
+                                            elevation: 0,
+                                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                          ),
+                                          child: Text('Tahsil Et', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700)),
+                                        ),
+                                ],
+                              ),
+                            );
+                          },
                         );
                       },
                     ),

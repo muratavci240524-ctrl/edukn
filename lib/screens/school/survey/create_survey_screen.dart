@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../models/survey_model.dart';
 import 'survey_preview_screen.dart';
@@ -124,15 +125,8 @@ class _CreateSurveyScreenState extends State<CreateSurveyScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[50],
-      appBar: AppBar(
-        title: Text(
-          'Yeni Anket Oluştur',
-          style: GoogleFonts.inter(fontWeight: FontWeight.w600),
-        ),
-        centerTitle: false,
-        backgroundColor: Colors.white,
-        elevation: 0,
-        foregroundColor: Colors.black87,
+      appBar: EduknAppBar(
+        title: 'Yeni Anket Oluştur',
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 8.0),
@@ -921,15 +915,8 @@ class QuestionEditorPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: Text(
-          isEditing ? 'Soruyu Düzenle' : 'Yeni Soru Ekle',
-          style: GoogleFonts.inter(fontWeight: FontWeight.bold),
-        ),
-        centerTitle: true,
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.indigo,
-        elevation: 0,
+      appBar: EduknAppBar(
+        title: isEditing ? 'Soruyu Düzenle' : 'Yeni Soru Ekle',
       ),
       body: QuestionEditor(
         isEditing: isEditing,

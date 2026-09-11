@@ -1,8 +1,9 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
 
@@ -267,18 +268,12 @@ class _StudentExamStatsScreenState extends State<StudentExamStatsScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 1,
-        leading: const BackButton(color: Color(0xFF4F46E5)),
-        title: const Text(
-          'Notlarım & Sınavlar',
-          style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
-        ),
+      appBar: EduknAppBar(
+        title: 'Notlarım & Sınavlar',
         bottom: TabBar(
           controller: _tabController,
-          indicatorColor: const Color(0xFF4F46E5),
-          labelColor: const Color(0xFF4F46E5),
+          indicatorColor: Colors.indigo,
+          labelColor: Colors.indigo,
           unselectedLabelColor: Colors.grey.shade500,
           labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
           tabs: const [
@@ -288,7 +283,7 @@ class _StudentExamStatsScreenState extends State<StudentExamStatsScreen>
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh_rounded, color: Color(0xFF4F46E5)),
+            icon: const Icon(Icons.refresh_rounded, color: Colors.indigo),
             onPressed: () { _loadWritten(); _loadTrial(); },
           ),
         ],

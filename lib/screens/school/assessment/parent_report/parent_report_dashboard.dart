@@ -1,5 +1,6 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:printing/printing.dart';
 import 'package:intl/intl.dart';
@@ -1475,46 +1476,9 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF6F8FC),
-      appBar: AppBar(
-        title: const Text(
-          'Veli Bilgilendirme Raporları',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
-        backgroundColor: Colors.indigo.shade900,
-        centerTitle: true,
+      appBar: EduknAppBar(
+        title: 'Veli Bilgilendirme Raporları',
         leading: const BackButton(color: Colors.white),
-        elevation: 0,
-        actions: _selectedStudent == null
-            ? null
-            : [
-                if (_isGeneratingPdf)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16.0),
-                    child: Center(
-                      child: SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                        ),
-                      ),
-                    ),
-                  )
-                else ...[
-                  IconButton(
-                    icon: const Icon(Icons.print, color: Colors.white),
-                    tooltip: 'Yazdır',
-                    onPressed: _printCurrentReport,
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.share, color: Colors.white),
-                    tooltip: 'Paylaş',
-                    onPressed: _shareCurrentReport,
-                  ),
-                  const SizedBox(width: 8),
-                ],
-              ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: Colors.indigo))

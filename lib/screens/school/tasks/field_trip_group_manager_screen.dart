@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../models/field_trip_model.dart';
 import '../../../../services/field_trip_service.dart';
@@ -417,14 +418,8 @@ class _FieldTripGroupManagerScreenState
     }).toList();
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'Grup Yönetimi',
-          style: TextStyle(color: Colors.black87),
-        ),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.black87),
+      appBar: EduknAppBar(
+        title: 'Grup Yönetimi',
         actions: [
           IconButton(
             icon: const Icon(Icons.print),

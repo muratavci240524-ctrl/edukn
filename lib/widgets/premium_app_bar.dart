@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import 'edukn_logo.dart';
+import '../screens/school/school_types/student_promotion_transfer_screens.dart';
 import 'user_avatar.dart';
 import '../services/user_permission_service.dart';
 import '../services/term_service.dart';
@@ -252,6 +253,9 @@ class _PremiumAppBarState extends State<PremiumAppBar> {
                             );
                           }
 
+                          // Cache'i temizle — aktif dönem ID'si her zaman taze alınsın
+                          TermService().clearCache();
+
                           setState(() => _selectedTerm = term);
                           Navigator.pop(context);
                           if (widget.onTermChanged != null) {
@@ -334,6 +338,109 @@ class _PremiumAppBarState extends State<PremiumAppBar> {
                   ),
                 ),
               ),
+            // ── Sınıf Atlatma & Nakil İşlemleri ──
+            if (_canAccessSubModule('egitim', 'sinif_atlatma')) ...[
+              const SizedBox(height: 16),
+              const Divider(height: 1),
+              const SizedBox(height: 16),
+              _buildTermSheetAction(
+                icon: Icons.upgrade_rounded,
+                title: 'Sınıf Atlatma İşlemleri',
+                subtitle: 'Öğrencileri bir üst sınıfa geçirir',
+                color: Colors.indigo,
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ClassPromotionScreen(
+                        schoolTypeId: widget.schoolTypeId,
+                        schoolTypeName: widget.schoolTypeName,
+                        institutionId: widget.institutionId,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+            if (_canAccessSubModule('egitim', 'nakil_islemleri')) ...[
+              const SizedBox(height: 8),
+              _buildTermSheetAction(
+                icon: Icons.transfer_within_a_station_rounded,
+                title: 'Nakil İşlemleri',
+                subtitle: 'Öğrencileri farklı okul türüne aktarır',
+                color: Colors.teal,
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => StudentTransferScreen(
+                        sourceSchoolTypeId: widget.schoolTypeId,
+                        sourceSchoolTypeName: widget.schoolTypeName,
+                        institutionId: widget.institutionId,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Okul ayarları + kullanıcı yetkisi kontrolü
+  /// Genel müdür / admin her zaman erişir
+  bool _canAccessSubModule(String moduleKey, String subKey) {
+    // 1. Okul ayarlarında devre dışı mı?
+    if (schoolData != null) {
+      final appSettings = schoolData!['appSettings'] as Map<String, dynamic>?;
+      final disabledModules = appSettings?['disabledModules'] as List<dynamic>? ?? [];
+      if (disabledModules.contains(moduleKey)) return false;
+      if (disabledModules.contains('$moduleKey.$subKey')) return false;
+    }
+    // 2. Kullanıcı yetkisi var mı? (Genel müdür için _isTopAdmin → true)
+    return UserPermissionService.hasSubModuleAccess(moduleKey, subKey, userData);
+  }
+
+  /// Dönem bottom sheet'i içindeki aksiyon butonu
+  Widget _buildTermSheetAction({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(0.15)),
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              backgroundColor: color.withOpacity(0.12),
+              radius: 18,
+              child: Icon(icon, color: color, size: 20),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: color)),
+                  Text(subtitle, style: TextStyle(fontSize: 11, color: Colors.blueGrey.shade500)),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right_rounded, color: color.withOpacity(0.5), size: 20),
           ],
         ),
       ),

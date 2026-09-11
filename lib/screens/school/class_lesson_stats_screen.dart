@@ -1,6 +1,7 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:intl/intl.dart';
 
 import 'parent_weekly_updates_overview_screen.dart';
@@ -500,27 +501,9 @@ class _ClassLessonStatsScreenState extends State<ClassLessonStatsScreen> {
     final progress = totalTopics == 0 ? 0.0 : (coveredTopics / totalTopics);
 
     return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'İstatistik',
-              style: TextStyle(
-                color: Colors.grey.shade900,
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            Text(
-              '${widget.className} • ${widget.lessonName}',
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-            ),
-          ],
-        ),
+      appBar: EduknAppBar(
+        title: 'İstatistik',
+        subtitle: '${widget.className} • ${widget.lessonName}',
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())

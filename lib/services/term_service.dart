@@ -122,7 +122,7 @@ class TermService {
     if (institutionId == 'GMAIL') return 0;
 
     int migratedCount = 0;
-    final collections = ['students', 'classes', 'lessons', 'classrooms', 'yearlyPlans', 'workPeriods', 'lessonAssignments', 'classSchedules', 'social_media_posts'];
+    final collections = ['students', 'classes', 'lessons', 'classrooms', 'yearlyPlans', 'workPeriods', 'lessonAssignments', 'classSchedules', 'social_media_posts', 'trial_exams', 'external_exams', 'exam_types', 'optical_forms', 'outcome_lists', 'assessment_action_plans'];
 
     for (final collectionName in collections) {
       try {

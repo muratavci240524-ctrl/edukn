@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 
@@ -129,28 +130,9 @@ class _CampDashboardScreenState extends State<CampDashboardScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        title: Column(
-          children: [
-            const Text(
-              'Kamp Programı',
-              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 17),
-            ),
-            if (_displayedPeriodName != null)
-              Text(
-                'Dönem: $_displayedPeriodName ${_isPastPeriod ? "(Geçmiş)" : "(Aktif)"}',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.white.withOpacity(0.95),
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-          ],
-        ),
-        backgroundColor: _isPastPeriod ? Colors.blueGrey.shade700 : Colors.orange.shade700,
-        iconTheme: const IconThemeData(color: Colors.white),
-        centerTitle: true,
-        elevation: 0,
+      appBar: EduknAppBar(
+        title: 'Kamp Programı',
+        subtitle: 'Dönem: $_displayedPeriodName ${_isPastPeriod ? "(Geçmiş)" : "(Aktif)"}',
         actions: [
           IconButton(
             tooltip: 'Derslik Tanımlama',

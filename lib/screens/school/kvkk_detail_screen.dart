@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class KvkkDetailScreen extends StatefulWidget {
@@ -35,12 +36,8 @@ class _KvkkDetailScreenState extends State<KvkkDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('KVKK Aydınlatma Metni'),
-        centerTitle: true,
-        elevation: 0,
-        backgroundColor: Colors.white,
-        foregroundColor: const Color(0xFF1E2661),
+      appBar: EduknAppBar(
+        title: 'KVKK Aydınlatma Metni',
       ),
       body: Column(
         children: [

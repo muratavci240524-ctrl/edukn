@@ -1,7 +1,8 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'dart:ui';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:intl/intl.dart';
 
 import '../models/camp_cycle_model.dart';
@@ -362,12 +363,8 @@ class _CampCycleSetupScreenState extends State<CampCycleSetupScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        title: const Text('Kamp Kurulumu', style: TextStyle(color: Colors.white)),
-        backgroundColor: Colors.orange.shade700,
-        iconTheme: const IconThemeData(color: Colors.white),
-        centerTitle: true,
-        elevation: 0,
+      appBar: EduknAppBar(
+        title: 'Kamp Kurulumu',
         actions: [
           IconButton(icon: const Icon(Icons.meeting_room_outlined), onPressed: () async {
             await Navigator.push(context, MaterialPageRoute(builder: (_) => ClassroomManagementScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: 'Kamp')));

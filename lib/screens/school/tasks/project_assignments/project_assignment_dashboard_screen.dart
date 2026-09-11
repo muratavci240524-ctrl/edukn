@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -49,21 +50,8 @@ class _ProjectAssignmentDashboardScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(_assignment.name, style: TextStyle(color: Colors.black)),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        iconTheme: IconThemeData(color: Colors.black),
-        bottom: TabBar(
-          controller: _tabController,
-          labelColor: Colors.indigo,
-          unselectedLabelColor: Colors.grey,
-          indicatorColor: Colors.indigo,
-          tabs: const [
-            Tab(text: 'Konular & Kontenjan'),
-            Tab(text: 'Dağıtım & Atamalar'),
-          ],
-        ),
+      appBar: EduknAppBar(
+        title: _assignment.name,
         actions: [
           IconButton(
             icon: Icon(Icons.settings),
@@ -82,6 +70,16 @@ class _ProjectAssignmentDashboardScreenState
             },
           ),
         ],
+        bottom: TabBar(
+          controller: _tabController,
+          labelColor: Colors.indigo,
+          unselectedLabelColor: Colors.grey,
+          indicatorColor: Colors.indigo,
+          tabs: const [
+            Tab(text: 'Konular & Kontenjan'),
+            Tab(text: 'Dağıtım & Atamalar'),
+          ],
+        ),
       ),
       body: TabBarView(
         controller: _tabController,

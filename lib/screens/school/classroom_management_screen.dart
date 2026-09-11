@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/classroom_model.dart';
@@ -314,27 +315,9 @@ class _ClassroomManagementScreenState extends State<ClassroomManagementScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.grey.shade900,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Derslik Listesi',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-            ),
-            Text(
-              widget.schoolTypeName,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.normal,
-                color: Colors.grey.shade600,
-              ),
-            ),
-          ],
-        ),
+      appBar: EduknAppBar(
+        title: 'Derslik Listesi',
+        subtitle: widget.schoolTypeName,
       ),
       body: LayoutBuilder(
         builder: (context, constraints) {
@@ -895,6 +878,11 @@ class _ClassroomManagementScreenState extends State<ClassroomManagementScreen>
     return SafeStreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('classroomLessons')
+          .where('institutionId', whereIn: [
+            widget.institutionId.toUpperCase(),
+            widget.institutionId.toLowerCase(),
+            widget.institutionId,
+          ])
           .where('classroomId', isEqualTo: classroomId)
           .where('isActive', isEqualTo: true)
           .snapshots(),
@@ -2024,10 +2012,8 @@ class _ClassroomDetailPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(classroom.classroomName),
-        backgroundColor: Colors.indigo,
-        foregroundColor: Colors.white,
+      appBar: EduknAppBar(
+        title: classroom.classroomName,
         actions: [
           IconButton(icon: Icon(Icons.edit), onPressed: onEdit),
           IconButton(icon: Icon(Icons.delete), onPressed: onDelete),
@@ -2155,6 +2141,11 @@ class _ClassroomDetailPage extends StatelessWidget {
     return SafeStreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('classroomLessons')
+          .where('institutionId', whereIn: [
+            classroom.institutionId.toUpperCase(),
+            classroom.institutionId.toLowerCase(),
+            classroom.institutionId,
+          ])
           .where('classroomId', isEqualTo: classroom.id)
           .where('isActive', isEqualTo: true)
           .snapshots(),

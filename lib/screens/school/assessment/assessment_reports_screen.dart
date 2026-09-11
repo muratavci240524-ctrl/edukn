@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 
 import 'single_exam_results_screen.dart';
 import 'combined_exam_results_screen.dart';
@@ -12,12 +13,14 @@ import 'parent_report/parent_report_dashboard.dart';
 class AssessmentReportsScreen extends StatelessWidget {
   final String institutionId;
   final String schoolTypeId;
+  final String? schoolTypeName;
   final bool isTeacher;
 
   const AssessmentReportsScreen({
     Key? key,
     required this.institutionId,
     required this.schoolTypeId,
+    this.schoolTypeName,
     this.isTeacher = false,
   }) : super(key: key);
 
@@ -25,16 +28,9 @@ class AssessmentReportsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        title: const Text(
-          'Raporlar',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
-        centerTitle: true,
-        backgroundColor: Colors.indigo.shade900,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        leading: const BackButton(color: Colors.white),
+      appBar: EduknAppBar(
+        title: 'Ölçme Değerlendirme Raporları',
+        subtitle: schoolTypeName,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),

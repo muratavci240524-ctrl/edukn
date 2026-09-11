@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -13,11 +14,13 @@ import '../../../services/user_permission_service.dart';
 class MentorStudiesHubScreen extends StatefulWidget {
   final String institutionId;
   final String schoolTypeId;
+  final String? schoolTypeName;
 
   const MentorStudiesHubScreen({
     Key? key,
     required this.institutionId,
     required this.schoolTypeId,
+    this.schoolTypeName,
   }) : super(key: key);
 
   @override
@@ -287,19 +290,9 @@ class _MentorStudiesHubScreenState extends State<MentorStudiesHubScreen>
 
     return Scaffold(
       backgroundColor: const Color(0xFFF3F4F6),
-      appBar: AppBar(
-        title: Text(
-          'Mentör Çalışmaları Portalı',
-          style: GoogleFonts.inter(
-            fontWeight: FontWeight.bold,
-            fontSize: 18,
-            color: Colors.white,
-          ),
-        ),
-        backgroundColor: Colors.indigo,
-        foregroundColor: Colors.white,
-        iconTheme: const IconThemeData(color: Colors.white),
-        actionsIconTheme: const IconThemeData(color: Colors.white),
+      appBar: EduknAppBar(
+        title: 'Mentör Çalışmaları Portalı',
+        subtitle: widget.schoolTypeName,
         actions: [
           if (isAdmin)
             IconButton(

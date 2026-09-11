@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 
 class StudentDetailViewScreen extends StatefulWidget {
   final Map<String, dynamic> student;
@@ -32,21 +33,8 @@ class _StudentDetailViewScreenState extends State<StudentDetailViewScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 1,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded, color: Colors.grey.shade800),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Text(
-          'Öğrenci Detayı',
-          style: TextStyle(
-            color: Colors.grey.shade900,
-            fontSize: 17,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
+      appBar: EduknAppBar(
+        title: 'Öğrenci Detayı',
         bottom: TabBar(
           controller: _tabController,
           isScrollable: true,

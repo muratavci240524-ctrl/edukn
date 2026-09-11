@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 
 class ReportsScreen extends StatelessWidget {
   static const routeName = '/hr/reports';
@@ -7,7 +8,7 @@ class ReportsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Raporlama ve Analitik')),
+      appBar: EduknAppBar(title: 'Raporlama ve Analitik'),
       body: const Center(child: Text('Grafikler ve export iskeleti')), 
     );
   }

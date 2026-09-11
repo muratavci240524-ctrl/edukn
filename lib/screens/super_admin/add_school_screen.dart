@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -959,22 +960,12 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
+      appBar: EduknAppBar(
+        title: _isEditMode ? 'Okul Düzenle' : 'Yeni Okul Oluştur',
         leading: IconButton(
           icon: Icon(Icons.arrow_back, color: Colors.indigo),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Text(
-          _isEditMode ? 'Okul Düzenle' : 'Yeni Okul Oluştur',
-          style: TextStyle(
-            color: Colors.grey.shade900,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        centerTitle: true,
         actions: [
           if (_isEditMode)
             IconButton(

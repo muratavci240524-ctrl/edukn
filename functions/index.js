@@ -1123,21 +1123,98 @@ exports.onCalendarEventCreated = onDocumentCreated(
 );
 
 // ─── Trigger: Nöbet Atandığında ──────────────────────────────────────────────
-exports.onDutyAssigned = onDocumentCreated("dutyScheduleItems/{itemId}", async (event) => {
-    const item = event.data?.data();
+exports.onDutyAssigned = onDocumentWritten("dutyScheduleItems/{itemId}", async (event) => {
+    // Doküman silindiyse bildirim gönderme
+    if (!event.data?.after?.exists) return;
+
+    const before = event.data?.before?.exists ? event.data.before.data() : null;
+    const item = event.data.after.data();
     if (!item) return;
 
-    const { teacherId, teacherName, locationName, dayOfWeek, institutionId } = item;
+    const { teacherId, teacherName, locationName, dayOfWeek, institutionId, weekStart, dutyDate, date, sendNotification } = item;
     if (!teacherId) return;
 
+    // KULLANICI KONTROLÜ: sendNotification === true değilse bildirim GÖNDERİLMEZ (nöbet yazılırken anlık bildirim engellenir)
+    if (sendNotification !== true) return;
+
+    // Eğer bu öğretmene bu görev için daha önce bildirim gönderildiyse ve yeni bir gönderim talebi yoksa tekrar gönderme
+    if (before && before.sendNotification === true && before.notifiedTeacherId === teacherId &&
+        before.notificationRequestedAt && item.notificationRequestedAt &&
+        ((before.notificationRequestedAt.toMillis && item.notificationRequestedAt.toMillis &&
+          before.notificationRequestedAt.toMillis() === item.notificationRequestedAt.toMillis()) ||
+         before.notificationRequestedAt === item.notificationRequestedAt)) {
+        return;
+    }
+
     const dayNames = { 1: "Pazartesi", 2: "Salı", 3: "Çarşamba", 4: "Perşembe", 5: "Cuma", 6: "Cumartesi", 7: "Pazar" };
-    const dayName = dayNames[dayOfWeek] || `${dayOfWeek}. gün`;
+    const monthNames = [
+        "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
+        "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"
+    ];
+
+    const dayNum = parseInt(dayOfWeek, 10);
+    const dayName = dayNames[dayNum] || (dayOfWeek ? `${dayOfWeek}. gün` : "");
     const location = locationName || "Belirtilmemiş";
+
+    let datePrefix = "";
+
+    // 1. Doğrudan dutyDate veya date varsa
+    const directDateVal = dutyDate || date;
+    if (directDateVal) {
+        if (directDateVal.toDate) {
+            const d = directDateVal.toDate();
+            const dNum = d.getDate();
+            const mName = monthNames[d.getMonth()];
+            const yNum = d.getFullYear();
+            datePrefix = `${dNum} ${mName} ${yNum} ${dayName} Günü`;
+        } else if (typeof directDateVal === "string") {
+            const match = directDateVal.match(/^(\d{4})-(\d{2})-(\d{2})/);
+            if (match) {
+                const y = parseInt(match[1], 10);
+                const m = parseInt(match[2], 10) - 1;
+                const d = parseInt(match[3], 10);
+                datePrefix = `${d} ${monthNames[m]} ${y} ${dayName} Günü`;
+            }
+        }
+    }
+
+    // 2. weekStart ve dayOfWeek üzerinden hesaplama
+    if (!datePrefix && weekStart) {
+        if (typeof weekStart === "string") {
+            const match = weekStart.match(/^(\d{4})-(\d{2})-(\d{2})/);
+            if (match) {
+                const y = parseInt(match[1], 10);
+                const m = parseInt(match[2], 10) - 1;
+                const d = parseInt(match[3], 10);
+                const offsetDays = !isNaN(dayNum) && dayNum >= 1 ? dayNum - 1 : 0;
+                // Saat 12:00 UTC alınarak timezone kaynaklı gün kayması engellenir
+                const targetObj = new Date(Date.UTC(y, m, d + offsetDays, 12, 0, 0));
+                const resDay = targetObj.getUTCDate();
+                const resMonth = monthNames[targetObj.getUTCMonth()];
+                const resYear = targetObj.getUTCFullYear();
+                datePrefix = `${resDay} ${resMonth} ${resYear} ${dayName} Günü`;
+            }
+        } else if (weekStart.toDate) {
+            const ws = weekStart.toDate();
+            const offsetDays = !isNaN(dayNum) && dayNum >= 1 ? dayNum - 1 : 0;
+            const targetObj = new Date(ws.getTime());
+            targetObj.setDate(targetObj.getDate() + offsetDays);
+            const resDay = targetObj.getDate();
+            const resMonth = monthNames[targetObj.getMonth()];
+            const resYear = targetObj.getFullYear();
+            datePrefix = `${resDay} ${resMonth} ${resYear} ${dayName} Günü`;
+        }
+    }
+
+    // Tarih tespit edilemediyse sadece gün adı fallback
+    if (!datePrefix) {
+        datePrefix = dayName ? `${dayName} Günü` : "Yeni";
+    }
 
     await sendNotifications({
         recipientUids: [teacherId],
         title: `🛡️ Nöbet Atandı`,
-        body: `${dayName} günü nöbetiniz: ${location}`,
+        body: `${datePrefix} Nöbet oluşturulmuştur. Nöbet Yeriniz : ${location}`,
         route: "/school-dashboard",
         type: "duty",
         entityId: event.params.itemId,

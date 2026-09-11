@@ -1,5 +1,6 @@
-import 'dart:math' as math;
+﻿import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:printing/printing.dart';
@@ -219,19 +220,9 @@ class _PortfolioReportDialogState extends State<PortfolioReportDialog> {
     if (widget.isPage) {
       return Scaffold(
         backgroundColor: Colors.white,
-        appBar: AppBar(
-          backgroundColor: Colors.white,
-          elevation: 0,
+        appBar: EduknAppBar(
+          title: 'Rapor Oluştur',
           leading: const BackButton(color: Colors.indigo),
-          title: Text(
-            'Rapor Oluştur',
-            style: GoogleFonts.poppins(
-              color: Colors.indigo.shade900,
-              fontWeight: FontWeight.bold,
-              fontSize: 18,
-            ),
-          ),
-          centerTitle: true,
         ),
         body: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),

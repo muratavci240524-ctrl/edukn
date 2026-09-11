@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -154,22 +155,8 @@ class _NotificationSettingsScreenState
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.indigo),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Text(
-          'Bildirim Ayarları',
-          style: GoogleFonts.inter(
-            color: Colors.grey.shade900,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
+      appBar: EduknAppBar(
+        title: 'Bildirim Ayarları',
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12),

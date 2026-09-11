@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -487,16 +488,7 @@ class _SavedTemplatesScreenState extends State<SavedTemplatesScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF3F4F6),
-      appBar: AppBar(
-        title: Text(
-          'Kayıtlı Şablonlar',
-          style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white),
-        ),
-        backgroundColor: Colors.indigo,
-        foregroundColor: Colors.white,
-        iconTheme: const IconThemeData(color: Colors.white),
-        actionsIconTheme: const IconThemeData(color: Colors.white),
-      ),
+      appBar: EduknAppBar(title: 'Kayıtlı Şablonlar'),
       body: Column(
         children: [
           Container(

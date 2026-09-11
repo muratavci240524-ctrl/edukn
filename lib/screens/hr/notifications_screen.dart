@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 
 class NotificationsScreen extends StatelessWidget {
   static const routeName = '/hr/notifications';
@@ -7,7 +8,7 @@ class NotificationsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Bildirim ve Hatırlatma')),
+      appBar: EduknAppBar(title: 'Bildirim ve Hatırlatma'),
       body: const Center(child: Text('Bildirim kuralları iskeleti')), 
     );
   }

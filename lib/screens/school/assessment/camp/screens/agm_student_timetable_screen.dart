@@ -1,5 +1,6 @@
-import 'dart:typed_data';
+﻿import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/foundation.dart';
 import '../models/agm_cycle_model.dart';
 import '../models/agm_group_model.dart';
@@ -141,16 +142,8 @@ class _AgmStudentTimetableScreenState extends State<AgmStudentTimetableScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        title: const Text(
-          'Öğrenci Haftalık Takvim',
-          style: TextStyle(color: Colors.white),
-        ),
-        backgroundColor: Colors.deepOrange,
-        foregroundColor: Colors.white,
-        centerTitle: true,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
+      appBar: EduknAppBar(
+        title: 'Öğrenci Haftalık Takvim',
         actions: [
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),

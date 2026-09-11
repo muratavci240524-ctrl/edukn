@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -285,18 +286,8 @@ class _CreateSocialMediaPostScreenState
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        title: Text(
-          'Yeni Paylaşım Oluştur',
-          style: GoogleFonts.inter(
-            color: Colors.indigo.shade900,
-            fontWeight: FontWeight.bold,
-            fontSize: 18,
-          ),
-        ),
-        backgroundColor: Colors.white,
-        elevation: 0.5,
-        centerTitle: true,
+      appBar: EduknAppBar(
+        title: 'Yeni Paylaşım Oluştur',
         leading: IconButton(
           icon: const Icon(Icons.close_rounded, color: Colors.blueGrey),
           onPressed: () => Navigator.pop(context),

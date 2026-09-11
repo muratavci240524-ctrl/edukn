@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
@@ -98,19 +99,11 @@ class _CreateSubstituteAssignmentScreenState
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        title: const Text(
-          'Yeni Atama',
-          style: TextStyle(
-            color: Color(0xFF1E293B),
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        centerTitle: true,
+      appBar: EduknAppBar(
+        title: 'Yeni Atama',
+        subtitle: widget.schoolTypeName,
         leading: IconButton(
-          icon: const Icon(Icons.close, color: Color(0xFF1E293B)),
+          icon: const Icon(Icons.close, color: Colors.indigo),
           onPressed: () => Navigator.pop(context),
         ),
       ),

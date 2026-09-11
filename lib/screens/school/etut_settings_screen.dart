@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:edukn/services/term_service.dart';
 
@@ -374,15 +375,8 @@ class _EtutSettingsScreenState extends State<EtutSettingsScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        title: const Text(
-          'Etüt Yapılandırması',
-          style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
-        ),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        centerTitle: true,
-        iconTheme: const IconThemeData(color: Colors.black87),
+      appBar: EduknAppBar(
+        title: 'Etüt Yapılandırması',
         bottom: TabBar(
           controller: _tabController,
           labelColor: Colors.indigo,

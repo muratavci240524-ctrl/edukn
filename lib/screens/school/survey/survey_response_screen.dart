@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../../models/survey_model.dart';
@@ -286,14 +287,14 @@ class _SurveyResponseScreenState extends State<SurveyResponseScreen> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Scaffold(
-        appBar: AppBar(title: Text('Anket Yükleniyor...')),
+        appBar: EduknAppBar(title: 'Anket Yükleniyor...'),
         body: Center(child: CircularProgressIndicator()),
       );
     }
 
     if (_survey == null) {
       return Scaffold(
-        appBar: AppBar(title: Text('Hata')),
+        appBar: EduknAppBar(title: 'Hata'),
         body: Center(child: Text('Anket bulunamadı veya silinmiş.')),
       );
     }
@@ -311,15 +312,8 @@ class _SurveyResponseScreenState extends State<SurveyResponseScreen> {
 
     return Scaffold(
       backgroundColor: Colors.grey[50],
-      appBar: AppBar(
-        title: Text(
-          _survey!.title,
-          style: GoogleFonts.inter(fontWeight: FontWeight.w600),
-        ),
-        centerTitle: false,
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
-        elevation: 0,
+      appBar: EduknAppBar(
+        title: _survey!.title,
       ),
       body: SafeArea(
         child: Column(

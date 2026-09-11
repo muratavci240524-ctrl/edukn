@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/announcement_service.dart';
 import '../../services/user_permission_service.dart';
@@ -295,8 +296,9 @@ class _CreateAnnouncementScreenV2State extends State<CreateAnnouncementScreenV2>
 
     return Scaffold(
       backgroundColor: _surfaceColor,
-      appBar: AppBar(
-        title: Text(isEditing ? 'Duyuru Düzenle' : 'Yeni Duyuru'),
+      appBar: EduknAppBar(
+        title: isEditing ? 'Duyuru Düzenle' : 'Yeni Duyuru',
+        subtitle: widget.schoolTypeName,
       ),
       floatingActionButton: isWide
           ? ScaleTransition(

@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class GuidanceTestPolicyScreen extends StatelessWidget {
@@ -7,8 +8,8 @@ class GuidanceTestPolicyScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Kullanım Yönergesi', style: GoogleFonts.inter()),
+      appBar: EduknAppBar(
+        title: 'Kullanım Yönergesi',
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),

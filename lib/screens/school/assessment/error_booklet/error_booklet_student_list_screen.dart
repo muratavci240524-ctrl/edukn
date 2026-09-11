@@ -1,6 +1,7 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../../models/assessment/trial_exam_model.dart';
 import '../../../../services/error_booklet_generator_service.dart';
@@ -621,18 +622,11 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
       children: [
         Scaffold(
           backgroundColor: const Color(0xFFF8FAFC),
-          appBar: AppBar(
-            title: Text(
-              widget.exams.length == 1 
+          appBar: EduknAppBar(
+        title: widget.exams.length == 1 
                 ? 'Öğrenci Listesi' 
                 : 'Karma Kitapçık: ${widget.exams.length} Sınav',
-              style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 20),
-            ),
-            elevation: 0,
-            backgroundColor: const Color(0xFFF8FAFC),
-            foregroundColor: Colors.indigo.shade900,
-            centerTitle: true,
-          ),
+      ),
           body: _isLoading
               ? const Center(child: CircularProgressIndicator())
               : Column(

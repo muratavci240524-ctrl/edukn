@@ -1,0 +1,108 @@
+Dosya	Açıklama
+cafeteria_screen.dart	Yemekhane İşlemleri
+transportation_screen.dart	Servis İşlemleri
+health_screen.dart	Sağlık İşlemleri
+library_screen.dart	Kütüphane İşlemleri
+cleaning_screen.dart	Temizlik İşlemleri
+inventory_screen.dart	Depo ve Satın Alma
+support_services_hub_screen.dart	Hub Ekranı
+NOTE
+
+Bu ekranlar fixedSchoolTypeId / fixedSchoolTypeName parametreleri kullanıyor. PremiumAppBar'a uyumlu.
+
+Öncelik 3: screens/guidance/ (10 dosya)
+Test kataloğu, gelişim raporları vb. institutionId, schoolTypeId mevcut.
+
+Öncelik 4: screens/hr/ (15 dosya)
+Personel, izin yönetimi. Çoğunda institutionId var.
+
+Öncelik 5: screens/teacher/ (10 dosya)
+Öğretmen ekranları. Bazılarında schoolTypeId yok — Navigator parametrelerinden alınması gerekebilir.
+
+Öncelik 6: screens/portfolio/, screens/announcements/ (10 dosya)
+Öncelik 7: screens/student/, screens/super_admin/, screens/admin/ (10 dosya)
+WARNING
+
+Bu ekranlarda schoolTypeName bilgisi olmayabilir. Gerekirse UserPermissionService üzerinden resolve edilmeli.
+
+3. Migrasyon Şablonu — Her Ekran İçin Yapılacaklar
+Her dosya için aşağıdaki 4 adım uygulanır:
+
+Adım 1: Import ekle
+dart
+
+import 'package:edukn/widgets/premium_app_bar.dart';  // veya göreceli path
+Adım 2: Mevcut AppBar'daki action butonlarını çıkar
+dart
+
+// ÖNCESİ
+appBar: AppBar(
+  title: Text('Öğrenci Listesi'),
+  actions: [
+    IconButton(icon: Icon(Icons.filter_list), onPressed: _toggleFilter),
+    IconButton(icon: Icon(Icons.add), onPressed: _addStudent),
+    PopupMenuButton(...),
+  ],
+),
+// SONRASI
+appBar: PremiumAppBar(
+  schoolTypeId: widget.schoolTypeId,
+  schoolTypeName: widget.schoolTypeName,
+  institutionId: widget.institutionId,
+  subtitle: 'Öğrenci Listesi',
+  actions: [
+    IconButton(icon: Icon(Icons.filter_list), onPressed: _toggleFilter),
+    IconButton(icon: Icon(Icons.add), onPressed: _addStudent),
+    PopupMenuButton(...),
+  ],
+),
+Adım 3: Gereksiz title widget'larını kaldır
+Bazı ekranlarda title olarak Column/Row kullanılmış — bunlar artık PremiumAppBar tarafından otomatik oluşturuluyor.
+
+Adım 4: Parameter eksikliği kontrolü
+Eğer ekranda schoolTypeId / schoolTypeName / institutionId yoksa, widget constructor'a eklenmeli ve çağrıldığı yerden geçirilmeli.
+
+4. Kritik Dikkat Noktaları
+CAUTION
+
+1. Mevcut davranışı bozmama: school_type_detail_screen.dart'ta dönem seçici + profil + arama aktif kalmalı.
+
+2. Nested AppBar'lar: Bazı ekranlarda dialog/bottom sheet içinde de AppBar var — bunlara dokunulmamalı.
+
+3. preferredSize uyumu: PremiumAppBar kToolbarHeight kullanıyor. Bazı ekranlarda toolbarHeight veya PreferredSize ile farklı yükseklik verilmiş — bunlar kontrol edilmeli.
+
+4. onTermChanged callback: Dönem değiştiğinde veri yenileyen ekranlar var — bu callback korunmalı.
+
+5. Tablet/Desktop çözünürlüğü: PremiumAppBar mobil/desktop'a göre farklı layout kullanıyor (isMobile < 1100).
+
+5. Uygulama Stratejisi
+
+Toplam Süre Tahmini: 3-4 saat (/goal komutuyla otomatik)
+Sıralama
+#	Adım	Dosya	Risk
+1	PremiumAppBar refactor	1 dosya	Düşük
+2	school_type_detail_screen.dart güncelle (showTermSelector: true ekle)	1 dosya	Düşük
+3	screens/school/ root dosyaları	~38 dosya	Orta
+4	screens/school/assessment/	~22 dosya	Orta
+5	screens/school/guidance/	~14 dosya	Orta
+6	screens/school/tasks/	~14 dosya	Düşük
+7	screens/school/school_types/	~8 dosya	Düşük
+8	screens/school/survey/	~6 dosya	Düşük
+9	screens/school/homework/ + hr/ + settings/	~9 dosya	Düşük
+10	screens/support_services/	~7 dosya	Düşük
+11	screens/guidance/	~10 dosya	Orta
+12	screens/hr/	~15 dosya	Orta
+13	screens/teacher/	~10 dosya	Yüksek (param eksik olabilir)
+14	screens/portfolio/ + announcements/	~10 dosya	Orta
+15	screens/student/ + admin/ + super_admin/	~10 dosya	Yüksek (farklı context)
+Doğrulama
+Her batch sonrası:
+
+flutter analyze ile hata kontrolü
+Hot restart ile görsel doğrulama
+Action butonlarının çalıştığının kontrolü
+6. Komut
+Bu planı çalıştırmak için:
+
+
+/goal PremiumAppBar standardizasyon planını uygula — premium_app_bar.dart'a showTermSelector ve showProfileButton parametreleri ekle (varsayılan false), sonra tüm ekranlardaki standart AppBar()'ları PremiumAppBar ile değiştir. Her ekranın mevcut action butonlarını PremiumAppBar'ın actions parametresine taşı. school_type_detail_screen.dart'ta showTermSelector: true, showProfileButton: true, showSearch: true olarak kalsın.

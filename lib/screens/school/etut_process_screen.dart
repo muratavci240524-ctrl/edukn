@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import '../../services/term_service.dart';
@@ -309,28 +310,9 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        centerTitle: false,
-        leading: const BackButton(color: Colors.indigo),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Etüt İşlemleri',
-              style: TextStyle(
-                color: Colors.black87,
-                fontWeight: FontWeight.bold,
-                fontSize: 18,
-              ),
-            ),
-            Text(
-              widget.schoolTypeName,
-              style: const TextStyle(color: Colors.grey, fontSize: 12),
-            ),
-          ],
-        ),
+      appBar: EduknAppBar(
+        title: 'Etüt İşlemleri',
+        subtitle: widget.schoolTypeName,
         actions: [
           if (!widget.isTeacher)
             IconButton(

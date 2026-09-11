@@ -1,5 +1,6 @@
-import 'package:edukn/services/user_permission_service.dart';
+﻿import 'package:edukn/services/user_permission_service.dart';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
@@ -161,27 +162,17 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with SingleTi
       ),
       child: Scaffold(
         backgroundColor: const Color(0xFFF8FAFC),
-        appBar: AppBar(
-          elevation: 0,
-          backgroundColor: Colors.white,
-          centerTitle: false,
-          title: Text(
-            'Puantaj Yönetimi',
-            style: TextStyle(
-              color: const Color(0xFF0F172A), // slate-900
-              fontWeight: FontWeight.w800,
-              fontSize: 22,
-            ),
-          ),
+        appBar: EduknAppBar(
+          title: 'Puantaj Yönetimi',
           actions: [
             Container(
               margin: const EdgeInsets.only(right: 8),
               decoration: BoxDecoration(
-                color: const Color(0xFF6366F1).withOpacity(0.1),
+                color: Colors.indigo.withOpacity(0.1),
                 shape: BoxShape.circle,
               ),
               child: IconButton(
-                icon: const Icon(Icons.qr_code_scanner, color: Color(0xFF6366F1), size: 24),
+                icon: const Icon(Icons.qr_code_scanner, color: Colors.indigo, size: 24),
                 onPressed: _showQrCodeDialog,
                 tooltip: 'Giriş/Çıkış QR Kodu',
               ),

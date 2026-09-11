@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import '../../../../services/guidance_service.dart';
 import 'study_program_printing_helper.dart';
 import 'study_program_detail_screen.dart';
@@ -989,12 +990,9 @@ class _SavedStudyProgramsScreenState extends State<SavedStudyProgramsScreen> {
 
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        title: Text(
-          _isSelectionMode
-              ? '${_selectedProgramIds.length} Seçildi'
-              : 'Kayıtlı Mentör Çalışmaları',
-        ),
+      appBar: EduknAppBar(
+        title: 'Tek PDF Olarak Yazdır',
+        leading: Icon(Icons.picture_as_pdf, color: Colors.red),
         actions: [
           IconButton(
             icon: Icon(Icons.bar_chart),

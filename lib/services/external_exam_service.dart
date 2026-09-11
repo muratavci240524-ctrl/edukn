@@ -48,15 +48,20 @@ class ExternalExamService {
     }
   }
 
-  Stream<List<ExternalExam>> getExternalExams(String institutionId) {
+  Stream<List<ExternalExam>> getExternalExams(String institutionId, {String? termId}) {
     return _firestore
         .collection(_examsCollection)
         .where('institutionId', isEqualTo: institutionId)
         .snapshots()
         .map((snapshot) {
-          final list = snapshot.docs
+          var list = snapshot.docs
               .map((doc) => ExternalExam.fromMap(doc.data(), doc.id))
               .toList();
+          // Client-side termId filtreleme (composite index gerektirmez)
+          // termId null olan eski verileri de göster (geriye uyumluluk)
+          if (termId != null) {
+            list = list.where((e) => e.termId == null || e.termId == termId).toList();
+          }
           list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
           return list;
         });

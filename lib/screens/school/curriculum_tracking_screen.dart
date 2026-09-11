@@ -1,6 +1,7 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 
 class CurriculumTrackingScreen extends StatefulWidget {
   final String institutionId;
@@ -165,26 +166,9 @@ class _CurriculumTrackingScreenState extends State<CurriculumTrackingScreen> {
 
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Kazanım Takip Sistemi',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.indigo),
-            ),
-            Text(
-              'Yıllık Plan İlerleme Analizi',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-            ),
-          ],
-        ),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.indigo),
-          onPressed: () => Navigator.pop(context),
-        ),
+      appBar: EduknAppBar(
+        title: 'Kazanım Takip Sistemi',
+        subtitle: 'Yıllık Plan İlerleme Analizi',
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import '../../../../models/assessment/optical_form_model.dart';
 import '../../../../models/assessment/exam_type_model.dart';
 import '../../../../services/assessment_service.dart';
@@ -7,9 +8,13 @@ import './optical_form_definition_screen.dart';import 'package:edukn/widgets/sa
 
 class OpticalFormListScreen extends StatefulWidget {
   final String institutionId;
+  final String? schoolTypeName;
 
-  const OpticalFormListScreen({Key? key, required this.institutionId})
-    : super(key: key);
+  const OpticalFormListScreen({
+    Key? key,
+    required this.institutionId,
+    this.schoolTypeName,
+  }) : super(key: key);
 
   @override
   State<OpticalFormListScreen> createState() => _OpticalFormListScreenState();
@@ -82,26 +87,9 @@ class _OpticalFormListScreenState extends State<OpticalFormListScreen> {
 
         if (isMobile) {
           return Scaffold(
-            appBar: AppBar(
-              backgroundColor: Colors.indigo,
-              foregroundColor: Colors.white,
-              elevation: 0,
-              iconTheme: const IconThemeData(color: Colors.white),
-              leading: const BackButton(color: Colors.white),
-              title: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text('Optik Formlar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                  Text(
-                    'Tanımlar',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.normal,
-                      color: Colors.white70,
-                    ),
-                  ),
-                ],
-              ),
+            appBar: EduknAppBar(
+              title: 'Optik Formlar',
+              subtitle: widget.schoolTypeName,
             ),
             body: Column(
               children: [
@@ -116,13 +104,9 @@ class _OpticalFormListScreenState extends State<OpticalFormListScreen> {
                   context,
                   MaterialPageRoute(
                     builder: (context) => Scaffold(
-                      appBar: AppBar(
-                        title: const Text('Yeni Optik Form', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                        backgroundColor: Colors.indigo,
-                        foregroundColor: Colors.white,
-                        iconTheme: const IconThemeData(color: Colors.white),
-                        leading: const BackButton(color: Colors.white),
-                        elevation: 0,
+                      appBar: EduknAppBar(
+                        title: 'Yeni Optik Form',
+                        subtitle: widget.schoolTypeName,
                       ),
                       body: OpticalFormDefinition(
                         institutionId: widget.institutionId,
@@ -137,13 +121,9 @@ class _OpticalFormListScreenState extends State<OpticalFormListScreen> {
           );
         } else {
           return Scaffold(
-            appBar: AppBar(
-              title: const Text('Optik Form Yönetimi', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              backgroundColor: Colors.indigo,
-              foregroundColor: Colors.white,
-              iconTheme: const IconThemeData(color: Colors.white),
-              leading: const BackButton(color: Colors.white),
-              elevation: 0,
+            appBar: EduknAppBar(
+              title: 'Optik Form Yönetimi',
+              subtitle: widget.schoolTypeName,
             ),
             body: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -440,13 +420,8 @@ class _OpticalFormListScreenState extends State<OpticalFormListScreen> {
                       context,
                       MaterialPageRoute(
                         builder: (context) => Scaffold(
-                          appBar: AppBar(
-                            title: Text(form.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                            backgroundColor: Colors.indigo,
-                            foregroundColor: Colors.white,
-                            iconTheme: const IconThemeData(color: Colors.white),
-                            leading: const BackButton(color: Colors.white),
-                            elevation: 0,
+                          appBar: EduknAppBar(
+                            title: form.name,
                           ),
                           body: OpticalFormDefinition(
                             institutionId: widget.institutionId,

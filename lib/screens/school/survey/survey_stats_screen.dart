@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/gestures.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../models/survey_model.dart';
@@ -238,15 +239,8 @@ class _SurveyStatsScreenState extends State<SurveyStatsScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[50],
-      appBar: AppBar(
-        title: Text(
-          'Anket Sonuçları',
-          style: GoogleFonts.inter(fontWeight: FontWeight.w600),
-        ),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
-        elevation: 0,
-        centerTitle: true,
+      appBar: EduknAppBar(
+        title: 'Anket Sonuçları',
         actions: [
           if (widget.survey.status == SurveyStatus.published)
             Padding(

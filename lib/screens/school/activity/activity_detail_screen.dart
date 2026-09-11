@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../models/activity/activity_model.dart';
 import '../../../../services/activity_service.dart';
@@ -67,11 +68,8 @@ class _ActivityDetailScreenState extends State<ActivityDetailScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.activity.title),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
-        elevation: 1,
+      appBar: EduknAppBar(
+        title: widget.activity.title,
         bottom: TabBar(
           controller: _tabController,
           labelColor: Colors.indigo,

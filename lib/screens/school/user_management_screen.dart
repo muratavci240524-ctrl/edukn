@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -860,21 +861,8 @@ class _UserManagementScreenState extends State<UserManagementScreen>
   Widget build(BuildContext context) {
     if (institutionId == null) {
       return Scaffold(
-        appBar: AppBar(
-          elevation: 0,
-          backgroundColor: Colors.white,
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.indigo),
-            onPressed: () => Navigator.pop(context),
-          ),
-          title: Text(
-            'Kullanıcı Yönetimi',
-            style: TextStyle(
-              color: Colors.grey.shade900,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
+        appBar: EduknAppBar(
+          title: 'Kullanıcı Yönetimi',
         ),
         body: Center(
           child: Column(
@@ -890,24 +878,11 @@ class _UserManagementScreenState extends State<UserManagementScreen>
     }
 
     return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Colors.indigo),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Text(
-          'Kullanıcı Yönetimi',
-          style: TextStyle(
-            color: Colors.grey.shade900,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
+      appBar: EduknAppBar(
+        title: 'Kullanıcı Yönetimi',
         actions: [
           IconButton(
-            icon: Icon(Icons.refresh, color: Colors.indigo),
+            icon: const Icon(Icons.refresh, color: Colors.indigo),
             onPressed: () {
               _getSchoolInfo();
               _loadUserPermissions();

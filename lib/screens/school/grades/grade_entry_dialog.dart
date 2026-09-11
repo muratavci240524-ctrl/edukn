@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 
@@ -216,18 +217,12 @@ class _GradeEntryDialogState extends State<GradeEntryDialog> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF9FAFB), // Very light grey background
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
+      appBar: EduknAppBar(
+        title: 'Not Girişi',
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.black87),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text(
-          'Not Girişi',
-          style: TextStyle(color: Colors.black87, fontWeight: FontWeight.w600),
-        ),
-        centerTitle: true,
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 8.0),

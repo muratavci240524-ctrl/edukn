@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'staff/staff_list_screen.dart';
 import 'attendance_screen.dart';
 import 'payroll_screen.dart';
@@ -67,20 +68,8 @@ class HrHomeScreen extends StatelessWidget {
     ];
 
     return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () {
-            if (Navigator.of(context).canPop()) {
-              Navigator.of(context).pop();
-            } else {
-              Navigator.pushReplacementNamed(context, '/school-dashboard');
-            }
-          },
-        ),
-        title: const Text('İnsan Kaynakları'),
-        elevation: 1,
+      appBar: EduknAppBar(
+        title: 'İnsan Kaynakları',
       ),
       body: Center(
         child: Container(

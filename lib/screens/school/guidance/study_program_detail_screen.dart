@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../../../services/guidance_service.dart';
@@ -489,8 +490,8 @@ class _StudyProgramDetailScreenState extends State<StudyProgramDetailScreen> {
 
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        title: Text(studentName),
+      appBar: EduknAppBar(
+        title: studentName,
         actions: [
           IconButton(
             icon: const Icon(Icons.print),

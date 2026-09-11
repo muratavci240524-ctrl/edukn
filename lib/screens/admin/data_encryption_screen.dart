@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -150,11 +151,8 @@ class _DataEncryptionScreenState extends State<DataEncryptionScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        title: Text('Veri Şifreleme Yönetimi', style: GoogleFonts.inter(fontWeight: FontWeight.w700)),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        foregroundColor: const Color(0xFF1E293B),
+      appBar: EduknAppBar(
+        title: 'Veri Şifreleme Yönetimi',
         actions: [
           IconButton(
             onPressed: _loadStats,

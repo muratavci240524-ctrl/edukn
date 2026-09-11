@@ -1,5 +1,6 @@
-import 'package:flutter/material.dart' hide Border;
+﻿import 'package:flutter/material.dart' hide Border;
 import 'package:flutter/material.dart' as material show Border;
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:excel/excel.dart' as excel_pkg;
@@ -109,15 +110,9 @@ class _HrHubScreenState extends State<HrHubScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.indigo, size: 20),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const SizedBox.shrink(),
-        actions: const [],
+      appBar: EduknAppBar(
+        title: 'İnsan Kaynakları',
+        showLogo: false,
       ),
       body: SingleChildScrollView(
         child: Center(

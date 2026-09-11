@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../../services/user_permission_service.dart';
@@ -150,20 +151,11 @@ class _SchoolTypeStatsScreenState extends State<SchoolTypeStatsScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
+      appBar: EduknAppBar(
+        title: 'Okul Türü İstatistikleri',
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.indigo),
           onPressed: () => Navigator.pop(context),
-        ),
-        title: Text(
-          'Okul Türü İstatistikleri',
-          style: TextStyle(
-            color: Colors.grey.shade900,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
         ),
         bottom: _isLoading || _schoolTypes.isEmpty
             ? null

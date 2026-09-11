@@ -1560,7 +1560,12 @@ class _JobTabState extends State<_JobTab> {
           .get();
 
       setState(() {
-        _users = usersSnap.docs.map((d) => {...d.data(), 'id': d.id}).toList();
+        _users = usersSnap.docs.map((d) {
+          var uData = d.data();
+          uData['id'] = d.id;
+          uData = CryptoService.decryptMap(uData, institutionId: institutionId);
+          return uData;
+        }).toList();
         _schoolTypes = schoolTypesSnap.docs
             .map((d) => {...d.data(), 'id': d.id})
             .toList();
@@ -1688,9 +1693,12 @@ class _JobTabState extends State<_JobTab> {
                     );
                     updateData['managerUserId'] = managerUserId;
                     if (managerDoc.isNotEmpty) {
-                      updateData['managerName'] = (managerDoc['fullName'] ?? '')
+                      updateData['managerName'] = (managerDoc['fullName'] ?? managerDoc['username'] ?? '')
                           .toString();
                     }
+                  } else {
+                    updateData['managerUserId'] = '';
+                    updateData['managerName'] = '';
                   }
 
                   updateData['workLocations'] = workLocations;
@@ -1699,7 +1707,7 @@ class _JobTabState extends State<_JobTab> {
                   final selectedSchoolTypeIds = <String>[];
                   for (final loc in workLocations) {
                     final matched = _schoolTypes.firstWhere(
-                      (st) => (st['schoolTypeName'] ?? st['typeName'] ?? '').toString() == loc,
+                      (st) => (st['schoolTypeName'] ?? st['typeName'] ?? st['name'] ?? '').toString() == loc,
                       orElse: () => {},
                     );
                     if (matched.isNotEmpty && matched['id'] != null) {
@@ -2027,7 +2035,7 @@ class _JobTabState extends State<_JobTab> {
                       const SizedBox(height: 8),
                     ],
 
-                    // Yönetici / Bağlı Olduğu Kişi
+                    // Yönetici / Bağlı Olduğu Kişi (Müdür Yardımcıları hariç, sadece Müdür ve Genel Müdürler)
                     DropdownButtonFormField<String>(
                       value: (() {
                         final validUids = _users
@@ -2046,22 +2054,15 @@ class _JobTabState extends State<_JobTab> {
                                                    uRole == 'yönetici' || 
                                                    uRole == 'super_admin';
                                                    
-                              final isMudur = uTitle == 'mudur' || uTitle == 'müdür';
+                              final isMudur = uTitle == 'mudur' || uTitle == 'müdür' || uRole == 'mudur' || uRole == 'müdür';
                               
-                              final isMudurYardimcisi = uTitle == 'mudur_yardimcisi' || 
-                                                        uTitle == 'müdür yardımcısı' ||
-                                                        uTitle == 'mudur_yard';
-                                                        
                               final empTitle = jobTitle.toLowerCase().trim();
                               
-                              if (empTitle == 'ogretmen') {
-                                return isMudurYardimcisi || isMudur || isGenelMudur;
-                              } else if (empTitle == 'mudur_yardimcisi') {
-                                return isMudur || isGenelMudur;
-                              } else if (empTitle == 'mudur') {
+                              // Müdür yardımcıları yönetici olarak listelenmez, sadece Müdür ve Genel Müdür listelenir
+                              if (empTitle == 'mudur') {
                                 return isGenelMudur;
                               } else {
-                                return isMudurYardimcisi || isMudur || isGenelMudur;
+                                return isMudur || isGenelMudur;
                               }
                             })
                             .map((u) => (u['id'] ?? '').toString())
@@ -2084,32 +2085,29 @@ class _JobTabState extends State<_JobTab> {
                                                  uRole == 'yönetici' || 
                                                  uRole == 'super_admin';
                                                  
-                            final isMudur = uTitle == 'mudur' || uTitle == 'müdür';
+                            final isMudur = uTitle == 'mudur' || uTitle == 'müdür' || uRole == 'mudur' || uRole == 'müdür';
                             
-                            final isMudurYardimcisi = uTitle == 'mudur_yardimcisi' || 
-                                                      uTitle == 'müdür yardımcısı' ||
-                                                      uTitle == 'mudur_yard';
-                                                      
                             final empTitle = jobTitle.toLowerCase().trim();
                             
-                            if (empTitle == 'ogretmen') {
-                              return isMudurYardimcisi || isMudur || isGenelMudur;
-                            } else if (empTitle == 'mudur_yardimcisi') {
-                              return isMudur || isGenelMudur;
-                            } else if (empTitle == 'mudur') {
+                            // Müdür yardımcıları hariç: Sadece Müdür ve Genel Müdür görünür
+                            if (empTitle == 'mudur') {
                               return isGenelMudur;
                             } else {
-                              return isMudurYardimcisi || isMudur || isGenelMudur;
+                              return isMudur || isGenelMudur;
                             }
                           })
                           .map(
-                            (u) => DropdownMenuItem<String>(
-                              value: (u['id'] ?? '').toString(),
-                              child: Text(
-                                (u['fullName'] ?? u['username'] ?? '-')
-                                    .toString(),
-                              ),
-                            ),
+                            (u) {
+                              final uTitle = (u['title'] ?? '').toString().toLowerCase().trim();
+                              final uRole = (u['role'] ?? '').toString().toLowerCase().trim();
+                              final isGM = uTitle == 'genel_mudur' || uTitle == 'genel müdür' || uRole == 'admin' || uRole == 'yonetici' || uRole == 'super_admin';
+                              final titleLabel = isGM ? 'Genel Müdür' : 'Müdür';
+                              final fullName = (u['fullName'] ?? u['username'] ?? '-').toString();
+                              return DropdownMenuItem<String>(
+                                value: (u['id'] ?? '').toString(),
+                                child: Text('$fullName ($titleLabel)'),
+                              );
+                            },
                           )
                           .toList(),
                       decoration: const InputDecoration(
@@ -5101,7 +5099,7 @@ class _StatusTabState extends State<_StatusTab> {
                                     children: [
                                       Text(
                                         passwordStatus == 'ilk_giris'
-                                            ? (staff['defaultPassword'] ?? '123456').toString()
+                                            ? (staff['defaultPassword'] ?? staff['password'] ?? staff['username'] ?? '').toString()
                                             : '*****',
                                         style: const TextStyle(
                                           fontSize: 16,
@@ -5118,7 +5116,7 @@ class _StatusTabState extends State<_StatusTab> {
                                           padding: EdgeInsets.zero,
                                           onPressed: () {
                                             final u = staff['username'] ?? '';
-                                            final p = (staff['defaultPassword'] ?? '123456').toString();
+                                            final p = (staff['defaultPassword'] ?? staff['password'] ?? staff['username'] ?? '').toString();
                                             Clipboard.setData(ClipboardData(text: 'Kullanıcı Adı: $u\nŞifre: $p'));
                                             ScaffoldMessenger.of(context).showSnackBar(
                                               const SnackBar(content: Text('Giriş bilgileri panoya kopyalandı'), backgroundColor: Colors.indigo),
@@ -5562,7 +5560,7 @@ class _StatusTabState extends State<_StatusTab> {
               statusLine(
                 'Şifre',
                 passwordStatus == 'ilk_giris'
-                    ? (staff['defaultPassword'] ?? '123456').toString()
+                    ? (staff['defaultPassword'] ?? staff['password'] ?? staff['username'] ?? '').toString()
                     : '*****',
               ),
               statusLine('Kullanıcı Rolü', formatRole(role)),

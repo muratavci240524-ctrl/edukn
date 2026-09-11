@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 class InventoryScreen extends StatefulWidget {
@@ -53,37 +54,14 @@ class _InventoryScreenState extends State<InventoryScreen>
     }
 
     return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        backgroundColor: Colors.indigo,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              widget.fixedSchoolTypeName ?? 'Depo ve Satın Alma',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            if (widget.fixedSchoolTypeName != null)
-              const Text(
-                'Depo ve Satın Alma',
-                style: TextStyle(color: Colors.white70, fontSize: 12),
-              ),
-          ],
-        ),
+      appBar: EduknAppBar(
+        title: 'Depo ve Satın Alma',
+        subtitle: widget.fixedSchoolTypeName,
         bottom: TabBar(
           controller: _tabController,
-          indicatorColor: Colors.white,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white70,
+          indicatorColor: Colors.indigo,
+          labelColor: Colors.indigo,
+          unselectedLabelColor: Colors.indigo.shade200,
           tabs: const [
             Tab(icon: Icon(Icons.inventory), text: 'Depo / Stok'),
             Tab(icon: Icon(Icons.shopping_cart), text: 'Satın Alma'),

@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../../constants/app_modules.dart';
@@ -126,9 +127,8 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Uygulama Ayarları'),
-        elevation: 0,
+      appBar: EduknAppBar(
+        title: 'Uygulama Ayarları',
         actions: [
           if (!_isLoading)
             Padding(

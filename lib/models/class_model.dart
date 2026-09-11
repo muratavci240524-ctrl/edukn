@@ -82,7 +82,7 @@ class ClassModel {
       guidanceCounselorName: map['guidanceCounselorName'],
       classroomId: map['classroomId'],
       classroomName: map['classroomName'],
-      classLevel: map['classLevel'] ?? 1,
+      classLevel: _parseIntSafe(map['classLevel']) ?? 1,
       description: map['description'],
       schoolTypeId: map['schoolTypeId'] ?? '',
       schoolTypeName: map['schoolTypeName'] ?? '',
@@ -178,4 +178,13 @@ class ClassTypeModel {
       isDefault: map['isDefault'] ?? false,
     );
   }
+}
+
+/// Firestore'dan gelen classLevel değerini güvenle int'e çevirir.
+/// String "8" veya int 8 her ikisini de handle eder.
+int? _parseIntSafe(dynamic value) {
+  if (value == null) return null;
+  if (value is int) return value;
+  if (value is double) return value.toInt();
+  return int.tryParse(value.toString());
 }

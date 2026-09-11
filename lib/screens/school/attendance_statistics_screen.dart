@@ -1,7 +1,8 @@
-import 'dart:math' as math;
+﻿import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 
 import '../../services/term_service.dart';
 
@@ -662,23 +663,9 @@ class _AttendanceStatisticsScreenState extends State<AttendanceStatisticsScreen>
     final total = _presentCount + _absentCount + _lateCount + _excusedCount + _onDutyCount + _reportedCount;
 
     return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Yoklama İstatistikleri',
-              style: TextStyle(color: Colors.grey.shade900, fontSize: 18, fontWeight: FontWeight.w800),
-            ),
-            Text(
-              widget.schoolTypeName,
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-            ),
-          ],
-        ),
+      appBar: EduknAppBar(
+        title: 'Yoklama İstatistikleri',
+        subtitle: widget.schoolTypeName,
       ),
       body: _loading
           ? Center(child: CircularProgressIndicator())

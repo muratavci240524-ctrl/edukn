@@ -1,6 +1,7 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 
 import '../../evaluation_models.dart';
 import '../models/camp_cycle_model.dart';
@@ -300,14 +301,8 @@ class _CampGroupGridScreenState extends State<CampGroupGridScreen>
 
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        title: Text(
-          widget.cycle.title ?? 'Kamp Grupları',
-          style: const TextStyle(color: Colors.white, fontSize: 16),
-        ),
-        backgroundColor: Colors.orange.shade700,
-        iconTheme: const IconThemeData(color: Colors.white),
-        centerTitle: true,
+      appBar: EduknAppBar(
+        title: widget.cycle.title ?? 'Kamp Grupları',
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: _loadData),
           PopupMenuButton<String>(

@@ -129,6 +129,85 @@ service cloud.firestore {
       allow read: if isAuthenticated() || isSuperAdmin() || (request.auth == null && request.query.limit <= 1);
       allow write: if isAuthenticated() || isSuperAdmin();
     }
+    match /classes/{classId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /classrooms/{classroomId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /classroomLessons/{lessonId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /courseGroups/{groupId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /clubSelections/{selectionId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /schools/{schoolId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 🛠️ OKUL ARAÇLARI (TOOLS) & PERFORMANS TAKİBİ
+    // ═══════════════════════════════════════════════════════════════
+    match /student_performance_records/{recordId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /studentPerformanceRecords/{recordId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /school_timer_templates/{templateId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /schoolTimerTemplates/{templateId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /student_grouping_plans/{planId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /seating_plans/{planId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /seating_layouts/{layoutId} {
+      allow read, write: if true;
+    }
+    match /butterfly_exams/{examId} {
+      allow read, write: if true;
+    }
+    match /butterflyExams/{examId} {
+      allow read, write: if true;
+    }
+    match /notifications/{notifId} {
+      allow read, write: if true;
+    }
+    match /random_student_picks/{pickId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /randomStudentPicks/{pickId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /quick_performance_records/{recordId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /quickPerformanceRecords/{recordId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /noise_meter_logs/{logId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /dutyScheduleItems/{itemId} {
+      allow read, write: if true;
+    }
+    match /duty_schedule_items/{itemId} {
+      allow read, write: if true;
+    }
+    match /dutyLocations/{locId} {
+      allow read, write: if true;
+    }
+    match /duty_locations/{locId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
     match /registrationRequests/{requestId} {
       allow read, write: if isAuthenticated() || isSuperAdmin();
     }
@@ -164,8 +243,7 @@ service cloud.firestore {
       // READ — Aşağıdaki koşullardan biri yeterlı:
       //   1) Kendi dokümanı (UID eşleşmesi) — login akışı için zorunlu
       //   2) E-posta eşleşmesi — .where('email',...) sorgusu için zorunlu
-      //      (UserPermissionService login sırasında kurumId bilinmeden önce
-      //       email ile sorgular, bu yüzden isSameInstitution beklenemez)
+      //      Google girişinde personalEmail ve corporateEmail ile de aranır
       //   3) Aynı kurum üyesi — diğer kullanıcıları listelemek için
       //   4) Super Admin — tüm erişim
       // ─────────────────────────────────────────────────────────────
@@ -173,12 +251,20 @@ service cloud.firestore {
         request.auth.uid == userId ||
         resource.data.get('email', '') == request.auth.token.email ||
         resource.data.get('email', '') == request.auth.token.email.lower() ||
+        resource.data.get('personalEmail', '') == request.auth.token.email ||
+        resource.data.get('personalEmail', '') == request.auth.token.email.lower() ||
+        resource.data.get('corporateEmail', '') == request.auth.token.email ||
+        resource.data.get('corporateEmail', '') == request.auth.token.email.lower() ||
         isSameInstitution(resource.data) ||
         isSuperAdmin()
       );
       allow list: if (isAuthenticated() && (
         resource.data.get('email', '') == request.auth.token.email ||
         resource.data.get('email', '') == request.auth.token.email.lower() ||
+        resource.data.get('personalEmail', '') == request.auth.token.email ||
+        resource.data.get('personalEmail', '') == request.auth.token.email.lower() ||
+        resource.data.get('corporateEmail', '') == request.auth.token.email ||
+        resource.data.get('corporateEmail', '') == request.auth.token.email.lower() ||
         isSameInstitution(resource.data) ||
         isSuperAdmin()
       )) || (request.auth == null && request.query.limit <= 1);
@@ -188,12 +274,20 @@ service cloud.firestore {
         && !('role' in request.resource.data.diff(resource.data).affectedKeys())
         && !('institutionId' in request.resource.data.diff(resource.data).affectedKeys());
 
+      // Google Login: Kullanıcı, e-postası eşleşen kendi dokümanını güncelleyebilir (authUserId/googleUid senkronizasyonu)
+      allow update: if isAuthenticated() && (
+        resource.data.get('email', '') == request.auth.token.email ||
+        resource.data.get('personalEmail', '') == request.auth.token.email ||
+        resource.data.get('corporateEmail', '') == request.auth.token.email
+      );
+
       // Admin/Manager: kendi kurumundaki kullanıcıları yönetebilir
       allow update: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
 
-      // Kullanıcı oluşturma: Cloud Functions, admin veya login senkronizasyonu
+      // Kullanıcı oluşturma: Cloud Functions, admin, login senkronizasyonu, veya Google girişte kendi dokümanını oluşturma
       allow create: if (isAuthenticated() && (
         isSuperAdmin() ||
+        request.auth.uid == userId ||
         (isAdminOrManager() && isSameInstitution(request.resource.data))
       )) || (request.auth == null && request.resource.data.role in ['student', 'parent']);
 
@@ -437,6 +531,18 @@ service cloud.firestore {
           resource.data.get('userId', '') == request.auth.uid
         );
       }
+
+      match /seating_plans/{planId} {
+        allow read, write: if isAuthenticated() || isSuperAdmin();
+      }
+
+      match /seating_layouts/{layoutId} {
+        allow read, write: if isAuthenticated() || isSuperAdmin();
+      }
+
+      match /student_grouping_plans/{planId} {
+        allow read, write: if isAuthenticated() || isSuperAdmin();
+      }
     }
 
 
@@ -548,6 +654,42 @@ service cloud.firestore {
     }
 
     // ═══════════════════════════════════════════════════════════════
+    // 🪑 SINIF OTURMA PLANI VE DERSLİK MASA DÜZENLERİ
+    // ═══════════════════════════════════════════════════════════════
+    match /seating_plans/{planId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && (isSameInstitution(request.resource.data) || isSuperAdmin()) && (isTeacherOrAbove() || isSuperAdmin());
+      allow delete: if isAuthenticated() && (isSameInstitution(resource.data) || isSuperAdmin()) && (isTeacherOrAbove() || isSuperAdmin());
+    }
+
+    match /seatingPlans/{planId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && (isSameInstitution(request.resource.data) || isSuperAdmin()) && (isTeacherOrAbove() || isSuperAdmin());
+      allow delete: if isAuthenticated() && (isSameInstitution(resource.data) || isSuperAdmin()) && (isTeacherOrAbove() || isSuperAdmin());
+    }
+
+    match /seating_layouts/{layoutId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && (isSameInstitution(request.resource.data) || isSuperAdmin()) && (isTeacherOrAbove() || isSuperAdmin());
+      allow delete: if isAuthenticated() && (isSameInstitution(resource.data) || isSuperAdmin()) && (isTeacherOrAbove() || isSuperAdmin());
+    }
+
+    match /seatingLayouts/{layoutId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && (isSameInstitution(request.resource.data) || isSuperAdmin()) && (isTeacherOrAbove() || isSuperAdmin());
+      allow delete: if isAuthenticated() && (isSameInstitution(resource.data) || isSuperAdmin()) && (isTeacherOrAbove() || isSuperAdmin());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 👥 AKILLI ÖĞRENCİ GRUPLAMA PLANLARI
+    // ═══════════════════════════════════════════════════════════════
+    match /student_grouping_plans/{planId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && (isSameInstitution(request.resource.data) || isSuperAdmin()) && (isTeacherOrAbove() || isSuperAdmin());
+      allow delete: if isAuthenticated() && (isSameInstitution(resource.data) || isSuperAdmin()) && (isTeacherOrAbove() || isSuperAdmin());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     // 🛡️ NÖBETLEr
     // ═══════════════════════════════════════════════════════════════
     match /dutyHistory/{historyId} {
@@ -646,10 +788,19 @@ service cloud.firestore {
     }
 
     match /classroomLessons/{assignmentId} {
-      allow read: if isAuthenticated() && isSameInstitution(resource.data);
-      allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isManagement();
-      allow update: if isAuthenticated() && isSameInstitution(resource.data) && isManagement();
-      allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (isSameInstitution(request.resource.data) || isSuperAdmin()) && (isManagement() || isSuperAdmin());
+      allow update: if isAuthenticated() && (isSameInstitution(resource.data) || isSuperAdmin()) && (isManagement() || isSuperAdmin());
+      allow delete: if isAuthenticated() && (isSameInstitution(resource.data) || isSuperAdmin()) && (isAdminOrManager() || isSuperAdmin());
+    }
+
+    match /courseGroups/{groupId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAuthenticated();
+    }
+
+    match /clubSelections/{selectionId} {
+      allow read, write: if isAuthenticated();
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -1403,6 +1554,30 @@ service cloud.firestore {
       allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isManagement();
       allow update: if isAuthenticated() && isSameInstitution(resource.data) && isTeacherOrAbove();
       allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isManagement();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 🏫 KURUMLAR & SORU HAVUZU
+    // ═══════════════════════════════════════════════════════════════
+    match /institutions/{institutionId} {
+      allow read: if isAuthenticated() && belongsToInstitution(institutionId);
+      allow write: if isAuthenticated() && belongsToInstitution(institutionId) && isAdminOrManager();
+
+      // Soru Havuzu – Testler & Ödevler
+      match /question_pool_tests/{testId} {
+        allow read: if isAuthenticated() && belongsToInstitution(institutionId);
+        allow create: if isAuthenticated() && belongsToInstitution(institutionId) && isTeacherOrAbove();
+        allow update: if isAuthenticated() && belongsToInstitution(institutionId) && isTeacherOrAbove();
+        allow delete: if isAuthenticated() && belongsToInstitution(institutionId) && isManagement();
+      }
+
+      // Soru Havuzu – Sorular
+      match /question_pool/{questionId} {
+        allow read: if isAuthenticated() && belongsToInstitution(institutionId);
+        allow create: if isAuthenticated() && belongsToInstitution(institutionId) && isTeacherOrAbove();
+        allow update: if isAuthenticated() && belongsToInstitution(institutionId) && isTeacherOrAbove();
+        allow delete: if isAuthenticated() && belongsToInstitution(institutionId) && isManagement();
+      }
     }
   }
 }

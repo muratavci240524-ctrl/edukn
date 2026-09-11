@@ -1,5 +1,6 @@
-import 'dart:ui';
+﻿import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -280,73 +281,63 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
       );
     }
 
+    final isMobileScreen = MediaQuery.of(context).size.width < 768;
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: const Color(0xFFEEF2FF),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(Icons.account_balance_rounded, color: Color(0xFF4F46E5), size: 22),
-            ),
-            const SizedBox(width: 12),
-            Text(
-              'Mali İşler & Öğrenci Finans Merkezi',
-              style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 17, color: const Color(0xFF1E293B)),
-            ),
-          ],
-        ),
+      appBar: EduknAppBar(
+        title: isMobileScreen ? 'Mali İşler' : 'Mali İşler & Öğrenci Finans Merkezi',
+        subtitle: '${_overdueInstallmentsList.length}',
         actions: [
           Container(
-            margin: const EdgeInsets.only(right: 8),
+            margin: EdgeInsets.only(right: isMobileScreen ? 4 : 8),
             decoration: BoxDecoration(
               gradient: const LinearGradient(colors: [Color(0xFF4F46E5), Color(0xFF6366F1)]),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(isMobileScreen ? 10 : 12),
               boxShadow: [
                 BoxShadow(color: const Color(0xFF4F46E5).withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 2)),
               ],
             ),
             child: IconButton(
-              icon: const Icon(Icons.add_card_rounded, color: Colors.white, size: 22),
+              icon: Icon(Icons.add_card_rounded, color: Colors.white, size: isMobileScreen ? 18 : 22),
               onPressed: () => _openAddKasaDialog(),
               tooltip: 'Yeni Kasa / Hesap Tanımla',
+              padding: isMobileScreen ? const EdgeInsets.all(8) : const EdgeInsets.all(8),
+              constraints: isMobileScreen ? const BoxConstraints(minWidth: 36, minHeight: 36) : null,
             ),
           ),
           Container(
-            margin: const EdgeInsets.only(right: 12),
+            margin: EdgeInsets.only(right: isMobileScreen ? 8 : 12),
             decoration: BoxDecoration(
               gradient: const LinearGradient(colors: [Color(0xFF4F46E5), Color(0xFF6366F1)]),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(isMobileScreen ? 10 : 12),
               boxShadow: [
                 BoxShadow(color: const Color(0xFF4F46E5).withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 2)),
               ],
             ),
             child: IconButton(
-              icon: const Icon(Icons.print_rounded, color: Colors.white, size: 22),
+              icon: Icon(Icons.print_rounded, color: Colors.white, size: isMobileScreen ? 18 : 22),
               onPressed: () => _openReportingCenterDialog(),
               tooltip: 'Finans ve Muhasebe Raporları (PDF & Excel)',
+              padding: isMobileScreen ? const EdgeInsets.all(8) : const EdgeInsets.all(8),
+              constraints: isMobileScreen ? const BoxConstraints(minWidth: 36, minHeight: 36) : null,
             ),
           ),
         ],
         bottom: TabBar(
           controller: _tabController,
-          isScrollable: MediaQuery.of(context).size.width < 850,
-          tabAlignment: MediaQuery.of(context).size.width < 850 ? TabAlignment.start : TabAlignment.fill,
+          isScrollable: true,
+          tabAlignment: TabAlignment.start,
           labelColor: const Color(0xFF4F46E5),
           unselectedLabelColor: const Color(0xFF64748B),
-          labelStyle: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13),
+          labelStyle: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: isMobileScreen ? 11 : 13),
+          unselectedLabelStyle: GoogleFonts.inter(fontWeight: FontWeight.w500, fontSize: isMobileScreen ? 11 : 13),
+          labelPadding: EdgeInsets.symmetric(horizontal: isMobileScreen ? 10 : 16),
           indicatorColor: const Color(0xFF4F46E5),
           indicatorWeight: 3,
           tabs: [
-            const Tab(icon: Icon(Icons.dashboard_rounded, size: 18), text: 'Genel Finans Özeti'),
+            Tab(icon: Icon(Icons.dashboard_rounded, size: isMobileScreen ? 16 : 18), text: 'Genel Finans Özeti'),
             Tab(
-              icon: const Icon(Icons.school_rounded, size: 18),
+              icon: Icon(Icons.school_rounded, size: isMobileScreen ? 16 : 18),
               text: 'Öğrenci Taksit Takibi (${_allPaymentPlans.length})',
             ),
             Tab(
@@ -354,11 +345,11 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                 isLabelVisible: _overdueInstallmentsList.isNotEmpty,
                 label: Text('${_overdueInstallmentsList.length}'),
                 backgroundColor: const Color(0xFFEF4444),
-                child: const Icon(Icons.warning_amber_rounded, size: 18),
+                child: Icon(Icons.warning_amber_rounded, size: isMobileScreen ? 16 : 18),
               ),
               text: 'Geciken Taksitler',
             ),
-            const Tab(icon: Icon(Icons.account_balance_wallet_rounded, size: 18), text: 'Kasa & Hareketler'),
+            Tab(icon: Icon(Icons.account_balance_wallet_rounded, size: isMobileScreen ? 16 : 18), text: 'Kasa & Hareketler'),
           ],
         ),
       ),
@@ -569,8 +560,11 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               Text('Kasa & Banka Bakiyeleri', style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 16, color: const Color(0xFF1E293B))),
               Container(
@@ -643,8 +637,11 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               Text('Yaklaşan Taksitler (30 Gün)', style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 16, color: const Color(0xFF1E293B))),
               Container(
@@ -1896,31 +1893,29 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                 ),
               ),
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFEEF2FF),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: const Color(0xFFC7D2FE)),
-                        ),
-                        child: const Icon(Icons.account_balance_wallet_rounded, color: Color(0xFF4F46E5), size: 24),
-                      ),
-                      const SizedBox(width: 14),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Yeni Kasa / Hesap Tanımla', style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.w800, color: const Color(0xFF1E293B))),
-                          const SizedBox(height: 2),
-                          Text('Farklı birim veya banka POS hesabı ekleyin', style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B))),
-                        ],
-                      ),
-                    ],
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEEF2FF),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: const Color(0xFFC7D2FE)),
+                    ),
+                    child: const Icon(Icons.account_balance_wallet_rounded, color: Color(0xFF4F46E5), size: 22),
                   ),
-                  IconButton(onPressed: () => Navigator.pop(ctx), icon: const Icon(Icons.close_rounded, color: Color(0xFF64748B))),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Yeni Kasa / Hesap Tanımla', style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w800, color: const Color(0xFF1E293B)), maxLines: 1, overflow: TextOverflow.ellipsis),
+                        const SizedBox(height: 2),
+                        Text('Farklı birim veya banka POS hesabı ekleyin', style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B)), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton(onPressed: () => Navigator.pop(ctx), icon: const Icon(Icons.close_rounded, color: Color(0xFF64748B), size: 20)),
                 ],
               ),
               const SizedBox(height: 24),
@@ -2083,30 +2078,28 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                 ),
               ),
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(colors: [Color(0xFF4F46E5), Color(0xFF6366F1)]),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: const Icon(Icons.print_rounded, color: Colors.white, size: 24),
-                      ),
-                      const SizedBox(width: 14),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Finans & Muhasebe Rapor Merkezi', style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.w800, color: const Color(0xFF1E293B))),
-                          const SizedBox(height: 2),
-                          Text('PDF veya Excel formatında resmi ve detaylı finansal raporlar', style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B))),
-                        ],
-                      ),
-                    ],
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(colors: [Color(0xFF4F46E5), Color(0xFF6366F1)]),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Icon(Icons.print_rounded, color: Colors.white, size: 22),
                   ),
-                  IconButton(onPressed: () => Navigator.pop(ctx), icon: const Icon(Icons.close_rounded, color: Color(0xFF64748B))),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Finans & Muhasebe Rapor Merkezi', style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w800, color: const Color(0xFF1E293B)), maxLines: 1, overflow: TextOverflow.ellipsis),
+                        const SizedBox(height: 2),
+                        Text('PDF veya Excel formatında resmi ve detaylı finansal raporlar', style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B)), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton(onPressed: () => Navigator.pop(ctx), icon: const Icon(Icons.close_rounded, color: Color(0xFF64748B), size: 20)),
                 ],
               ),
               const SizedBox(height: 20),
@@ -2196,7 +2189,7 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                 children: [
                   Expanded(
                     child: SizedBox(
-                      height: 52,
+                      height: 44,
                       child: ElevatedButton.icon(
                         onPressed: () async {
                           Navigator.pop(ctx);
@@ -2229,21 +2222,21 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                             );
                           }
                         },
-                        icon: const Icon(Icons.picture_as_pdf_rounded, size: 20),
-                        label: Text('PDF YAZDIR / İNDİR', style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 13)),
+                        icon: const Icon(Icons.picture_as_pdf_rounded, size: 18),
+                        label: Text('PDF Yazdır', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 12)),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFFDC2626),
                           foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           elevation: 0,
                         ),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: SizedBox(
-                      height: 52,
+                      height: 44,
                       child: ElevatedButton.icon(
                         onPressed: () async {
                           Navigator.pop(ctx);
@@ -2282,12 +2275,12 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen>
                             );
                           }
                         },
-                        icon: const Icon(Icons.table_view_rounded, size: 20),
-                        label: Text('EXCEL (.XLSX) İNDİR', style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 13)),
+                        icon: const Icon(Icons.table_view_rounded, size: 18),
+                        label: Text('Excel İndir', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 12)),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF059669),
                           foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           elevation: 0,
                         ),
                       ),

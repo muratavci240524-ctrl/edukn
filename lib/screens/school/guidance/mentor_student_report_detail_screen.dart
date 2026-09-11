@@ -1,5 +1,6 @@
-import 'dart:typed_data';
+﻿import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
@@ -481,14 +482,8 @@ class _MentorStudentReportDetailScreenState
 
         return Scaffold(
           backgroundColor: const Color(0xFFF3F4F6),
-          appBar: AppBar(
-            title: Text(
-              'Gelişim Rapor Detayı',
-              style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white),
-            ),
-            backgroundColor: Colors.indigo,
-            foregroundColor: Colors.white,
-            iconTheme: const IconThemeData(color: Colors.white),
+          appBar: EduknAppBar(
+            title: 'Gelişim Rapor Detayı',
             actions: [
               IconButton(
                 icon: const Icon(Icons.picture_as_pdf_rounded),

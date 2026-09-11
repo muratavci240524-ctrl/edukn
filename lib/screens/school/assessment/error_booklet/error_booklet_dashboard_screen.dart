@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -7,17 +8,20 @@ import '../../../../models/assessment/trial_exam_model.dart';
 import 'error_booklet_editor_screen.dart';
 import 'error_booklet_student_list_screen.dart';
 import '../../../../services/user_permission_service.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+import '../../../../services/term_service.dart';
 
 
 
 class ErrorBookletDashboardScreen extends StatefulWidget {
   final String institutionId;
   final String schoolTypeId;
+  final String? schoolTypeName;
 
   const ErrorBookletDashboardScreen({
     Key? key,
     required this.institutionId,
     required this.schoolTypeId,
+    this.schoolTypeName,
   }) : super(key: key);
 
   @override
@@ -31,6 +35,7 @@ class _ErrorBookletDashboardScreenState extends State<ErrorBookletDashboardScree
   List<String>? _filterClassLevels;
   bool _isLoadingFilter = true;
   String? _realInstitutionId;
+  String? _activeTermId;
 
   @override
   void initState() {
@@ -72,6 +77,8 @@ class _ErrorBookletDashboardScreenState extends State<ErrorBookletDashboardScree
           _filterClassLevels = grades;
         }
       }
+      // Aktif dönem ID'sini al
+      _activeTermId = await TermService().getActiveTermId();
     } catch (e) {
       debugPrint('Error loading filter data: $e');
     } finally {
@@ -84,14 +91,9 @@ class _ErrorBookletDashboardScreenState extends State<ErrorBookletDashboardScree
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        title: Text(
-          'Hata Kitapçığı Yönetimi',
-          style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: Colors.indigo.shade900),
-        ),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        iconTheme: IconThemeData(color: Colors.indigo.shade900),
+      appBar: EduknAppBar(
+        title: 'Hata Kitapçığı Yönetimi',
+        subtitle: widget.schoolTypeName,
         actions: [
           if (_selectedExamIds.isNotEmpty)
             Padding(
@@ -110,7 +112,8 @@ class _ErrorBookletDashboardScreenState extends State<ErrorBookletDashboardScree
         : SafeStreamBuilder<List<TrialExam>>(
         stream: _assessmentService.getTrialExams(
           _realInstitutionId ?? widget.institutionId, 
-          classLevels: _filterClassLevels
+          classLevels: _filterClassLevels,
+          termId: _activeTermId,
         ),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {

@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/gestures.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import 'class_lesson_hub_screen.dart';
+import '../../models/school/dynamic_course_group_model.dart';
+import '../../services/dynamic_group_service.dart';
 import '../../services/term_service.dart';
 import '../../services/user_permission_service.dart';
 import '../../widgets/edukn_logo.dart';
@@ -57,12 +60,23 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
   Set<String> _availableBranches = {};
 
   final ScrollController _horizontalScrollController = ScrollController();
+  final ScrollController _verticalScrollController = ScrollController(); // Sol panel + sağ grid senkronizasyonu
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
 
   bool _hasAutoOpenedEtut = false;
 
   String _sortBy = 'name'; // 'name' veya 'branch'
+
+  // ── Yarım Gün İzni State ────────────────────────────────────────
+  /// teacherId → assignedDay ('Pazartesi' vb.) - key: 'teacher_<id>_morning' or 'teacher_<id>_afternoon'
+  Map<String, String> _halfDayAssignedDays = {};
+  List<int> _halfDayMorningHours = [];
+  List<int> _halfDayAfternoonHours = [];
+  /// O(1) lookup: teacherId → day → [{type, hours, startHour, count, ...}]
+  Map<String, Map<String, List<Map<String, dynamic>>>> _teacherHalfDayIndex = {};
+
+  bool _isSyncingScroll = false; // Scroll sonsuz döngüsünü önle
 
   int compareTurkishStrings(String a, String b) {
     final aLower = a.toLowerCase();
@@ -152,6 +166,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
   @override
   void dispose() {
     _horizontalScrollController.dispose();
+    _verticalScrollController.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -398,6 +413,56 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
             }
           }
         }
+          // ── Yarım Gün İzni Verilerini Yükle ──────────────────────────────
+          final scheduleSettings = periodData['scheduleSettings'] as Map<String, dynamic>?;
+          if (scheduleSettings != null) {
+            final hdAssignedRaw = scheduleSettings['halfDayAssignedDays'] as Map<String, dynamic>?;
+            if (hdAssignedRaw != null) {
+              _halfDayAssignedDays = hdAssignedRaw.map((k, v) => MapEntry(k, v.toString()));
+            } else {
+              _halfDayAssignedDays = {};
+            }
+            final morningRaw = scheduleSettings['halfDayMorningHours'];
+            _halfDayMorningHours = morningRaw is List
+                ? morningRaw.map((e) => e is int ? e : int.tryParse(e.toString()) ?? 0).toList()
+                : [];
+            final afternoonRaw = scheduleSettings['halfDayAfternoonHours'];
+            _halfDayAfternoonHours = afternoonRaw is List
+                ? afternoonRaw.map((e) => e is int ? e : int.tryParse(e.toString()) ?? 0).toList()
+                : [];
+            // O(1) index oluştur
+            final Map<String, Map<String, List<Map<String, dynamic>>>> hdIdx = {};
+            for (final entry in _halfDayAssignedDays.entries) {
+              final flexKey = entry.key; // 'teacher_<id>_morning' veya '_afternoon'
+              final assignedDay = entry.value;
+              if (assignedDay.isEmpty) continue;
+              final lastUnderscore = flexKey.lastIndexOf('_');
+              if (lastUnderscore == -1) continue;
+              final type = flexKey.substring(lastUnderscore + 1);
+              final teacherKey = flexKey.substring(0, lastUnderscore);
+              final teacherId = teacherKey.startsWith('teacher_') ? teacherKey.substring(8) : teacherKey;
+              if (type != 'morning' && type != 'afternoon') continue;
+              final hours = type == 'morning' ? _halfDayMorningHours : _halfDayAfternoonHours;
+              if (hours.isEmpty) continue;
+              final sortedHours = List<int>.from(hours)..sort();
+              hdIdx.putIfAbsent(teacherId, () => {}).putIfAbsent(assignedDay, () => []).add({
+                'key': flexKey,
+                'type': type,
+                'label': type == 'morning' ? 'Sabah Yarım Gün İzni' : 'Öğleden Sonra Yarım Gün İzni',
+                'hours': sortedHours,
+                'startHour': sortedHours.first,
+                'count': sortedHours.length,
+                'teacherId': teacherId,
+                'day': assignedDay,
+              });
+            }
+            _teacherHalfDayIndex = hdIdx;
+          } else {
+            _halfDayAssignedDays = {};
+            _halfDayMorningHours = [];
+            _halfDayAfternoonHours = [];
+            _teacherHalfDayIndex = {};
+          }
       } else {
           _activePeriodId = null;
           _scheduleData = {};
@@ -562,6 +627,53 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
         teacherScheduledSlots.forEach((teacherId, slots) {
           lessonCounts[teacherId] = slots.length;
         });
+
+        // Kulüp hocaları için ders sayısını courseGroups'tan tamamla
+        try {
+          final clubGroupsForCount = await DynamicGroupService().fetchGroups(
+            institutionId: widget.institutionId,
+            schoolTypeId: widget.schoolTypeId,
+            type: DynamicCourseGroupType.club,
+          );
+          final Map<String, Set<String>> clubTeacherSlots = {};
+
+          for (final cg in clubGroupsForCount) {
+            if (cg.targetClassIds.isEmpty || cg.lessonId.isEmpty) continue;
+
+            // Bu kulübün slotlarını classSchedules'dan bul
+            final targetBatch = cg.targetClassIds.take(10).toList();
+            final countSnap = await FirebaseFirestore.instance
+                .collection('classSchedules')
+                .where('classId', whereIn: targetBatch)
+                .where('periodId', isEqualTo: _activePeriodId)
+                .where('lessonId', isEqualTo: cg.lessonId)
+                .where('isActive', isEqualTo: true)
+                .get();
+
+            final Set<String> clubSlotKeys = {};
+            for (final doc in countSnap.docs) {
+              final d = doc.data();
+              final day = d['day']?.toString();
+              final hour = d['hourIndex'];
+              if (day != null && hour != null) {
+                clubSlotKeys.add('${day}_$hour');
+              }
+            }
+
+            for (final sg in cg.subGroups) {
+              for (final tId in sg.teacherIds) {
+                if (tId.isEmpty) continue;
+                clubTeacherSlots.putIfAbsent(tId, () => {}).addAll(clubSlotKeys);
+              }
+            }
+          }
+
+          clubTeacherSlots.forEach((tId, slots) {
+            lessonCounts[tId] = (lessonCounts[tId] ?? 0) + slots.length;
+          });
+        } catch (e) {
+          debugPrint('⚠️ Kulüp ders sayısı hesaplanamadı: $e');
+        }
       }
 
       setState(() {
@@ -886,6 +998,104 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
         return compareClassNames(classNameA, classNameB);
       });
 
+      // ─────────────────────────────────────────────────────────────────
+      // KULÜP DERSİ: Bu öğretmen herhangi bir kulübün hocası mı?
+      // courseGroups koleksiyonundan bu öğretmenin sub-group'u olan
+      // kulüpleri buluyoruz. O kulübün lessonId'si ile eşleşen
+      // classSchedules slotlarını öğretmenin programına ekliyoruz.
+      // ─────────────────────────────────────────────────────────────────
+      try {
+        final clubGroups = await DynamicGroupService().fetchGroups(
+          institutionId: widget.institutionId,
+          schoolTypeId: schoolTypeId,
+          type: DynamicCourseGroupType.club,
+        );
+
+        for (final cg in clubGroups) {
+          // Bu öğretmen bu kulübün herhangi bir alt grubunda mı?
+          final mySubGroups = cg.findSubGroupsForTeacher(teacherId);
+          if (mySubGroups.isEmpty) continue;
+          final mySubGroup = mySubGroups.first;
+
+          if (cg.targetClassIds.isEmpty) continue;
+
+          // Bu kulübün lessonId'sine sahip classSchedules slotlarını bul
+          // Önce zaten yüklü olan updatedSchedule'da ara
+          bool foundSlot = false;
+          for (final entry in updatedSchedule.entries.toList()) {
+            final slot = entry.value;
+            final slotClassId = (slot['classId'] ?? '').toString();
+            final slotLessonId = (slot['lessonId'] ?? '').toString();
+            final slotPId = (slot['periodId'] ?? '').toString();
+
+            if (!cg.targetClassIds.contains(slotClassId)) continue;
+            if (_activePeriodId != null && slotPId.isNotEmpty && slotPId != _activePeriodId) continue;
+            if (cg.lessonId.isNotEmpty && slotLessonId != cg.lessonId) continue;
+
+            // Bu slot kulüp dersine ait — öğretmenin programına ekle
+            updatedSchedule[entry.key] = {
+              ...slot,
+              'lessonName': mySubGroup.name,
+              'teacherId': teacherId,
+              'className': mySubGroup.classroomName.isNotEmpty
+                  ? mySubGroup.classroomName
+                  : (slot['className'] ?? ''),
+              'courseGroupId': cg.id,
+              'courseGroupName': cg.name,
+              'subGroupId': mySubGroup.id,
+              'subGroupName': mySubGroup.name,
+              'isClubSlot': true,
+            };
+            foundSlot = true;
+            break; // Aynı kulüp için tek slot yeterli
+          }
+
+          // Eğer updatedSchedule'da yoksa Firestore'dan çek
+          if (!foundSlot && _activePeriodId != null) {
+            try {
+              final targetBatch = cg.targetClassIds.take(10).toList();
+              final clubScheduleSnap = await FirebaseFirestore.instance
+                  .collection('classSchedules')
+                  .where('classId', whereIn: targetBatch)
+                  .where('periodId', isEqualTo: _activePeriodId)
+                  .where('lessonId', isEqualTo: cg.lessonId)
+                  .where('isActive', isEqualTo: true)
+                  .get();
+
+              for (final doc in clubScheduleSnap.docs) {
+                final data = doc.data();
+                final day = data['day'] as String?;
+                final hourIndex = data['hourIndex'] as int?;
+                if (day == null || hourIndex == null) continue;
+
+                final key = '${day}_$hourIndex';
+                if (!updatedSchedule.containsKey(key)) {
+                  updatedSchedule[key] = {
+                    ...data,
+                    'id': doc.id,
+                    'lessonName': mySubGroup.name,
+                    'teacherId': teacherId,
+                    'className': mySubGroup.classroomName.isNotEmpty
+                        ? mySubGroup.classroomName
+                        : (data['className'] ?? ''),
+                    'courseGroupId': cg.id,
+                    'courseGroupName': cg.name,
+                    'subGroupId': mySubGroup.id,
+                    'subGroupName': mySubGroup.name,
+                    'isClubSlot': true,
+                  };
+                }
+                break;
+              }
+            } catch (ce) {
+              debugPrint('⚠️ Kulüp slotu Firestore sorgusu başarısız: $ce');
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('⚠️ Kulüp dersleri öğretmen programına eklenemedi: $e');
+      }
+
       setState(() {
         _scheduleData = updatedSchedule;
         _teacherAssignments = teacherAssignments;
@@ -1186,30 +1396,9 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Colors.blue.shade800),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              widget.isTeacherView ? 'Benim Ders Programım' : 'Öğretmen Ders Programı',
-              style: TextStyle(
-                color: Colors.blue.shade900,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            Text(
-              _resolvedSchoolTypeName ?? widget.schoolTypeName,
-              style: TextStyle(color: Colors.blue.shade400, fontSize: 12),
-            ),
-          ],
-        ),
+      appBar: EduknAppBar(
+        title: widget.isTeacherView ? 'Benim Ders Programım' : 'Öğretmen Ders Programı',
+        subtitle: _resolvedSchoolTypeName ?? widget.schoolTypeName,
       ),
       body: _isLoading
           ? Center(child: EduKnLoader(size: 80.0))
@@ -1866,9 +2055,18 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
 
   void _onLessonTap(Map<String, dynamic> assignment, String day, int hourIndex) {
     debugPrint('DEBUG: _onLessonTap called for $day - $hourIndex');
+
+    // Kulüp slotu: classId boş olabilir, courseGroupId var
+    final bool isClubSlot = assignment['isClubSlot'] == true;
+    final String courseGroupId = (assignment['courseGroupId'] ?? '').toString();
+    final String subGroupId = (assignment['subGroupId'] ?? '').toString();
+    final String subGroupName = (assignment['subGroupName'] ?? '').toString();
+
     final classId = (assignment['classId'] ?? '').toString();
     final lessonId = (assignment['lessonId'] ?? '').toString();
-    if (classId.isEmpty || lessonId.isEmpty) {
+
+    // Kulüp slotunda classId veya lessonId yoksa hub'a yine de aç (courseGroupId ile)
+    if (!isClubSlot && (classId.isEmpty || lessonId.isEmpty)) {
       debugPrint('⚠️ Ders detayı açılamadı: classId veya lessonId eksik.');
       return;
     }
@@ -1886,8 +2084,15 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
         final aClassId = (a?['classId'] ?? '').toString();
         final aLessonId = (a?['lessonId'] ?? '').toString();
         final aClassIds = a?['classIds'] != null ? List<String>.from(a?['classIds']) : [aClassId];
-        if (aClassIds.contains(classId) && aLessonId == lessonId) {
+        if (isClubSlot) {
+          // Kulüp slotu: aynı courseGroupId varsa bu saati de ekle
+          if ((a?['courseGroupId'] ?? '').toString() == courseGroupId) {
             availableLessonHours.add(i + 1);
+          }
+        } else {
+          if (aClassIds.contains(classId) && aLessonId == lessonId) {
+            availableLessonHours.add(i + 1);
+          }
         }
     }
 
@@ -1895,18 +2100,23 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
         context,
         MaterialPageRoute(
             builder: (context) => ClassLessonHubScreen(
-                institutionId: (assignment['institutionId'] ?? '').toString(),
-                schoolTypeId: (assignment['schoolTypeId'] ?? '').toString(),
+                institutionId: (assignment['institutionId'] ?? widget.institutionId).toString(),
+                schoolTypeId: (assignment['schoolTypeId'] ?? widget.schoolTypeId).toString(),
                 periodId: _activePeriodId,
-                classId: classId,
+                classId: classId.isNotEmpty ? classId : (assignment['targetClassId'] ?? '').toString(),
                 lessonId: lessonId,
-                className: (assignment['className'] ?? '').toString(),
+                className: isClubSlot && subGroupName.isNotEmpty
+                    ? subGroupName
+                    : (assignment['className'] ?? '').toString(),
                 lessonName: (assignment['lessonName'] ?? '').toString(),
                 initialDate: initialDate,
                 initialLessonHour: hourIndex + 1,
                 availableLessonHours: availableLessonHours,
                 combinedClassIds: assignment['classIds'] != null ? List<String>.from(assignment['classIds']) : null,
                 combinedClassNames: assignment['classNames'] != null ? List<String>.from(assignment['classNames']) : null,
+                courseGroupId: courseGroupId.isNotEmpty ? courseGroupId : null,
+                subGroupId: subGroupId.isNotEmpty ? subGroupId : null,
+                subGroupName: subGroupName.isNotEmpty ? subGroupName : null,
             ),
         ),
     );
@@ -3084,6 +3294,9 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
   }
 
   Widget _buildTableScheduleWide(int maxHours) {
+    final teacherId = _selectedTeacher?['id']?.toString() ?? '';
+    final hdForTeacher = _teacherHalfDayIndex[teacherId] ?? {};
+
     return ScrollConfiguration(
       behavior: ScrollConfiguration.of(context).copyWith(
         dragDevices: {PointerDeviceKind.touch, PointerDeviceKind.mouse},
@@ -3176,6 +3389,22 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                       final isLast = dayIndex == _days.length - 1;
                       final isEvenRow = dayIndex % 2 == 0;
 
+                      // Yarım gün blokları bu gün için
+                      final hdBlocks = hdForTeacher[day] ?? [];
+
+                      // Her saat için hangi yarım gün bloğuna ait olduğunu hesapla
+                      Map<int, Map<String, dynamic>?> hourToHdBlock = {};
+                      for (int h = 0; h < dayHourCount; h++) {
+                        hourToHdBlock[h] = null;
+                        for (final block in hdBlocks) {
+                          final hours = (block['hours'] as List<int>?) ?? [];
+                          if (hours.contains(h)) {
+                            hourToHdBlock[h] = block;
+                            break;
+                          }
+                        }
+                      }
+
                       return Row(
                         children: [
                           // Day label
@@ -3233,6 +3462,8 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
 
                             final key = '${day}_$hourIndex';
                             final assignment = _scheduleData[key];
+                            final hdBlock = hourToHdBlock[hourIndex];
+                            final isHalfDay = hdBlock != null;
 
                             MaterialColor? cellColor;
                             if (assignment != null) {
@@ -3251,6 +3482,78 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                             }
 
                             final etut = _getEtutForSlot(day, hourIndex);
+
+                            // Yarım gün hücresi
+                            if (isHalfDay) {
+                              final isFirstHour = (hdBlock!['hours'] as List<int>).first == hourIndex;
+                              final hdCount = (hdBlock['count'] as int?) ?? 1;
+                              return Container(
+                                width: 90,
+                                height: 72,
+                                decoration: BoxDecoration(
+                                  color: Colors.amber.shade50,
+                                  border: Border(
+                                    top: BorderSide(color: Colors.amber.shade300, width: 1),
+                                    left: BorderSide(color: Colors.amber.shade300, width: 1),
+                                    bottom: isLast
+                                        ? BorderSide(color: Colors.amber.shade300, width: 1)
+                                        : BorderSide.none,
+                                  ),
+                                ),
+                                child: isFirstHour
+                                    ? Stack(
+                                        children: [
+                                          // Span indicator - amber stripe
+                                          Positioned(
+                                            top: 0, bottom: 0, left: 0,
+                                            child: Container(
+                                              width: 4,
+                                              color: Colors.amber.shade600,
+                                            ),
+                                          ),
+                                          Center(
+                                            child: Padding(
+                                              padding: const EdgeInsets.only(left: 6),
+                                              child: Column(
+                                                mainAxisAlignment: MainAxisAlignment.center,
+                                                children: [
+                                                  Icon(Icons.wb_sunny_rounded, size: 16, color: Colors.amber.shade700),
+                                                  const SizedBox(height: 2),
+                                                  Text(
+                                                    hdBlock['type'] == 'morning' ? 'Sabah\nYarım Gün' : 'Öğleden\nSonra',
+                                                    style: TextStyle(
+                                                      fontSize: 9,
+                                                      fontWeight: FontWeight.bold,
+                                                      color: Colors.amber.shade900,
+                                                      height: 1.2,
+                                                    ),
+                                                    textAlign: TextAlign.center,
+                                                  ),
+                                                  if (hdCount > 1)
+                                                    Text(
+                                                      '$hdCount ders',
+                                                      style: TextStyle(
+                                                        fontSize: 8,
+                                                        color: Colors.amber.shade700,
+                                                      ),
+                                                    ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      )
+                                    : Container(
+                                        alignment: Alignment.centerLeft,
+                                        padding: const EdgeInsets.only(left: 8),
+                                        child: Container(
+                                          width: 4,
+                                          height: double.infinity,
+                                          color: Colors.amber.shade200,
+                                        ),
+                                      ),
+                              );
+                            }
 
                             return Stack(
                               children: [
@@ -3517,6 +3820,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
       ),
     );
   }
+
 
   Widget _buildCardScheduleWide() {
     return SingleChildScrollView(
@@ -4909,13 +5213,9 @@ class _TeacherScheduleDetailViewState
     final teacherName = widget.teacherData['name'] ?? '';
 
     return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Colors.blue.shade800),
-          onPressed: () => Navigator.pop(context),
-        ),
+      appBar: EduknAppBar(
+        title: 'Öğretmen Ders Programı',
+        subtitle: teacherName.isNotEmpty ? teacherName : null,
         actions: [
           if (_currentTabIndex == 0)
             IconButton(
@@ -4923,7 +5223,7 @@ class _TeacherScheduleDetailViewState
                 _showTableView
                     ? Icons.table_rows_outlined
                     : Icons.view_agenda_outlined,
-                color: Colors.blue.shade800,
+                color: Colors.indigo,
               ),
               onPressed: () {
                 setState(() {
@@ -4932,26 +5232,6 @@ class _TeacherScheduleDetailViewState
               },
             ),
         ],
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              teacherName,
-              style: TextStyle(
-                color: Colors.blue.shade900,
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            Text(
-              'Öğretmen Ders Programı',
-              style: TextStyle(
-                color: Colors.blue.shade400,
-                fontSize: 11,
-              ),
-            ),
-          ],
-        ),
       ),
       body: Column(
         children: [

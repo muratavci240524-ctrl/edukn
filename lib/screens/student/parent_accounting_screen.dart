@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
@@ -118,26 +119,12 @@ class _ParentAccountingScreenState extends State<ParentAccountingScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        centerTitle: false,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Öğrenci Mali Durum & Taksit Takibi',
-              style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w800, color: const Color(0xFF1E293B)),
-            ),
-            Text(
-              widget.studentName + (widget.studentNo.isNotEmpty ? ' (${widget.studentNo})' : ''),
-              style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w500, color: const Color(0xFF64748B)),
-            ),
-          ],
-        ),
+      appBar: EduknAppBar(
+        title: isMobile ? 'Öğrenci Mali Durum' : 'Öğrenci Mali Durum & Taksit Takibi',
+        subtitle: widget.studentName + (widget.studentNo.isNotEmpty ? ' (${widget.studentNo})' : ''),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh_rounded, color: Color(0xFF4F46E5)),
+            icon: const Icon(Icons.refresh_rounded, color: Colors.indigo),
             onPressed: _loadStudentPaymentPlans,
             tooltip: 'Yenile',
           ),
@@ -242,8 +229,11 @@ class _ParentAccountingScreenState extends State<ParentAccountingScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 4,
+                              alignment: WrapAlignment.spaceBetween,
+                              crossAxisAlignment: WrapCrossAlignment.center,
                               children: [
                                 Text(
                                   'Toplam Ödeme İlerlemesi',
@@ -351,16 +341,20 @@ class _ParentAccountingScreenState extends State<ParentAccountingScreen> {
                       child: const Icon(Icons.assignment_turned_in_rounded, color: Color(0xFF4F46E5), size: 22),
                     ),
                     const SizedBox(width: 12),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(name, style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 16, color: const Color(0xFF1E293B))),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Sözleşme Tutarı: ${_currencyFormat.format(netTotal)}',
-                          style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 12, color: const Color(0xFF64748B)),
-                        ),
-                      ],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(name, style: GoogleFonts.inter(fontWeight: FontWeight.w800, fontSize: 16, color: const Color(0xFF1E293B)), overflow: TextOverflow.ellipsis, maxLines: 1),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Sözleşme Tutarı: ${_currencyFormat.format(netTotal)}',
+                            style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 12, color: const Color(0xFF64748B)),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),

@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import '../../../../models/project_assignment_model.dart';
 import '../../../../services/project_assignment_service.dart';
 import 'project_assignment_dashboard_screen.dart';
@@ -20,15 +21,7 @@ class ProjectAssignmentListScreen extends StatelessWidget {
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'Proje Görevlendirmeleri',
-          style: TextStyle(color: Colors.black87),
-        ),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.black87),
-      ),
+      appBar: EduknAppBar(title: 'Proje Görevlendirmeleri'),
       body: SafeStreamBuilder<List<ProjectAssignment>>(
         stream: ProjectAssignmentService().getProjectAssignments(institutionId),
         builder: (context, snapshot) {

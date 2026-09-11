@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/foundation.dart';
 import 'package:file_saver/file_saver.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -279,7 +280,7 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
     
     if (_hasError) {
       return Scaffold(
-        appBar: AppBar(title: const Text('İzin Yönetimi')),
+        appBar: EduknAppBar(title: 'İzin Yönetimi'),
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -299,14 +300,11 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        title: const Text('İzin Yönetimi', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
+      appBar: EduknAppBar(
+        title: 'İzin Yönetimi',
         actions: [
           if (isAdmin) IconButton(onPressed: _exportToExcel, icon: const Icon(Icons.file_download_outlined, color: Colors.green)),
-          IconButton(onPressed: _loadData, icon: const Icon(Icons.refresh_rounded)),
+          IconButton(onPressed: _loadData, icon: const Icon(Icons.refresh_rounded, color: Colors.indigo)),
         ],
         bottom: (_tabController == null || !_isAdminRole(_myRole)) ? null : TabBar(
           controller: _tabController,

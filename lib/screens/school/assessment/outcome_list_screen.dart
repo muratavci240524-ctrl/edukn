@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import '../../../services/assessment_service.dart';
 import '../../../models/assessment/outcome_list_model.dart';
 import 'outcome_list_form_screen.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
@@ -6,9 +7,13 @@ import 'outcome_list_form_screen.dart';import 'package:edukn/widgets/safe_strea
 
 class OutcomeListScreen extends StatefulWidget {
   final String institutionId;
+  final String? schoolTypeName;
 
-  const OutcomeListScreen({Key? key, required this.institutionId})
-    : super(key: key);
+  const OutcomeListScreen({
+    Key? key,
+    required this.institutionId,
+    this.schoolTypeName,
+  }) : super(key: key);
 
   @override
   _OutcomeListScreenState createState() => _OutcomeListScreenState();
@@ -73,16 +78,9 @@ class _OutcomeListScreenState extends State<OutcomeListScreen> {
       context,
       MaterialPageRoute(
         builder: (context) => Scaffold(
-          appBar: AppBar(
-            backgroundColor: Colors.teal,
-            foregroundColor: Colors.white,
-            elevation: 0,
-            iconTheme: const IconThemeData(color: Colors.white),
-            leading: const BackButton(color: Colors.white),
-            title: Text(
-              list == null ? 'Yeni Kazanım Listesi' : 'Listeyi Düzenle',
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-            ),
+          appBar: EduknAppBar(
+            title: list == null ? 'Yeni Kazanım Listesi' : 'Listeyi Düzenle',
+            subtitle: widget.schoolTypeName,
           ),
           body: OutcomeListForm(
             institutionId: widget.institutionId,
@@ -145,13 +143,9 @@ class _OutcomeListScreenState extends State<OutcomeListScreen> {
         if (isMobile) {
           // Mobile View: Only List
           return Scaffold(
-            appBar: AppBar(
-              title: const Text('Kazanım Yönetimi', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              backgroundColor: Colors.teal,
-              foregroundColor: Colors.white,
-              iconTheme: const IconThemeData(color: Colors.white),
-              leading: const BackButton(color: Colors.white),
-              elevation: 0,
+            appBar: EduknAppBar(
+              title: 'Kazanım Yönetimi',
+              subtitle: widget.schoolTypeName,
             ),
             body: Column(
               children: [
@@ -179,13 +173,9 @@ class _OutcomeListScreenState extends State<OutcomeListScreen> {
 
         // Desktop View: Split View
         return Scaffold(
-          appBar: AppBar(
-            title: const Text('Kazanım Yönetimi', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            backgroundColor: Colors.teal,
-            foregroundColor: Colors.white,
-            iconTheme: const IconThemeData(color: Colors.white),
-            leading: const BackButton(color: Colors.white),
-            elevation: 0,
+          appBar: EduknAppBar(
+            title: 'Kazanım Yönetimi',
+            subtitle: widget.schoolTypeName,
           ),
           body: Row(
             crossAxisAlignment: CrossAxisAlignment.start,

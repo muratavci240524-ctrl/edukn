@@ -1,6 +1,7 @@
-import 'dart:typed_data';
+﻿import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import '../models/camp_cycle_model.dart';
 import '../models/camp_group_model.dart';
 import '../models/camp_assignment_model.dart';
@@ -67,12 +68,8 @@ class _CampClassroomTimetableScreenState extends State<CampClassroomTimetableScr
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        title: const Text('Derslik Haftalık Takvim', style: TextStyle(color: Colors.white, fontSize: 16)),
-        backgroundColor: Colors.orange.shade700,
-        foregroundColor: Colors.white,
-        centerTitle: true,
-        iconTheme: const IconThemeData(color: Colors.white),
+      appBar: EduknAppBar(
+        title: 'Derslik Haftalık Takvim',
         actions: [
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert, color: Colors.white),

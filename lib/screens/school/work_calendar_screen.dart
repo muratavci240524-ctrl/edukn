@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import '../../services/term_service.dart';
@@ -73,33 +74,12 @@ class _WorkCalendarScreenState extends State<WorkCalendarScreen>
     final isWideScreen = MediaQuery.of(context).size.width > 900;
 
     return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.indigo),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Çalışma Takvimi ve Yıllık Planlar',
-              style: TextStyle(
-                color: Colors.grey.shade900,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            Text(
-              widget.schoolTypeName,
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-            ),
-          ],
-        ),
+      appBar: EduknAppBar(
+        title: 'Çalışma Takvimi ve Yıllık Planlar',
+        subtitle: widget.schoolTypeName,
         actions: [
           IconButton(
-            icon: Icon(Icons.info_outline_rounded, color: Colors.grey.shade800),
+            icon: Icon(Icons.info_outline_rounded, color: Colors.indigo.shade400),
             tooltip: 'Takvim Rehberi',
             onPressed: () {
               Navigator.push(
@@ -2406,30 +2386,9 @@ class _PlanDetailScreenState extends State<_PlanDetailScreen> {
         (widget.planData['classNames'] as List<dynamic>?)?.join(', ') ?? '';
 
     return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.indigo),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Yıllık Plan Detayı',
-              style: TextStyle(
-                color: Colors.grey.shade900,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            Text(
-              '$lessonName - $periodName',
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-            ),
-          ],
-        ),
+      appBar: EduknAppBar(
+        title: 'Yıllık Plan Detayı',
+        subtitle: '$lessonName - $periodName',
         actions: [
           // Excel İşlemleri
           PopupMenuButton<String>(

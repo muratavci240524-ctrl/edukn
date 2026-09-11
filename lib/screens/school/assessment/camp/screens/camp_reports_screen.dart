@@ -1,5 +1,6 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import '../models/camp_cycle_model.dart';
 import '../models/camp_assignment_log_model.dart';
 import '../services/camp_service.dart';
@@ -83,12 +84,8 @@ class _CampReportsScreenState extends State<CampReportsScreen> with SingleTicker
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        title: const Text('Kamp Raporları', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white)),
-        backgroundColor: Colors.orange.shade700,
-        foregroundColor: Colors.white,
-        centerTitle: true,
-        elevation: 0,
+      appBar: EduknAppBar(
+        title: 'Kamp Raporları',
         bottom: TabBar(
           controller: _tabController,
           labelColor: Colors.white,

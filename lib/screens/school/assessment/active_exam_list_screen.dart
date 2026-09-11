@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:intl/intl.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import '../../../../models/assessment/trial_exam_model.dart';
@@ -7,17 +8,20 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'trial_exam_form.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../../services/user_permission_service.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+import '../../../../services/term_service.dart';
 
 
 
 class ActiveExamListScreen extends StatefulWidget {
   final String institutionId;
   final String schoolTypeId;
+  final String? schoolTypeName;
 
   const ActiveExamListScreen({
     Key? key,
     required this.institutionId,
     required this.schoolTypeId,
+    this.schoolTypeName,
   }) : super(key: key);
 
   @override
@@ -34,6 +38,7 @@ class _ActiveExamListScreenState extends State<ActiveExamListScreen> {
   List<String>? _filterClassLevels;
   bool _isLoadingFilter = true;
   String? _realInstitutionId;
+  String? _activeTermId;
 
 
   @override
@@ -81,6 +86,8 @@ class _ActiveExamListScreenState extends State<ActiveExamListScreen> {
           _filterClassLevels = grades;
         }
       }
+      // Aktif dönem ID'sini al
+      _activeTermId = await TermService().getActiveTermId();
     } catch (e) {
       debugPrint('Error loading filter data: $e');
     } finally {
@@ -109,7 +116,8 @@ class _ActiveExamListScreenState extends State<ActiveExamListScreen> {
     // Filter for Launched exams only and matching School Type grades
     return _service.getTrialExams(
       _realInstitutionId ?? widget.institutionId, 
-      classLevels: _filterClassLevels
+      classLevels: _filterClassLevels,
+      termId: _activeTermId,
     ).map((exams) {
       return exams.where((e) => e.isLaunched).toList();
     });
@@ -138,10 +146,9 @@ class _ActiveExamListScreenState extends State<ActiveExamListScreen> {
               ),
             ),
             child: Scaffold(
-              appBar: AppBar(
-                leading: const BackButton(color: Colors.white),
-                title: const Text('Uygulanan Sınavlar'),
-                elevation: 0,
+              appBar: EduknAppBar(
+                title: 'Uygulanan Sınavlar',
+                subtitle: widget.schoolTypeName,
               ),
               body: _isLoadingFilter 
                   ? const Center(child: CircularProgressIndicator())
@@ -157,19 +164,9 @@ class _ActiveExamListScreenState extends State<ActiveExamListScreen> {
           );
         } else {
           return Scaffold(
-            appBar: AppBar(
-              title: const Text(
-                'Sınav Yönetimi',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              backgroundColor: Colors.green,
-              foregroundColor: Colors.white,
-              iconTheme: const IconThemeData(color: Colors.white),
-              elevation: 0,
-              leading: const BackButton(color: Colors.white),
+            appBar: EduknAppBar(
+              title: 'Sınav Yönetimi',
+              subtitle: widget.schoolTypeName,
             ),
             body: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -475,10 +472,9 @@ class _ActiveExamListScreenState extends State<ActiveExamListScreen> {
                             ),
                           ),
                           child: Scaffold(
-                            appBar: AppBar(
+                            appBar: EduknAppBar(
+                              title: exam.name,
                               leading: const BackButton(color: Colors.white),
-                              title: Text(exam.name),
-                              elevation: 0,
                             ),
                             body: TrialExamForm(
                               institutionId: widget.institutionId,

@@ -1,8 +1,9 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/services.dart';
 import 'package:edukn/models/assessment/trial_exam_model.dart';
 import '../models/camp_cycle_model.dart';
@@ -75,12 +76,8 @@ class _CampTeacherTimetableScreenState extends State<CampTeacherTimetableScreen>
       children: [
         Scaffold(
           backgroundColor: Colors.grey.shade50,
-          appBar: AppBar(
-            title: const Text('Öğretmen Haftalık Takvim', style: TextStyle(color: Colors.white, fontSize: 16)),
-            backgroundColor: Colors.orange.shade700,
-            foregroundColor: Colors.white,
-            centerTitle: true,
-            iconTheme: const IconThemeData(color: Colors.white),
+          appBar: EduknAppBar(
+            title: 'Öğretmen Haftalık Takvim',
             actions: [
               PopupMenuButton<String>(
                 icon: const Icon(Icons.more_vert, color: Colors.white),

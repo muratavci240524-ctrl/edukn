@@ -1,4 +1,5 @@
 ﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -293,9 +294,9 @@ class _CafeteriaScreenState extends State<CafeteriaScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Yemekhane İşlemleri'),
-        elevation: 1,
+      appBar: EduknAppBar(
+        title: 'Yemekhane İşlemleri',
+        subtitle: widget.fixedSchoolTypeName,
         actions: [
           IconButton(
             icon: Icon(Icons.bar_chart, color: Colors.orange),
@@ -851,8 +852,8 @@ class _MenuManagementScreenState extends State<_MenuManagementScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('${widget.periodName} Menüleri'),
+      appBar: EduknAppBar(
+        title: '${widget.periodName} Menüleri',
         actions: [
           PopupMenuButton<String>(
             onSelected: (value) {
@@ -1098,7 +1099,7 @@ class _CafeteriaStatisticsScreenState
     final topFoods = _foodCounts.entries.take(20).toList();
 
     return Scaffold(
-      appBar: AppBar(title: Text('En Çok Çıkan Yemekler')),
+      appBar: EduknAppBar(title: 'En Çok Çıkan Yemekler'),
       body: _isLoading
           ? Center(child: CircularProgressIndicator())
           : _totalMenus == 0

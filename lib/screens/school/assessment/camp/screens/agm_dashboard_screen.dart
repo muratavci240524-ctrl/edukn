@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:intl/intl.dart';
 
 import '../models/agm_cycle_model.dart';
@@ -32,15 +33,8 @@ class _AgmDashboardScreenState extends State<AgmDashboardScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        title: const Text(
-          'AGM – Akademik Güçlendirme',
-          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
-        ),
-        backgroundColor: Colors.deepOrange,
-        iconTheme: const IconThemeData(color: Colors.white),
-        centerTitle: true,
-        elevation: 0,
+      appBar: EduknAppBar(
+        title: 'AGM – Akademik Güçlendirme',
         actions: [
           IconButton(
             tooltip: 'Derslik Tanımlama',

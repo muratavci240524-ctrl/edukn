@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -402,55 +403,23 @@ class _SchoolTypeAnnouncementsScreenState
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: Colors.indigo,
-        elevation: 0,
-        automaticallyImplyLeading: false,
-        title: Row(
-          children: [
-            IconButton(
-              onPressed: () => Navigator.pop(context),
-              icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 20),
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-            ),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.schoolTypeName.isNotEmpty
-                      ? widget.schoolTypeName
-                      : (_selectedFilterSchoolTypeId == 'GENEL'
-                          ? 'Tüm Okul Türleri'
-                          : (_schoolTypes.firstWhere((st) => st['id'] == _selectedFilterSchoolTypeId, orElse: () => {'name': 'Duyurular'})['name'])),
-                  style: GoogleFonts.inter(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-                Text(
-                  'Duyurular',
-                  style: GoogleFonts.inter(
-                    fontSize: 12,
-                    color: Colors.white.withOpacity(0.8),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
+      appBar: EduknAppBar(
+        title: 'Duyurular',
+        subtitle: widget.schoolTypeName.isNotEmpty
+            ? widget.schoolTypeName
+            : (_selectedFilterSchoolTypeId == 'GENEL'
+                ? 'Tüm Okul Türleri'
+                : (_schoolTypes.firstWhere((st) => st['id'] == _selectedFilterSchoolTypeId, orElse: () => {'name': null})['name'])),
         actions: [
           if (_canEditAnnouncements())
             IconButton(
-              icon: const Icon(Icons.settings_rounded, color: Colors.white),
+              icon: const Icon(Icons.settings_rounded, color: Colors.indigo),
               tooltip: 'Öğretmen Duyuru Ayarı',
               onPressed: _openTeacherModeSettingsDialog,
             ),
           if (_canEditAnnouncements() || _isTeacherRole)
             PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert_rounded, color: Colors.white),
+              icon: const Icon(Icons.more_vert_rounded, color: Colors.indigo),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
               ),

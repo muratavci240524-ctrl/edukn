@@ -1,5 +1,6 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:intl/intl.dart';
 import '../../../models/school/homework_model.dart';
 
@@ -310,28 +311,10 @@ class _CreateHomeworkDialogState extends State<CreateHomeworkDialog> {
 
     if (isMobile) {
       return Scaffold(
-        appBar: AppBar(
-          title: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Yeni Ödev',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              Text(
-                widget.lessonName,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.normal,
-                ),
-              ),
-            ],
-          ),
-          leading: IconButton(
-            icon: const Icon(Icons.close),
-            onPressed: () => Navigator.pop(context),
-          ),
-        ),
+        appBar: EduknAppBar(
+        title: 'Yeni Ödev',
+        subtitle: widget.lessonName,
+      ),
         body: _isLoading && _students.isEmpty
             ? const Center(
                 child: CircularProgressIndicator(color: Color(0xFF4F46E5)),

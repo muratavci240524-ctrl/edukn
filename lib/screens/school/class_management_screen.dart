@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/class_model.dart';
@@ -918,35 +919,14 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
     final isWideScreen = MediaQuery.of(context).size.width > 900;
 
     return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Colors.indigo),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Şube Listesi',
-              style: TextStyle(
-                color: Colors.grey.shade900,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            Text(
-              widget.schoolTypeName,
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-            ),
-          ],
-        ),
+      appBar: EduknAppBar(
+        title: 'Şube Listesi',
+        subtitle: widget.schoolTypeName,
         actions: [
           TextButton.icon(
             onPressed: _showClassTypeDialog,
-            icon: Icon(Icons.category, size: 18),
-            label: Text('Sınıf Tipi Tanımla'),
+            icon: const Icon(Icons.category, size: 18),
+            label: const Text('Sınıf Tipi Tanımla'),
             style: TextButton.styleFrom(foregroundColor: Colors.indigo),
           ),
           PopupMenuButton<String>(
@@ -970,7 +950,7 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
               ),
             ],
           ),
-          SizedBox(width: 8),
+          const SizedBox(width: 8),
         ],
       ),
       floatingActionButton: _isViewingPastTerm
@@ -1433,7 +1413,7 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
                           classTypeName: _selectedClass!['classTypeName'],
                           classTeacherId: _selectedClass!['classTeacherId'],
                           classTeacherName: _selectedClass!['classTeacherName'],
-                          classLevel: _selectedClass!['classLevel'],
+                          classLevel: () { final v = _selectedClass!['classLevel']; if (v is int) return v; if (v is double) return v.toInt(); return int.tryParse(v?.toString() ?? '') ?? 1; }(),
                           description: _selectedClass!['description'],
                           schoolTypeId: _selectedClass!['schoolTypeId'],
                           schoolTypeName: _selectedClass!['schoolTypeName'],

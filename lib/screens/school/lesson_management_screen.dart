@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/lesson_model.dart';
-import '../../services/term_service.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+import '../../services/term_service.dart';
+import 'package:edukn/widgets/safe_stream_builder.dart';
 
 
 int compareClassNamesNatural(String nameA, String nameB) {
@@ -48,6 +49,10 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
   Stream<QuerySnapshot>? _lessonsStream; // Caching Stream object for lessons
   Stream<QuerySnapshot>? _selectedLessonAssignmentsStream; // Stabil stream — sadece ders değişince yenilenir
   String? _streamLessonId; // Hangi lessonId için stream açık?
+  String? _selectedSubTermId; // Seçili alt dönem
+  String? _selectedSubTermName; // Seçili alt dönemin adı
+  String? _autoDetectedPeriodId; // Tarihe göre otomatik tespit edilen alt dönem
+  List<Map<String, dynamic>> _workPeriods = []; // Aktif akademik dönemdeki alt dönemler
 
   void _updateLessonsStream() {
     _lessonsStream = FirebaseFirestore.instance
@@ -104,6 +109,7 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
         _clearAssignmentsStream();
         _updateLessonsStream();
       });
+      await _autoSelectActiveSubTerm(effectiveTermId);
     }
   }
   
@@ -124,8 +130,89 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
         _updateLessonsStream();
       });
     }
+    await _autoSelectActiveSubTerm(effectiveTermId);
     _loadBranchNames();
     _loadTeachers();
+  }
+
+  /// Mevcut tarihe (DateTime.now) göre uygun alt dönemi otomatik tespit eder ve seçer.
+  Future<void> _autoSelectActiveSubTerm(String? termId) async {
+    if (termId == null || termId.isEmpty) return;
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('workPeriods')
+          .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .where('termId', isEqualTo: termId)
+          .where('isActive', isEqualTo: true)
+          .get();
+
+      final periods = snap.docs.map((d) => <String, dynamic>{'id': d.id, ...d.data()}).toList()
+        ..sort((a, b) {
+          final aStart = (a['startDate'] as Timestamp?)?.toDate() ?? DateTime(2000);
+          final bStart = (b['startDate'] as Timestamp?)?.toDate() ?? DateTime(2000);
+          return aStart.compareTo(bStart);
+        });
+
+      if (periods.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _workPeriods = [];
+            _selectedSubTermId = null;
+            _selectedSubTermName = null;
+            _autoDetectedPeriodId = null;
+          });
+        }
+        return;
+      }
+
+      final now = DateTime.now();
+      Map<String, dynamic>? matchedPeriod;
+
+      // 1. Bugünün başlangıç ve bitiş tarihi arasında olduğu alt dönemi bul
+      for (final p in periods) {
+        final start = (p['startDate'] as Timestamp?)?.toDate();
+        final end = (p['endDate'] as Timestamp?)?.toDate();
+        if (start != null && end != null) {
+          final startDay = DateTime(start.year, start.month, start.day);
+          final endDay = DateTime(end.year, end.month, end.day, 23, 59, 59);
+          if (!now.isBefore(startDay) && !now.isAfter(endDay)) {
+            matchedPeriod = p;
+            break;
+          }
+        }
+      }
+
+      // 2. Tarih aralığında bulunamadıysa: Gelecek en yakın veya en sonuncu alt dönemi seç
+      if (matchedPeriod == null) {
+        for (final p in periods) {
+          final start = (p['startDate'] as Timestamp?)?.toDate();
+          if (start != null && start.isAfter(now)) {
+            matchedPeriod = p;
+            break;
+          }
+        }
+        matchedPeriod ??= periods.last;
+      }
+
+      if (mounted) {
+        final autoId = matchedPeriod['id'] as String;
+        final autoName = matchedPeriod['periodName'] as String? ?? 'Alt Dönem';
+        setState(() {
+          _workPeriods = periods;
+          _autoDetectedPeriodId = autoId;
+          if (_selectedSubTermId == null || !periods.any((p) => p['id'] == _selectedSubTermId)) {
+            _selectedSubTermId = autoId;
+            _selectedSubTermName = autoName;
+          } else {
+            final cur = periods.firstWhere((p) => p['id'] == _selectedSubTermId);
+            _selectedSubTermName = cur['periodName'] as String? ?? 'Alt Dönem';
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Otomatik alt dönem belirleme hatası: $e');
+    }
   }
 
   // Öğretmen formundaki sabit branş listesi (aynı liste)
@@ -195,14 +282,22 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
     return _lessonsStream ?? const Stream.empty();
   }
 
-  /// Her ders için atanmış sınıf sayısını canlı izle
+  /// Her ders için atanmış sınıf sayısını canlı izle (seçili alt döneme göre filtrelenmiş)
   Stream<int> _getAssignmentCountStream(String lessonId) {
     return FirebaseFirestore.instance
         .collection('lessonAssignments')
         .where('lessonId', isEqualTo: lessonId)
         .where('institutionId', isEqualTo: widget.institutionId)
+        .where('isActive', isEqualTo: true)
         .snapshots()
-        .map((s) => s.docs.length);
+        .map((s) => s.docs.where((d) {
+              final data = d.data();
+              final stId = data['subTermId'] ?? data['periodId'];
+              if (_selectedSubTermId != null && _selectedSubTermId!.isNotEmpty) {
+                return stId == _selectedSubTermId;
+              }
+              return true;
+            }).length);
   }
 
   List<LessonModel> _filterLessons(List<LessonModel> lessons) {
@@ -211,6 +306,11 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
     // Dönem filtresi: sadece seçili döneme ait olanları göster
     final effectiveTermId = _currentTermId ?? 'loading_term_id';
     filtered = filtered.where((l) => l.termId == effectiveTermId).toList();
+
+    // Alt dönem filtresi: Seçili alt döneme ait dersleri göster (yalnızca o alt döneme ait olanlar)
+    if (_selectedSubTermId != null && _selectedSubTermId!.isNotEmpty) {
+      filtered = filtered.where((l) => l.subTermId == _selectedSubTermId).toList();
+    }
     
     // Branş filtresi
     if (_selectedBranchFilter != null) {
@@ -237,6 +337,8 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
         schoolTypeId: widget.schoolTypeId,
         institutionId: widget.institutionId,
         termId: _currentTermId,
+        subTermId: _selectedSubTermId,
+        subTermName: _selectedSubTermName,
         branchNames: _branchNames,
         lessonToEdit: lessonToEdit,
         onLessonSaved: () {
@@ -267,6 +369,9 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
         lesson: lesson,
         schoolTypeId: widget.schoolTypeId,
         institutionId: widget.institutionId,
+        termId: _currentTermId,
+        subTermId: _selectedSubTermId ?? lesson.subTermId,
+        subTermName: _selectedSubTermName ?? lesson.subTermName,
         teachers: _teachers,
       ),
     );
@@ -314,147 +419,52 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
     }
   }
 
-  Future<void> _showCopyLessonsFromTermDialog() async {
+  Future<void> _deleteAllAssignments(String lessonId, String lessonName) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(children: [
+          Icon(Icons.playlist_remove, color: Colors.orange),
+          SizedBox(width: 12),
+          Expanded(child: Text('Tum Atamalari Kaldir')),
+        ]),
+        content: const Text('Bu dersin tum sinif atamalari kaldirilacak. Bu islem geri alinamaz!'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Iptal')),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
+            icon: const Icon(Icons.delete_sweep, size: 18),
+            label: const Text('Evet, Tumunu Sil'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
     try {
-      // 1. Fetch terms
-      final termsSnapshot = await FirebaseFirestore.instance
-          .collection('terms')
+      final snap = await FirebaseFirestore.instance
+          .collection('lessonAssignments')
+          .where('lessonId', isEqualTo: lessonId)
           .where('institutionId', isEqualTo: widget.institutionId)
           .get();
-
-      final termsList = termsSnapshot.docs.map((doc) {
+      final batch = FirebaseFirestore.instance.batch();
+      int deletedCount = 0;
+      for (final doc in snap.docs) {
         final data = doc.data();
-        data['id'] = doc.id;
-        return data;
-      }).toList();
-
-      // Filter out the current term
-      final targetTerms = termsList.where((t) => t['id'] != _currentTermId).toList();
-
-      if (targetTerms.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Kopyalama yapılabilecek başka bir dönem bulunamadı.'),
-              backgroundColor: Colors.orange,
-            ),
-          );
+        final stId = data['subTermId'] ?? data['periodId'];
+        if (_selectedSubTermId != null && stId != null && stId.toString().isNotEmpty && stId != _selectedSubTermId) {
+          continue; // Farklı alt döneme ait atamalara dokunma
         }
-        return;
+        batch.update(doc.reference, {'isActive': false});
+        deletedCount++;
       }
-
-      String selectedSourceTermId = targetTerms.first['id'];
-      String selectedSourceTermName = targetTerms.first['name'] ?? '${targetTerms.first['startYear']}-${targetTerms.first['endYear']}';
-      bool copyClasses = true;
-      bool copyTeachers = false;
-
-      if (!mounted) return;
-
-      await showDialog(
-        context: context,
-        builder: (dialogContext) {
-          return StatefulBuilder(
-            builder: (context, setDialogState) {
-              return AlertDialog(
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                title: Row(
-                  children: [
-                    const Icon(Icons.copy_all, color: Colors.indigo),
-                    const SizedBox(width: 8),
-                    const Text('Dönemden Ders Kopyala'),
-                  ],
-                ),
-                content: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Seçeceğiniz kaynak dönemdeki tüm aktif dersler bu döneme kopyalanacaktır.',
-                      style: TextStyle(fontSize: 13, color: Colors.black54),
-                    ),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<String>(
-                      decoration: InputDecoration(
-                        labelText: 'Kaynak Dönem',
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        prefixIcon: const Icon(Icons.calendar_today),
-                      ),
-                      value: selectedSourceTermId,
-                      items: targetTerms.map((t) {
-                        final name = t['name'] ?? '${t['startYear']}-${t['endYear']}';
-                        return DropdownMenuItem(
-                          value: t['id'] as String,
-                          child: Text(name),
-                        );
-                      }).toList(),
-                      onChanged: (val) {
-                        if (val != null) {
-                          setDialogState(() {
-                            selectedSourceTermId = val;
-                            final term = targetTerms.firstWhere((t) => t['id'] == val);
-                            selectedSourceTermName = term['name'] ?? '${term['startYear']}-${term['endYear']}';
-                          });
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    SwitchListTile(
-                      title: const Text('Derslerin Şube Atamalarını Kopyala', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-                      subtitle: const Text('Derslerin hangi şubelere atandığını (haftalık saatleriyle) aktarır.', style: TextStyle(fontSize: 12)),
-                      value: copyClasses,
-                      activeColor: Colors.indigo,
-                      onChanged: (val) {
-                        setDialogState(() {
-                          copyClasses = val;
-                          if (!copyClasses) {
-                            copyTeachers = false;
-                          }
-                        });
-                      },
-                    ),
-                    SwitchListTile(
-                      title: const Text('Atamalarla Birlikte Öğretmenleri de Kopyala', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-                      subtitle: const Text('Derslerde atanan öğretmenleri de yeni döneme aktarır.', style: TextStyle(fontSize: 12)),
-                      value: copyTeachers,
-                      activeColor: Colors.indigo,
-                      onChanged: copyClasses
-                          ? (val) {
-                              setDialogState(() {
-                                copyTeachers = val;
-                              });
-                            }
-                          : null,
-                    ),
-                  ],
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(dialogContext),
-                    child: const Text('İptal'),
-                  ),
-                  ElevatedButton(
-                    onPressed: () async {
-                      Navigator.pop(dialogContext); // Close dialog
-                      await _executeCopyLessons(
-                        selectedSourceTermId,
-                        selectedSourceTermName,
-                        copyClasses: copyClasses,
-                        copyTeachers: copyTeachers,
-                      );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.indigo,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                    child: const Text('Kopyala'),
-                  ),
-                ],
-              );
-            },
-          );
-        },
-      );
+      await batch.commit();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$deletedCount atama kaldırıldı'), backgroundColor: Colors.orange.shade700),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -464,68 +474,545 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
     }
   }
 
-  Future<void> _executeCopyLessons(
-    String sourceTermId, 
-    String sourceTermName, {
-    required bool copyClasses,
+  Future<void> _showCopyLessonsFromTermDialog() async {
+    if (_selectedSubTermId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Lutfen once hedef alt donemi secin.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    String sourceType = 'sub';
+    String? selectedSourceId;
+    String? selectedSourceName;
+    List<Map<String, dynamic>> sourceSubTerms = [];
+    List<Map<String, dynamic>> sourceTerms = [];
+    List<Map<String, dynamic>> sourceLessonsList = [];
+    Set<String> selectedLessonIds = {};
+    bool copyAll = true;
+    bool copyAssignments = false;
+    bool copyTeachers = false;
+    bool isLoadingLessons = false;
+
+    Future<List<Map<String, dynamic>>> fetchLessonsForSource(String? sourceId, String sType) async {
+      if (sourceId == null || sourceId.isEmpty) return [];
+      try {
+        final snap = await FirebaseFirestore.instance
+            .collection('lessons')
+            .where('institutionId', isEqualTo: widget.institutionId)
+            .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+            .where('isActive', isEqualTo: true)
+            .get();
+
+        final filtered = snap.docs.where((d) {
+          final data = d.data();
+          if (sType == 'sub') {
+            final sId = data['subTermId'] ?? data['periodId'];
+            return sId == sourceId;
+          } else {
+            return data['termId'] == sourceId;
+          }
+        }).toList();
+
+        return filtered.map((d) {
+          final data = d.data();
+          return <String, dynamic>{
+            'id': d.id,
+            'lessonName': data['lessonName'] ?? '',
+            'branchName': data['branchName'] ?? '',
+          };
+        }).toList();
+      } catch (e) {
+        debugPrint('Ders listesi yukleme hatasi: $e');
+        return [];
+      }
+    }
+
+    try {
+      final periodsSnap = await FirebaseFirestore.instance
+          .collection('workPeriods')
+          .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .where('termId', isEqualTo: _currentTermId)
+          .where('isActive', isEqualTo: true)
+          .get();
+      sourceSubTerms = periodsSnap.docs
+          .where((d) => d.id != _selectedSubTermId)
+          .map((d) => <String, dynamic>{'id': d.id, 'name': d.data()['periodName'] ?? 'Alt Donem'})
+          .toList();
+
+      final termsSnap = await FirebaseFirestore.instance
+          .collection('terms')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .get();
+      sourceTerms = termsSnap.docs
+          .map((d) => <String, dynamic>{
+                'id': d.id,
+                'name': d.data()['name'] ?? '${d.data()['startYear']}-${d.data()['endYear']}'
+              })
+          .toList();
+
+      if (sourceSubTerms.isNotEmpty) {
+        selectedSourceId = sourceSubTerms.first['id'];
+        selectedSourceName = sourceSubTerms.first['name'];
+      } else if (sourceTerms.isNotEmpty) {
+        sourceType = 'term';
+        selectedSourceId = sourceTerms.first['id'];
+        selectedSourceName = sourceTerms.first['name'];
+      }
+
+      if (selectedSourceId != null) {
+        sourceLessonsList = await fetchLessonsForSource(selectedSourceId, sourceType);
+        selectedLessonIds = sourceLessonsList.map((l) => l['id'] as String).toSet();
+      }
+    } catch (e) {
+      debugPrint('Kopyala kaynak yukleme hatasi: $e');
+    }
+
+    if (!mounted) return;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.88,
+        maxChildSize: 0.95,
+        minChildSize: 0.5,
+        builder: (ctx2, scrollCtrl) => StatefulBuilder(
+          builder: (context, setSheetState) {
+            Future<void> loadSourceLessons() async {
+              if (selectedSourceId == null) return;
+              setSheetState(() => isLoadingLessons = true);
+              final lessons = await fetchLessonsForSource(selectedSourceId, sourceType);
+              setSheetState(() {
+                sourceLessonsList = lessons;
+                selectedLessonIds = sourceLessonsList.map((l) => l['id'] as String).toSet();
+                isLoadingLessons = false;
+              });
+            }
+
+            return Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                children: [
+                  Container(
+                    margin: const EdgeInsets.only(top: 12, bottom: 4),
+                    width: 40, height: 4,
+                    decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(color: Colors.deepPurple.shade50, borderRadius: BorderRadius.circular(10)),
+                          child: const Icon(Icons.copy_all, color: Colors.deepPurple, size: 22),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('Farkli Donemden Kopyala', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                              Text('Hedef: ${_selectedSubTermName ?? 'Secili Alt Donem'}',
+                                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                            ],
+                          ),
+                        ),
+                        IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 24),
+                  Expanded(
+                    child: ListView(
+                      controller: scrollCtrl,
+                      padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                      children: [
+                        Text('Kaynak Secimi', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey.shade700, fontSize: 13)),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _copyTabButton(
+                                label: 'Farkli Alt Donem',
+                                icon: Icons.subdirectory_arrow_right,
+                                selected: sourceType == 'sub',
+                                onTap: () {
+                                  setSheetState(() {
+                                    sourceType = 'sub';
+                                    selectedSourceId = sourceSubTerms.isNotEmpty ? sourceSubTerms.first['id'] : null;
+                                    selectedSourceName = sourceSubTerms.isNotEmpty ? sourceSubTerms.first['name'] : null;
+                                    sourceLessonsList = [];
+                                    selectedLessonIds.clear();
+                                  });
+                                  if (selectedSourceId != null) loadSourceLessons();
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _copyTabButton(
+                                label: 'Farkli Donem',
+                                icon: Icons.calendar_month,
+                                selected: sourceType == 'term',
+                                onTap: () {
+                                  setSheetState(() {
+                                    sourceType = 'term';
+                                    selectedSourceId = sourceTerms.isNotEmpty ? sourceTerms.first['id'] : null;
+                                    selectedSourceName = sourceTerms.isNotEmpty ? sourceTerms.first['name'] : null;
+                                    sourceLessonsList = [];
+                                    selectedLessonIds.clear();
+                                  });
+                                  if (selectedSourceId != null) loadSourceLessons();
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        Builder(builder: (_) {
+                          final items = sourceType == 'sub' ? sourceSubTerms : sourceTerms;
+                          if (items.isEmpty) {
+                            return Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.shade50,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.orange.shade200),
+                              ),
+                              child: Text(
+                                sourceType == 'sub' ? 'Bu donemde baska alt donem bulunamadi.' : 'Baska donem bulunamadi.',
+                                style: TextStyle(color: Colors.orange.shade800),
+                              ),
+                            );
+                          }
+                          return DropdownButtonFormField<String>(
+                            decoration: InputDecoration(
+                              labelText: sourceType == 'sub' ? 'Kaynak Alt Donem' : 'Kaynak Donem',
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                              prefixIcon: const Icon(Icons.source),
+                            ),
+                            initialValue: selectedSourceId,
+                            items: items.map((item) {
+                              return DropdownMenuItem<String>(
+                                value: item['id'] as String,
+                                child: Text(item['name'] as String),
+                              );
+                            }).toList(),
+                            onChanged: (val) {
+                              if (val == null) return;
+                              setSheetState(() {
+                                selectedSourceId = val;
+                                final src = items.firstWhere((s) => s['id'] == val);
+                                selectedSourceName = src['name'] as String;
+                                sourceLessonsList = [];
+                                selectedLessonIds.clear();
+                              });
+                              loadSourceLessons();
+                            },
+                          );
+                        }),
+                        const SizedBox(height: 20),
+                        const Divider(),
+                        SwitchListTile(
+                          title: const Text('Tum Dersleri Kopyala', style: TextStyle(fontWeight: FontWeight.bold)),
+                          subtitle: const Text('Kapatinca kopyalamak istedigin dersleri secebilirsin'),
+                          value: copyAll,
+                          activeThumbColor: Colors.deepPurple,
+                          contentPadding: EdgeInsets.zero,
+                          onChanged: (val) {
+                            setSheetState(() {
+                              copyAll = val;
+                              if (val && sourceLessonsList.isNotEmpty) {
+                                selectedLessonIds = sourceLessonsList.map((l) => l['id'] as String).toSet();
+                              }
+                            });
+                          },
+                        ),
+                        if (!copyAll) ...[
+                          const SizedBox(height: 8),
+                          if (isLoadingLessons)
+                            Container(
+                              padding: const EdgeInsets.all(24),
+                              decoration: BoxDecoration(
+                                border: Border.all(color: Colors.grey.shade300),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    CircularProgressIndicator(strokeWidth: 2.5),
+                                    SizedBox(height: 12),
+                                    Text('Dersler yükleniyor...', style: TextStyle(fontSize: 13, color: Colors.grey)),
+                                  ],
+                                ),
+                              ),
+                            )
+                          else if (sourceLessonsList.isEmpty)
+                            Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: Colors.amber.shade50,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.amber.shade200),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.info_outline, color: Colors.amber.shade800),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text(
+                                      sourceType == 'sub'
+                                          ? 'Seçilen kaynak alt dönemde kopyalanacak ders bulunamadı.'
+                                          : 'Seçilen kaynak dönemde kopyalanacak ders bulunamadı.',
+                                      style: TextStyle(fontSize: 13, color: Colors.amber.shade900),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          else ...[
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  '${selectedLessonIds.length} / ${sourceLessonsList.length} ders seçildi',
+                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey.shade700),
+                                ),
+                                Row(
+                                  children: [
+                                    TextButton(
+                                      onPressed: () {
+                                        setSheetState(() {
+                                          selectedLessonIds = sourceLessonsList.map((l) => l['id'] as String).toSet();
+                                        });
+                                      },
+                                      child: const Text('Tümünü Seç', style: TextStyle(fontSize: 12)),
+                                    ),
+                                    TextButton(
+                                      onPressed: () {
+                                        setSheetState(() {
+                                          selectedLessonIds.clear();
+                                        });
+                                      },
+                                      child: const Text('Temizle', style: TextStyle(fontSize: 12, color: Colors.red)),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                            Container(
+                              constraints: const BoxConstraints(maxHeight: 260),
+                              decoration: BoxDecoration(
+                                border: Border.all(color: Colors.grey.shade300),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: ListView.separated(
+                                shrinkWrap: true,
+                                itemCount: sourceLessonsList.length,
+                                separatorBuilder: (_, __) => Divider(height: 1, color: Colors.grey.shade200),
+                                itemBuilder: (context, idx) {
+                                  final lesson = sourceLessonsList[idx];
+                                  final lid = lesson['id'] as String;
+                                  return CheckboxListTile(
+                                    dense: true,
+                                    title: Text(lesson['lessonName'] as String, style: const TextStyle(fontWeight: FontWeight.w500)),
+                                    subtitle: Text(lesson['branchName'] as String, style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+                                    value: selectedLessonIds.contains(lid),
+                                    activeColor: Colors.deepPurple,
+                                    onChanged: (val) {
+                                      setSheetState(() {
+                                        if (val == true) {
+                                          selectedLessonIds.add(lid);
+                                        } else {
+                                          selectedLessonIds.remove(lid);
+                                        }
+                                      });
+                                    },
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 8),
+                        ],
+                        const Divider(),
+                        SwitchListTile(
+                          title: const Text('Dersleri Sinifa Ata', style: TextStyle(fontWeight: FontWeight.bold)),
+                          subtitle: const Text('Kaynak donemdeki sinif atamalari (ayni saatlerle) kopyalanir'),
+                          value: copyAssignments,
+                          activeThumbColor: Colors.green,
+                          contentPadding: EdgeInsets.zero,
+                          onChanged: (val) => setSheetState(() {
+                            copyAssignments = val;
+                            if (!val) copyTeachers = false;
+                          }),
+                        ),
+                        SwitchListTile(
+                          title: const Text('Ogretmen Atamalarini Kopyala', style: TextStyle(fontWeight: FontWeight.bold)),
+                          subtitle: Text(
+                            copyAssignments ? 'Atanan ogretmenler de kopyalanir' : 'Once Dersleri Sinifa Ata secenegini acin',
+                            style: TextStyle(fontSize: 12, color: copyAssignments ? Colors.grey.shade600 : Colors.grey.shade400),
+                          ),
+                          value: copyTeachers,
+                          activeThumbColor: Colors.blue,
+                          contentPadding: EdgeInsets.zero,
+                          onChanged: copyAssignments ? (val) => setSheetState(() => copyTeachers = val) : null,
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(24, 8, 24, MediaQuery.of(context).padding.bottom + 16),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: selectedSourceId == null
+                            ? null
+                            : () async {
+                                Navigator.pop(ctx);
+                                await _executeCopyLessons(
+                                  sourceId: selectedSourceId!,
+                                  sourceName: selectedSourceName ?? '',
+                                  sourceType: sourceType,
+                                  lessonIdFilter: copyAll ? null : Set<String>.from(selectedLessonIds),
+                                  copyAssignments: copyAssignments,
+                                  copyTeachers: copyTeachers,
+                                );
+                              },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.deepPurple,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
+                        icon: const Icon(Icons.copy_all),
+                        label: const Text('Kopyala', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _copyTabButton({
+    required String label,
+    required IconData icon,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        decoration: BoxDecoration(
+          color: selected ? Colors.deepPurple : Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: selected ? Colors.deepPurple : Colors.grey.shade300),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 15, color: selected ? Colors.white : Colors.grey.shade600),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: selected ? Colors.white : Colors.grey.shade700),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _executeCopyLessons({
+    required String sourceId,
+    required String sourceName,
+    required String sourceType,
+    Set<String>? lessonIdFilter,
+    required bool copyAssignments,
     required bool copyTeachers,
   }) async {
-    // Show a loading dialog
+    final targetSubTermId = _selectedSubTermId;
+    final targetSubTermName = _selectedSubTermName;
+    final activeTermId = _currentTermId;
+    if (targetSubTermId == null || activeTermId == null) return;
+
+    if (!mounted) return;
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => const Center(child: CircularProgressIndicator()),
+      builder: (_) => const Center(child: CircularProgressIndicator()),
     );
 
     try {
-      final activeTermId = _currentTermId;
-      if (activeTermId == null) throw 'Aktif dönem yüklenemedi.';
-
-      // 1. Fetch all lessons of the source term for this school type
-      final sourceLessonsSnap = await FirebaseFirestore.instance
+      final lessonsSnap = await FirebaseFirestore.instance
           .collection('lessons')
           .where('institutionId', isEqualTo: widget.institutionId)
           .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
-          .where('termId', isEqualTo: sourceTermId)
           .where('isActive', isEqualTo: true)
           .get();
 
-      if (sourceLessonsSnap.docs.isEmpty) {
-        Navigator.pop(context); // Close loader
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('$sourceTermName döneminde kopyalanacak ders bulunamadı.'),
-            backgroundColor: Colors.orange,
-          ),
-        );
+      var sourceLessonDocs = lessonsSnap.docs.where((d) {
+        final data = d.data();
+        if (sourceType == 'sub') {
+          final sId = data['subTermId'] ?? data['periodId'];
+          return sId == sourceId;
+        } else {
+          return data['termId'] == sourceId;
+        }
+      }).toList();
+
+      if (lessonIdFilter != null) {
+        sourceLessonDocs = sourceLessonDocs.where((d) => lessonIdFilter.contains(d.id)).toList();
+      }
+      if (sourceLessonDocs.isEmpty) {
+        if (mounted) Navigator.pop(context);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('$sourceName kaynaginda kopyalanacak ders bulunamadi.'), backgroundColor: Colors.orange),
+          );
+        }
         return;
       }
 
-      // 2. Fetch target lessons & classes to prevent duplicates and map names
       final targetLessonsSnap = await FirebaseFirestore.instance
           .collection('lessons')
           .where('institutionId', isEqualTo: widget.institutionId)
           .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
-          .where('termId', isEqualTo: activeTermId)
           .where('isActive', isEqualTo: true)
           .get();
+      final targetLessonMap = <String, String>{};
+      for (final d in targetLessonsSnap.docs) {
+        final data = d.data();
+        final sId = data['subTermId'] ?? data['periodId'];
+        if (sId == targetSubTermId) {
+          final name = (data['lessonName'] ?? '').toString().trim().toLowerCase();
+          targetLessonMap[name] = d.id;
+        }
+      }
 
-      // Maps lessonName (lowercase) -> lessonId in target term
-      final targetLessonMap = {
-        for (var doc in targetLessonsSnap.docs)
-          (doc.data()['lessonName'] ?? '').toString().trim().toLowerCase(): doc.id
-      };
-
-      // Fetch all classes of source term
-      final sourceClassesSnap = await FirebaseFirestore.instance
-          .collection('classes')
-          .where('institutionId', isEqualTo: widget.institutionId)
-          .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
-          .where('termId', isEqualTo: sourceTermId)
-          .where('isActive', isEqualTo: true)
-          .get();
-
-      // Fetch all classes of target term
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> sourceAssignmentDocs = [];
+      final targetAssignmentSet = <String>{};
       final targetClassesSnap = await FirebaseFirestore.instance
           .collection('classes')
           .where('institutionId', isEqualTo: widget.institutionId)
@@ -533,135 +1020,91 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
           .where('termId', isEqualTo: activeTermId)
           .where('isActive', isEqualTo: true)
           .get();
+      final targetClassMap = <String, Map<String, dynamic>>{};
+      for (final d in targetClassesSnap.docs) {
+        final cn = (d.data()['className'] ?? '').toString().trim().toLowerCase();
+        targetClassMap[cn] = {'id': d.id, 'name': d.data()['className'] ?? ''};
+      }
 
-      // Maps className (lowercase) -> classDoc/id in target term
-      final targetClassMap = {
-        for (var doc in targetClassesSnap.docs)
-          (doc.data()['className'] ?? '').toString().trim().toLowerCase(): doc.id
-      };
+      if (copyAssignments) {
+        final srcAssignSnap = await FirebaseFirestore.instance
+            .collection('lessonAssignments')
+            .where('institutionId', isEqualTo: widget.institutionId)
+            .where('isActive', isEqualTo: true)
+            .get();
+        sourceAssignmentDocs = srcAssignSnap.docs.where((d) {
+          final data = d.data();
+          if (sourceType == 'sub') {
+            final sId = data['subTermId'] ?? data['periodId'];
+            return sId == sourceId;
+          } else {
+            return data['termId'] == sourceId;
+          }
+        }).toList();
 
-      // Fetch all lessonAssignments of source term
-      final sourceAssignmentsSnap = await FirebaseFirestore.instance
-          .collection('lessonAssignments')
-          .where('institutionId', isEqualTo: widget.institutionId)
-          .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
-          .where('termId', isEqualTo: sourceTermId)
-          .where('isActive', isEqualTo: true)
-          .get();
-
-      // Fetch target lessonAssignments to prevent duplicates
-      final targetAssignmentsSnap = await FirebaseFirestore.instance
-          .collection('lessonAssignments')
-          .where('institutionId', isEqualTo: widget.institutionId)
-          .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
-          .where('termId', isEqualTo: activeTermId)
-          .where('isActive', isEqualTo: true)
-          .get();
-
-      final targetAssignmentSet = {
-        for (var doc in targetAssignmentsSnap.docs)
-          '${doc.data()['classId']}_${doc.data()['lessonId']}'
-      };
+        final tgtAssignSnap = await FirebaseFirestore.instance
+            .collection('lessonAssignments')
+            .where('institutionId', isEqualTo: widget.institutionId)
+            .where('isActive', isEqualTo: true)
+            .get();
+        for (final d in tgtAssignSnap.docs) {
+          final data = d.data();
+          final sId = data['subTermId'] ?? data['periodId'];
+          if (sId == targetSubTermId) {
+            targetAssignmentSet.add('${data['classId']}_${data['lessonId']}');
+          }
+        }
+      }
 
       final batch = FirebaseFirestore.instance.batch();
       int copiedLessons = 0;
-      int copiedClasses = 0;
-      int copiedAssignments = 0;
+      int copiedAssignmentsCount = 0;
 
-      // First step: Copy or map lessons
-      for (var doc in sourceLessonsSnap.docs) {
+      for (final doc in sourceLessonDocs) {
         final data = doc.data();
         final lessonName = (data['lessonName'] ?? '').toString().trim();
         final lessonNameLower = lessonName.toLowerCase();
-
         String targetLessonId;
         if (targetLessonMap.containsKey(lessonNameLower)) {
           targetLessonId = targetLessonMap[lessonNameLower]!;
         } else {
-          // Create new lesson
-          final newLessonRef = FirebaseFirestore.instance.collection('lessons').doc();
-          targetLessonId = newLessonRef.id;
-
-          final newLessonData = {
+          final newRef = FirebaseFirestore.instance.collection('lessons').doc();
+          targetLessonId = newRef.id;
+          batch.set(newRef, {
             'lessonName': lessonName,
-            'shortName': (data['shortName'] ?? '').toString().trim(),
-            'branchId': data['branchId'],
-            'branchName': data['branchName'],
+            'shortName': data['shortName'] ?? '',
+            'branchId': data['branchId'] ?? '',
+            'branchName': data['branchName'] ?? '',
             'schoolTypeId': widget.schoolTypeId,
             'institutionId': widget.institutionId,
             'termId': activeTermId,
+            'subTermId': targetSubTermId,
+            'periodId': targetSubTermId,
+            'subTermName': targetSubTermName,
+            'periodName': targetSubTermName,
+            'isActive': true,
             'createdAt': FieldValue.serverTimestamp(),
             'updatedAt': FieldValue.serverTimestamp(),
-            'isActive': true,
-          };
-          batch.set(newLessonRef, newLessonData);
+          });
           targetLessonMap[lessonNameLower] = targetLessonId;
           copiedLessons++;
         }
 
-        // Second step: If copyClasses is enabled, process assignments for this lesson
-        if (copyClasses) {
-          final sourceLessonId = doc.id;
-          final assignmentsForThisLesson = sourceAssignmentsSnap.docs.where(
-            (aDoc) => aDoc.data()['lessonId'] == sourceLessonId
-          ).toList();
-
-          for (var aDoc in assignmentsForThisLesson) {
+        if (copyAssignments) {
+          final assignsForLesson = sourceAssignmentDocs.where((a) => a.data()['lessonId'] == doc.id).toList();
+          for (final aDoc in assignsForLesson) {
             final aData = aDoc.data();
-            final sourceClassId = aData['classId'] as String;
-
-            // Find source class name using safe type-safe iteration
-            QueryDocumentSnapshot<Map<String, dynamic>>? sourceClassDoc;
-            for (final cDoc in sourceClassesSnap.docs) {
-              if (cDoc.id == sourceClassId) {
-                sourceClassDoc = cDoc;
-                break;
-              }
-            }
-            if (sourceClassDoc == null) continue;
-
-            final classData = sourceClassDoc.data();
-            final className = (classData['className'] ?? '').toString().trim();
-            final classNameLower = className.toLowerCase();
-
-            // Find or copy target class
-            String targetClassId;
-            if (targetClassMap.containsKey(classNameLower)) {
-              targetClassId = targetClassMap[classNameLower]!;
-            } else {
-              // Copy class
-              final newClassRef = FirebaseFirestore.instance.collection('classes').doc();
-              targetClassId = newClassRef.id;
-
-              final newClassData = {
-                'className': className,
-                'shortName': (classData['shortName'] ?? '').toString().trim(),
-                'classTypeId': classData['classTypeId'],
-                'classTypeName': classData['classTypeName'],
-                'classTeacherId': null,
-                'classTeacherName': null,
-                'classLevel': classData['classLevel'],
-                'description': classData['description'],
-                'schoolTypeId': widget.schoolTypeId,
-                'schoolTypeName': widget.schoolTypeName,
-                'institutionId': widget.institutionId,
-                'termId': activeTermId,
-                'createdAt': FieldValue.serverTimestamp(),
-                'updatedAt': FieldValue.serverTimestamp(),
-                'isActive': true,
-              };
-              batch.set(newClassRef, newClassData);
-              targetClassMap[classNameLower] = targetClassId;
-              copiedClasses++;
-            }
-
-            // Copy assignment if not exists
-            final assignmentKey = '${targetClassId}_$targetLessonId';
-            if (!targetAssignmentSet.contains(assignmentKey)) {
-              final newAssignmentRef = FirebaseFirestore.instance.collection('lessonAssignments').doc();
-              final newAssignmentData = {
+            final className = (aData['className'] ?? '').toString().trim();
+            final targetClassEntry = targetClassMap[className.toLowerCase()];
+            final targetClassId = targetClassEntry?['id'] as String? ?? aData['classId'] as String?;
+            final targetClassName = targetClassEntry?['name'] as String? ?? className;
+            if (targetClassId == null) continue;
+            final key = '${targetClassId}_$targetLessonId';
+            if (!targetAssignmentSet.contains(key)) {
+              final newAssignRef = FirebaseFirestore.instance.collection('lessonAssignments').doc();
+              batch.set(newAssignRef, {
                 'classId': targetClassId,
-                'className': className,
+                'className': targetClassName,
                 'lessonId': targetLessonId,
                 'lessonName': lessonName,
                 'weeklyHours': aData['weeklyHours'] ?? 0,
@@ -670,38 +1113,35 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
                 'schoolTypeId': widget.schoolTypeId,
                 'institutionId': widget.institutionId,
                 'termId': activeTermId,
+                'subTermId': targetSubTermId,
+                'periodId': targetSubTermId,
+                'subTermName': targetSubTermName,
+                'periodName': targetSubTermName,
                 'isActive': true,
                 'createdAt': FieldValue.serverTimestamp(),
-              };
-              batch.set(newAssignmentRef, newAssignmentData);
-              targetAssignmentSet.add(assignmentKey);
-              copiedAssignments++;
+              });
+              targetAssignmentSet.add(key);
+              copiedAssignmentsCount++;
             }
           }
         }
       }
 
       await batch.commit();
-
-      Navigator.pop(context); // Close loader
-
-      String successMessage = '$copiedLessons adet ders kopyalandı.';
-      if (copyClasses) {
-        successMessage += '\n$copiedClasses adet şube ve $copiedAssignments adet ders ataması başarıyla aktarıldı.';
-      }
-
+      if (!mounted) return;
+      Navigator.pop(context);
+      String msg = '$copiedLessons ders kopyalandi.';
+      if (copyAssignments) msg += ' $copiedAssignmentsCount atama olusturuldu.';
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('✓ $successMessage'),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 4),
-        ),
+        SnackBar(content: Text(msg), backgroundColor: Colors.green, duration: const Duration(seconds: 4)),
       );
     } catch (e) {
-      Navigator.pop(context); // Close loader
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('❌ Kopyalama hatası: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Kopyalama hatasi: $e'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 
@@ -741,27 +1181,13 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
             label: Text('Branş Yönetimi'),
             style: TextButton.styleFrom(foregroundColor: Colors.indigo),
           ),
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert, color: Colors.indigo),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            onSelected: (value) {
-              if (value == 'copy_from_term') {
-                _showCopyLessonsFromTermDialog();
-              }
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem<String>(
-                value: 'copy_from_term',
-                child: Row(
-                  children: [
-                    Icon(Icons.copy_all, size: 18, color: Colors.indigo),
-                    SizedBox(width: 8),
-                    Text('Dönemden Ders Kopyala'),
-                  ],
-                ),
-              ),
-            ],
-          ),
+          if (_selectedSubTermId != null)
+            TextButton.icon(
+              onPressed: () => _showCopyLessonsFromTermDialog(),
+              icon: const Icon(Icons.copy_all, size: 18),
+              label: const Text('Kopyala'),
+              style: TextButton.styleFrom(foregroundColor: Colors.deepPurple),
+            ),
           SizedBox(width: 8),
         ],
       ),
@@ -968,6 +1394,134 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
               ),
             ],
           ),
+          if (_selectedSubTermName != null || _workPeriods.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Theme(
+              data: Theme.of(context).copyWith(
+                cardColor: Colors.white,
+              ),
+              child: PopupMenuButton<String>(
+                tooltip: 'Alt Dönem Değiştir',
+                offset: const Offset(0, 42),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                elevation: 8,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.white.withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _selectedSubTermId == _autoDetectedPeriodId
+                            ? Icons.event_available_rounded
+                            : Icons.calendar_month_rounded,
+                        color: _selectedSubTermId == _autoDetectedPeriodId
+                            ? Colors.greenAccent
+                            : Colors.amberAccent,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _selectedSubTermName != null
+                              ? (_selectedSubTermId == _autoDetectedPeriodId
+                                  ? '$_selectedSubTermName (Aktif)'
+                                  : '$_selectedSubTermName')
+                              : 'Alt Dönem Seç',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      const Icon(Icons.swap_horiz_rounded, color: Colors.white70, size: 16),
+                    ],
+                  ),
+                ),
+                itemBuilder: (context) {
+                  return _workPeriods.map((period) {
+                    final id = period['id'] as String;
+                    final name = period['periodName'] as String? ?? 'Alt Dönem';
+                    final isSelected = id == _selectedSubTermId;
+                    final isCurrentByDate = id == _autoDetectedPeriodId;
+
+                    return PopupMenuItem<String>(
+                      value: id,
+                      child: Row(
+                        children: [
+                          Icon(
+                            isSelected ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
+                            color: isSelected ? Colors.indigo : Colors.grey.shade400,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  name,
+                                  style: TextStyle(
+                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                                    color: isSelected ? Colors.indigo.shade900 : Colors.black87,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                if (isCurrentByDate)
+                                  Text(
+                                    'Şu anki tarih dönemi',
+                                    style: TextStyle(
+                                      color: Colors.green.shade700,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          if (isCurrentByDate)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.green.shade50,
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: Colors.green.shade200),
+                              ),
+                              child: Text(
+                                'Aktif',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.green.shade800,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    );
+                  }).toList();
+                },
+                onSelected: (val) {
+                  if (_selectedSubTermId == val) return;
+                  final selected = _workPeriods.firstWhere((p) => p['id'] == val, orElse: () => {});
+                  setState(() {
+                    _selectedSubTermId = val;
+                    _selectedSubTermName = selected['periodName'] as String? ?? 'Alt Dönem';
+                    _selectedLessonId = null;
+                    _selectedLesson = null;
+                    _clearAssignmentsStream();
+                  });
+                },
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -1103,8 +1657,38 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
                         );
                       },
                     ),
-                    SizedBox(width: 8),
-                    Icon(Icons.arrow_forward_ios, size: 14),
+                    PopupMenuButton<String>(
+                      icon: Icon(Icons.more_vert, size: 18, color: Colors.grey.shade500),
+                      tooltip: 'Secenekler',
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      itemBuilder: (context) => [
+                        PopupMenuItem<String>(
+                          value: 'edit',
+                          child: Row(children: [Icon(Icons.edit, size: 16, color: Colors.indigo), SizedBox(width: 10), Text('Dersi Duzenle')]),
+                        ),
+                        PopupMenuItem<String>(
+                          value: 'assign',
+                          child: Row(children: [Icon(Icons.add_circle_outline, size: 16, color: Colors.green), SizedBox(width: 10), Text('Sinif Ata')]),
+                        ),
+                        const PopupMenuDivider(),
+                        PopupMenuItem<String>(
+                          value: 'delete_all',
+                          child: Row(children: [Icon(Icons.playlist_remove, size: 16, color: Colors.orange), SizedBox(width: 10), Text('Tum Atamalari Kaldir', style: TextStyle(color: Colors.orange))]),
+                        ),
+                        PopupMenuItem<String>(
+                          value: 'delete_lesson',
+                          child: Row(children: [Icon(Icons.delete_forever, size: 16, color: Colors.red), SizedBox(width: 10), Text('Dersi Sil', style: TextStyle(color: Colors.red))]),
+                        ),
+                      ],
+                      onSelected: (value) {
+                        switch (value) {
+                          case 'edit': _showLessonFormSheet(lessonToEdit: lesson); break;
+                          case 'assign': _showClassAssignmentSheet(lesson); break;
+                          case 'delete_all': _deleteAllAssignments(lesson.id!, lesson.lessonName); break;
+                          case 'delete_lesson': _deleteLesson(lesson.id!, lesson.lessonName); break;
+                        }
+                      },
+                    ),
                   ],
                 ),
                 onTap: () {
@@ -1129,6 +1713,7 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
                         builder: (context) => _LessonDetailPage(
                           lesson: lesson,
                           teachers: _teachers,
+                          subTermId: _selectedSubTermId,
                           onEdit: () => _showLessonFormSheet(lessonToEdit: lesson),
                           onDelete: () => _deleteLesson(lesson.id!, lesson.lessonName),
                           onAssign: () => _showClassAssignmentSheet(lesson),
@@ -1145,14 +1730,6 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
     );
   }
 
-  Future<int> _getAssignmentCount(String lessonId) async {
-    final snapshot = await FirebaseFirestore.instance
-        .collection('lessonAssignments')
-        .where('lessonId', isEqualTo: lessonId)
-        .where('isActive', isEqualTo: true)
-        .get();
-    return snapshot.docs.length;
-  }
 
   Widget _buildEmptyState() {
     return Center(
@@ -1235,6 +1812,9 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
                     branchName: lessonData['branchName'],
                     schoolTypeId: widget.schoolTypeId,
                     institutionId: widget.institutionId,
+                    termId: _currentTermId,
+                    subTermId: _selectedSubTermId,
+                    subTermName: _selectedSubTermName,
                   );
                   _showLessonFormSheet(lessonToEdit: lesson);
                 },
@@ -1261,6 +1841,9 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
                 branchName: lessonData['branchName'],
                 schoolTypeId: widget.schoolTypeId,
                 institutionId: widget.institutionId,
+                termId: _currentTermId,
+                subTermId: _selectedSubTermId,
+                subTermName: _selectedSubTermName,
               );
               _showClassAssignmentSheet(lesson);
             },
@@ -1282,6 +1865,7 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
             lessonId: lessonData['id'],
             lessonBranchName: lessonData['branchName'] ?? '',
             institutionId: widget.institutionId,
+            subTermId: _selectedSubTermId,
             onEditAssignment: (docId, data) =>
                 _showEditAssignmentSheet(docId, data, lessonBranchName: lessonData['branchName'] ?? ''),
             onDeleteAssignment: (docId, className) =>
@@ -1353,6 +1937,8 @@ class _LessonFormSheet extends StatefulWidget {
   final String schoolTypeId;
   final String institutionId;
   final String? termId;
+  final String? subTermId;
+  final String? subTermName;
   final List<String> branchNames;
   final LessonModel? lessonToEdit;
   final VoidCallback onLessonSaved;
@@ -1361,6 +1947,8 @@ class _LessonFormSheet extends StatefulWidget {
     required this.schoolTypeId,
     required this.institutionId,
     this.termId,
+    this.subTermId,
+    this.subTermName,
     required this.branchNames,
     this.lessonToEdit,
     required this.onLessonSaved,
@@ -1405,6 +1993,10 @@ class _LessonFormSheetState extends State<_LessonFormSheet> {
 
     try {
       final activeTermId = await TermService().getActiveTermId();
+      final effectiveTermId = widget.lessonToEdit?.termId ?? widget.termId ?? activeTermId;
+      final effectiveSubTermId = widget.lessonToEdit?.subTermId ?? widget.subTermId;
+      final effectiveSubTermName = widget.lessonToEdit?.subTermName ?? widget.subTermName;
+
       final lessonData = {
         'lessonName': _lessonNameController.text.trim(),
         'shortName': _shortNameController.text.trim().toUpperCase(),
@@ -1412,7 +2004,11 @@ class _LessonFormSheetState extends State<_LessonFormSheet> {
         'branchName': _selectedBranchName,
         'schoolTypeId': widget.schoolTypeId,
         'institutionId': widget.institutionId,
-        'termId': widget.lessonToEdit?.termId ?? activeTermId,
+        'termId': effectiveTermId,
+        'subTermId': effectiveSubTermId,
+        'periodId': effectiveSubTermId,
+        'subTermName': effectiveSubTermName,
+        'periodName': effectiveSubTermName,
         'isActive': true,
         'updatedAt': FieldValue.serverTimestamp(),
       };
@@ -1537,9 +2133,20 @@ class _ClassAssignmentSheet extends StatefulWidget {
   final LessonModel lesson;
   final String schoolTypeId;
   final String institutionId;
+  final String? termId;
+  final String? subTermId;
+  final String? subTermName;
   final List<Map<String, dynamic>> teachers;
 
-  const _ClassAssignmentSheet({required this.lesson, required this.schoolTypeId, required this.institutionId, required this.teachers});
+  const _ClassAssignmentSheet({
+    required this.lesson,
+    required this.schoolTypeId,
+    required this.institutionId,
+    this.termId,
+    this.subTermId,
+    this.subTermName,
+    required this.teachers,
+  });
 
   @override
   State<_ClassAssignmentSheet> createState() => _ClassAssignmentSheetState();
@@ -1557,14 +2164,24 @@ class _ClassAssignmentSheetState extends State<_ClassAssignmentSheet> {
   String? _selectedClassType;
   List<String> _classTypes = [];
   Set<int> _availableLevels = {};
+  final Map<String, TextEditingController> _hourControllers = {};
 
   @override
   void initState() { super.initState(); _loadData(); }
 
+  @override
+  void dispose() {
+    for (var c in _hourControllers.values) {
+      c.dispose();
+    }
+    _hourControllers.clear();
+    super.dispose();
+  }
+
   Future<void> _loadData() async {
     try {
       // termId burada kullanılmıyor, _save() metodunda ayrıca alınıyor
-      final classSnap = await FirebaseFirestore.instance.collection('classes').where('schoolTypeId', isEqualTo: widget.schoolTypeId).where('institutionId', isEqualTo: widget.institutionId).where('isActive', isEqualTo: true).get();
+      final classSnap = await FirebaseFirestore.instance.collection('classes').where('schoolTypeId', isEqualTo: widget.schoolTypeId).where('institutionId', isEqualTo: widget.institutionId).where('termId', isEqualTo: widget.termId ?? '').where('isActive', isEqualTo: true).get();
       final classes = classSnap.docs.map((d) => {...d.data(), 'id': d.id}).toList();
       classes.sort((a, b) {
         final nameA = (a['className'] ?? a['name'] ?? '').toString();
@@ -1581,7 +2198,7 @@ class _ClassAssignmentSheetState extends State<_ClassAssignmentSheet> {
         return {...data, 'id': d.id, 'totalHours': 0};
       }).toList();
 
-      if (mounted) setState(() { _classes = classes; _allTeachers = teachers; _classTypes = classes.map((c) => c['classTypeName'] as String?).whereType<String>().toSet().toList()..sort(); _availableLevels = classes.map((c) => (c['classLevel'] as int?) ?? 0).toSet(); _isLoading = false; });
+      if (mounted) setState(() { _classes = classes; _allTeachers = teachers; _classTypes = classes.map((c) => c['classTypeName'] as String?).whereType<String>().toSet().toList()..sort(); _availableLevels = classes.map((c) { final v = c['classLevel']; if (v is int) return v; if (v is double) return v.toInt(); return int.tryParse(v?.toString() ?? '') ?? 0; }).toSet(); _isLoading = false; });
     } catch (e) { print(e); if (mounted) setState(() => _isLoading = false); }
   }
 
@@ -1643,7 +2260,51 @@ class _ClassAssignmentSheetState extends State<_ClassAssignmentSheet> {
             Expanded(child: _buildFilter('Tip', _selectedClassType, _classTypes, (v) => setState(() => _selectedClassType = v))),
           ]),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
+        // Secim ozeti + Tumunu Sec
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Row(
+            children: [
+              Text(
+                '${_selectedClassIds.where((id) => filtered.any((c) => c['id'] == id)).length} / ${filtered.length} secili',
+                style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+              ),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: () {
+                  final allSelected = filtered.every((c) => _selectedClassIds.contains(c['id']));
+                  setState(() {
+                    if (allSelected) {
+                      for (final c in filtered) _selectedClassIds.remove(c['id']);
+                    } else {
+                      for (final c in filtered) {
+                        if (!_selectedClassIds.contains(c['id'])) _selectedClassIds.add(c['id']);
+                      }
+                    }
+                  });
+                },
+                icon: Icon(
+                  filtered.every((c) => _selectedClassIds.contains(c['id']))
+                      ? Icons.deselect
+                      : Icons.select_all,
+                  size: 18,
+                ),
+                label: Text(
+                  filtered.every((c) => _selectedClassIds.contains(c['id']))
+                      ? 'Secimi Kaldir'
+                      : 'Tumunu Sec',
+                  style: const TextStyle(fontSize: 13),
+                ),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.indigo,
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 4),
         Expanded(
           child: ListView.builder(
             padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -1692,15 +2353,36 @@ class _ClassAssignmentSheetState extends State<_ClassAssignmentSheet> {
 
   void _proceedToStep2() {
     if (_selectedClassIds.isEmpty) return;
+    final oldHours = {for (var a in _assignments) a['classId'] as String: a['weeklyHours']};
+    final oldTeacherIds = {for (var a in _assignments) a['classId'] as String: a['teacherIds']};
+    final oldTeacherNames = {for (var a in _assignments) a['classId'] as String: a['teacherNames']};
+
     _assignments = _selectedClassIds.map((id) {
       final c = _classes.firstWhere((cl) => cl['id'] == id);
-      return {'classId': id, 'className': c['className'], 'weeklyHours': 0, 'teacherIds': <String>[], 'teacherNames': <String>[]};
+      return {
+        'classId': id,
+        'className': c['className'],
+        'weeklyHours': oldHours[id] ?? 0,
+        'teacherIds': oldTeacherIds[id] ?? <String>[],
+        'teacherNames': oldTeacherNames[id] ?? <String>[]
+      };
     }).toList();
     _assignments.sort((a, b) {
       final nameA = (a['className'] ?? '').toString();
       final nameB = (b['className'] ?? '').toString();
       return compareClassNamesNatural(nameA, nameB);
     });
+
+    _hourControllers.forEach((_, c) => c.dispose());
+    _hourControllers.clear();
+    for (var a in _assignments) {
+      final classId = a['classId'] as String;
+      final hours = a['weeklyHours'] as int? ?? 0;
+      _hourControllers[classId] = TextEditingController(
+        text: hours == 0 ? '' : '$hours',
+      );
+    }
+
     setState(() => _step = 2);
   }
 
@@ -1710,15 +2392,80 @@ class _ClassAssignmentSheetState extends State<_ClassAssignmentSheet> {
       itemCount: _assignments.length,
       itemBuilder: (context, i) {
         final a = _assignments[i];
+        final classId = a['classId'] as String;
         return Card(
           margin: const EdgeInsets.only(bottom: 12),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(a['className'], style: const TextStyle(fontWeight: FontWeight.bold)),
+              // Sınıf adı + Tümüne Uygula menüsü
+              Row(
+                children: [
+                  Expanded(child: Text(a['className'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold))),
+                  PopupMenuButton<String>(
+                    tooltip: 'Tümüne Uygula',
+                    icon: const Icon(Icons.more_horiz, size: 18, color: Colors.grey),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(
+                          value: 'hours',
+                          child: Row(children: [
+                            Icon(Icons.access_time, size: 16, color: Colors.indigo),
+                            SizedBox(width: 10),
+                            Text('Saati Tümüne Uygula'),
+                          ]),
+                        ),
+                        const PopupMenuItem(
+                          value: 'teacher',
+                          child: Row(children: [
+                            Icon(Icons.person, size: 16, color: Colors.orange),
+                            SizedBox(width: 10),
+                            Text('Öğretmeni Tümüne Uygula'),
+                          ]),
+                        ),
+                        const PopupMenuItem(
+                          value: 'both',
+                          child: Row(children: [
+                            Icon(Icons.copy_all, size: 16, color: Colors.green),
+                            SizedBox(width: 10),
+                            Text('İkisini de Tümüne Uygula'),
+                          ]),
+                        ),
+                      ],
+                    onSelected: (val) {
+                      setState(() {
+                        final targetHours = a['weeklyHours'] as int? ?? 0;
+                        final hourText = targetHours == 0 ? '' : '$targetHours';
+                        for (int j = 0; j < _assignments.length; j++) {
+                          if (j == i) continue;
+                          final cId = _assignments[j]['classId'] as String;
+                          if (val == 'hours' || val == 'both') {
+                            _assignments[j]['weeklyHours'] = targetHours;
+                            if (_hourControllers.containsKey(cId)) {
+                              _hourControllers[cId]!.text = hourText;
+                            }
+                          }
+                          if (val == 'teacher' || val == 'both') {
+                            _assignments[j]['teacherIds'] = List<String>.from(a['teacherIds']);
+                            _assignments[j]['teacherNames'] = List<String>.from(a['teacherNames']);
+                          }
+                        }
+                      });
+                    },
+                  ),
+                ],
+              ),
               const SizedBox(height: 12),
               Row(children: [
-                SizedBox(width: 80, child: TextField(keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Saat', border: OutlineInputBorder()), onChanged: (v) => a['weeklyHours'] = int.tryParse(v) ?? 0)),
+                SizedBox(
+                  width: 80,
+                  child: TextFormField(
+                    controller: _hourControllers[classId],
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Saat', border: OutlineInputBorder()),
+                    onChanged: (v) => a['weeklyHours'] = int.tryParse(v) ?? 0,
+                  ),
+                ),
                 const SizedBox(width: 12),
                 Expanded(child: _buildTeacherPicker(i)),
               ]),
@@ -1757,10 +2504,26 @@ class _ClassAssignmentSheetState extends State<_ClassAssignmentSheet> {
     setState(() => _isSaving = true);
     try {
       final batch = FirebaseFirestore.instance.batch();
-      final termId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
+      final termId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId() ?? widget.termId;
+      final subTermId = widget.subTermId ?? widget.lesson.subTermId;
+      final subTermName = widget.subTermName ?? widget.lesson.subTermName;
+
       for (var a in _assignments) {
         final ref = FirebaseFirestore.instance.collection('lessonAssignments').doc();
-        batch.set(ref, {...a, 'lessonId': widget.lesson.id, 'lessonName': widget.lesson.lessonName, 'institutionId': widget.institutionId, 'schoolTypeId': widget.schoolTypeId, 'termId': termId, 'isActive': true, 'createdAt': FieldValue.serverTimestamp()});
+        batch.set(ref, {
+          ...a,
+          'lessonId': widget.lesson.id,
+          'lessonName': widget.lesson.lessonName,
+          'institutionId': widget.institutionId,
+          'schoolTypeId': widget.schoolTypeId,
+          'termId': termId,
+          'subTermId': subTermId,
+          'periodId': subTermId,
+          'subTermName': subTermName,
+          'periodName': subTermName,
+          'isActive': true,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
       }
       await batch.commit();
       if (mounted) {
@@ -1853,6 +2616,7 @@ class _EditAssignmentSheetState extends State<_EditAssignmentSheet> {
 class _LessonDetailPage extends StatefulWidget {
   final LessonModel lesson;
   final List<Map<String, dynamic>> teachers;
+  final String? subTermId;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback onAssign;
@@ -1860,6 +2624,7 @@ class _LessonDetailPage extends StatefulWidget {
   const _LessonDetailPage({
     required this.lesson,
     required this.teachers,
+    this.subTermId,
     required this.onEdit,
     required this.onDelete,
     required this.onAssign,
@@ -1969,8 +2734,32 @@ class _LessonDetailPageState extends State<_LessonDetailPage> {
                   );
                 }
 
+                final docs = snapshot.data!.docs.where((doc) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  if (data['isActive'] == false) return false;
+                  final stId = data['subTermId'] ?? data['periodId'];
+                  if (widget.subTermId != null && stId != null && stId.toString().isNotEmpty) {
+                    return stId == widget.subTermId;
+                  }
+                  return true;
+                }).toList();
+
+                if (docs.isEmpty) {
+                  return Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Center(
+                        child: Text(
+                          'Bu ders henüz hiçbir sınıfa atanmamış',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      ),
+                    ),
+                  );
+                }
+
                 return Column(
-                  children: snapshot.data!.docs.map((doc) {
+                  children: docs.map((doc) {
                     final data = doc.data() as Map<String, dynamic>;
                     return Card(
                       margin: EdgeInsets.only(bottom: 8),
@@ -2141,6 +2930,24 @@ class _TeacherPickerSheetState extends State<_TeacherPickerSheet> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   
+  bool _isTeacherMatch(Map<String, dynamic> t) {
+    if (widget.lessonBranch.isEmpty) return false;
+    final tBranch = (t['branch'] ?? t['branchName'] ?? t['mainBranch'] ?? '').toString().trim().toLowerCase();
+    final tRole = (t['role'] ?? '').toString().trim().toLowerCase();
+    final target = widget.lessonBranch.trim().toLowerCase();
+
+    final List<String> tBranches = [];
+    if (t['branches'] is List) {
+      tBranches.addAll((t['branches'] as List).map((e) => e.toString().trim().toLowerCase()));
+    }
+
+    if (tBranch == target || tBranch.contains(target) || target.contains(tBranch)) return true;
+    if (tRole == target || tRole.contains(target) || target.contains(tRole)) return true;
+    if (tBranches.any((b) => b == target || b.contains(target) || target.contains(b))) return true;
+
+    return false;
+  }
+
   @override
   void initState() { 
     super.initState(); 
@@ -2149,8 +2956,8 @@ class _TeacherPickerSheetState extends State<_TeacherPickerSheet> {
     // Öğretmenleri sırala: İlgili branşta olanlar en üste, geri kalanı alfabetik
     _sortedTeachers = List.from(widget.teachers);
     _sortedTeachers.sort((a, b) {
-      final isMatchA = a['branch'] == widget.lessonBranch;
-      final isMatchB = b['branch'] == widget.lessonBranch;
+      final isMatchA = _isTeacherMatch(a);
+      final isMatchB = _isTeacherMatch(b);
       
       if (isMatchA && !isMatchB) return -1;
       if (!isMatchA && isMatchB) return 1;
@@ -2172,7 +2979,7 @@ class _TeacherPickerSheetState extends State<_TeacherPickerSheet> {
     final filteredTeachers = _sortedTeachers.where((t) {
       if (_searchQuery.isEmpty) return true;
       final name = (t['fullName'] ?? '').toString().toLowerCase();
-      final branch = (t['branch'] ?? '').toString().toLowerCase();
+      final branch = (t['branch'] ?? t['branchName'] ?? '').toString().toLowerCase();
       return name.contains(_searchQuery) || branch.contains(_searchQuery);
     }).toList();
 
@@ -2191,6 +2998,30 @@ class _TeacherPickerSheetState extends State<_TeacherPickerSheet> {
             Text('${_selIds.length} seçili', style: const TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold)),
           ]),
         ),
+        if (widget.lessonBranch.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 2),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFFECFDF5),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFA7F3D0)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.auto_awesome_rounded, color: Color(0xFF059669), size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Ders Branşı: "${widget.lessonBranch}" • Branş öğretmenleri en üstte listeleniyor',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF065F46)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
           child: TextField(
@@ -2242,14 +3073,37 @@ class _TeacherPickerSheetState extends State<_TeacherPickerSheet> {
                   itemBuilder: (context, i) {
                     final t = filteredTeachers[i];
                     final sel = _selIds.contains(t['id']);
-                    final isMatch = t['branch'] == widget.lessonBranch;
+                    final isMatch = _isTeacherMatch(t);
+                    final branch = (t['branch'] ?? t['branchName'] ?? '').toString();
                     return CheckboxListTile(
                       value: sel,
-                      title: Text(t['fullName'] ?? ''),
-                      subtitle: Text(
-                        t['branch'] ?? '',
-                        style: TextStyle(color: isMatch ? Colors.green.shade700 : Colors.grey),
+                      title: Row(
+                        children: [
+                          Expanded(child: Text(t['fullName'] ?? '', style: TextStyle(fontWeight: (sel || isMatch) ? FontWeight.bold : FontWeight.normal))),
+                          if (isMatch)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFECFDF5),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: const Color(0xFF6EE7B7)),
+                              ),
+                              child: const Text(
+                                'Branş Öğretmeni',
+                                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF047857)),
+                              ),
+                            ),
+                        ],
                       ),
+                      subtitle: branch.isNotEmpty
+                          ? Text(
+                              branch,
+                              style: TextStyle(
+                                color: isMatch ? const Color(0xFF059669) : Colors.grey.shade600,
+                                fontWeight: isMatch ? FontWeight.w600 : FontWeight.normal,
+                              ),
+                            )
+                          : null,
                       onChanged: (v) => setState(() => v! ? _selIds.add(t['id']) : _selIds.remove(t['id'])),
                     );
                   },
@@ -2287,6 +3141,7 @@ class _LessonAssignmentsPanel extends StatefulWidget {
   final String lessonId;
   final String lessonBranchName;
   final String institutionId;
+  final String? subTermId;
   final void Function(String docId, Map<String, dynamic> data) onEditAssignment;
   final void Function(String docId, String className) onDeleteAssignment;
 
@@ -2294,6 +3149,7 @@ class _LessonAssignmentsPanel extends StatefulWidget {
     required this.lessonId,
     required this.lessonBranchName,
     required this.institutionId,
+    this.subTermId,
     required this.onEditAssignment,
     required this.onDeleteAssignment,
   });
@@ -2315,7 +3171,7 @@ class _LessonAssignmentsPanelState extends State<_LessonAssignmentsPanel> {
   @override
   void didUpdateWidget(_LessonAssignmentsPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.lessonId != widget.lessonId) {
+    if (oldWidget.lessonId != widget.lessonId || oldWidget.subTermId != widget.subTermId) {
       _createStream();
     }
   }
@@ -2399,7 +3255,12 @@ class _LessonAssignmentsPanelState extends State<_LessonAssignmentsPanel> {
 
         final docs = snapshot.data!.docs.where((doc) {
           final data = doc.data() as Map<String, dynamic>;
-          return data['isActive'] != false;
+          if (data['isActive'] == false) return false;
+          final stId = data['subTermId'] ?? data['periodId'];
+          if (widget.subTermId != null && stId != null && stId.toString().isNotEmpty) {
+            return stId == widget.subTermId;
+          }
+          return true;
         }).toList();
 
         if (docs.isEmpty) {

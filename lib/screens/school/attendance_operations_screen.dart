@@ -1,5 +1,6 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 
 import '../../services/term_service.dart';
 import 'attendance_statistics_screen.dart';
@@ -668,31 +669,13 @@ class _AttendanceOperationsScreenState
     final dateText = _formatDateTr(_selectedDate);
 
     return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Yoklama İşlemleri',
-              style: TextStyle(
-                color: Colors.grey.shade900,
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            Text(
-              '${widget.schoolTypeName} ${_activeWorkPeriodName != null ? "• $_activeWorkPeriodName" : ""}',
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-            ),
-          ],
-        ),
+      appBar: EduknAppBar(
+        title: 'Yoklama İşlemleri',
+        subtitle: '${widget.schoolTypeName} ${_activeWorkPeriodName != null ? "• $_activeWorkPeriodName" : ""}',
         actions: [
           IconButton(
             tooltip: 'İstatistik',
-            icon: Icon(Icons.pie_chart_outline),
+            icon: const Icon(Icons.pie_chart_outline, color: Colors.indigo),
             onPressed: () {
               Navigator.push(
                 context,

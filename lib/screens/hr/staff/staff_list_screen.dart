@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:edukn/services/user_permission_service.dart';
@@ -62,11 +63,14 @@ class _StaffListScreenState extends State<StaffListScreen>
     'diger': 'diger',
   };
 
-  // Geçerli Branşlar Listesi
+  // Geçerli Branşlar Listesi (staff_form_screen ile birebir aynı)
   final List<String> _validBranches = [
-    'Matematik', 'Fizik', 'Kimya', 'Biyoloji', 'Türkçe', 'Edebiyat', 'Tarih', 'Coğrafya',
-    'İngilizce', 'Din Kültürü', 'Felsefe', 'Rehberlik', 'Beden Eğitimi', 'Müzik', 'Görsel Sanatlar',
-    'Teknoloji Tasarım', 'Bilişim Teknolojileri', 'Okul Öncesi', 'Sınıf Öğretmenliği', 'Diğer'
+    'Almanca', 'Arapça', 'Beden Eğitimi ve Spor', 'Bilişim Teknolojileri ve Yazılım',
+    'Biyoloji', 'Coğrafya', 'Din Kültürü ve Ahlak Bilgisi', 'Felsefe', 'Fen Bilimleri',
+    'Fizik', 'Fransızca', 'Görsel Sanatlar', 'İlköğretim Matematik', 'İngilizce',
+    'İspanyolca', 'Kimya', 'Kulüp', 'Matematik', 'Müzik', 'Okul Öncesi', 'Özel Eğitim',
+    'Rehberlik ve Psikolojik Danışmanlık', 'Rusça', 'Sınıf Öğretmenliği', 'Sosyal Bilgiler',
+    'Tarih', 'Teknoloji ve Tasarım', 'Türk Dili ve Edebiyatı', 'Türkçe', 'Diğer'
   ];
 
   @override
@@ -205,6 +209,8 @@ class _StaffListScreenState extends State<StaffListScreen>
       'AD_SOYAD (Zorunlu)', 
       'UNVAN (Zorunlu)', 
       if (isTeacher) 'BRANS (Zorunlu)',
+      'KULLANICI_ADI (Opsiyonel)',
+      'SIFRE (Opsiyonel)',
       'TELEFON_CEP', 
       'EPOSTA_KURUMSAL',
       'SEHIR',
@@ -219,6 +225,8 @@ class _StaffListScreenState extends State<StaffListScreen>
       xl.TextCellValue('ÖRNEK KAĞAN'),
       xl.TextCellValue(isTeacher ? 'Öğretmen' : 'Personel'),
       if (isTeacher) xl.TextCellValue('Matematik'),
+      xl.TextCellValue(''), // Kullanıcı adı boş bırakılırsa TC son 6 hane
+      xl.TextCellValue(''), // Şifre boş bırakılırsa TC son 6 hane
       xl.TextCellValue('05551112233'),
       xl.TextCellValue('kagan@edukn.com'),
       xl.TextCellValue('İstanbul'),
@@ -226,18 +234,36 @@ class _StaffListScreenState extends State<StaffListScreen>
     ]);
 
     // YARDIM SAYFASI EKLEME (Kullanıcının dropdown gibi kullanabileceği liste)
-    xl.Sheet helpSheet = excel['YARDIM - GECERLI DEGERLER'];
-    helpSheet.appendRow([xl.TextCellValue('ÜNVAN LİSTESİ'), xl.TextCellValue(''), xl.TextCellValue('BRANŞ LİSTESİ')]);
+    xl.Sheet helpSheet = excel['YARDIM'];
+    helpSheet.appendRow([
+      xl.TextCellValue('ÜNVAN LİSTESİ'), 
+      xl.TextCellValue(''), 
+      xl.TextCellValue('BRANŞ LİSTESİ'),
+      xl.TextCellValue(''),
+      xl.TextCellValue('NOTLAR'),
+    ]);
     
     // Sadece okunaklı isimleri listeleyelim (ogretmen yerine Öğretmen gibi)
     final filteredTitles = _validTitlesMapping.keys.where((k) => k.length > 5 && !k.contains('_') && k[0].toUpperCase() == k[0]).toList();
-    int maxLen = filteredTitles.length > _validBranches.length ? filteredTitles.length : _validBranches.length;
+    final sortedBranches = List<String>.from(_validBranches)..sort();
+    
+    // Notlar
+    final notes = [
+      'KULLANICI_ADI boş bırakılırsa TC son 6 hane otomatik alınır.',
+      'SIFRE boş bırakılırsa TC son 6 hane otomatik alınır.',
+      'Branş listesinde olmayan değer yazarsanız "Diğer" olarak kaydedilir.',
+      'Bu YARDIM sayfasını silmeyiniz, şablonu yüklerken otomatik atlanır.',
+    ];
+    
+    int maxLen = [filteredTitles.length, sortedBranches.length, notes.length].reduce((a, b) => a > b ? a : b);
 
     for (int i = 0; i < maxLen; i++) {
       helpSheet.appendRow([
         xl.TextCellValue(i < filteredTitles.length ? filteredTitles[i] : ''),
         xl.TextCellValue(''),
-        xl.TextCellValue(i < _validBranches.length ? _validBranches[i] : ''),
+        xl.TextCellValue(i < sortedBranches.length ? sortedBranches[i] : ''),
+        xl.TextCellValue(''),
+        xl.TextCellValue(i < notes.length ? notes[i] : ''),
       ]);
     }
 
@@ -265,6 +291,7 @@ class _StaffListScreenState extends State<StaffListScreen>
     final result = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['xlsx'],
+      withData: true, // Web'de bytes'ı almak için gerekli
     );
 
     if (result == null || result.files.isEmpty) return;
@@ -272,18 +299,67 @@ class _StaffListScreenState extends State<StaffListScreen>
     setState(() => _isLoading = true);
     
     try {
-      final bytes = result.files.first.bytes;
-      if (bytes == null) throw 'Dosya okunamadı';
+      final file = result.files.first;
+      final bytes = file.bytes;
+      if (bytes == null || bytes.isEmpty) throw 'Dosya okunamadı. Lütfen dosyanın boş olmadığından emin olunuz.';
       
       final excel = xl.Excel.decodeBytes(bytes);
       int addedCount = 0;
       int errorCount = 0;
+      int skipCount = 0;
+
+      // Okul türü içi mi kontrol et
+      final isInsideSchoolType = widget.fixedSchoolTypeId != null || (widget.fixedSchoolTypeName != null && widget.fixedSchoolTypeName!.isNotEmpty);
+      final fixedSchoolName = widget.fixedSchoolTypeName?.trim() ?? '';
+      final fixedSchoolId = widget.fixedSchoolTypeId;
+
+      // Okul türünün müdürünü bul
+      Map<String, dynamic>? schoolMudur;
+      if (isInsideSchoolType) {
+        final mudurMatches = _staff.where((u) {
+          final uTitle = (u['title'] ?? '').toString().toLowerCase().trim();
+          final uRole = (u['role'] ?? '').toString().toLowerCase().trim();
+          final isMudurRole = uTitle == 'mudur' || uTitle == 'müdür' || uRole == 'mudur' || uRole == 'müdür';
+          final uIsActive = u['isActive'] ?? true;
+          if (!isMudurRole || !uIsActive) return false;
+
+          bool stMatch = false;
+          if (fixedSchoolId != null && u['schoolTypes'] is List) {
+            stMatch = (u['schoolTypes'] as List).map((e) => e.toString()).contains(fixedSchoolId);
+          }
+          if (!stMatch && fixedSchoolName.isNotEmpty) {
+            if (u['workLocations'] is List) {
+              stMatch = (u['workLocations'] as List).any((l) => l.toString().toLowerCase().trim() == fixedSchoolName.toLowerCase());
+            } else if (u['workLocation'] != null) {
+              stMatch = u['workLocation'].toString().toLowerCase().trim() == fixedSchoolName.toLowerCase();
+            }
+          }
+          return stMatch;
+        }).toList();
+
+        if (mudurMatches.isNotEmpty) {
+          schoolMudur = mudurMatches.first;
+        } else {
+          // Genel müdür veya herhangi bir müdür fallback
+          final anyMudur = _staff.where((u) {
+            final uTitle = (u['title'] ?? '').toString().toLowerCase().trim();
+            final uRole = (u['role'] ?? '').toString().toLowerCase().trim();
+            return (uTitle == 'mudur' || uTitle == 'müdür' || uTitle == 'genel_mudur' || uTitle == 'genel müdür' || uRole == 'admin' || uRole == 'yonetici') && (u['isActive'] ?? true);
+          }).toList();
+          if (anyMudur.isNotEmpty) schoolMudur = anyMudur.first;
+        }
+      }
 
       for (var table in excel.tables.keys) {
+        // YARDIM sayfasını atla
+        if (table.toUpperCase().contains('YARDIM') || table.toUpperCase().contains('GECERLI')) {
+          continue;
+        }
+
         final rows = excel.tables[table]?.rows;
         if (rows == null || rows.length <= 1) continue;
 
-        // Header mapping (cleaning (Zorunlu) etc.)
+        // Header mapping (cleaning (Zorunlu), (Opsiyonel) etc.)
         final headers = rows[0].map((e) {
           String h = e?.value.toString().toUpperCase() ?? '';
           return h.split('(')[0].trim(); // "TC_KIMLIK (Zorunlu)" -> "TC_KIMLIK"
@@ -292,6 +368,18 @@ class _StaffListScreenState extends State<StaffListScreen>
         for (int i = 1; i < rows.length; i++) {
           final row = rows[i];
           final rowData = <String, dynamic>{};
+          String? customUsername;
+          String? customPassword;
+          
+          // Tüm hücreler boş mu kontrol et
+          bool allEmpty = true;
+          for (int j = 0; j < row.length; j++) {
+            if (row[j]?.value != null && row[j]!.value.toString().trim().isNotEmpty) {
+              allEmpty = false;
+              break;
+            }
+          }
+          if (allEmpty) continue; // Boş satırları atla
           
           for (int j = 0; j < headers.length; j++) {
             if (j >= row.length) break;
@@ -309,9 +397,11 @@ class _StaffListScreenState extends State<StaffListScreen>
               if (_validBranches.contains(value)) {
                 rowData['branch'] = value;
               } else {
-                rowData['branch'] = 'Diğer'; // Veya hata verilebilir
+                rowData['branch'] = 'Diğer';
               }
             }
+            else if (header == 'KULLANICI_ADI') customUsername = value;
+            else if (header == 'SIFRE') customPassword = value;
             else if (header == 'TELEFON_CEP') rowData['mobilePhone'] = value;
             else if (header == 'EPOSTA_KURUMSAL') rowData['corporateEmail'] = value;
             else if (header == 'SEHIR') rowData['city'] = value;
@@ -329,34 +419,74 @@ class _StaffListScreenState extends State<StaffListScreen>
              rowData['branch'] = 'Diğer';
           }
 
-          // TC'den kullanıcı adı ve şifre üret
+          // Kullanıcı adı ve şifre: önce Excel'den al, yoksa TC son 6 hane
           final tcStr = rowData['tc'].toString();
-          final username = tcStr.length >= 6 
+          final tcLast6 = tcStr.length >= 6 
               ? tcStr.substring(tcStr.length - 6)
               : tcStr;
+          final username = (customUsername != null && customUsername.isNotEmpty) ? customUsername : tcLast6;
+          final password = (customPassword != null && customPassword.isNotEmpty) ? customPassword : tcLast6;
+          
+          // TC şifrele
+          rowData['tc'] = CryptoService.encrypt(tcStr, institutionId: _institutionId ?? '');
+          rowData['tcKimlik'] = rowData['tc'];
 
-          await FirebaseFirestore.instance.collection('users').add({
+          // Mükerrer kontrolü (aynı kullanıcı adı var mı?)
+          final existCheck = await FirebaseFirestore.instance.collection('users')
+              .where('institutionId', isEqualTo: _institutionId)
+              .where('username', isEqualTo: username)
+              .limit(1)
+              .get();
+          if (existCheck.docs.isNotEmpty) {
+            skipCount++;
+            continue;
+          }
+
+          final newUserData = <String, dynamic>{
             ...rowData,
             'institutionId': _institutionId,
             'username': username,
-            'password': username, // Varsayılan şifre TC son 6 hane
+            'password': password,
+            'defaultPassword': password,
+            'passwordStatus': 'ilk_giris',
             'isActive': true,
             'type': 'staff',
             'role': rowData['title'],
+            'department': rowData['department'] ?? (rowData['title'] == 'ogretmen' ? 'Öğretim Departmanı' : 'İdari Departman'),
             'createdAt': FieldValue.serverTimestamp(),
             'modulePermissions': {
               'genel_duyurular': {'enabled': true, 'level': 'editor'},
               'okul_turleri': {'enabled': true, 'level': 'viewer'},
               'insan_kaynaklari': {'enabled': false, 'level': 'viewer'},
             }
-          });
+          };
+
+          if (isInsideSchoolType) {
+            if (fixedSchoolId != null) {
+              newUserData['schoolTypes'] = [fixedSchoolId];
+            }
+            if (fixedSchoolName.isNotEmpty) {
+              newUserData['workLocations'] = [fixedSchoolName];
+              newUserData['workLocation'] = fixedSchoolName;
+            }
+            if (schoolMudur != null) {
+              newUserData['managerUserId'] = schoolMudur['id'];
+              newUserData['managerName'] = schoolMudur['fullName'] ?? schoolMudur['username'] ?? '';
+            }
+          }
+
+          await FirebaseFirestore.instance.collection('users').add(newUserData);
           addedCount++;
         }
       }
 
+      String msg = '$addedCount personel başarıyla eklendi.';
+      if (errorCount > 0) msg += ' $errorCount satır eksik veri.';
+      if (skipCount > 0) msg += ' $skipCount mükerrer atlandı.';
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('$addedCount personel başarıyla eklendi. $errorCount hata.'),
+          content: Text(msg),
           backgroundColor: Colors.green,
         ),
       );
@@ -372,16 +502,45 @@ class _StaffListScreenState extends State<StaffListScreen>
 
   String? _institutionId;
 
+  /// Sabit bir okul türü seçiliyse sadece o okul türündeki personelleri filtreler,
+  /// değilse tüm kurum personellerini döner.
+  List<Map<String, dynamic>> get _scopedStaff {
+    if (widget.fixedSchoolTypeId == null &&
+        (widget.fixedSchoolTypeName == null || widget.fixedSchoolTypeName!.isEmpty)) {
+      return _staff;
+    }
+    final fixedNameLower = widget.fixedSchoolTypeName?.toLowerCase().trim() ?? '';
+    final fixedId = widget.fixedSchoolTypeId;
+
+    return _staff.where((s) {
+      bool matchesSchoolType = false;
+      // 1. Önce schoolTypes ID'si ile eşleşiyor mu kontrol et
+      if (fixedId != null && s['schoolTypes'] != null && s['schoolTypes'] is List) {
+        final stIds = List<String>.from(s['schoolTypes']);
+        matchesSchoolType = stIds.contains(fixedId);
+      }
+      // 2. ID ile eşleşmediyse veya schoolTypes boşsa, isimle kontrol et
+      if (!matchesSchoolType && fixedNameLower.isNotEmpty) {
+        if (s['workLocations'] != null && s['workLocations'] is List) {
+          final locations = List<String>.from(s['workLocations']);
+          matchesSchoolType = locations.any((loc) => loc.toLowerCase().trim() == fixedNameLower);
+        } else if (s['workLocation'] != null) {
+          matchesSchoolType = s['workLocation'].toString().toLowerCase().trim() == fixedNameLower;
+        }
+      }
+      return matchesSchoolType;
+    }).toList();
+  }
+
   void _applyFilters() {
     final query = _search.text.toLowerCase();
     setState(() {
-      _filteredStaff = _staff.where((s) {
+      _filteredStaff = _scopedStaff.where((s) {
         final fullName = (s['fullName'] ?? '').toString().toLowerCase();
         final username = (s['username'] ?? '').toString().toLowerCase();
         final isActive = s['isActive'] ?? true;
         final department = (s['department'] ?? '').toString();
         final title = (s['title'] ?? '').toString();
-        final role = (s['role'] ?? '').toString().toLowerCase();
 
         final matchesSearch =
             query.isEmpty ||
@@ -403,36 +562,10 @@ class _StaffListScreenState extends State<StaffListScreen>
             _titleFilter == 'Tümü' ||
             _formatTitleForFilter(title) == _titleFilter;
 
-        // Okul türü filtresi (eğer sabitlendiyse)
-        bool matchesSchoolType = widget.fixedSchoolTypeId == null;
-        if (!matchesSchoolType) {
-          final fixedNameLower = widget.fixedSchoolTypeName?.toLowerCase().trim() ?? '';
-          final fixedId = widget.fixedSchoolTypeId;
-
-          // 1. Önce schoolTypes ID'si ile eşleşiyor mu kontrol et
-          if (fixedId != null && s['schoolTypes'] != null && s['schoolTypes'] is List) {
-            final stIds = List<String>.from(s['schoolTypes']);
-            matchesSchoolType = stIds.contains(fixedId);
-          }
-
-          // 2. ID ile eşleşmediyse veya schoolTypes boşsa, isimle (workLocations veya workLocation) case-insensitive eşleşiyor mu kontrol et
-          if (!matchesSchoolType && fixedNameLower.isNotEmpty) {
-            if (s['workLocations'] != null && s['workLocations'] is List) {
-              final locations = List<String>.from(s['workLocations']);
-              matchesSchoolType = locations.any((loc) => loc.toLowerCase().trim() == fixedNameLower);
-            } else if (s['workLocation'] != null) {
-              matchesSchoolType = s['workLocation'].toString().toLowerCase().trim() == fixedNameLower;
-            } else {
-              matchesSchoolType = false;
-            }
-          }
-        }
-
         return matchesSearch &&
             matchesStatus &&
             matchesDepartment &&
-            matchesTitle &&
-            matchesSchoolType;
+            matchesTitle;
       }).toList();
       
       // Branşa göre sırala, sonra isme göre
@@ -456,7 +589,7 @@ class _StaffListScreenState extends State<StaffListScreen>
   }
 
   List<String> _getUniqueValues(String key) {
-    final values = _staff
+    final values = _scopedStaff
         .map((e) => (e[key] ?? '').toString())
         .where((e) => e.isNotEmpty)
         .map((e) => key == 'title' ? _formatTitleForFilter(e) : e) // Ünvan için formatla
@@ -494,9 +627,10 @@ class _StaffListScreenState extends State<StaffListScreen>
   }
 
   int _getCount(String status) {
-    if (status == 'all') return _staff.length;
+    final scoped = _scopedStaff;
+    if (status == 'all') return scoped.length;
     final isActive = status == 'active';
-    return _staff.where((s) => (s['isActive'] ?? true) == isActive).length;
+    return scoped.where((s) => (s['isActive'] ?? true) == isActive).length;
   }
 
   String _formatRole(String? role) {
@@ -688,21 +822,8 @@ class _StaffListScreenState extends State<StaffListScreen>
                               MaterialPageRoute(
                                 builder: (_) => Scaffold(
                                   backgroundColor: const Color(0xFFF8FAFC),
-                                  appBar: AppBar(
-                                    elevation: 0,
-                                    backgroundColor: Colors.white,
-                                    leading: IconButton(
-                                      icon: Icon(Icons.arrow_back_rounded, color: Colors.grey.shade800),
-                                      onPressed: () => Navigator.pop(context),
-                                    ),
-                                    title: Text(
-                                      staff['fullName'] ?? 'Personel Detayı',
-                                      style: TextStyle(
-                                        color: Colors.grey.shade900,
-                                        fontSize: 17,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
+                                  appBar: EduknAppBar(
+                                    title: staff['fullName'] ?? 'Personel Detayı',
                                   ),
                                   body: StaffDetailScreen(staff: staff),
                                 ),
@@ -721,23 +842,9 @@ class _StaffListScreenState extends State<StaffListScreen>
     final right = StaffDetailScreen(staff: _selectedStaff);
 
     return Scaffold(
-      appBar: AppBar(
-        title: widget.fixedSchoolTypeName != null
-            ? Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    widget.fixedSchoolTypeName!,
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  const Text(
-                    'Personel Listesi',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.normal),
-                  ),
-                ],
-              )
-            : const Text('Personel Bilgi Yönetimi'),
+      appBar: EduknAppBar(
+        title: 'Personel Listesi',
+        subtitle: widget.fixedSchoolTypeName,
         actions: [
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),

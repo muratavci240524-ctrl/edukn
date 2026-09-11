@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/user_permission_service.dart';
 import '../../services/term_service.dart';
@@ -164,30 +165,9 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.indigo),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              widget.isManagerStaff ? 'Yönetici Personel' : 'Diğer Personel',
-              style: TextStyle(
-                color: Colors.grey.shade900,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            Text(
-              widget.schoolTypeName,
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-            ),
-          ],
-        ),
+      appBar: EduknAppBar(
+        title: widget.isManagerStaff ? 'Yönetici Personel' : 'Diğer Personel',
+        subtitle: widget.schoolTypeName,
       ),
       floatingActionButton: _isLoadingPermissions
           ? null

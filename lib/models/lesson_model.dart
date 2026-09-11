@@ -10,6 +10,8 @@ class LessonModel {
   final String schoolTypeId;
   final String institutionId;
   final String? termId;
+  final String? subTermId;   // Alt dönem kimliği (null = ana dönem)
+  final String? subTermName; // Alt dönem adı
   final bool isActive;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -23,6 +25,8 @@ class LessonModel {
     required this.schoolTypeId,
     required this.institutionId,
     this.termId,
+    this.subTermId,
+    this.subTermName,
     this.isActive = true,
     this.createdAt,
     this.updatedAt,
@@ -39,6 +43,8 @@ class LessonModel {
       schoolTypeId: data['schoolTypeId'] ?? '',
       institutionId: data['institutionId'] ?? '',
       termId: data['termId'],
+      subTermId: data['subTermId'] ?? data['periodId'],
+      subTermName: data['subTermName'] ?? data['periodName'],
       isActive: data['isActive'] ?? true,
       createdAt: data['createdAt'] != null
           ? (data['createdAt'] as Timestamp).toDate()
@@ -58,6 +64,10 @@ class LessonModel {
       'schoolTypeId': schoolTypeId,
       'institutionId': institutionId,
       'termId': termId,
+      'subTermId': subTermId,
+      'periodId': subTermId,
+      'subTermName': subTermName,
+      'periodName': subTermName,
       'isActive': isActive,
       'createdAt': createdAt ?? FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
@@ -77,6 +87,10 @@ class LessonClassAssignment {
   final List<String> teacherNames; // Öğretmen isimleri
   final String schoolTypeId;
   final String institutionId;
+  final String? termId;
+  final String? subTermId;
+  final String? periodId;
+  final String? subTermName;
   final bool isActive;
 
   LessonClassAssignment({
@@ -90,6 +104,10 @@ class LessonClassAssignment {
     required this.teacherNames,
     required this.schoolTypeId,
     required this.institutionId,
+    this.termId,
+    this.subTermId,
+    this.periodId,
+    this.subTermName,
     this.isActive = true,
   });
 
@@ -106,6 +124,10 @@ class LessonClassAssignment {
       teacherNames: List<String>.from(data['teacherNames'] ?? []),
       schoolTypeId: data['schoolTypeId'] ?? '',
       institutionId: data['institutionId'] ?? '',
+      termId: data['termId'],
+      subTermId: data['subTermId'] ?? data['periodId'],
+      periodId: data['periodId'] ?? data['subTermId'],
+      subTermName: data['subTermName'] ?? data['periodName'],
       isActive: data['isActive'] ?? true,
     );
   }
@@ -121,6 +143,10 @@ class LessonClassAssignment {
       'teacherNames': teacherNames,
       'schoolTypeId': schoolTypeId,
       'institutionId': institutionId,
+      'termId': termId,
+      'subTermId': subTermId ?? periodId,
+      'periodId': periodId ?? subTermId,
+      'subTermName': subTermName,
       'isActive': isActive,
     };
   }

@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'assessment_action_plan_screen.dart';
@@ -84,9 +85,8 @@ class _AssessmentActionPlanListScreenState extends State<AssessmentActionPlanLis
 
         return Scaffold(
           backgroundColor: const Color(0xFFF8F9FE),
-          appBar: AppBar(
-            title: const Text('Eylem Planları Geçmişi', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-            backgroundColor: Colors.indigo.shade900,
+          appBar: EduknAppBar(
+            title: 'Eylem Planları Geçmişi',
             leading: const BackButton(color: Colors.white),
             actions: [
               IconButton(

@@ -1,6 +1,7 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 
 class ParentWeeklyUpdateScreen extends StatefulWidget {
   final String institutionId;
@@ -363,20 +364,9 @@ class _ParentWeeklyUpdateScreenState extends State<ParentWeeklyUpdateScreen> {
     final weekLabel = _formatWeekRangeTr(_weekStart);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Veli Bilgilendirme',
-              style: TextStyle(fontWeight: FontWeight.w800),
-            ),
-            Text(
-              '${widget.className} • ${widget.lessonName}',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-            ),
-          ],
-        ),
+      appBar: EduknAppBar(
+        title: 'Veli Bilgilendirme',
+        subtitle: '${widget.className} • ${widget.lessonName}',
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())

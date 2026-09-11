@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:intl/intl.dart';
 import '../../../services/attendance_service.dart';
 
@@ -132,12 +133,8 @@ class _ManualAttendanceScreenState extends State<ManualAttendanceScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        title: const Text('Manuel Giriş Ekle', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20)),
-        centerTitle: true,
-        backgroundColor: Colors.white,
-        elevation: 0,
-        foregroundColor: const Color(0xFF1E293B),
+      appBar: EduknAppBar(
+        title: 'Manuel Giriş Ekle',
       ),
       body: Container(
         padding: const EdgeInsets.all(20),

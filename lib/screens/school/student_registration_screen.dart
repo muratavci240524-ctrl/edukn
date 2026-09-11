@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:cloud_functions/cloud_functions.dart';
 import '../../firebase_options.dart';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../constants/turkey_address_data.dart';
@@ -2378,49 +2379,24 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
 
     if (_isLoading) {
       return Scaffold(
-        appBar: AppBar(title: Text('Öğrenci Kayıt')),
-        body: Center(child: CircularProgressIndicator()),
+        appBar: EduknAppBar(title: 'Öğrenci Kayıt'),
+        body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.indigo),
-          onPressed: () => Navigator.pop(context),
-          tooltip: 'Geri',
-        ),
-        title: widget.fixedSchoolTypeName != null
-            ? Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    widget.fixedSchoolTypeName!,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const Text(
-                    'Öğrenci Listesi',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.normal,
-                    ),
-                  ),
-                ],
-              )
-            : const Text('Öğrenci Kayıt Sistemi'),
+      appBar: EduknAppBar(
+        title: 'Öğrenci Listesi',
+        subtitle: widget.fixedSchoolTypeName,
         actions: [
           if (_canEditStudents())
             IconButton(
-              icon: const Icon(Icons.person_add),
+              icon: const Icon(Icons.person_add, color: Colors.indigo),
               onPressed: () => _showNewStudentDialog(),
               tooltip: 'Yeni Öğrenci',
             ),
           PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert),
+            icon: const Icon(Icons.more_vert, color: Colors.indigo),
             onSelected: (value) {
               if (value == 'report') {
                 _showPrintExportDialog();
@@ -3338,24 +3314,9 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
       length: showAccountingTab ? 4 : 3,
       child: Scaffold(
         backgroundColor: Colors.grey.shade50,
-        appBar: AppBar(
-          backgroundColor: Colors.white,
-          elevation: 1,
-          leading: MediaQuery.of(context).size.width <= 900
-              ? IconButton(
-                  icon: Icon(Icons.arrow_back_rounded, color: Colors.grey.shade800),
-                  onPressed: () => Navigator.pop(context),
-                )
-              : null,
-          automaticallyImplyLeading: false,
-          title: Text(
-            'Öğrenci Detayı',
-            style: TextStyle(
-              color: Colors.grey.shade900,
-              fontSize: 17,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
+        appBar: EduknAppBar(
+          title: 'Öğrenci Detayı',
+          showBackButton: MediaQuery.of(context).size.width <= 900,
           actions: [
             IconButton(
               icon: const Icon(Icons.print_outlined, color: Colors.indigo, size: 20),
@@ -6856,23 +6817,14 @@ class __StudentRegistrationFormScreenState
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 1,
+      appBar: EduknAppBar(
+        title: widget.existingStudent != null
+              ? 'Öğrenci Düzenle'
+              : 'Yeni Öğrenci Kaydı',
         leading: IconButton(
           icon: Icon(Icons.close, color: Colors.grey.shade700),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Text(
-          widget.existingStudent != null
-              ? 'Öğrenci Düzenle'
-              : 'Yeni Öğrenci Kaydı',
-          style: TextStyle(
-            color: Colors.grey.shade900,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-
       ),
       body: AbsorbPointer(
         absorbing: false,

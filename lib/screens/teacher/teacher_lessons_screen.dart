@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../school/teacher_schedule_view_screen.dart';
@@ -184,12 +185,7 @@ class _TeacherLessonsScreenState extends State<TeacherLessonsScreen> {
 
     if (schoolTypes.isEmpty) {
       return Scaffold(
-        appBar: AppBar(
-          title: const Text('Derslerim'),
-          backgroundColor: Colors.indigo,
-          foregroundColor: Colors.white,
-          iconTheme: const IconThemeData(color: Colors.white),
-        ),
+        appBar: EduknAppBar(title: 'Derslerim'),
         body: const Center(child: Text('Size tanımlı bir okul türü bulunamadı.')),
       );
     }
@@ -205,13 +201,7 @@ class _TeacherLessonsScreenState extends State<TeacherLessonsScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Okul Türü Seçin'),
-        backgroundColor: Colors.indigo,
-        foregroundColor: Colors.white,
-        iconTheme: const IconThemeData(color: Colors.white),
-        elevation: 0,
-      ),
+      appBar: EduknAppBar(title: 'Okul Türü Seçin'),
       body: ListView.builder(
         padding: const EdgeInsets.all(16),
         itemCount: schoolTypes.length,

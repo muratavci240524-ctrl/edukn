@@ -1,6 +1,7 @@
-import 'dart:ui';
+﻿import 'dart:ui';
 import 'package:flutter/foundation.dart' show kIsWeb, compute;
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -13,6 +14,7 @@ import '../../../../models/assessment/trial_exam_model.dart';
 import '../../../../models/assessment/exam_type_model.dart';
 import '../../../../models/assessment/optical_form_model.dart';
 import 'trial_exam_answer_key_screen.dart';
+import '../../../../services/term_service.dart';
 
 import 'student_report_card_dialog.dart';
 import 'evaluation_models.dart';
@@ -890,6 +892,9 @@ class _TrialExamFormState extends State<TrialExamForm>
           }
         }
 
+        // Aktif dönem ID'sini al
+        final activeTermId = await TermService().getActiveTermId();
+
         final exam = TrialExam(
           id: _examId ?? '', // Use consistent ID
           institutionId: widget.institutionId,
@@ -911,6 +916,7 @@ class _TrialExamFormState extends State<TrialExamForm>
           resultsJson: finalResultsJson,
           sharingSettings: _sharingSettings,
           bookletMapping: _bookletMapping,
+          termId: activeTermId,
         );
 
         await _service.saveTrialExam(exam);
@@ -3256,14 +3262,8 @@ class _ResultsTableDialogState extends State<ResultsTableDialog> {
 
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: Text(
-          'Sınav Sonuçları (${_sortedResults.length} Öğrenci)',
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        backgroundColor: Colors.deepOrange,
-        foregroundColor: Colors.white,
-        elevation: 0,
+      appBar: EduknAppBar(
+        title: 'Sınav Sonuçları (${_sortedResults.length} Öğrenci)',
         actions: [
           IconButton(
             icon: const Icon(Icons.close),

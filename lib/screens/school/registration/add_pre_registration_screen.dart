@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../widgets/edukn_dropdown.dart';
@@ -25,8 +26,8 @@ class AddPreRegistrationScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        title: Text(preRegistrationId != null ? 'Görüşmeyi Düzenle' : 'Yeni Ön Kayıt / Görüşme'),
+      appBar: EduknAppBar(
+        title: preRegistrationId != null ? 'Görüşmeyi Düzenle' : 'Yeni Ön Kayıt / Görüşme',
         leading: IconButton(
           icon: const Icon(Icons.close),
           onPressed: () => Navigator.pop(context),

@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:html' as html;
@@ -352,14 +353,8 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     final String title = widget.isSchoolSettings ? 'Okul Bilgileri' : 'Profilim';
 
     return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.indigo),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Text(title, style: TextStyle(color: Colors.grey.shade900, fontSize: 18, fontWeight: FontWeight.bold)),
+      appBar: EduknAppBar(
+        title: title,
       ),
       body: Center(
         child: Container(

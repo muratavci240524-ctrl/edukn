@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
@@ -311,30 +312,9 @@ class _MessageMonitoringScreenState extends State<MessageMonitoringScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: Colors.indigo,
-        elevation: 0,
-        leading: const BackButton(color: Colors.white),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '👁️ Mesaj İzleme & Denetim Paneli',
-              style: GoogleFonts.inter(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-            Text(
-              'Yönetici Özel Denetim Yetkisi',
-              style: GoogleFonts.inter(
-                fontSize: 12,
-                color: Colors.white70,
-              ),
-            ),
-          ],
-        ),
+      appBar: EduknAppBar(
+        title: '👁️ Mesaj İzleme & Denetim Paneli',
+        subtitle: 'Yönetici Özel Denetim Yetkisi',
       ),
       body: Row(
         children: [

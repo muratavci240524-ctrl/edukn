@@ -5,11 +5,15 @@ class AutoScheduleResult {
   final int assignedCount;
   final int unassignedCount;
   final List<String> unassignedDetails;
+  final Map<String, String>? assignedHalfDays;
+  final List<Map<String, dynamic>>? updatedTeacherMeetings;
 
   AutoScheduleResult({
     required this.assignedCount,
     required this.unassignedCount,
     required this.unassignedDetails,
+    this.assignedHalfDays,
+    this.updatedTeacherMeetings,
   });
 }
 
@@ -27,10 +31,19 @@ class AutoScheduleService {
     Map<String, bool>? lessonAllowSplit,
     Map<String, bool>? lessonAvoidFirstHour,
     Map<String, bool>? lessonAvoidLastHour,
+    Map<String, Map<int, int>>? lessonHourPreferences,
     List<Map<String, dynamic>>? lessonClassMerges,
     Map<String, Set<String>>? closedSlots,
     Map<String, int>? teacherMaxDailyHours,
     Set<String>? lockedSlots,
+    Set<String>? halfDayFlexible,      // 'teacher_<id>_morning' veya '_afternoon'
+    List<int>? halfDayMorningHours,
+    List<int>? halfDayAfternoonHours,
+    Map<String, String>? halfDayAssignedDays, // 'teacher_<id>_morning' -> 'Salı'
+    List<Map<String, dynamic>>? teacherMeetings, // Zümre toplantıları
+    Map<String, Set<String>>? lessonDayPreferences, // groupKey -> izin verilen günler
+    String? targetClassId,
+    String? targetTeacherId,
   }) async {
     print('🤖 Otomatik Dağıtım Başlatılıyor (Gelişmiş Algoritma v2) — Dönem: $periodId');
 
@@ -63,9 +76,25 @@ class AutoScheduleService {
     final List<Map<String, dynamic>> allExisting =
         existingSnap.docs.map((d) => d.data()).toList();
 
-    // Sadece kilitli olanları sabit tut (eğer kilitli tanımlanmışsa)
+    final bool isPartial = (targetClassId != null && targetClassId.isNotEmpty) ||
+        (targetTeacherId != null && targetTeacherId.isNotEmpty);
+
+    // Sadece kilitli olanları sabit tut (eğer kilitli tanımlanmışsa veya kısmi dağıtımsa)
     final List<Map<String, dynamic>> existingSchedule;
-    if (lockedSlots != null && lockedSlots.isNotEmpty) {
+    if (isPartial) {
+      existingSchedule = allExisting.where((entry) {
+        final key = '${entry['classId']}_${entry['day']}_${entry['hourIndex']}';
+        final isLocked = lockedSlots != null && lockedSlots.contains(key);
+        final isTargetClass = targetClassId != null && entry['classId'] == targetClassId;
+        final isTargetTeacher = targetTeacherId != null &&
+            (entry['teacherId'] == targetTeacherId ||
+                (entry['teacherIds'] as List?)?.contains(targetTeacherId) == true);
+        if (isLocked) return true;
+        if (isTargetClass || isTargetTeacher) return false;
+        return true;
+      }).toList();
+      print('🎯 Kısmi dağıtım: ${existingSchedule.length} mevcut ders korunuyor (hedef dışı ve kilitliler)');
+    } else if (lockedSlots != null && lockedSlots.isNotEmpty) {
       existingSchedule = allExisting.where((entry) {
         final key = '${entry['classId']}_${entry['day']}_${entry['hourIndex']}';
         return lockedSlots.contains(key);
@@ -75,6 +104,165 @@ class AutoScheduleService {
       existingSchedule = [];
       print('📌 Kilitli ders yok, sıfırdan tam dağıtım yapılıyor');
     }
+
+    // ── 2b. Kapalı Slotları Hazırla (Yarım Günler ve Zümreler Dahil) ──
+    final effectiveClosed = closedSlots != null
+        ? Map<String, Set<String>>.from(
+            closedSlots.map((k, v) => MapEntry(k, Set<String>.from(v))),
+          )
+        : <String, Set<String>>{};
+
+    final Map<String, String> calculatedHalfDays = {};
+    if (halfDayAssignedDays != null) {
+      calculatedHalfDays.addAll(halfDayAssignedDays);
+    }
+
+    // Sabit Yarım Gün İzinleri (halfDayAssignedDays)
+    if (halfDayAssignedDays != null && halfDayAssignedDays.isNotEmpty) {
+      for (final entry in halfDayAssignedDays.entries) {
+        final flexKey = entry.key; // 'teacher_<id>_morning' veya '_afternoon'
+        final assignedDay = entry.value;
+        if (assignedDay.isEmpty) continue;
+
+        final lastUnderscore = flexKey.lastIndexOf('_');
+        if (lastUnderscore == -1) continue;
+        final type = flexKey.substring(lastUnderscore + 1);
+        final teacherKey = flexKey.substring(0, lastUnderscore); // 'teacher_<id>'
+        if (type != 'morning' && type != 'afternoon') continue;
+
+        // Eğer esnek olarak işaretlenmişse aşağıda dinamik seçilecek, sabitse ekle
+        if (halfDayFlexible?.contains(flexKey) == true) continue;
+
+        final hours = type == 'morning'
+            ? (halfDayMorningHours ?? <int>[])
+            : (halfDayAfternoonHours ?? <int>[]);
+        if (hours.isEmpty) continue;
+
+        for (final h in hours) {
+          effectiveClosed.putIfAbsent(teacherKey, () => <String>{}).add('${assignedDay}_$h');
+        }
+        print('🔒 Sabit yarım gün kısıtı: $teacherKey → $type ($hours) → $assignedDay');
+      }
+    }
+
+    // Esnek Yarım Gün: En Uygun Günü Hesapla ve Kapat
+    if (halfDayFlexible != null &&
+        halfDayFlexible.isNotEmpty &&
+        (halfDayMorningHours?.isNotEmpty == true ||
+            halfDayAfternoonHours?.isNotEmpty == true)) {
+      int flexCounter = 0;
+      for (final flexKey in halfDayFlexible) {
+        final lastUnderscore = flexKey.lastIndexOf('_');
+        if (lastUnderscore == -1) continue;
+        final type = flexKey.substring(lastUnderscore + 1);
+        final teacherKey = flexKey.substring(0, lastUnderscore);
+        if (type != 'morning' && type != 'afternoon') continue;
+
+        final hours = type == 'morning'
+            ? (halfDayMorningHours ?? <int>[])
+            : (halfDayAfternoonHours ?? <int>[]);
+        if (hours.isEmpty) continue;
+
+        final existing = effectiveClosed[teacherKey] ?? <String>{};
+
+        // Günleri dengeli dağıt
+        final preferredDayCandidate = selectedDays[flexCounter % selectedDays.length];
+        flexCounter++;
+
+        String bestDay = preferredDayCandidate;
+        if (existing.any((s) => s.startsWith('${preferredDayCandidate}_'))) {
+          int minClosed = 999;
+          for (final day in selectedDays) {
+            final closedCount = existing.where((s) => s.startsWith('${day}_')).length;
+            if (closedCount < minClosed) {
+              minClosed = closedCount;
+              bestDay = day;
+            }
+          }
+        }
+
+        for (final h in hours) {
+          effectiveClosed.putIfAbsent(teacherKey, () => <String>{}).add('${bestDay}_$h');
+        }
+        calculatedHalfDays[flexKey] = bestDay;
+        print('🌱 Esnek yarım gün: $teacherKey → $type ($hours) → $bestDay');
+      }
+    }
+
+    // ── 2d. Zümre Toplantıları (Sabit, Esnek Gün veya Esnek Saat) ───────────────
+    final List<Map<String, dynamic>> calculatedMeetings = [];
+    if (teacherMeetings != null && teacherMeetings.isNotEmpty) {
+      for (final mtg in teacherMeetings) {
+        final teacherIds = (mtg['teacherIds'] as List?)?.map((e) => e.toString()).toList() ?? [];
+        if (teacherIds.isEmpty) continue;
+        final origStartH = (mtg['startHour'] as num?)?.toInt() ?? 0;
+        final dur = (mtg['duration'] as num?)?.toInt() ?? 1;
+        final isFlexDay = mtg['isFlexible'] == true || mtg['isFlexibleDay'] == true;
+        final isFlexHour = mtg['isFlexibleHour'] == true;
+        String day = (mtg['day'] ?? '').toString();
+        int startH = origStartH;
+
+        if (isFlexDay || isFlexHour || day.isEmpty) {
+          final candidateDays = (isFlexDay || day.isEmpty) ? selectedDays : [day];
+          int minTotalConflict = 999999;
+          String bestDay = candidateDays.first;
+          int bestHour = origStartH;
+
+          for (final d in candidateDays) {
+            final dayHourCount = dailyCounts[d] ?? 8;
+            final maxStartH = (dayHourCount - dur).clamp(0, dayHourCount);
+
+            final candidateHours = isFlexHour
+                ? List.generate(maxStartH + 1, (i) => i)
+                : [origStartH.clamp(0, maxStartH)];
+
+            for (final h in candidateHours) {
+              int conflictScore = 0;
+              for (final tId in teacherIds) {
+                final tKey = 'teacher_$tId';
+                final tClosed = effectiveClosed[tKey] ?? <String>{};
+                for (int slot = h; slot < h + dur; slot++) {
+                  if (tClosed.contains('${d}_$slot')) {
+                    conflictScore += 10;
+                  }
+                }
+              }
+
+              // Tercih edilen başlangıç saatine yakın olanı öncelikle seç
+              if (isFlexHour) {
+                conflictScore += (h - origStartH).abs();
+              }
+
+              if (conflictScore < minTotalConflict) {
+                minTotalConflict = conflictScore;
+                bestDay = d;
+                bestHour = h;
+              }
+            }
+          }
+
+          day = bestDay;
+          startH = bestHour;
+          print('🤝 Esnek zümre toplantısı belirlendi: ${mtg['branch']} → $day (${startH + 1}. ders, $dur ders blok) [EsnekGün: $isFlexDay, EsnekSaat: $isFlexHour]');
+        }
+
+        calculatedMeetings.add({
+          ...mtg,
+          'day': day,
+          'startHour': startH,
+        });
+
+        for (final tId in teacherIds) {
+          final tKey = 'teacher_$tId';
+          for (int h = startH; h < startH + dur; h++) {
+            effectiveClosed.putIfAbsent(tKey, () => <String>{}).add('${day}_$h');
+          }
+        }
+      }
+    }
+
+    // effectiveClosed'u (tüm yarım günler, toplantılar ve kapalı slotlar) closedSlots olarak kullan
+    closedSlots = effectiveClosed;
 
     // ── 3. Ders Atamalarını Yükle ────────────────────────────────
     final termId = periodData['termId'] as String?;
@@ -88,9 +276,55 @@ class AutoScheduleService {
       assignmentsQuery = assignmentsQuery.where('termId', isEqualTo: termId);
     }
 
-    final assignmentsSnap = await assignmentsQuery.get();
-    final rawAssignments = assignmentsSnap.docs.map((d) => d.data()).toList();
-    print('📚 Veritabanından ${rawAssignments.length} atama bulundu');
+    // Bu döneme ait geçerli lesson ID'leri yükle (çapraz doğrulama)
+    var lessonsQuery = _firestore
+        .collection('lessons')
+        .where('institutionId', isEqualTo: institutionId)
+        .where('schoolTypeId', isEqualTo: schoolTypeId)
+        .where('isActive', isEqualTo: true);
+    if (termId != null && termId.isNotEmpty) {
+      lessonsQuery = lessonsQuery.where('termId', isEqualTo: termId);
+    }
+
+    // Bu döneme ait geçerli class ID'leri yükle
+    var classesQuery = _firestore
+        .collection('classes')
+        .where('institutionId', isEqualTo: institutionId)
+        .where('schoolTypeId', isEqualTo: schoolTypeId)
+        .where('isActive', isEqualTo: true);
+    if (termId != null && termId.isNotEmpty) {
+      classesQuery = classesQuery.where('termId', isEqualTo: termId);
+    }
+
+    final results = await Future.wait([assignmentsQuery.get(), lessonsQuery.get(), classesQuery.get()]);
+    final assignmentsSnap = results[0] as QuerySnapshot<Map<String, dynamic>>;
+    final lessonsSnap = results[1] as QuerySnapshot<Map<String, dynamic>>;
+    final classesSnap = results[2] as QuerySnapshot<Map<String, dynamic>>;
+
+    // Bu alt döneme ait dersleri filtrele (subTermId / periodId sadece bu döneme ait olmalı)
+    final periodLessons = lessonsSnap.docs.where((d) {
+      final stId = d.data()['subTermId'] ?? d.data()['periodId'];
+      return stId == periodId;
+    }).toList();
+
+    final validLessonIds = periodLessons.map((d) => d.id).toSet();
+    final validClassIds = classesSnap.docs.map((d) => d.id).toSet();
+    print('✅ Bu alt dönemde ($periodId) ${validLessonIds.length} ders, ${validClassIds.length} sınıf bulundu');
+
+    // Sadece bu alt döneme ait geçerli ders ve sınıflara ait atamaları al
+    final rawAssignments = assignmentsSnap.docs
+        .where((d) {
+          final stId = d.data()['subTermId'] ?? d.data()['periodId'];
+          return stId == periodId;
+        })
+        .map((d) => d.data())
+        .where((a) {
+          final lessonId = (a['lessonId'] ?? '').toString();
+          final classId = (a['classId'] ?? '').toString();
+          return validClassIds.contains(classId) && (validLessonIds.contains(lessonId) || (validLessonIds.isEmpty && lessonId.isNotEmpty));
+        })
+        .toList();
+    print('📚 Veritabanından ${rawAssignments.length} geçerli atama bulundu');
 
     // Tekrarlanan atamaları temizle
     final Map<String, Map<String, dynamic>> uniqueAssignmentMap = {};
@@ -105,27 +339,64 @@ class AutoScheduleService {
       }
     }
 
-    final assignments = uniqueAssignmentMap.values.toList();
-    print('📚 ${assignments.length} benzersiz atama dağıtılacak');
-
-    // Birleştirilmiş ders kontrolü
-    bool isMergedAssignment(Map<String, dynamic> a) {
-      if (lessonClassMerges == null || lessonClassMerges.isEmpty) return false;
-      final cId = (a['classId'] ?? '').toString();
-      final lName = (a['lessonName'] as String? ?? '').trim().toLowerCase();
-      for (var merge in lessonClassMerges) {
-        final mLessonName = (merge['lessonName'] as String? ?? '').trim().toLowerCase();
-        final mClasses = List<String>.from(merge['classIds'] ?? []);
-        if (mLessonName == lName && mClasses.contains(cId)) return true;
+    var assignments = uniqueAssignmentMap.values.toList();
+    if (isPartial) {
+      if (targetClassId != null && targetClassId.isNotEmpty) {
+        assignments = assignments.where((a) => a['classId'] == targetClassId).toList();
+      } else if (targetTeacherId != null && targetTeacherId.isNotEmpty) {
+        assignments = assignments.where((a) {
+          final tId = (a['teacherId'] ?? '').toString();
+          final tIds = (a['teacherIds'] as List?)?.map((e) => e.toString()).toList() ?? [];
+          return tId == targetTeacherId || tIds.contains(targetTeacherId);
+        }).toList();
       }
-      return false;
+      print('🎯 Kısmi dağıtım için ${assignments.length} atama işlenecek');
+    } else {
+      print('📚 ${assignments.length} benzersiz atama dağıtılacak');
     }
 
-    // Sıralama: Birleştirilmişler önce, sonra haftalık saat yüksekliğine göre
+    // Öncelik grubu:
+    // 1 = Gün veya saat kısıtlı dersler (hareket alanı en dar olanlar - İLK ALINACAK)
+    // 2 = Kur ve kulüp dersleri (birleştirilmiş dersler)
+    // 3 = Diğer birleştirilmiş dersler
+    // 4 = Normal tekil dersler
+    int priorityOf(Map<String, dynamic> a) {
+      final aKey = (a['lessonName'] as String? ?? '').trim().toLowerCase() +
+          '|' + ((a['weeklyHours'] as num?)?.toInt() ?? 0).toString();
+      final lId = (a['lessonId'] ?? '').toString();
+
+      // 1. Öncelik: Gün veya saat kısıtlı dersler
+      final hasDayConstraint = (lessonDayPreferences?.containsKey(aKey) == true && lessonDayPreferences![aKey]!.isNotEmpty) ||
+          (lessonDayPreferences?.containsKey(lId) == true && lessonDayPreferences![lId]!.isNotEmpty);
+      final hasHourConstraint = (lessonHourPreferences?.containsKey(aKey) == true && lessonHourPreferences![aKey]!.isNotEmpty) ||
+          (lessonHourPreferences?.containsKey(lId) == true && lessonHourPreferences![lId]!.isNotEmpty);
+      if (hasDayConstraint || hasHourConstraint) return 1;
+
+      // 2. ve 3. Öncelik: Kur/kulüp veya normal birleştirilmiş dersler
+      if (lessonClassMerges != null && lessonClassMerges.isNotEmpty) {
+        final cId = (a['classId'] ?? '').toString();
+        final lName = (a['lessonName'] as String? ?? '').trim().toLowerCase();
+        for (var merge in lessonClassMerges) {
+          final mLessonName = (merge['lessonName'] as String? ?? '').trim().toLowerCase();
+          final mLessonId   = (merge['lessonId'] ?? '').toString();
+          final mClasses = List<String>.from(merge['classIds'] ?? []);
+          final nameOrIdMatch = (mLessonName == lName || (lId.isNotEmpty && mLessonId == lId));
+          if (nameOrIdMatch && mClasses.contains(cId)) {
+            final gType = (merge['groupType'] ?? '').toString();
+            if (gType == 'track' || gType == 'club') return 2; // 2: kur ve kulüp
+            return 3; // 3: birleşik (manuel)
+          }
+        }
+      }
+
+      return 4; // 4: normal dersler
+    }
+
+    // Sıralama: gün/saat kısıtlı → kur/kulüp → birleşik → normal
     assignments.sort((a, b) {
-      final bool mergedA = isMergedAssignment(a);
-      final bool mergedB = isMergedAssignment(b);
-      if (mergedA != mergedB) return mergedA ? -1 : 1;
+      final pa = priorityOf(a);
+      final pb = priorityOf(b);
+      if (pa != pb) return pa.compareTo(pb);
       final hoursA = (a['weeklyHours'] as num?)?.toInt() ?? 0;
       final hoursB = (b['weeklyHours'] as num?)?.toInt() ?? 0;
       return hoursB.compareTo(hoursA);
@@ -135,7 +406,7 @@ class AutoScheduleService {
     //    Birden fazla dağıtım denemesi yapılır, her seferinde farklı
     //    sıralama ve rastgele faktörlerle. En az yerleştirilemeyen
     //    ders saati ve en yüksek dağıtım kalitesi olan sonuç seçilir.
-    int maxAttempts = 500;
+    int maxAttempts = 2500;
     List<Map<String, dynamic>>? bestSchedule;
     List<String>? bestUnassignedDetails;
     int bestUnassignedCount = 999999;
@@ -145,6 +416,11 @@ class AutoScheduleService {
     print('🎲 $maxAttempts simülasyon çalıştırılıyor...');
 
     for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+      // Tarayıcı / UI event-loop'u donmasın: Her 25 denemede bir async yield et
+      if (attempt % 25 == 0) {
+        await Future.delayed(Duration.zero);
+      }
+
       final result = _runAttempt(
         assignments,
         existingSchedule,
@@ -158,6 +434,8 @@ class AutoScheduleService {
         lessonAllowSplit: lessonAllowSplit,
         lessonAvoidFirstHour: lessonAvoidFirstHour,
         lessonAvoidLastHour: lessonAvoidLastHour,
+        lessonHourPreferences: lessonHourPreferences,
+        lessonDayPreferences: lessonDayPreferences,
         lessonClassMerges: lessonClassMerges,
         closedSlots: closedSlots,
         teacherMaxDailyHours: teacherMaxDailyHours,
@@ -186,7 +464,17 @@ class AutoScheduleService {
         'kalite: ${bestQualityScore.toStringAsFixed(1)}');
 
     // ── 5. En İyi Sonucu Kaydet ──────────────────────────────────
-    print('💾 ${bestSchedule!.length} kayıt kaydediliyor...');
+    // Eğer hiç iyi sonuç bulunamadıysa boş program
+    if (bestSchedule == null) {
+      return AutoScheduleResult(
+        assignedCount: 0,
+        unassignedCount: bestUnassignedCount,
+        unassignedDetails: ['Yerleştirilebilecek ders bulunamadı'],
+        assignedHalfDays: calculatedHalfDays,
+        updatedTeacherMeetings: calculatedMeetings.isNotEmpty ? calculatedMeetings : null,
+      );
+    }
+    print('💾 ${bestSchedule.length} kayıt kaydediliyor...');
 
     final oldRecords = await _firestore
         .collection('classSchedules')
@@ -198,34 +486,91 @@ class AutoScheduleService {
     WriteBatch currentBatch = _firestore.batch();
     int operationCount = 0;
 
-    for (var doc in oldRecords.docs) {
-      currentBatch.delete(doc.reference);
-      operationCount++;
-      if (operationCount >= 450) {
-        batches.add(currentBatch);
-        currentBatch = _firestore.batch();
-        operationCount = 0;
-      }
-    }
+    if (isPartial) {
+      // Yalnızca hedef şube veya öğretmenin kilitli olmayan eski kayıtlarını sil
+      final docsToDelete = oldRecords.docs.where((doc) {
+        final d = doc.data();
+        final key = '${d['classId']}_${d['day']}_${d['hourIndex']}';
+        if (lockedSlots != null && lockedSlots.contains(key)) return false;
 
-    for (var data in bestSchedule) {
-      final ref = _firestore.collection('classSchedules').doc();
-      currentBatch.set(ref, data);
-      operationCount++;
-      if (operationCount >= 450) {
-        batches.add(currentBatch);
-        currentBatch = _firestore.batch();
-        operationCount = 0;
+        if (targetClassId != null && targetClassId.isNotEmpty) {
+          return d['classId'] == targetClassId;
+        } else if (targetTeacherId != null && targetTeacherId.isNotEmpty) {
+          final tId = d['teacherId']?.toString();
+          final tIds = (d['teacherIds'] as List?)?.map((e) => e.toString()).toList() ?? [];
+          return tId == targetTeacherId || tIds.contains(targetTeacherId);
+        }
+        return false;
+      }).toList();
+
+      for (var doc in docsToDelete) {
+        currentBatch.delete(doc.reference);
+        operationCount++;
+        if (operationCount >= 450) {
+          batches.add(currentBatch);
+          currentBatch = _firestore.batch();
+          operationCount = 0;
+        }
+      }
+
+      // Sadece yeni yerleştirilen hedef dersleri ekle (mevcut diğer sınıfların kayıtları zaten veritabanında duruyor)
+      final existingKeys = existingSchedule.map((e) => '${e['classId']}_${e['day']}_${e['hourIndex']}').toSet();
+      final newToInsert = bestSchedule.where((e) {
+        final key = '${e['classId']}_${e['day']}_${e['hourIndex']}';
+        return !existingKeys.contains(key);
+      }).toList();
+
+      for (var data in newToInsert) {
+        final ref = _firestore.collection('classSchedules').doc();
+        currentBatch.set(ref, data);
+        operationCount++;
+        if (operationCount >= 450) {
+          batches.add(currentBatch);
+          currentBatch = _firestore.batch();
+          operationCount = 0;
+        }
+      }
+    } else {
+      for (var doc in oldRecords.docs) {
+        currentBatch.delete(doc.reference);
+        operationCount++;
+        if (operationCount >= 450) {
+          batches.add(currentBatch);
+          currentBatch = _firestore.batch();
+          operationCount = 0;
+        }
+      }
+
+      for (var data in bestSchedule) {
+        final ref = _firestore.collection('classSchedules').doc();
+        currentBatch.set(ref, data);
+        operationCount++;
+        if (operationCount >= 450) {
+          batches.add(currentBatch);
+          currentBatch = _firestore.batch();
+          operationCount = 0;
+        }
       }
     }
 
     batches.add(currentBatch);
     await Future.wait(batches.map((batch) => batch.commit()));
 
+    if (calculatedMeetings.isNotEmpty) {
+      await _firestore.collection('workPeriods').doc(periodId).set({
+        'teacherMeetings': calculatedMeetings,
+        'scheduleSettings': {
+          'teacherMeetings': calculatedMeetings,
+        },
+      }, SetOptions(merge: true));
+    }
+
     return AutoScheduleResult(
       assignedCount: bestAssignedCount,
       unassignedCount: bestUnassignedCount,
       unassignedDetails: bestUnassignedDetails ?? [],
+      assignedHalfDays: calculatedHalfDays,
+      updatedTeacherMeetings: calculatedMeetings.isNotEmpty ? calculatedMeetings : null,
     );
   }
 
@@ -261,6 +606,8 @@ class AutoScheduleService {
     Map<String, bool>? lessonAllowSplit,
     Map<String, bool>? lessonAvoidFirstHour,
     Map<String, bool>? lessonAvoidLastHour,
+    Map<String, Map<int, int>>? lessonHourPreferences,
+    Map<String, Set<String>>? lessonDayPreferences,
     List<Map<String, dynamic>>? lessonClassMerges,
     Map<String, Set<String>>? closedSlots,
     Map<String, int>? teacherMaxDailyHours,
@@ -274,6 +621,9 @@ class AutoScheduleService {
     final Map<String, Map<String, int>> teacherDailyHours = {};
     // Ders bazlı gün-slot takibi: "classId|lessonId" → day → [slotlar]
     final Map<String, Map<String, List<int>>> lessonDaySlots = {};
+    // Aynı ders adındaki farklı merge gruplarının çakışmaması için:
+    // key: lessonName.toLowerCase(), value: day → occupied hours
+    final Map<String, Map<String, Set<int>>> mergedLessonTimeline = {};
 
     // ── Yardımcı: Slot Dolu mu? ──────────────────────────────────
     bool isSlotOccupied(String type, String id, String day, int hour) {
@@ -311,13 +661,25 @@ class AutoScheduleService {
         List<String> mergedClassIds,
         List<String> teacherIds,
         bool avoidFirst,
-        bool avoidLast) {
+        bool avoidLast, {
+        Set<int>? redHours,
+        Set<int>? greenHours,
+        bool strictGreen = true,
+        String? lessonNameKey, // Birleşik ders çakışma kontrolü için
+    }) {
       if (startHour < 0 || startHour + blockSize > dayMax) return false;
       if (avoidFirst && startHour == 0) return false;
       if (avoidLast && startHour + blockSize == dayMax) return false;
 
       for (int b = 0; b < blockSize; b++) {
         final slot = startHour + b;
+        if (avoidFirst && slot == 0) return false;
+        if (avoidLast && slot == dayMax - 1) return false;
+        if (redHours != null && redHours.contains(slot)) return false;
+        if (strictGreen && greenHours != null && greenHours.isNotEmpty && !greenHours.contains(slot)) {
+          return false;
+        }
+
         for (var mCId in mergedClassIds) {
           if (isSlotOccupied('class', mCId, day, slot)) return false;
         }
@@ -325,13 +687,39 @@ class AutoScheduleService {
           if (isSlotOccupied('teacher', tId, day, slot)) return false;
         }
         if (isClosedSlot(teacherIds, mergedClassIds, day, slot)) return false;
+
+        // Aynı ders adındaki başka bir merge grubu bu saati kullanıyor mu?
+        if (lessonNameKey != null) {
+          if (mergedLessonTimeline[lessonNameKey]?[day]?.contains(slot) == true) {
+            return false;
+          }
+        }
       }
+
+      // ── Sınıf Gün İçi Boşluk (Pencere/Delik) Kontrolü ─────────────
+      // "en önemlisi bir ders 7. saat 8 boş 9. saate koymaması gerekiyor"
+      // Bloğun yerleşimi sonrasında sınıfın o günkü dersleri arasında boşluk kalmamalı.
+      for (var mCId in mergedClassIds) {
+        final existing = classTimeline[mCId]?[day];
+        if (existing != null && existing.isNotEmpty) {
+          final allHours = Set<int>.from(existing);
+          for (int b = 0; b < blockSize; b++) {
+            allHours.add(startHour + b);
+          }
+          final minH = allHours.reduce(min);
+          final maxH = allHours.reduce(max);
+          if ((maxH - minH + 1) != allHours.length) {
+            return false; // Arada boşluk (delik/pencere) oluşuyor! Kesinlikle yasak!
+          }
+        }
+      }
+
       return true;
     }
 
     // ── Yardımcı: Slot Kalite Skoru (yüksek=iyi) ─────────────────
     double scoreSlot(
-        int startHour, int blockSize, String day, int dayMax, String classId) {
+        int startHour, int blockSize, String day, int dayMax, String classId, {Set<int>? greenHours}) {
       double score = 0;
 
       // Mevcut derslere bitişik → sıkıştırma bonus
@@ -341,6 +729,15 @@ class AutoScheduleService {
       if (startHour + blockSize < dayMax &&
           isSlotOccupied('class', classId, day, startHour + blockSize)) {
         score += 15;
+      }
+
+      // Yeşil saat bonusu (tercih edilen saatler öncelikli yerleştirilir)
+      if (greenHours != null && greenHours.isNotEmpty) {
+        int greenCount = 0;
+        for (int b = 0; b < blockSize; b++) {
+          if (greenHours.contains(startHour + b)) greenCount++;
+        }
+        score += greenCount * 150.0;
       }
 
       // Erken saatleri hafifçe tercih et (üstten doldur)
@@ -430,39 +827,63 @@ class AutoScheduleService {
     final shuffled = List<Map<String, dynamic>>.from(assignments);
 
     if (attemptNumber > 1) {
-      // Birleştirilmiş ve normal atamaları ayır
-      bool checkMerged(Map<String, dynamic> a) {
-        if (lessonClassMerges == null || lessonClassMerges.isEmpty) return false;
-        final cId = (a['classId'] ?? '').toString();
-        final lName = (a['lessonName'] as String? ?? '').trim().toLowerCase();
-        for (var merge in lessonClassMerges) {
-          final mLessonName =
-              (merge['lessonName'] as String? ?? '').trim().toLowerCase();
-          final mClasses = List<String>.from(merge['classIds'] ?? []);
-          if (mLessonName == lName && mClasses.contains(cId)) return true;
+      // Öncelik grubu ile karıştırma: gün/saat kısıtlı → kur/kulüp → birleşik → normal
+      int attemptPriority(Map<String, dynamic> a) {
+        final aKey = (a['lessonName'] as String? ?? '').trim().toLowerCase() +
+            '|' + ((a['weeklyHours'] as num?)?.toInt() ?? 0).toString();
+        final lId = (a['lessonId'] ?? '').toString();
+
+        // 1. Gün veya saat kısıtlı dersler
+        final hasDayConstraint = (lessonDayPreferences?.containsKey(aKey) == true && lessonDayPreferences![aKey]!.isNotEmpty) ||
+            (lessonDayPreferences?.containsKey(lId) == true && lessonDayPreferences![lId]!.isNotEmpty);
+        final hasHourConstraint = (lessonHourPreferences?.containsKey(aKey) == true && lessonHourPreferences![aKey]!.isNotEmpty) ||
+            (lessonHourPreferences?.containsKey(lId) == true && lessonHourPreferences![lId]!.isNotEmpty);
+        if (hasDayConstraint || hasHourConstraint) return 1;
+
+        // 2. ve 3. Kur/kulüp veya birleşik dersler
+        if (lessonClassMerges != null && lessonClassMerges.isNotEmpty) {
+          final cId = (a['classId'] ?? '').toString();
+          final lName = (a['lessonName'] as String? ?? '').trim().toLowerCase();
+          for (var merge in lessonClassMerges) {
+            final mLessonName = (merge['lessonName'] as String? ?? '').trim().toLowerCase();
+            final mLessonId   = (merge['lessonId'] ?? '').toString();
+            final mClasses = List<String>.from(merge['classIds'] ?? []);
+            final nameOrIdMatch = (mLessonName == lName || (lId.isNotEmpty && mLessonId == lId));
+            if (nameOrIdMatch && mClasses.contains(cId)) {
+              final gType = (merge['groupType'] ?? '').toString();
+              if (gType == 'track' || gType == 'club') return 2; // kur ve kulüp
+              return 3; // birleşik (manuel)
+            }
+          }
         }
-        return false;
+        return 4; // normal dersler
       }
 
-      final merged = shuffled.where((a) => checkMerged(a)).toList();
-      final nonMerged = shuffled.where((a) => !checkMerged(a)).toList();
+      final constrained  = shuffled.where((a) => attemptPriority(a) == 1).toList();
+      final tracksClubs  = shuffled.where((a) => attemptPriority(a) == 2).toList();
+      final merged       = shuffled.where((a) => attemptPriority(a) == 3).toList();
+      final normal       = shuffled.where((a) => attemptPriority(a) == 4).toList();
 
-      // Gürültülü sıralama → farklı denemeler farklı sonuçlar verir
-      merged.sort((a, b) {
-        final ha = (a['weeklyHours'] as num?)?.toInt() ?? 0;
-        final hb = (b['weeklyHours'] as num?)?.toInt() ?? 0;
-        return (hb + random.nextInt(4)).compareTo(ha + random.nextInt(4));
-      });
-      nonMerged.sort((a, b) {
-        final ha = (a['weeklyHours'] as num?)?.toInt() ?? 0;
-        final hb = (b['weeklyHours'] as num?)?.toInt() ?? 0;
-        return (hb + random.nextInt(4)).compareTo(ha + random.nextInt(4));
-      });
+      // Her grup içinde gürültülü sıralama (Monte Carlo çeşitliliği)
+      void noisySort(List<Map<String, dynamic>> list) {
+        list.sort((a, b) {
+          final ha = (a['weeklyHours'] as num?)?.toInt() ?? 0;
+          final hb = (b['weeklyHours'] as num?)?.toInt() ?? 0;
+          return (hb + random.nextInt(4)).compareTo(ha + random.nextInt(4));
+        });
+      }
+
+      noisySort(constrained);
+      noisySort(tracksClubs);
+      noisySort(merged);
+      noisySort(normal);
 
       shuffled
         ..clear()
+        ..addAll(constrained)
+        ..addAll(tracksClubs)
         ..addAll(merged)
-        ..addAll(nonMerged);
+        ..addAll(normal);
     }
 
     // ── 3) Her Atamayı İşle ──────────────────────────────────────
@@ -534,6 +955,16 @@ class AutoScheduleService {
       final avoidLastHour = lessonAvoidLastHour?[patternKey] ??
           lessonAvoidLastHour?[lessonId] ??
           false;
+      final hourPrefs = lessonHourPreferences?[patternKey] ??
+          lessonHourPreferences?[lessonId] ??
+          const <int, int>{};
+
+      final redHours = <int>{};
+      final greenHours = <int>{};
+      hourPrefs.forEach((h, state) {
+        if (state == 2) redHours.add(h);
+        if (state == 1) greenHours.add(h);
+      });
 
       // Blok deseni
       List<int> rawBlocks;
@@ -594,6 +1025,12 @@ class AutoScheduleService {
           final dayMax = dailyCounts[day] ?? 0;
           if (dayMax < blockSize) continue;
 
+          // ── Gün Kısıtı Kontrolü ──────────────────────────────────
+          final dayAllowed = lessonDayPreferences?[patternKey];
+          if (dayAllowed != null && dayAllowed.isNotEmpty && !dayAllowed.contains(day)) {
+            continue; // Bu gün bu ders için yasak
+          }
+
           // Bu dersin bu günde zaten kaç saati var? dailyCap kontrolü
           final existingOnDay =
               lessonDaySlots[dayTrackKey]?[day]?.length ?? 0;
@@ -642,19 +1079,25 @@ class AutoScheduleService {
             final afterStart = maxSlot + 1;
             if (afterStart + blockSize <= dayMax) candidateStarts.add(afterStart);
           } else {
-            // Yeni gün → tüm pozisyonları dene
-            candidateStarts =
-                List.generate(dayMax - blockSize + 1, (i) => i);
+            // Yeni gün → tüm pozisyonları dene (dayMax - blockSize + 1 negatif olmamalı)
+            final genCount = dayMax - blockSize + 1;
+            candidateStarts = genCount > 0 ? List.generate(genCount, (i) => i) : [];
           }
 
           // ── Pozisyonları skorla ve filtrele ─────────────────────
+          final dayRedHours = Set<int>.from(redHours);
+          if (avoidFirstHour) dayRedHours.add(0);
+          if (avoidLastHour && dayMax > 0) dayRedHours.add(dayMax - 1);
+
           List<MapEntry<int, double>> slotCandidates = [];
           for (var h in candidateStarts) {
             if (!canPlaceBlock(h, blockSize, day, dayMax, mergedClassIds,
-                teacherIds, avoidFirstHour, avoidLastHour)) {
+                teacherIds, avoidFirstHour, avoidLastHour,
+                redHours: dayRedHours, greenHours: greenHours, strictGreen: true,
+                lessonNameKey: isMerged ? lessonName.toLowerCase() : null)) {
               continue;
             }
-            final ss = scoreSlot(h, blockSize, day, dayMax, classId) +
+            final ss = scoreSlot(h, blockSize, day, dayMax, classId, greenHours: greenHours) +
                 random.nextDouble() * 2;
             slotCandidates.add(MapEntry(h, ss));
           }
@@ -699,6 +1142,14 @@ class AutoScheduleService {
             lessonDaySlots.putIfAbsent(dayTrackKey, () => {});
             lessonDaySlots[dayTrackKey]!.putIfAbsent(day, () => []);
             lessonDaySlots[dayTrackKey]![day]!.add(slot);
+
+            // Birleştirme ders zaman çizelgesi güncelle (farklı merge grupları çakışmasın)
+            if (isMerged) {
+              mergedLessonTimeline
+                  .putIfAbsent(lessonName.toLowerCase(), () => {})
+                  .putIfAbsent(day, () => <int>{})
+                  .add(slot);
+            }
           }
 
           // Öğretmen günlük saatlerini güncelle
@@ -877,7 +1328,7 @@ class AutoScheduleService {
         final minSlot = slots.reduce(min);
         final maxSlot = slots.reduce(max);
         final gaps = (maxSlot - minSlot + 1) - slots.length;
-        score -= gaps * 3;
+        score -= gaps * 1000; // Gün içi delik/boşluk cezası ağırlaştırıldı
       }
     }
 

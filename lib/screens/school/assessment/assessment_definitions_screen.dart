@@ -1,28 +1,27 @@
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'exam_type_list_screen.dart';
 import 'optical_form_list_screen.dart';
 import 'outcome_list_screen.dart';
 
 class AssessmentDefinitionsScreen extends StatelessWidget {
   final String institutionId;
+  final String? schoolTypeId;
+  final String? schoolTypeName;
 
-  const AssessmentDefinitionsScreen({Key? key, required this.institutionId})
-    : super(key: key);
+  const AssessmentDefinitionsScreen({
+    Key? key,
+    required this.institutionId,
+    this.schoolTypeId,
+    this.schoolTypeName,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'Tanımlar',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
-        centerTitle: true,
-        backgroundColor: Colors.indigo,
-        foregroundColor: Colors.white,
-        iconTheme: const IconThemeData(color: Colors.white),
-        elevation: 0,
-        leading: const BackButton(color: Colors.white),
+      appBar: EduknAppBar(
+        title: 'Ölçme Değerlendirme Tanımları',
+        subtitle: schoolTypeName,
       ),
       body: Center(
         child: Container(
@@ -41,7 +40,7 @@ class AssessmentDefinitionsScreen extends StatelessWidget {
                     context,
                     MaterialPageRoute(
                       builder: (context) =>
-                          ExamTypeListScreen(institutionId: institutionId),
+                          ExamTypeListScreen(institutionId: institutionId, schoolTypeName: schoolTypeName),
                     ),
                   );
                 },
@@ -58,7 +57,7 @@ class AssessmentDefinitionsScreen extends StatelessWidget {
                     context,
                     MaterialPageRoute(
                       builder: (context) =>
-                          OpticalFormListScreen(institutionId: institutionId),
+                          OpticalFormListScreen(institutionId: institutionId, schoolTypeName: schoolTypeName),
                     ),
                   );
                 },
@@ -75,7 +74,7 @@ class AssessmentDefinitionsScreen extends StatelessWidget {
                     context,
                     MaterialPageRoute(
                       builder: (context) =>
-                          OutcomeListScreen(institutionId: institutionId),
+                          OutcomeListScreen(institutionId: institutionId, schoolTypeName: schoolTypeName),
                     ),
                   );
                 },

@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../../services/term_service.dart';
@@ -352,16 +353,9 @@ class _ClassPromotionScreenState extends State<ClassPromotionScreen> {
     final themeColor = Colors.indigo.shade800;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          '${widget.schoolTypeName} - Sınıf Atlatma',
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
-        ),
-        backgroundColor: themeColor,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
+      appBar: EduknAppBar(
+        title: 'Sınıf Atlatma',
+        subtitle: widget.schoolTypeName,
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -925,16 +919,9 @@ class _StudentTransferScreenState extends State<StudentTransferScreen> {
     final themeColor = Colors.teal.shade800;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          '${widget.sourceSchoolTypeName} - Nakil İşlemleri',
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
-        ),
-        backgroundColor: themeColor,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
+      appBar: EduknAppBar(
+        title: 'Nakil İşlemleri',
+        subtitle: widget.sourceSchoolTypeName,
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())

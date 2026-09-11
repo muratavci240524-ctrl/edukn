@@ -25,6 +25,7 @@ class TrialExam {
   final String? resultsJson; // Stores computed results
   final Map<String, dynamic> sharingSettings; // Sharing configuration
   final Map<String, Map<String, String>> bookletMapping; // NEW: Booklet -> Subject -> MappingString (e.g. "4,3,2,1")
+  final String? termId; // Dönem ID'si
 
   static AnswerStatus evaluateAnswer(String studentChar, String refChar) {
     studentChar = studentChar.toUpperCase();
@@ -71,6 +72,7 @@ class TrialExam {
     this.resultsJson,
     this.sharingSettings = const {},
     this.bookletMapping = const {},
+    this.termId,
   });
 
   Map<String, dynamic> toMap() {
@@ -95,6 +97,7 @@ class TrialExam {
       'resultsJson': resultsJson,
       'sharingSettings': sharingSettings,
       'bookletMapping': bookletMapping,
+      'termId': termId,
     };
   }
 
@@ -177,6 +180,7 @@ class TrialExam {
       resultsJson: map['resultsJson'],
       sharingSettings: map['sharingSettings'] ?? {},
       bookletMapping: parsedMapping,
+      termId: map['termId'],
     );
   }
 
@@ -197,9 +201,10 @@ class TrialExam {
     DateTime? date,
     bool? isActive,
     bool? isPublished,
-    bool? isLaunched, // Add copyWith param
+    bool? isLaunched,
     String? resultsJson,
     Map<String, dynamic>? sharingSettings,
+    String? termId,
   }) {
     return TrialExam(
       id: id ?? this.id,
@@ -218,9 +223,10 @@ class TrialExam {
       date: date ?? this.date,
       isActive: isActive ?? this.isActive,
       isPublished: isPublished ?? this.isPublished,
-      isLaunched: isLaunched ?? this.isLaunched, // Assign it
+      isLaunched: isLaunched ?? this.isLaunched,
       resultsJson: resultsJson ?? this.resultsJson,
       sharingSettings: sharingSettings ?? this.sharingSettings,
+      termId: termId ?? this.termId,
     );
   }
 }

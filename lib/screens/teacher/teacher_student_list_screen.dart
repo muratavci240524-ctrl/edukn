@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/user_permission_service.dart';
@@ -129,11 +130,8 @@ class _TeacherStudentListScreenState extends State<TeacherStudentListScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        title: Text('Tanımlı Öğrencilerim', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: Colors.white)),
-        backgroundColor: Colors.indigo,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
+      appBar: EduknAppBar(
+        title: 'Tanımlı Öğrencilerim',
       ),
       body: Column(
         children: [

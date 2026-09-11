@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
@@ -139,14 +140,8 @@ class _StudentAttendanceStatsScreenState
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 1,
-        leading: const BackButton(color: Colors.indigo),
-        title: const Text(
-          'Yoklama İstatistiklerim',
-          style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
-        ),
+      appBar: EduknAppBar(
+        title: 'Yoklama İstatistiklerim',
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh_rounded, color: Colors.indigo),

@@ -1,11 +1,13 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../../models/assessment/external_exam_model.dart';
 import '../../../../services/external_exam_service.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'external_exam_form_screen.dart';
 import 'external_exam_detail_screen.dart';
 import 'package:edukn/widgets/safe_stream_builder.dart';
+import '../../../../services/term_service.dart';
 
 class ExternalExamListScreen extends StatefulWidget {
   final String institutionId;
@@ -23,10 +25,23 @@ class ExternalExamListScreen extends StatefulWidget {
 
 class _ExternalExamListScreenState extends State<ExternalExamListScreen> {
   final ExternalExamService _service = ExternalExamService();
+  String? _activeTermId;
+  bool _isLoadingTerm = true;
 
   // Orange brand color
   static const _primaryColor = Color(0xFFF57C00);
   static const _primaryLight = Color(0xFFFF8F00);
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTermId();
+  }
+
+  Future<void> _loadTermId() async {
+    _activeTermId = await TermService().getActiveTermId();
+    if (mounted) setState(() => _isLoadingTerm = false);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -34,21 +49,9 @@ class _ExternalExamListScreenState extends State<ExternalExamListScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        title: Text(
-          'Dış Katılımlı Sınavlar',
-          style: GoogleFonts.inter(
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
-        backgroundColor: _primaryColor,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded),
-          onPressed: () => Navigator.pop(context),
-        ),
+      appBar: EduknAppBar(
+        title: 'Dış Katılımlı Sınavlar',
+        subtitle: 'Ölçme Değerlendirme',
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _openCreateForm(context),
@@ -60,8 +63,10 @@ class _ExternalExamListScreenState extends State<ExternalExamListScreen> {
           style: GoogleFonts.inter(fontWeight: FontWeight.bold),
         ),
       ),
-      body: SafeStreamBuilder<List<ExternalExam>>(
-        stream: _service.getExternalExams(widget.institutionId),
+      body: _isLoadingTerm
+          ? const Center(child: CircularProgressIndicator(color: _primaryColor))
+          : SafeStreamBuilder<List<ExternalExam>>(
+        stream: _service.getExternalExams(widget.institutionId, termId: _activeTermId),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(

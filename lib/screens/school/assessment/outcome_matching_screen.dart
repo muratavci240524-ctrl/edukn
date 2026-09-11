@@ -1,6 +1,7 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import '../../../../models/assessment/outcome_list_model.dart';
 import '../../../../services/assessment_service.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 
 class OutcomeMatchingScreen extends StatefulWidget {
   final Map<String, List<OutcomeItem>> allOutcomes; // Key: BranchName
@@ -465,27 +466,17 @@ class _OutcomeMatchingScreenState extends State<OutcomeMatchingScreen> {
 
         return Scaffold(
           backgroundColor: Colors.grey[50],
-          appBar: AppBar(
-            title: Text(
-              _isMobileView && _showMobileSuggestions
-                  ? 'Eşleşme Seç'
-                  : 'Kazanım Eşleştirme',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            backgroundColor: Colors.indigo,
-            foregroundColor: Colors.white,
-            iconTheme: const IconThemeData(color: Colors.white),
-            elevation: 0,
+          appBar: EduknAppBar(
+            title: _isMobileView && _showMobileSuggestions
+                ? 'Eşleşme Seç'
+                : 'Kazanım Eşleştirme',
             leading: (_isMobileView && _showMobileSuggestions)
                 ? IconButton(
-                    icon: const Icon(Icons.arrow_back, color: Colors.white),
+                    icon: const Icon(Icons.arrow_back, color: Colors.indigo),
                     onPressed: () =>
                         setState(() => _showMobileSuggestions = false),
                   )
-                : const BackButton(color: Colors.white),
+                : null,
             actions: [
               PopupMenuButton<String>(
                 icon: const Icon(Icons.more_vert, color: Colors.white),

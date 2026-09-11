@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'attendance/attendance_dashboard.dart';
 import 'shifts/shift_management_screen.dart';
 import 'leave/leave_management_screen.dart';
@@ -10,7 +11,7 @@ class AttendanceScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Devam – Mesai – İzin Yönetimi')),
+      appBar: EduknAppBar(title: 'Devam – Mesai – İzin Yönetimi'),
       body: Center(
         child: Container(
           constraints: const BoxConstraints(maxWidth: 1400),

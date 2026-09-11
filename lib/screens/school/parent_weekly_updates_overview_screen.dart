@@ -1,5 +1,6 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 
 import 'parent_weekly_update_detail_screen.dart';
 
@@ -163,14 +164,9 @@ class _ParentWeeklyUpdatesOverviewScreenState extends State<ParentWeeklyUpdatesO
     final weekLabel = _formatWeekRangeTr(_weekStart);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Veli Bilgilendirme Mektupları', style: TextStyle(fontWeight: FontWeight.w800)),
-            Text(widget.className, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-          ],
-        ),
+      appBar: EduknAppBar(
+        title: 'Veli Bilgilendirme Mektupları',
+        subtitle: widget.className,
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())

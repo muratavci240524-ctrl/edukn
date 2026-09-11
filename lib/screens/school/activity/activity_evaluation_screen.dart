@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../../../models/activity/activity_model.dart';
@@ -59,12 +60,7 @@ class _ActivityEvaluationScreenState extends State<ActivityEvaluationScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('${widget.studentName} Değerlendirmesi'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
-        elevation: 1,
-      ),
+      appBar: EduknAppBar(title: '${widget.studentName} Değerlendirmesi'),
       body: _isAlreadyEvaluated
           ? Center(
               child: Column(

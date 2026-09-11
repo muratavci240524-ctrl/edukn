@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../models/guidance/study_template_model.dart';
@@ -489,12 +490,7 @@ class _StudyTemplateCreationScreenState
     if (_isLoading) {
       return Scaffold(
         backgroundColor: const Color(0xFFF3F4F6),
-        appBar: AppBar(
-          title: Text('Şablon Kaydediliyor...', style: GoogleFonts.inter(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-          backgroundColor: Colors.indigo,
-          foregroundColor: Colors.white,
-          automaticallyImplyLeading: false,
-        ),
+        appBar: EduknAppBar(title: 'Şablon Kaydediliyor...'),
         body: const Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -510,16 +506,7 @@ class _StudyTemplateCreationScreenState
 
     return Scaffold(
       backgroundColor: const Color(0xFFF3F4F6),
-      appBar: AppBar(
-        title: Text(
-          'Yeni Şablon Oluştur',
-          style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white),
-        ),
-        backgroundColor: Colors.indigo,
-        foregroundColor: Colors.white,
-        iconTheme: const IconThemeData(color: Colors.white),
-        actionsIconTheme: const IconThemeData(color: Colors.white),
-      ),
+      appBar: EduknAppBar(title: 'Yeni Şablon Oluştur'),
       body: Column(
         children: [
           Expanded(

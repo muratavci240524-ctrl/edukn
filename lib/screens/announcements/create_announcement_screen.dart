@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/announcement_service.dart';
 import '../../widgets/recipient_selector_field.dart';
@@ -248,8 +249,9 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
     final isEditing = widget.announcementId != null;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(isEditing ? 'Duyuru Düzenle' : 'Yeni Duyuru'),
+      appBar: EduknAppBar(
+        title: isEditing ? 'Duyuru Düzenle' : 'Yeni Duyuru',
+        subtitle: widget.schoolTypeName,
         actions: [
           if (_isSaving)
             const Center(
@@ -265,8 +267,8 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
           else
             TextButton.icon(
               onPressed: _saveAnnouncement,
-              icon: const Icon(Icons.send),
-              label: const Text('Kaydet'),
+              icon: const Icon(Icons.send, color: Colors.indigo),
+              label: const Text('Kaydet', style: TextStyle(color: Colors.indigo)),
             ),
         ],
       ),

@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../../models/survey_model.dart';
@@ -68,15 +69,7 @@ class _SurveyPreviewScreenState extends State<SurveyPreviewScreen> {
 
     return Scaffold(
       backgroundColor: Colors.grey[50],
-      appBar: AppBar(
-        title: Text(
-          'Anket Önizleme',
-          style: GoogleFonts.inter(fontWeight: FontWeight.w600),
-        ),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
-        elevation: 0,
-      ),
+      appBar: EduknAppBar(title: 'Anket Önizleme'),
       body: SafeArea(
         child: Column(
           children: [

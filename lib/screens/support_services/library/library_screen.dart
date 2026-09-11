@@ -1,5 +1,6 @@
-import 'package:edukn/services/user_permission_service.dart';
+﻿import 'package:edukn/services/user_permission_service.dart';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
@@ -577,15 +578,15 @@ class _LibraryScreenState extends State<LibraryScreen>
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Scaffold(
-        appBar: AppBar(title: Text('Kütüphane İşlemleri')),
+        appBar: EduknAppBar(title: 'Kütüphane İşlemleri'),
         body: Center(child: CircularProgressIndicator()),
       );
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Kütüphane İşlemleri'),
-        elevation: 1,
+      appBar: EduknAppBar(
+        title: 'Kütüphane İşlemleri',
+        subtitle: widget.fixedSchoolTypeName,
         actions: [
           PopupMenuButton<String>(
             icon: Icon(Icons.more_vert),

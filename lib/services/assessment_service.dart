@@ -21,16 +21,25 @@ class AssessmentService {
     await docRef.set(data, SetOptions(merge: true));
   }
 
-  Stream<List<ExamType>> getExamTypes(String institutionId) {
+  Stream<List<ExamType>> getExamTypes(String institutionId, {String? termId}) {
     return _firestore
         .collection('exam_types')
         .where('institutionId', isEqualTo: institutionId)
         .where('isActive', isEqualTo: true)
         .snapshots()
         .map(
-          (snapshot) => snapshot.docs
-              .map((doc) => ExamType.fromMap(doc.data(), doc.id))
-              .toList(),
+          (snapshot) {
+            var list = snapshot.docs
+                .map((doc) => ExamType.fromMap(doc.data(), doc.id))
+                .toList();
+            if (termId != null) {
+              list = list.where((e) {
+                final docTermId = e.toMap()['termId'];
+                return docTermId == null || docTermId == termId;
+              }).toList();
+            }
+            return list;
+          },
         );
   }
 
@@ -59,16 +68,25 @@ class AssessmentService {
     await docRef.set(data, SetOptions(merge: true));
   }
 
-  Stream<List<OpticalForm>> getOpticalForms(String institutionId) {
+  Stream<List<OpticalForm>> getOpticalForms(String institutionId, {String? termId}) {
     return _firestore
         .collection('optical_forms')
         .where('institutionId', isEqualTo: institutionId)
         .where('isActive', isEqualTo: true)
         .snapshots()
         .map(
-          (snapshot) => snapshot.docs
-              .map((doc) => OpticalForm.fromMap(doc.data(), doc.id))
-              .toList(),
+          (snapshot) {
+            var list = snapshot.docs
+                .map((doc) => OpticalForm.fromMap(doc.data(), doc.id))
+                .toList();
+            if (termId != null) {
+              list = list.where((e) {
+                final docTermId = e.toMap()['termId'];
+                return docTermId == null || docTermId == termId;
+              }).toList();
+            }
+            return list;
+          },
         );
   }
 
@@ -102,7 +120,7 @@ class AssessmentService {
     });
   }
 
-  Stream<List<TrialExam>> getTrialExams(String institutionId, {List<String>? classLevels}) {
+  Stream<List<TrialExam>> getTrialExams(String institutionId, {List<String>? classLevels, String? termId}) {
     return _firestore
         .collection('trial_exams')
         .where('institutionId', isEqualTo: institutionId)
@@ -114,6 +132,12 @@ class AssessmentService {
             var exams = snapshot.docs
                 .map((doc) => TrialExam.fromMap(doc.data() as Map<String, dynamic>, doc.id))
                 .toList();
+            
+            // Client-side termId filtreleme (composite index gerektirmez)
+            // termId null olan eski verileri de göster (geriye uyumluluk)
+            if (termId != null) {
+              exams = exams.where((exam) => exam.termId == null || exam.termId == termId).toList();
+            }
             
             if (classLevels != null && classLevels.isNotEmpty) {
               return exams.where((exam) => classLevels.contains(exam.classLevel)).toList();
@@ -161,16 +185,25 @@ class AssessmentService {
     await docRef.set(data, SetOptions(merge: true));
   }
 
-  Stream<List<OutcomeList>> getOutcomeLists(String institutionId) {
+  Stream<List<OutcomeList>> getOutcomeLists(String institutionId, {String? termId}) {
     return _firestore
         .collection('outcome_lists')
         .where('institutionId', isEqualTo: institutionId)
         .where('isActive', isEqualTo: true)
         .snapshots()
         .map(
-          (snapshot) => snapshot.docs
-              .map((doc) => OutcomeList.fromMap(doc.data(), doc.id))
-              .toList(),
+          (snapshot) {
+            var list = snapshot.docs
+                .map((doc) => OutcomeList.fromMap(doc.data(), doc.id))
+                .toList();
+            if (termId != null) {
+              list = list.where((e) {
+                final docTermId = e.toMap()['termId'];
+                return docTermId == null || docTermId == termId;
+              }).toList();
+            }
+            return list;
+          },
         );
   }
 

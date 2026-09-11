@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -660,17 +661,10 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
 
         return Scaffold(
           backgroundColor: Colors.grey.shade50,
-          appBar: AppBar(
-            title: Text(
-              _showFormMobile ? 'Görüşme Detayları' : 'Görüşmeler',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Colors.grey.shade900,
-              ),
-            ),
-            backgroundColor: Colors.white,
-            elevation: 0,
-            leading: IconButton(
+          appBar: EduknAppBar(
+            title: _showFormMobile ? 'Görüşme Detayları' : 'Görüşmeler',
+            subtitle: widget.schoolTypeName.isNotEmpty ? widget.schoolTypeName : null,
+        leading: IconButton(
               icon: Icon(Icons.arrow_back, color: Colors.indigo),
               onPressed: () {
                 if (_showFormMobile) {
@@ -680,14 +674,14 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
                 }
               },
             ),
-            actions: [
+        actions: [
               IconButton(
                 onPressed: _showStatisticsDialog,
                 icon: Icon(Icons.bar_chart, color: Colors.indigo),
                 tooltip: 'İstatistikler',
               ),
             ],
-          ),
+      ),
           body: isMobile ? _buildMobileBody() : _buildDesktopBody(),
 
           floatingActionButton:
@@ -1591,12 +1585,7 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
               context,
               MaterialPageRoute(
                 builder: (ctx) => Scaffold(
-                  appBar: AppBar(
-                    title: Text('Görüşme Detayı'),
-                    backgroundColor: Colors.white,
-                    foregroundColor: Colors.black,
-                    elevation: 1,
-                  ),
+                  appBar: EduknAppBar(title: 'Görüşme Detayı'),
                   body: SingleChildScrollView(
                     padding: EdgeInsets.all(16),
                     child: _buildHistoryDetailContent(item),

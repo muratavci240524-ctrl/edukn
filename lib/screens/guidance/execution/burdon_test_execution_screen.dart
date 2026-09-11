@@ -1,6 +1,7 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../models/survey_model.dart';
 import '../../../services/survey_service.dart';
@@ -204,14 +205,8 @@ class _BurdonTestExecutionScreenState extends State<BurdonTestExecutionScreen> {
 
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: Text(
-          widget.survey.title,
-          style: GoogleFonts.inter(fontWeight: FontWeight.bold),
-        ),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
+      appBar: EduknAppBar(
+        title: widget.survey.title,
         actions: [
           Center(
             child: TimerDisplay(

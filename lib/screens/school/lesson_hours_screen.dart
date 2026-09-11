@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import '../../services/term_service.dart';
@@ -65,33 +66,12 @@ class _LessonHoursScreenState extends State<LessonHoursScreen> with WidgetsBindi
     final isWideScreen = MediaQuery.of(context).size.width > 900;
 
     return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.indigo),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Ders Saatleri',
-              style: TextStyle(
-                color: Colors.grey.shade900,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            Text(
-              widget.schoolTypeName,
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-            ),
-          ],
-        ),
+      appBar: EduknAppBar(
+        title: 'Ders Saatleri',
+        subtitle: widget.schoolTypeName,
         actions: [
           IconButton(
-            icon: Icon(Icons.info_outline_rounded, color: Colors.grey.shade800),
+            icon: Icon(Icons.info_outline_rounded, color: Colors.indigo.shade400),
             tooltip: 'Saat Programı Rehberi',
             onPressed: () {
               Navigator.push(
@@ -743,36 +723,12 @@ class _LessonHoursDetailScreenState extends State<_LessonHoursDetailScreen> {
     final endDate = (widget.periodData['endDate'] as Timestamp?)?.toDate();
 
     return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        leading: Navigator.canPop(context)
-            ? IconButton(
-                icon: Icon(Icons.arrow_back_rounded, color: Colors.grey.shade800),
-                onPressed: () => Navigator.pop(context),
-              )
+      appBar: EduknAppBar(
+        title: periodName,
+        subtitle: (startDate != null && endDate != null)
+            ? '${_dateFormat.format(startDate)} - ${_dateFormat.format(endDate)}'
             : null,
-        automaticallyImplyLeading: false,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              periodName,
-              style: TextStyle(
-                color: Colors.grey.shade900,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            if (startDate != null && endDate != null)
-              Text(
-                '${_dateFormat.format(startDate)} - ${_dateFormat.format(endDate)}',
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-              ),
-          ],
-        ),
         actions: [
-          // Kopyala butonu
           TextButton.icon(
             onPressed: () => widget.onCopyFromPeriod(widget.periodId),
             icon: Icon(Icons.copy, size: 18),

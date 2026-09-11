@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import '../../../models/school/temporary_teacher_assignment.dart';
@@ -61,20 +62,9 @@ class _SubstituteTeacherListScreenState
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF7F8FC),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        centerTitle: false,
-        title: const Text(
-          'Geçici Görevlendirme',
-          style: TextStyle(
-            color: Color(0xFF1E293B),
-            fontWeight: FontWeight.w800,
-            fontSize: 22,
-            letterSpacing: -0.5,
-          ),
-        ),
-        iconTheme: const IconThemeData(color: Color(0xFF1E293B)),
+      appBar: EduknAppBar(
+        title: 'Geçici Görevlendirme',
+        subtitle: widget.schoolTypeName,
         actions: [
           IconButton(
             onPressed: _showDateModePicker,

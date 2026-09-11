@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:intl/intl.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import '../../../../models/assessment/trial_exam_model.dart';
@@ -7,17 +8,20 @@ import '../../../../services/user_permission_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'trial_exam_form.dart';
 import 'package:google_fonts/google_fonts.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+import '../../../../services/term_service.dart';
 
 
 
 class TrialExamListScreen extends StatefulWidget {
   final String institutionId;
   final String schoolTypeId;
+  final String? schoolTypeName;
 
   const TrialExamListScreen({
     Key? key,
     required this.institutionId,
     required this.schoolTypeId,
+    this.schoolTypeName,
   }) : super(key: key);
 
   @override
@@ -35,6 +39,7 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
   List<String>? _filterClassLevels;
   bool _isLoadingFilter = true;
   String? _realInstitutionId;
+  String? _activeTermId;
 
 
   @override
@@ -81,6 +86,8 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
           _filterClassLevels = grades;
         }
       }
+      // Aktif dönem ID'sini al
+      _activeTermId = await TermService().getActiveTermId();
     } catch (e) {
       debugPrint('Error loading filter data: $e');
     } finally {
@@ -117,7 +124,8 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
   Stream<List<TrialExam>> _getStream() {
     return _service.getTrialExams(
       _realInstitutionId ?? widget.institutionId, 
-      classLevels: _filterClassLevels
+      classLevels: _filterClassLevels,
+      termId: _activeTermId,
     );
   }
 
@@ -144,10 +152,9 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
               ),
             ),
             child: Scaffold(
-              appBar: AppBar(
-                leading: const BackButton(color: Colors.white),
-                title: const Text('Deneme Sınavları'),
-                elevation: 0,
+              appBar: EduknAppBar(
+                title: 'Deneme Sınavları',
+                subtitle: widget.schoolTypeName,
               ),
               body: _isLoadingFilter 
                   ? const Center(child: CircularProgressIndicator())
@@ -179,10 +186,9 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
                           ),
                         ),
                         child: Scaffold(
-                          appBar: AppBar(
-                            leading: const BackButton(color: Colors.white),
-                            title: const Text('Yeni Deneme Sınavı'),
-                            elevation: 0,
+                          appBar: EduknAppBar(
+                            title: 'Yeni Deneme Sınavı',
+                            subtitle: widget.schoolTypeName,
                           ),
                           body: TrialExamForm(
                             institutionId: widget.institutionId,
@@ -207,19 +213,9 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
           );
         } else {
           return Scaffold(
-            appBar: AppBar(
-              title: const Text(
-                'Deneme Sınavı Yönetimi',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              backgroundColor: Colors.indigo,
-              foregroundColor: Colors.white,
-              iconTheme: const IconThemeData(color: Colors.white),
-              elevation: 0,
-              leading: const BackButton(color: Colors.white),
+            appBar: EduknAppBar(
+              title: 'Deneme Sınavı Yönetimi',
+              subtitle: widget.schoolTypeName,
             ),
             body: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -580,10 +576,9 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
                             ),
                           ),
                           child: Scaffold(
-                            appBar: AppBar(
+                            appBar: EduknAppBar(
+                              title: exam.name,
                               leading: const BackButton(color: Colors.white),
-                              title: Text(exam.name),
-                              elevation: 0,
                             ),
                             body: TrialExamForm(
                               institutionId: widget.institutionId,

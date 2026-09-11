@@ -1,6 +1,7 @@
 import 'dart:ui' as ui;
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter/gestures.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -57,6 +58,8 @@ import '../../teacher/teacher_qr_scan_screen.dart';
 
 import 'chat/chat_screen.dart';
 import '../hr/school_type_leave_management_screen.dart';
+import '../dynamic_groups/course_group_management_screen.dart';
+import '../../../models/school/dynamic_course_group_model.dart';
 import '../../../../widgets/stylish_bottom_nav.dart';
 import '../guidance/guidance_interview_screen.dart';
 import '../guidance/guidance_study_program_screen.dart';
@@ -74,6 +77,7 @@ import '../notes/personal_notes_screen.dart';
 import '../assessment/camp/screens/camp_dashboard_screen.dart';
 import '../assessment/agm/screens/agm_dashboard_screen.dart';
 import 'package:edukn/widgets/safe_stream_builder.dart';
+import '../tools/tools_hub_screen.dart';
 
 
 class SchoolTypeDetailScreen extends StatefulWidget {
@@ -1429,6 +1433,8 @@ class _OperationsTabState extends State<_OperationsTab> {
               {'title': 'Personel Listesi', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => StaffListScreen(fixedSchoolTypeId: widget.schoolTypeId, fixedSchoolTypeName: widget.schoolTypeName)))},
             {'title': 'Şube Listesi', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ClassManagementScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
             {'title': 'Ders Listesi', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => LessonManagementScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
+            {'title': 'Kurs Listesi', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => CourseGroupManagementScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName, initialType: DynamicCourseGroupType.track)))},
+            {'title': 'Kulüp Listesi', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => CourseGroupManagementScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName, initialType: DynamicCourseGroupType.club)))},
             {'title': 'Derslik Listesi', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ClassroomManagementScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
             {'title': 'Kitap Listesi', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => BookManagementScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
           ],
@@ -1472,15 +1478,15 @@ class _OperationsTabState extends State<_OperationsTab> {
             if (_hasSubModuleAccess('rehberlik', 'ogrenci_portfolyosu'))
               {'title': 'Portfolyo', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => PortfolioScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
             if (_hasSubModuleAccess('rehberlik', 'talepler'))
-              {'title': 'Talepler (Yönlendirmeler)', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => DemandDashboardScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
+              {'title': 'Talepler (Yönlendirmeler)', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => DemandDashboardScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
             if (_hasSubModuleAccess('rehberlik', 'gorusme_kayitlari'))
               {'title': 'Görüşmeler', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => GuidanceInterviewScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
             {'title': 'Toplu Gözlem Girişi', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ActivityListScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
-            {'title': 'Mentör Çalışmaları', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => MentorStudiesHubScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
+            {'title': 'Mentör Çalışmaları', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => MentorStudiesHubScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
             {'title': 'Rehberlik Ajandası', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => PersonalNotesScreen()))},
             if (_hasSubModuleAccess('rehberlik', 'rehberlik_testleri'))
-              {'title': 'Envanterler', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => GuidanceTestCatalogScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
-            {'title': '360 Gelişim Raporları', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => DevelopmentReportManagementScreen(institutionId: widget.institutionId)))},
+              {'title': 'Envanterler', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => GuidanceTestCatalogScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
+            {'title': '360 Gelişim Raporları', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => DevelopmentReportManagementScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
           ],
           onTap: () => setState(() => _selectedCategory = 'Rehberlik'),
         ),
@@ -1497,19 +1503,38 @@ class _OperationsTabState extends State<_OperationsTab> {
           showAllItems: isFiltered,
           items: [
             if (_hasSubModuleAccess('olcme_degerlendirme', 'tanimlar'))
-              {'title': 'Tanımlar', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => AssessmentDefinitionsScreen(institutionId: widget.institutionId)))},
+              {'title': 'Tanımlar', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => AssessmentDefinitionsScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
             if (_hasSubModuleAccess('olcme_degerlendirme', 'raporlar'))
-              {'title': 'Raporlar', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => AssessmentReportsScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
+              {'title': 'Raporlar', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => AssessmentReportsScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
             if (_hasSubModuleAccess('olcme_degerlendirme', 'denemeler'))
-              {'title': 'Denemeler', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => TrialExamListScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
+              {'title': 'Denemeler', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => TrialExamListScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
             if (_hasSubModuleAccess('olcme_degerlendirme', 'sinavlar'))
-              {'title': 'Sınavlar', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ActiveExamListScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
+              {'title': 'Sınavlar', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ActiveExamListScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
             if (_hasSubModuleAccess('olcme_degerlendirme', 'hata_kitapcigi'))
-              {'title': 'Hata Kitapçığı', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ErrorBookletDashboardScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
+              {'title': 'Hata Kitapçığı', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ErrorBookletDashboardScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
             if (_hasSubModuleAccess('olcme_degerlendirme', 'soru_havuzu'))
-              {'title': 'Soru havuzu', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => QuestionPoolScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
+              {'title': 'Soru havuzu', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => QuestionPoolScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
           ],
           onTap: () => setState(() => _selectedCategory = 'Ölçme'),
+        ),
+      _ModuleCardWidget(
+          key: const ValueKey('araclar'),
+          title: 'ARAÇLAR',
+          badge: 'Araçlar',
+          icon: Icons.build_circle_outlined,
+          color: Colors.amber.shade700,
+          cardWidth: currentCardWidth,
+          isMobile: isMobile,
+          category: 'Araçlar',
+          showAllItems: isFiltered,
+          items: [
+            {'title': 'Sınıf İçi Yönetim ve Etkileşim', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ToolsHubScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName, initialCategoryIndex: 0)))},
+            {'title': 'Sınav ve Gözetmenlik', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ToolsHubScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName, initialCategoryIndex: 1)))},
+            {'title': 'Akademik Ölçme ve Başarı Takibi', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ToolsHubScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName, initialCategoryIndex: 2)))},
+            {'title': 'Evrak, Liste ve Şablon Otomasyonları', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ToolsHubScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName, initialCategoryIndex: 3)))},
+            {'title': 'Online Hizmetler', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ToolsHubScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName, initialCategoryIndex: 4)))},
+          ],
+          onTap: () => setState(() => _selectedCategory = 'Araçlar'),
         ),
       if (_hasModuleAccess('insan_kaynaklari'))
         _ModuleCardWidget(
@@ -1527,7 +1552,7 @@ class _OperationsTabState extends State<_OperationsTab> {
             if (_hasSubModuleAccess('insan_kaynaklari', 'devam_mesai_izin'))
               {'title': 'İzin Yönetimi', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => SchoolTypeLeaveManagementScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
             {'title': 'Geçici Öğretmen', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => SubstituteTeacherListScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
-            {'title': 'Nöbet İşlemleri', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => DutyManagementScreen(institutionId: widget.institutionId)))},
+            {'title': 'Nöbet İşlemleri', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => DutyManagementScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
             {'title': 'Gezi Görevlendirmeleri', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => FieldTripListScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
             {'title': 'Proje Görevlendirmeleri', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ProjectAssignmentListScreen(institutionId: widget.institutionId)))},
             {'title': 'Nöbet Çizelgesi', 'onTap': () => print('Nöbet Çizelgesi')},
@@ -1620,24 +1645,7 @@ class _OperationsTabState extends State<_OperationsTab> {
           ],
           onTap: () => setState(() => _selectedCategory = 'Kişisel'),
         ),
-      if (_hasLingoknAccess())
-        _ModuleCardWidget(
-          key: const ValueKey('online_hizmetler'),
-          title: 'ONLİNE HİZMETLER',
-          badge: 'LinGoKN',
-          icon: Icons.translate_rounded,
-          color: Colors.teal,
-          cardWidth: currentCardWidth,
-          isMobile: isMobile,
-          category: 'Destek',
-          showAllItems: isFiltered,
-          items: [
-            {'title': 'LinGoKN Portalına Geçiş', 'onTap': () => _launchDilknSso()},
-            if (['super_admin', 'admin', 'manager', 'genel_mudur'].contains(userData?['role']?.toString().toLowerCase()))
-              {'title': 'LinGoKN İzin Yönetimi', 'onTap': () => _showLingoknAccessDialog()},
-          ],
-          onTap: () => _launchDilknSso(),
-        ),
+
     ];
 
     final filteredModules = isFiltered ? allModules.where((m) => m.category == _selectedCategory).toList() : allModules;
@@ -1730,24 +1738,7 @@ class _OperationsTabState extends State<_OperationsTab> {
         ],
         onTap: () => setState(() => _selectedCategory = 'Kişisel'),
       ),
-      if (_hasLingoknAccess())
-        _ModuleCardWidget(
-          key: const ValueKey('t_online_hizmetler'),
-          title: 'ONLİNE HİZMETLER',
-          badge: 'LinGoKN',
-          icon: Icons.translate_rounded,
-          color: Colors.teal,
-          cardWidth: currentCardWidth,
-          isMobile: isMobile,
-          category: 'Kişisel',
-          showAllItems: isFiltered,
-          items: [
-            {'title': 'LinGoKN Portalına Geçiş', 'onTap': () => _launchDilknSso()},
-            if (['super_admin', 'admin', 'manager', 'genel_mudur'].contains(userData?['role']?.toString().toLowerCase()))
-              {'title': 'LinGoKN İzin Yönetimi', 'onTap': () => _showLingoknAccessDialog()},
-          ],
-          onTap: () => _launchDilknSso(),
-        ),
+
     ];
 
     final filteredModules = teacherModules.where((m) => _selectedCategory == 'Tümü' || m.category == _selectedCategory).toList();
@@ -1766,6 +1757,7 @@ class _OperationsTabState extends State<_OperationsTab> {
       {'label': 'Eğitim', 'icon': Icons.school},
       {'label': 'Rehberlik', 'icon': Icons.folder_special},
       {'label': 'Ölçme', 'icon': Icons.bar_chart},
+      {'label': 'Araçlar', 'icon': Icons.build_circle_outlined},
       {'label': 'Görev', 'icon': Icons.assignment_ind},
       {'label': 'Destek', 'icon': Icons.support_agent},
       {'label': 'Raporlar', 'icon': Icons.analytics_outlined},
@@ -3787,8 +3779,8 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
         MaterialPageRoute(
           fullscreenDialog: true,
           builder: (context) => Scaffold(
-            appBar: AppBar(
-              title: Text('Yeni Etkinlik'),
+            appBar: EduknAppBar(
+              title: 'Yeni Etkinlik',
               leading: IconButton(
                 icon: Icon(Icons.close),
                 onPressed: () => Navigator.pop(context),

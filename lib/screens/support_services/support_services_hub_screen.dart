@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'cafeteria/cafeteria_screen.dart';
 import 'transportation/transportation_screen.dart';
 import 'health/health_screen.dart';
@@ -86,8 +87,8 @@ class SupportServicesHubScreen extends StatelessWidget {
     ];
 
     return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
+      appBar: EduknAppBar(
+        title: 'Destek Hizmetleri',
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.indigo),
           onPressed: () {
@@ -98,8 +99,6 @@ class SupportServicesHubScreen extends StatelessWidget {
             }
           },
         ),
-        title: const Text('Destek Hizmetleri'),
-        elevation: 1,
       ),
       body: Center(
         child: Container(

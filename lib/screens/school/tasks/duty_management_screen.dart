@@ -1,15 +1,24 @@
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../../services/term_service.dart';
 import 'duty_settings_screen.dart';
+import 'duty_global_stats_screen.dart';
 import 'duty_program_detail_screen.dart';
 
 class DutyManagementScreen extends StatefulWidget {
   final String institutionId;
+  final String? schoolTypeId;
+  final String? schoolTypeName;
 
-  const DutyManagementScreen({Key? key, required this.institutionId})
-    : super(key: key);
+  const DutyManagementScreen({
+    Key? key,
+    required this.institutionId,
+    this.schoolTypeId,
+    this.schoolTypeName,
+  }) : super(key: key);
 
   @override
   State<DutyManagementScreen> createState() => _DutyManagementScreenState();
@@ -21,6 +30,7 @@ class _DutyManagementScreenState extends State<DutyManagementScreen> {
   String _scopeMode = 'alt_donem';
   bool _ready = false;
   List<Map<String, dynamic>> _items = [];
+  String? _currentTermId;
 
   @override
   void initState() {
@@ -28,9 +38,16 @@ class _DutyManagementScreenState extends State<DutyManagementScreen> {
     _fastLoad();
   }
 
-  /// 1. Local cache'ten scope modu an+ında oku
+  /// 1. Local cache'ten scope modu ve TermService'ten dönem filtresi oku
   /// 2. Firestore'dan scope + liste paralel çek
   Future<void> _fastLoad() async {
+    // TermService ile aktif/seçili dönemi al (Ders programı ekranındakiyle aynı mantık)
+    final selectedTermId = await TermService().getSelectedTermId();
+    final activeTermId = await TermService().getActiveTermId();
+    final effectiveTermId = selectedTermId ?? activeTermId;
+
+    _currentTermId = effectiveTermId;
+
     // A. SharedPreferences'ten anında oku (0ms gecikme)
     final prefs = await SharedPreferences.getInstance();
     final cachedMode = prefs.getString(_prefKey) ?? 'alt_donem';
@@ -74,20 +91,31 @@ class _DutyManagementScreenState extends State<DutyManagementScreen> {
   Future<List<Map<String, dynamic>>> _fetchList(String mode) async {
     try {
       if (mode == 'alt_donem') {
-        final snap = await FirebaseFirestore.instance
+        Query query = FirebaseFirestore.instance
             .collection('workPeriods')
             .where('institutionId', isEqualTo: widget.institutionId)
-            .where('isActive', isEqualTo: true)
-            .get();
-        final docs = snap.docs.map((d) {
-          final data = Map<String, dynamic>.from(d.data());
+            .where('isActive', isEqualTo: true);
+
+        if (widget.schoolTypeId != null && widget.schoolTypeId!.isNotEmpty) {
+          query = query.where('schoolTypeId', isEqualTo: widget.schoolTypeId);
+        }
+
+        final snap = await query.get();
+        var docs = snap.docs.map((d) {
+          final data = Map<String, dynamic>.from(d.data() as Map<String, dynamic>);
           data['id'] = d.id;
           return data;
         }).toList();
+
+        // Mevcut / seçili dönem filtresi (Ders programıyla aynı)
+        if (_currentTermId != null) {
+          docs = docs.where((d) => d['termId'] == _currentTermId).toList();
+        }
+
         docs.sort((a, b) {
-          final da = (a['startDate'] as Timestamp).toDate();
-          final db = (b['startDate'] as Timestamp).toDate();
-          return db.compareTo(da);
+          final da = (a['startDate'] as Timestamp?)?.toDate() ?? DateTime(2000);
+          final db = (b['startDate'] as Timestamp?)?.toDate() ?? DateTime(2000);
+          return da.compareTo(db);
         });
         return docs;
       } else {
@@ -136,6 +164,10 @@ class _DutyManagementScreenState extends State<DutyManagementScreen> {
   }
 
   Future<void> _refresh() async {
+    final selectedTermId = await TermService().getSelectedTermId();
+    final activeTermId = await TermService().getActiveTermId();
+    _currentTermId = selectedTermId ?? activeTermId;
+
     final items = await _fetchList(_scopeMode);
     if (!mounted) return;
     setState(() => _items = items);
@@ -209,32 +241,43 @@ class _DutyManagementScreenState extends State<DutyManagementScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF7F8FC),
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Nöbet Çizelgeleri',
-              style: TextStyle(
-                color: Color(0xFF1E293B),
-                fontWeight: FontWeight.bold,
-                fontSize: 18,
-              ),
-            ),
-            Text(
-              _scopeMode == 'alt_donem' ? 'Alt Dönem Modu' : 'Dönem Modu',
-              style: TextStyle(
-                color: Colors.grey.shade500,
-                fontSize: 11,
-                fontWeight: FontWeight.normal,
-              ),
-            ),
-          ],
-        ),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Color(0xFF1E293B)),
+      appBar: EduknAppBar(
+        title: 'Nöbet Çizelgeleri',
+        subtitle: widget.schoolTypeName ?? (_scopeMode == 'alt_donem' ? 'Alt Dönem Modu' : 'Dönem Modu'),
         actions: [
+          // Nöbet Yerleri Butonu
+          IconButton(
+            icon: const Icon(Icons.place_outlined, color: Color(0xFF4F46E5)),
+            tooltip: 'Nöbet Yerleri',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => DutySettingsScreen(
+                  institutionId: widget.institutionId,
+                  schoolTypeId: widget.schoolTypeId,
+                  schoolTypeName: widget.schoolTypeName,
+                  initialTabIndex: 1, // Nöbet Yerleri sekmesini aç
+                ),
+              ),
+            ),
+          ),
+          // Genel İstatistikler Butonu
+          IconButton(
+            icon: const Icon(Icons.bar_chart_rounded, color: Color(0xFF0891B2)),
+            tooltip: 'Genel Nöbet İstatistikleri',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => DutyGlobalStatsScreen(
+                  institutionId: widget.institutionId,
+                  currentTermId: _currentTermId,
+                  periods: _items,
+                  schoolTypeId: widget.schoolTypeId,
+                  schoolTypeName: widget.schoolTypeName,
+                ),
+              ),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.refresh, color: Color(0xFF64748B)),
             tooltip: 'Yenile',
@@ -279,6 +322,9 @@ class _DutyManagementScreenState extends State<DutyManagementScreen> {
       icon: Icons.calendar_view_week,
       color: const Color(0xFF4F46E5),
       scopeType: 'alt_donem',
+      termId: (data['termId'] as String?) ?? _currentTermId,
+      startDate: start,
+      endDate: end,
     );
   }
 
@@ -298,6 +344,7 @@ class _DutyManagementScreenState extends State<DutyManagementScreen> {
       icon: Icons.school_outlined,
       color: const Color(0xFF0891B2),
       scopeType: 'donem',
+      termId: termId,
       badge: isActive ? 'Aktif' : null,
       badgeColor: const Color(0xFF16A34A),
     );
@@ -310,8 +357,11 @@ class _DutyManagementScreenState extends State<DutyManagementScreen> {
     required IconData icon,
     required Color color,
     required String scopeType,
+    String? termId,
     String? badge,
     Color? badgeColor,
+    DateTime? startDate,
+    DateTime? endDate,
   }) {
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -327,6 +377,11 @@ class _DutyManagementScreenState extends State<DutyManagementScreen> {
               periodName: name,
               institutionId: widget.institutionId,
               scopeType: scopeType,
+              periodStartDate: startDate,
+              periodEndDate: endDate,
+              schoolTypeId: widget.schoolTypeId,
+              schoolTypeName: widget.schoolTypeName,
+              termId: termId ?? _currentTermId,
             ),
           ),
         ),

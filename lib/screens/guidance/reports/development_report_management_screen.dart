@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:intl/intl.dart';
 import '../../../models/guidance/development_report/development_report_session_model.dart';
 import '../../../services/development_report_service.dart';
@@ -10,12 +11,16 @@ import 'development_report_export_dialogs.dart';import 'package:edukn/widgets/s
 
 class DevelopmentReportManagementScreen extends StatefulWidget {
   final String institutionId;
+  final String? schoolTypeId;
+  final String? schoolTypeName;
   final bool isTeacher;
   final String? teacherId;
 
   const DevelopmentReportManagementScreen({
     Key? key,
     required this.institutionId,
+    this.schoolTypeId,
+    this.schoolTypeName,
     this.isTeacher = false,
     this.teacherId,
   }) : super(key: key);
@@ -49,10 +54,9 @@ class _DevelopmentReportManagementScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text("Gelişim Raporu Yönetimi"),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
+      appBar: EduknAppBar(
+        title: '360 Gelişim Raporları',
+        subtitle: widget.schoolTypeName,
       ),
       body: SafeStreamBuilder<List<DevelopmentReportSession>>(
         stream: _service.getSessions(widget.institutionId),
@@ -1457,16 +1461,11 @@ class __CreateReportDialogState extends State<_CreateReportDialog> {
 
     if (isMobile) {
       return Scaffold(
-        appBar: AppBar(
-          title: Text(
-            _currentStep == 0
+        appBar: EduknAppBar(
+        title: _currentStep == 0
                 ? "Yeni Rapor (Adım 1/2)"
                 : "Kriterler (Adım 2/2)",
-          ),
-          backgroundColor: Colors.white,
-          foregroundColor: Colors.indigo,
-          elevation: 0,
-          leading: IconButton(
+        leading: IconButton(
             icon: Icon(_currentStep == 0 ? Icons.close : Icons.arrow_back),
             onPressed: () {
               if (_currentStep == 0) {
@@ -1476,7 +1475,7 @@ class __CreateReportDialogState extends State<_CreateReportDialog> {
               }
             },
           ),
-        ),
+      ),
         backgroundColor: Colors.grey.shade50,
         body: Column(
           children: [

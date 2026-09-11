@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/foundation.dart';
 import 'package:file_saver/file_saver.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -698,65 +699,51 @@ class _SchoolTypeLeaveManagementScreenState extends State<SchoolTypeLeaveManagem
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : DefaultTabController(
-              length: 3,
-              child: NestedScrollView(
-                headerSliverBuilder: (context, innerBoxIsScrolled) => [
-                  SliverAppBar(
-                    expandedHeight: 120.0,
-                    floating: false,
-                    pinned: true,
-                    backgroundColor: Colors.white,
-                    elevation: 0,
-                    title: Text(
-                      'İzin Yönetimi',
-                      style: GoogleFonts.poppins(
-                        color: const Color(0xFF0F172A),
-                        fontWeight: FontWeight.bold,
-                        fontSize: 20,
-                      ),
-                    ),
-                    centerTitle: false,
-                    iconTheme: const IconThemeData(color: Color(0xFF0F172A)),
-                    actions: [
-                      IconButton(
-                        icon: const Icon(
-                          Icons.file_download,
-                          color: Color(0xFF64748B),
-                        ),
-                        onPressed: _exportToExcel,
-                        tooltip: 'Excel Dışarı Aktar',
-                      ),
-                      const SizedBox(width: 8),
-                    ],
-                    bottom: TabBar(
-                      controller: _tabController,
-                      labelColor: const Color(0xFF4F46E5),
-                      unselectedLabelColor: const Color(0xFF94A3B8),
-                      indicatorColor: const Color(0xFF4F46E5),
-                      indicatorWeight: 3,
-                      tabs: const [
-                        Tab(text: 'Bekleyenler'),
-                        Tab(text: 'Geçmiş'),
-                        Tab(text: 'İstatistik'),
-                      ],
-                    ),
-                  ),
-                ],
-                body: TabBarView(
-                  controller: _tabController,
-                  children: [
-                    _buildRequestList(_pendingRequests, isPending: true),
-                    _buildRequestList(_historyRequests, isPending: false),
-                    _buildAnalyticsView(),
-                  ],
-                ),
+    if (_loading) {
+      return const Scaffold(
+        backgroundColor: Color(0xFFF8FAFC),
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        appBar: EduknAppBar(
+          title: 'İzin Yönetimi',
+          actions: [
+            IconButton(
+              icon: const Icon(
+                Icons.file_download_outlined,
+                color: Colors.indigo,
               ),
+              onPressed: _exportToExcel,
+              tooltip: 'Excel Dışarı Aktar',
             ),
+            const SizedBox(width: 8),
+          ],
+          bottom: TabBar(
+            controller: _tabController,
+            labelColor: const Color(0xFF4F46E5),
+            unselectedLabelColor: const Color(0xFF94A3B8),
+            indicatorColor: const Color(0xFF4F46E5),
+            indicatorWeight: 3,
+            tabs: const [
+              Tab(text: 'Bekleyenler'),
+              Tab(text: 'Geçmiş'),
+              Tab(text: 'İstatistik'),
+            ],
+          ),
+        ),
+        body: TabBarView(
+          controller: _tabController,
+          children: [
+            _buildRequestList(_pendingRequests, isPending: true),
+            _buildRequestList(_historyRequests, isPending: false),
+            _buildAnalyticsView(),
+          ],
+        ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _showRequestDialog,
         backgroundColor: const Color(0xFF4F46E5),
@@ -766,8 +753,9 @@ class _SchoolTypeLeaveManagementScreenState extends State<SchoolTypeLeaveManagem
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildRequestList(
     List<Map<String, dynamic>> requests, {

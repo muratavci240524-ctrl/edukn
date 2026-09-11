@@ -1,5 +1,6 @@
-import 'package:flutter/gestures.dart';
+﻿import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'exam_detail_table_screen.dart';
 import '../../../../services/assessment_service.dart';
 import '../../../../models/assessment/trial_exam_model.dart';
@@ -15,6 +16,7 @@ import 'package:excel/excel.dart' hide Border;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'dart:ui'; // For PointerDeviceKind
+import '../../../../services/term_service.dart';
 
 class SingleExamResultsScreen extends StatefulWidget {
   final String institutionId;
@@ -67,6 +69,7 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
   String? _selectedBranchId; // 'all' or specific ID
   bool _isLoadingResults = false; // Loading state for results
   bool _isSidebarVisible = true; // State for sidebar visibility
+  String? _activeTermId;
 
   // Report Card Tab Options
   String _reportCardScope = 'Kurum'; // 'Kurum', 'Şube', 'Öğrenci'
@@ -121,7 +124,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
 
   Future<void> _loadExams() async {
     try {
-      final stream = _service.getTrialExams(widget.institutionId);
+      _activeTermId = await TermService().getActiveTermId();
+      final stream = _service.getTrialExams(widget.institutionId, termId: _activeTermId);
       stream.listen((exams) {
         if (mounted) {
           setState(() {
@@ -443,12 +447,7 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
           } else {
             // Showing LIST view (Left Panel content) on Mobile
             return Scaffold(
-              appBar: AppBar(
-                title: const Text('Tekil Sınav Raporları'),
-                backgroundColor: Colors.deepOrange,
-                foregroundColor: Colors.white,
-                elevation: 0,
-              ),
+              appBar: EduknAppBar(title: 'Tekil Sınav Raporları'),
               body: Column(
                 children: [
                   _buildLeftPanelHeader(),
@@ -3804,9 +3803,8 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
       context: context,
       builder: (context) => Dialog.fullscreen(
         child: Scaffold(
-          appBar: AppBar(
-            title: Text('Şube Karşılaştırma Listesi'),
-            centerTitle: false,
+          appBar: EduknAppBar(
+            title: 'Şube Karşılaştırma Listesi',
             leading: IconButton(
               icon: Icon(Icons.close),
               onPressed: () => Navigator.pop(context),
@@ -6605,9 +6603,7 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
                       context,
                       MaterialPageRoute(
                         builder: (context) => Scaffold(
-                          appBar: AppBar(
-                            title: Text('$subject - Kazanım Analizi'),
-                          ),
+                          appBar: EduknAppBar(title: '$subject - Kazanım Analizi'),
                           body: Padding(
                             padding: EdgeInsets.all(16),
                             child: Column(

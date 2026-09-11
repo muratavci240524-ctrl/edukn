@@ -1,8 +1,12 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 
 import '../school/class_lesson_hub_screen.dart';
+import '../../services/dynamic_group_service.dart';
+import '../../models/school/dynamic_course_group_model.dart';
 
 class StudentLessonsScreen extends StatefulWidget {
   final String schoolTypeId;
@@ -394,6 +398,50 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
         scheduleData[key] = {...data, 'id': doc.id, 'teacherName': teacherName};
       }
 
+      // Dinamik Kur ve Kulüp derslerini öğrenciye özel çözümle
+      if (widget.studentId.isNotEmpty) {
+        try {
+          final studentDoc = await FirebaseFirestore.instance.collection('students').doc(widget.studentId).get();
+          final enrollments = studentDoc.data()?['courseGroupEnrollments'] as Map<String, dynamic>? ?? {};
+
+          if (enrollments.isNotEmpty) {
+            final dynamicGroups = await DynamicGroupService().fetchGroups(
+              institutionId: widget.institutionId,
+              schoolTypeId: widget.schoolTypeId,
+              termId: _activePeriodId,
+            );
+
+            for (var entry in scheduleData.entries) {
+              final slot = entry.value;
+              final lId = slot['lessonId']?.toString();
+              final lName = (slot['lessonName'] ?? '').toString().toLowerCase();
+
+              for (var dg in dynamicGroups) {
+                // Kulüp: type=club olması yeterli (lessonName kontrolüne gerek yok)
+                // Track: lessonId veya lessonName eşleşmesi gerekli
+                final bool isMatch = dg.lessonId == lId ||
+                    dg.lessonName.toLowerCase() == lName ||
+                    dg.type == DynamicCourseGroupType.club;
+                if (!isMatch) continue;
+                final subId = enrollments[dg.id];
+                if (subId != null) {
+                  final sub = dg.subGroups.firstWhere((s) => s.id == subId, orElse: () => dg.subGroups.first);
+                  slot['lessonName'] = dg.type == DynamicCourseGroupType.club ? sub.name : '${dg.lessonName} (${sub.name})';
+                  if (sub.teacherNames.isNotEmpty) {
+                    slot['teacherName'] = sub.teacherNames.join(', ');
+                  }
+                  if (sub.classroomName.isNotEmpty) {
+                    slot['classroomName'] = sub.classroomName;
+                  }
+                }
+              }
+            }
+          }
+        } catch (e) {
+          debugPrint('Error resolving student course groups: $e');
+        }
+      }
+
       if (widget.studentId.isNotEmpty) {
         try {
           final etutSnap = await FirebaseFirestore.instance
@@ -494,37 +542,15 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Colors.purple),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Şube Ders Programı',
-              style: TextStyle(
-                color: Colors.grey.shade900,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            Text(
-              widget.schoolTypeName,
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-            ),
-          ],
-        ),
+      appBar: EduknAppBar(
+        title: 'Şube Ders Programı',
+        subtitle: widget.schoolTypeName,
         actions: [
           IconButton(
-            icon: Icon(Icons.print, color: Colors.purple),
+            icon: const Icon(Icons.print, color: Colors.indigo),
             onPressed: () {
-              // Yazdır fonksiyonu
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Yazdırma özelliği yakında eklenecek')),
+                const SnackBar(content: Text('Yazdırma özelliği yakında eklenecek')),
               );
             },
             tooltip: 'Yazdır',
@@ -1829,9 +1855,8 @@ class _ClassScheduleDetailViewState extends State<_ClassScheduleDetailView> {
     final className = widget.classData['className'] ?? '';
 
     return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
+      appBar: EduknAppBar(
+        title: '$className - Ders Programı',
         leading: IconButton(
           icon: Icon(Icons.arrow_back, color: Colors.purple),
           onPressed: () => Navigator.pop(context),
@@ -1851,14 +1876,6 @@ class _ClassScheduleDetailViewState extends State<_ClassScheduleDetailView> {
             },
           ),
         ],
-        title: Text(
-          '$className - Ders Programı',
-          style: TextStyle(
-            color: Colors.grey.shade900,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
       ),
       body: Column(
         children: [

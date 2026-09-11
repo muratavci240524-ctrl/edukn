@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/gestures.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -987,22 +988,12 @@ class _GuidanceStudyProgramScreenState
               builder: (context, setState) {
                 return Scaffold(
                   backgroundColor: Colors.white,
-                  appBar: AppBar(
-                    elevation: 0,
-                    backgroundColor: Colors.white,
+                  appBar: EduknAppBar(
+                    title: 'Başarı Sınırı Belirleme',
                     leading: IconButton(
                       icon: Icon(Icons.close, color: Colors.indigo),
                       onPressed: () => Navigator.pop(ctx, null),
                     ),
-                    title: Text(
-                      'Başarı Sınırı Belirleme',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.indigo.shade900,
-                      ),
-                    ),
-                    centerTitle: true,
                   ),
                   body: Column(
                     children: [
@@ -2162,13 +2153,8 @@ class _GuidanceStudyProgramScreenState
     final isMobile = MediaQuery.of(context).size.width < 900;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          'Mentör Çalışmaları',
-          style: TextStyle(color: Colors.white),
-        ),
-        backgroundColor: Colors.indigo,
-        iconTheme: IconThemeData(color: Colors.white),
+      appBar: EduknAppBar(
+        title: 'Mentör Çalışmaları',
         actions: [
           // 1. Program Actions (Mobile Only)
           if (_isProgramGenerated && isMobile)
@@ -5209,22 +5195,12 @@ class _GuidanceStudyProgramScreenState
       MaterialPageRoute(
         builder: (ctx) => Scaffold(
           backgroundColor: Colors.white,
-          appBar: AppBar(
-            elevation: 0,
-            backgroundColor: Colors.white,
+          appBar: EduknAppBar(
+            title: 'Sınav Seçiniz',
             leading: IconButton(
               icon: Icon(Icons.arrow_back, color: Colors.indigo),
               onPressed: () => Navigator.pop(ctx),
             ),
-            title: Text(
-              'Sınav Seçiniz',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Colors.indigo,
-              ),
-            ),
-            centerTitle: true,
           ),
           body: Column(
             children: [
@@ -5347,32 +5323,10 @@ class _GuidanceStudyProgramScreenState
             builder: (context, setStateDialog) {
               return Scaffold(
                 backgroundColor: Colors.white,
-                appBar: AppBar(
-                  elevation: 0,
-                  backgroundColor: Colors.white,
-                  leading: IconButton(
-                    icon: Icon(Icons.arrow_back, color: Colors.indigo),
-                    onPressed: () => Navigator.pop(ctx),
-                  ),
-                  title: Column(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Text(
-                        'Sınavları Seçiniz',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.indigo,
-                        ),
-                      ),
-                      Text(
-                        "Birleştirmek istediğiniz sınavları işaretleyin.",
-                        style: TextStyle(fontSize: 12, color: Colors.grey),
-                      ),
-                    ],
-                  ),
-                  centerTitle: true,
-                ),
+                appBar: EduknAppBar(
+        title: 'Sınavları Seçiniz',
+        subtitle: 'Birleştirmek istediğiniz sınavları işaretleyin.',
+      ),
                 body: Column(
                   children: [
                     // Exam List

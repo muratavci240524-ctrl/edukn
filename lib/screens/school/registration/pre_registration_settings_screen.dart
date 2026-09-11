@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'dart:ui';
@@ -299,12 +300,8 @@ class _PreRegistrationSettingsScreenState extends State<PreRegistrationSettingsS
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        title: const Text('Fiyat ve İndirim Ayarları', style: TextStyle(color: Color(0xFF1E293B), fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        centerTitle: false,
-        iconTheme: const IconThemeData(color: Color(0xFF1E293B)),
+      appBar: EduknAppBar(
+        title: 'Fiyat ve İndirim Ayarları',
         actions: [
           IconButton(
             onPressed: _copySettingsToOthers,

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../services/assessment_service.dart';
@@ -72,11 +73,13 @@ extension SortingLabel on SortingAlgorithm {
 class QuestionPoolScreen extends StatefulWidget {
   final String institutionId;
   final String? schoolTypeId;
+  final String? schoolTypeName;
 
   const QuestionPoolScreen({
     Key? key,
     required this.institutionId,
     this.schoolTypeId,
+    this.schoolTypeName,
   }) : super(key: key);
 
   @override
@@ -131,26 +134,9 @@ class _QuestionPoolScreenState extends State<QuestionPoolScreen> {
     );
   }
 
-  AppBar _buildAppBar() => AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        iconTheme: IconThemeData(color: Colors.indigo.shade900),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Soru Havuzu',
-              style: GoogleFonts.inter(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 17,
-                  color: Colors.indigo.shade900),
-            ),
-            Text(
-              'Test & Ödev Yönetimi',
-              style: GoogleFonts.inter(fontSize: 11, color: Colors.grey),
-            ),
-          ],
-        ),
+  EduknAppBar _buildAppBar() => EduknAppBar(
+        title: 'Soru Havuzu',
+        subtitle: widget.schoolTypeName ?? 'Test & Ödev Yönetimi',
         bottom: TabBar(
           labelColor: Colors.indigo,
           unselectedLabelColor: Colors.grey,

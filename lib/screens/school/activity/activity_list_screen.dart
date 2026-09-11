@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import '../../../../services/activity_service.dart';
 import '../../../../models/activity/activity_model.dart';
 import 'activity_form_screen.dart';
@@ -42,14 +43,9 @@ class _ActivityListScreenState extends State<ActivityListScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'Gözlem ve Etkinlik İşlemleri',
-          style: TextStyle(color: Colors.black87),
-        ),
-        backgroundColor: Colors.white,
-        elevation: 1,
-        iconTheme: const IconThemeData(color: Colors.indigo),
+      appBar: EduknAppBar(
+        title: 'Gözlem ve Etkinlik İşlemleri',
+        subtitle: widget.schoolTypeName,
         actions: [
           IconButton(
             icon: const Icon(Icons.bar_chart),

@@ -2024,7 +2024,7 @@ class PdfService {
                 ),
                 pw.SizedBox(height: 10),
                 pw.Text(
-                  '          2025/2026 eğitim öğretim yılı geçerli ders programınız aşağıda gösterilmiştir. Bilgilerinizi ve gereğini rica eder, başarılar dilerim.',
+                  '          ${institutionInfo['academicYear'] ?? '2025/2026'} eğitim öğretim yılı geçerli ders programınız aşağıda gösterilmiştir. Bilgilerinizi ve gereğini rica eder, başarılar dilerim.',
                   style: const pw.TextStyle(fontSize: 10),
                   textAlign: pw.TextAlign.left,
                 ),
@@ -2246,6 +2246,20 @@ class PdfService {
   }
 
   pw.Widget _buildTeacherStatsTable(List<Map<String, dynamic>> stats) {
+    final sortedStats = List<Map<String, dynamic>>.from(stats);
+    sortedStats.sort((a, b) {
+      final cA = (a['className'] ?? '').toString().trim();
+      final cB = (b['className'] ?? '').toString().trim();
+      final numA = int.tryParse(RegExp(r'\d+').firstMatch(cA)?.group(0) ?? '');
+      final numB = int.tryParse(RegExp(r'\d+').firstMatch(cB)?.group(0) ?? '');
+      if (numA != null && numB != null && numA != numB) {
+        return numA.compareTo(numB);
+      }
+      final cmp = cA.compareTo(cB);
+      if (cmp != 0) return cmp;
+      return (a['lessonName'] ?? '').toString().compareTo((b['lessonName'] ?? '').toString());
+    });
+
     return pw.Table(
       border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
       columnWidths: {
@@ -2259,10 +2273,10 @@ class PdfService {
           children: [
             _tableHeaderCell('Dersin Adı'),
             _tableHeaderCell('HDS'),
-            _tableHeaderCell('Åube Adı (Sınıf)'),
+            _tableHeaderCell('Şube Adı'),
           ],
         ),
-        ...stats.map((s) {
+        ...sortedStats.map((s) {
           final lName = s['lessonName'] ?? '';
           final sName = s['shortName'] ?? '';
           final displayName = sName.isNotEmpty ? '$lName ($sName)' : lName;
@@ -2278,7 +2292,7 @@ class PdfService {
         pw.TableRow(
           children: [
             _tableDataCell('Toplam Saat', isBold: true),
-            _tableDataCell(stats.fold(0, (prev, element) => prev + (element['count'] as int? ?? 0)).toString(), isBold: true),
+            _tableDataCell(sortedStats.fold(0, (prev, element) => prev + (element['count'] as int? ?? 0)).toString(), isBold: true),
             pw.Container(),
           ],
         ),

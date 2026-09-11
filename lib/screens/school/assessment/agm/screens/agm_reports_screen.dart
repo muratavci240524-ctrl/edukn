@@ -1,5 +1,6 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import '../models/agm_cycle_model.dart';
 import '../models/agm_assignment_log_model.dart';
 import '../services/agm_service.dart';
@@ -108,15 +109,8 @@ class _AgmReportsScreenState extends State<AgmReportsScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        title: const Text(
-          'AGM Raporlar',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-        ),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
-        centerTitle: true,
-        elevation: 0,
+      appBar: EduknAppBar(
+        title: 'AGM Raporlar',
         bottom: TabBar(
           controller: _tabController,
           labelColor: Colors.deepOrange,

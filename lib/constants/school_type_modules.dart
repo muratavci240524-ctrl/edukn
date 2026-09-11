@@ -42,6 +42,7 @@ class SchoolTypeModules {
         'etutler': 'Etüt ve Ek Ders İşlemleri',
         'ders_plani': 'Günlük/Haftalık Ders Planları',
         'kazanimlar': 'Kazanım Takip Sistemi',
+        'kurlar_kulupler': 'Kurlar ve Kulüpler (Dinamik Gruplar)',
       },
     ),
     'rehberlik': SchoolTypeModuleInfo(
@@ -95,7 +96,6 @@ class SchoolTypeModules {
         'nobet_islemleri': 'Nöbet İşlemleri',
         'gezi_gorev': 'Gezi Görevlendirmeleri',
         'proje_gorev': 'Proje Görevlendirmeleri',
-        'personel_nobet_cizelgesi': 'Nöbet Çizelgesi',
       },
     ),
     'destek': SchoolTypeModuleInfo(

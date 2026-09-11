@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../models/guidance/development_report/development_report_session_model.dart';
 import '../../../models/guidance/development_report/development_report_model.dart';
@@ -283,13 +284,10 @@ class __IndividualExportDialogState extends State<_IndividualExportDialog> {
 
     if (isMobile) {
       return Scaffold(
-        appBar: AppBar(
-          title: Text("Bireysel Rapor Al"),
-          backgroundColor: Colors.white,
-          foregroundColor: Colors.indigo,
-          elevation: 0,
+        appBar: EduknAppBar(
+          title: 'Bireysel Rapor Al',
           leading: IconButton(
-            icon: Icon(Icons.close),
+            icon: const Icon(Icons.close, color: Colors.indigo),
             onPressed: () => Navigator.pop(context),
           ),
         ),
@@ -754,14 +752,8 @@ class __BulkExportDialogState extends State<_BulkExportDialog> {
 
     if (isMobile) {
       return Scaffold(
-        appBar: AppBar(
-          title: Text(
-            "Toplu Rapor Al",
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
-          backgroundColor: Colors.white,
-          foregroundColor: Colors.indigo,
-          elevation: 0,
+        appBar: EduknAppBar(
+          title: 'Toplu Rapor Al',
           leading: IconButton(
             icon: Icon(Icons.close),
             onPressed: () => Navigator.pop(context),

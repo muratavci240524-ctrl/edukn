@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 
 class ExamDetailTableScreen extends StatefulWidget {
   final String examName;
@@ -260,12 +261,7 @@ class _ExamDetailTableScreenState extends State<ExamDetailTableScreen> {
     classes.sort();
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.examName),
-        backgroundColor: Colors.deepOrange,
-        foregroundColor: Colors.white,
-        elevation: 0,
-      ),
+      appBar: EduknAppBar(title: widget.examName),
       body: Column(
         children: [
           // Filter Bar (Icons Only)

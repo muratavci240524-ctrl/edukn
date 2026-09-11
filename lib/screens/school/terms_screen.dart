@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:edukn/services/user_permission_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -116,6 +117,11 @@ class _TermsScreenState extends State<TermsScreen> {
       batch.update(ref, {'isActive': true});
       
       await batch.commit();
+      
+      // Eski geçmiş dönem seçimini ve cache'i temizle
+      // Bu sayede ekranlar yeni aktif döneme göre doğru verileri gösterir
+      await TermService().clearSelectedTerm();
+      TermService().clearCache();
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('✓ Aktif dönem güncellendi'), backgroundColor: Colors.green),
@@ -673,21 +679,16 @@ class _TermsScreenState extends State<TermsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Text('Dönem Yönetimi'),
-        backgroundColor: Colors.indigo,
+      appBar: EduknAppBar(
+        title: 'Dönem Yönetimi',
         actions: [
           IconButton(
-            icon: Icon(Icons.delete_forever, color: Colors.red[200]),
+            icon: Icon(Icons.delete_forever, color: Colors.red.shade300),
             tooltip: 'Tüm verileri sil',
             onPressed: _deleteAllData,
           ),
           IconButton(
-            icon: Icon(Icons.sync),
+            icon: const Icon(Icons.sync, color: Colors.indigo),
             tooltip: 'Mevcut verileri aktif döneme ata',
             onPressed: _migrateExistingData,
           ),
@@ -888,8 +889,8 @@ class _TermsScreenState extends State<TermsScreen> {
       floatingActionButton: _terms.isNotEmpty
           ? FloatingActionButton.extended(
               onPressed: () => _showTermDialog(),
-              icon: Icon(Icons.add),
-              label: Text('Yeni Dönem'),
+              icon: Icon(Icons.add, color: Colors.white),
+              label: Text('Yeni Dönem', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
               backgroundColor: Colors.indigo,
             )
           : null,

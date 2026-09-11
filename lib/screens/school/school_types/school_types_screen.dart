@@ -2,6 +2,7 @@ import '../../../constants/school_type_modules.dart';
 import '../../../services/user_permission_service.dart';
 import '../../../services/term_service.dart';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'school_type_stats_screen.dart';
@@ -33,9 +34,13 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
   Map<String, dynamic>? userData;
   bool _isLoadingPermissions = true;
 
+  // Aktif dönem ID — kartlardaki sayılar bu döneme göre filtrelenir
+  String? _effectiveTermId;
+
   @override
   void initState() {
     super.initState();
+    _loadEffectiveTermId();
     // Önce cache kontrolü: zaten yüklüyse anında göster
     final cached = UserPermissionService.getCachedUserData();
     if (cached != null) {
@@ -48,6 +53,15 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
       Future.wait([
         _loadUserPermissions(),
       ]).then((_) => _getInstitutionId());
+    }
+  }
+
+  Future<void> _loadEffectiveTermId() async {
+    final selectedTermId = await TermService().getSelectedTermId();
+    final activeTermId = await TermService().getActiveTermId();
+    final effectiveId = selectedTermId ?? activeTermId;
+    if (mounted && effectiveId != _effectiveTermId) {
+      setState(() => _effectiveTermId = effectiveId);
     }
   }
 
@@ -446,9 +460,8 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
   Widget build(BuildContext context) {
     if (institutionId == null || _isLoadingPermissions) {
       return Scaffold(
-        appBar: AppBar(
-          elevation: 0,
-          backgroundColor: Colors.white,
+        appBar: EduknAppBar(
+          title: 'Okul Türleri',
           leading: IconButton(
             icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.indigo),
             onPressed: () {
@@ -459,7 +472,6 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
               }
             },
           ),
-          title: Text('Okul Türleri', style: TextStyle(color: Colors.grey.shade900, fontSize: 18, fontWeight: FontWeight.bold)),
           actions: [
             IconButton(
               icon: Icon(Icons.logout_rounded, color: Colors.red),
@@ -487,23 +499,17 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
       },
       child: Scaffold(
         backgroundColor: const Color(0xFFF0F4FF),
-        appBar: AppBar(
-          elevation: 0,
-          backgroundColor: Colors.white,
-          leading: (userData != null && !UserPermissionService.hasAnyMainModuleAccess(userData))
-              ? null
-              : IconButton(
-                  icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: Colors.indigo),
-                  onPressed: () {
-                    if (Navigator.canPop(context)) {
-                      Navigator.pop(context);
-                    } else {
-                      Navigator.pushReplacementNamed(context, '/school-dashboard');
-                    }
-                  },
-                ),
-          title: Text('Okul Türleri', style: TextStyle(color: Colors.grey.shade900, fontSize: 18, fontWeight: FontWeight.bold)),
-        actions: [
+        appBar: EduknAppBar(
+          title: 'Okul Türleri',
+          showBackButton: !(userData != null && !UserPermissionService.hasAnyMainModuleAccess(userData)),
+          onBack: () {
+            if (Navigator.canPop(context)) {
+              Navigator.pop(context);
+            } else {
+              Navigator.pushReplacementNamed(context, '/school-dashboard');
+            }
+          },
+          actions: [
           IconButton(
             icon: Icon(Icons.bar_chart, color: Colors.indigo),
             tooltip: 'İstatistikleri Gör',
@@ -516,7 +522,7 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
           ),
           SizedBox(width: 8),
         ],
-      ),
+        ),
       body: SafeStreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance.collection('schoolTypes').where('institutionId', isEqualTo: institutionId).snapshots(),
         builder: (context, snapshot) {
@@ -590,6 +596,7 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
                         final data = doc.data() as Map<String, dynamic>;
                         return _SchoolTypeCard(
                           doc: doc, data: data, institutionId: institutionId!,
+                          effectiveTermId: _effectiveTermId,
                           canEdit: _canEditSpecificSchoolType(doc.id), canSwitch: _canSwitchToSchoolType(doc.id),
                           onEdit: () => _showModernEditSheet(context, doc.id, data),
                           onDelete: () => _deleteSchoolType(doc.id, data['name'] ?? data['schoolTypeName'] ?? 'Bu okul türü'),
@@ -630,6 +637,7 @@ class _SchoolTypeCard extends StatefulWidget {
   final QueryDocumentSnapshot doc;
   final Map<String, dynamic> data;
   final String institutionId;
+  final String? effectiveTermId;
   final bool canEdit;
   final bool canSwitch;
   final VoidCallback onEdit;
@@ -637,6 +645,7 @@ class _SchoolTypeCard extends StatefulWidget {
 
   const _SchoolTypeCard({
     required this.doc, required this.data, required this.institutionId,
+    this.effectiveTermId,
     required this.canEdit, required this.canSwitch, required this.onEdit, required this.onDelete,
   });
 
@@ -858,28 +867,40 @@ class _SchoolTypeCardState extends State<_SchoolTypeCard> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
+                            // Öğrenci sayısı — aktif dönem filtrelemeli
                             _buildStatItem(
-                              stream: FirebaseFirestore.instance.collection('students')
-                                  .where('institutionId', isEqualTo: widget.institutionId)
-                                  .where('schoolTypeId', isEqualTo: widget.doc.id).snapshots(),
+                              stream: (() {
+                                var query = FirebaseFirestore.instance.collection('students')
+                                    .where('institutionId', isEqualTo: widget.institutionId)
+                                    .where('schoolTypeId', isEqualTo: widget.doc.id)
+                                    .where('isActive', isEqualTo: true);
+                                if (widget.effectiveTermId != null) {
+                                  query = query.where('termId', isEqualTo: widget.effectiveTermId);
+                                }
+                                return query.snapshots();
+                              })(),
                               icon: Icons.people_alt_rounded, 
                               label: "Öğrenci",
                               color: Color(0xFF3B82F6)
                             ),
-                            _buildStatItem(
-                              stream: FirebaseFirestore.instance.collection('users')
-                                  .where('institutionId', isEqualTo: widget.institutionId)
-                                  .where('role', whereIn: ['ogretmen','öğretmen','teacher','rehber_ogretmen','rehber_öğretmen','Öğretmen','Rehber Öğretmen'])
-                                  .where('schoolTypes', arrayContains: widget.doc.id).snapshots(),
+                            // Öğretmen sayısı — arrayContains + client-side role filter
+                            _buildTeacherStatItem(
                               icon: Icons.badge_rounded, 
                               label: "Öğretmen",
                               color: Color(0xFFF59E0B)
                             ),
+                            // Sınıf sayısı — aktif dönem filtrelemeli
                             _buildStatItem(
-                              stream: FirebaseFirestore.instance.collection('classes')
-                                  .where('institutionId', isEqualTo: widget.institutionId)
-                                  .where('schoolTypeId', isEqualTo: widget.doc.id)
-                                  .where('isActive', isEqualTo: true).snapshots(),
+                              stream: (() {
+                                var query = FirebaseFirestore.instance.collection('classes')
+                                    .where('institutionId', isEqualTo: widget.institutionId)
+                                    .where('schoolTypeId', isEqualTo: widget.doc.id)
+                                    .where('isActive', isEqualTo: true);
+                                if (widget.effectiveTermId != null) {
+                                  query = query.where('termId', isEqualTo: widget.effectiveTermId);
+                                }
+                                return query.snapshots();
+                              })(),
                               icon: Icons.meeting_room_rounded, 
                               label: "Sınıf",
                               color: Color(0xFF10B981)
@@ -908,28 +929,82 @@ class _SchoolTypeCardState extends State<_SchoolTypeCard> {
       stream: stream,
       builder: (context, snapshot) {
         final count = snapshot.hasData ? snapshot.data!.docs.length : 0;
-        return Column(
-          children: [
-            Container(
-              padding: EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, size: 16, color: color),
-            ),
-            SizedBox(height: 6),
-            Text(
-              '$count',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.grey.shade800),
-            ),
-            Text(
-              label,
-              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.grey.shade500),
-            )
-          ],
-        );
+        return _buildStatColumn(count: count, icon: icon, label: label, color: color);
       },
+    );
+  }
+
+  // Personel Listesi ile birebir aynı mantık:
+  // 1) schoolTypes ID eşleşmesi  2) workLocations/workLocation isim eşleşmesi
+  Widget _buildTeacherStatItem({
+    required IconData icon,
+    required String label,
+    required Color color,
+  }) {
+    return SafeStreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance.collection('users')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .where('isActive', isEqualTo: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        int count = 0;
+        if (snapshot.hasData) {
+          final schoolTypeId = widget.doc.id;
+          final schoolTypeName = (widget.data['name'] ?? widget.data['schoolTypeName'] ?? widget.data['typeName'] ?? '').toString().toLowerCase().trim();
+          const teacherRoles = {'ogretmen', 'öğretmen', 'teacher', 'rehber_ogretmen', 'rehber_öğretmen'};
+
+          count = snapshot.data!.docs.where((doc) {
+            final s = doc.data() as Map<String, dynamic>;
+            final role = (s['role'] ?? '').toString().toLowerCase();
+            if (!teacherRoles.contains(role)) return false;
+
+            // Aktiflik kontrolü
+            if (s['isActive'] == false) return false;
+
+            // 1. schoolTypes ID eşleşmesi
+            bool matches = false;
+            if (s['schoolTypes'] != null && s['schoolTypes'] is List) {
+              final stIds = List<String>.from(s['schoolTypes']);
+              matches = stIds.contains(schoolTypeId);
+            }
+            // 2. Eşleşmediyse workLocations / workLocation isim eşleşmesi
+            if (!matches && schoolTypeName.isNotEmpty) {
+              if (s['workLocations'] != null && s['workLocations'] is List) {
+                final locations = List<String>.from(s['workLocations']);
+                matches = locations.any((loc) => loc.toLowerCase().trim() == schoolTypeName);
+              } else if (s['workLocation'] != null) {
+                matches = s['workLocation'].toString().toLowerCase().trim() == schoolTypeName;
+              }
+            }
+            return matches;
+          }).length;
+        }
+        return _buildStatColumn(count: count, icon: icon, label: label, color: color);
+      },
+    );
+  }
+
+  Widget _buildStatColumn({required int count, required IconData icon, required String label, required Color color}) {
+    return Column(
+      children: [
+        Container(
+          padding: EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon, size: 16, color: color),
+        ),
+        SizedBox(height: 6),
+        Text(
+          '$count',
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.grey.shade800),
+        ),
+        Text(
+          label,
+          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.grey.shade500),
+        )
+      ],
     );
   }
 }

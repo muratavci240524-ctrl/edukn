@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/school/book_model.dart';
 import '../../models/school/book_assignment_model.dart';
@@ -205,33 +206,15 @@ class _BookManagementScreenState extends State<BookManagementScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Kitap İşlemleri & Kütüphane',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 18,
-                color: Colors.white,
-              ),
-            ),
-            Text(
-              widget.schoolTypeName,
-              style: TextStyle(fontSize: 12, color: Colors.white70),
-            ),
-          ],
-        ),
-        backgroundColor: Colors.indigo.shade700,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
+      appBar: EduknAppBar(
+        title: 'Kitap İşlemleri & Kütüphane',
+        subtitle: widget.schoolTypeName,
         bottom: TabBar(
           controller: _tabController,
-          indicatorColor: Colors.white,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white70,
-          tabs: [
+          indicatorColor: Colors.indigo,
+          labelColor: Colors.indigo,
+          unselectedLabelColor: Colors.indigo.shade200,
+          tabs: const [
             Tab(text: 'Kitap Tanımları'),
             Tab(text: 'Kitap Atamaları'),
           ],
@@ -1242,25 +1225,14 @@ class _BookDetailViewState extends State<BookDetailView> {
             : BorderRadius.circular(16),
         child: Scaffold(
           backgroundColor: Colors.transparent,
-          appBar: AppBar(
-            backgroundColor: Colors.white,
-            elevation: 0,
-            centerTitle: false,
-            automaticallyImplyLeading: false,
+          appBar: EduknAppBar(
+            title: widget.book == null ? 'Yeni Kitap Tanımı' : 'Kitap Detayları',
             leading: widget.isMobile
                 ? IconButton(
                     icon: const Icon(Icons.arrow_back, color: Colors.indigo),
                     onPressed: widget.onCancelled,
                   )
                 : null,
-            title: Text(
-              widget.book == null ? 'Yeni Kitap Tanımı' : 'Kitap Detayları',
-              style: const TextStyle(
-                color: Colors.indigo,
-                fontWeight: FontWeight.bold,
-                fontSize: 18,
-              ),
-            ),
             actions: [
               if (widget.book != null)
                 IconButton(

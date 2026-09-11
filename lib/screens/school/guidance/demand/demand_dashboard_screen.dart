@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -14,6 +15,7 @@ import 'package:edukn/widgets/safe_stream_builder.dart';
 class DemandDashboardScreen extends StatefulWidget {
   final String institutionId;
   final String schoolTypeId;
+  final String? schoolTypeName;
   final Map<String, dynamic>? userData;
   /// true = genel okul yönetimi → tüm okul türlerinin taleplerini göster + filtre
   final bool showAllSchoolTypes;
@@ -22,6 +24,7 @@ class DemandDashboardScreen extends StatefulWidget {
     Key? key,
     required this.institutionId,
     required this.schoolTypeId,
+    this.schoolTypeName,
     this.userData,
     this.showAllSchoolTypes = false,
   }) : super(key: key);
@@ -116,15 +119,9 @@ class _DemandDashboardScreenState extends State<DemandDashboardScreen> with Sing
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        title: Text(
-          'Talepler',
-          style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: const Color(0xFF1E293B)),
-        ),
-        centerTitle: false,
-        iconTheme: const IconThemeData(color: Colors.indigo),
+      appBar: EduknAppBar(
+        title: 'Talepler (Yönlendirmeler)',
+        subtitle: widget.schoolTypeName,
         actions: [
           IconButton(
             onPressed: _showAnalytics,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/gestures.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -907,14 +908,9 @@ class _ChatScreenState extends State<ChatScreen>
         if (isWide) {
           // DESKTOP / TABLET LAYOUT
           return Scaffold(
-            appBar: AppBar(
-              backgroundColor: Colors.indigo,
-              elevation: 0,
-              leading: const BackButton(color: Colors.white),
-              title: const Text(
-                'Mesajlar',
-                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
-              ),
+            appBar: EduknAppBar(
+              title: 'Mesajlar',
+              subtitle: widget.schoolTypeName,
             ),
             body: Row(
               children: [
@@ -1038,20 +1034,9 @@ class _ChatScreenState extends State<ChatScreen>
               }
             },
             child: Scaffold(
-              appBar: AppBar(
-                automaticallyImplyLeading: false,
-                leading: const BackButton(color: Colors.white),
-                backgroundColor: Colors.indigo,
-                elevation: 0,
-                // Enhanced Search UI
-                title: const Text(
-                  'Mesajlar',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 20,
-                    color: Colors.white,
-                  ),
-                ),
+              appBar: EduknAppBar(
+                title: 'Mesajlar',
+                subtitle: widget.schoolTypeName,
                 actions: [
                   // Animated Search Bar
                   AnimatedContainer(
@@ -1182,7 +1167,7 @@ class _ChatScreenState extends State<ChatScreen>
                     ],
                   ),
                 ],
-                bottom: _isSearching
+        bottom: _isSearching
                     ? null
                     : TabBar(
                         controller: _tabController,
@@ -1199,7 +1184,7 @@ class _ChatScreenState extends State<ChatScreen>
                           Tab(text: 'KİŞİLER'),
                         ],
                       ),
-              ),
+      ),
               body: TabBarView(
                 controller: _tabController,
                 children: [

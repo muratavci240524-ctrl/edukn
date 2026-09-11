@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
@@ -999,56 +1000,8 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 1,
-        leading:
-            widget.onClose != null && MediaQuery.of(context).size.width > 900
-            ? null
-            : BackButton(color: Colors.indigo),
-        title: Row(
-          children: [
-            if (MediaQuery.of(context).size.width > 900) ...[
-              Icon(Icons.person, color: Colors.indigo),
-              SizedBox(width: 8),
-            ],
-            Expanded(
-              child: Text(
-                widget.student['fullName'] ?? 'Öğrenci Detayı',
-                style: TextStyle(
-                  color: Colors.black87,
-                  fontWeight: FontWeight.bold,
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
-        bottom: TabBar(
-          controller: _tabController,
-          isScrollable: true,
-          labelColor: Colors.indigo,
-          unselectedLabelColor: Colors.grey.shade600,
-          indicatorColor: Colors.indigo,
-          indicatorWeight: 3,
-          labelStyle: TextStyle(fontWeight: FontWeight.bold),
-          tabs: [
-            Tab(text: 'Genel Bilgiler'),
-            Tab(text: 'Deneme Sınavları'),
-            Tab(text: 'Yazılı Sınavlar'),
-            Tab(text: 'Ödevler'),
-            Tab(text: 'Devamsızlık'),
-            Tab(text: 'Eylem Planları'),
-            Tab(text: 'Etütler'),
-            Tab(text: 'Kitaplar'),
-            Tab(text: 'Görüşmeler'),
-            Tab(text: 'Talepler'),
-            Tab(text: 'Gelişim Raporu'),
-            Tab(text: 'Mentör Çalışmaları'),
-            Tab(text: 'Rehberlik Testleri'),
-            Tab(text: 'Etkinlik Raporları'),
-          ],
-        ),
+      appBar: EduknAppBar(
+        title: widget.student['fullName'] ?? 'Öğrenci Detayı',
         actions: [
           IconButton(
             icon: const Icon(Icons.print_rounded, color: Colors.indigo),
@@ -1099,6 +1052,31 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
               onPressed: widget.onClose,
             ),
         ],
+        bottom: TabBar(
+          controller: _tabController,
+          isScrollable: true,
+          labelColor: Colors.indigo,
+          unselectedLabelColor: Colors.grey.shade600,
+          indicatorColor: Colors.indigo,
+          indicatorWeight: 3,
+          labelStyle: TextStyle(fontWeight: FontWeight.bold),
+          tabs: [
+            Tab(text: 'Genel Bilgiler'),
+            Tab(text: 'Deneme Sınavları'),
+            Tab(text: 'Yazılı Sınavlar'),
+            Tab(text: 'Ödevler'),
+            Tab(text: 'Devamsızlık'),
+            Tab(text: 'Eylem Planları'),
+            Tab(text: 'Etütler'),
+            Tab(text: 'Kitaplar'),
+            Tab(text: 'Görüşmeler'),
+            Tab(text: 'Talepler'),
+            Tab(text: 'Gelişim Raporu'),
+            Tab(text: 'Mentör Çalışmaları'),
+            Tab(text: 'Rehberlik Testleri'),
+            Tab(text: 'Etkinlik Raporları'),
+          ],
+        ),
       ),
       body: TabBarView(
         controller: _tabController,

@@ -1,10 +1,12 @@
-import 'dart:ui';
+﻿import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../../../models/assessment/external_exam_model.dart';
 import '../../../../services/external_exam_service.dart';
+import '../../../../services/term_service.dart';
 
 class MyCustomScrollBehavior extends MaterialScrollBehavior {
   @override
@@ -131,14 +133,8 @@ class _ExternalExamFormScreenState extends State<ExternalExamFormScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        title: Text(
-          isEditing ? 'Sınavı Düzenle' : 'Yeni Sınav Oluştur',
-          style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: Colors.white),
-        ),
-        backgroundColor: _primaryColor,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
+      appBar: EduknAppBar(
+        title: isEditing ? 'Sınavı Düzenle' : 'Yeni Sınav Oluştur',
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded),
           onPressed: () {
@@ -1788,6 +1784,9 @@ class _ExternalExamFormScreenState extends State<ExternalExamFormScreen> {
     setState(() => _isSaving = true);
 
     try {
+      // Aktif dönem ID'sini al
+      final activeTermId = await TermService().getActiveTermId();
+
       final exam = ExternalExam(
         id: widget.existingExam?.id,
         institutionId: widget.institutionId,
@@ -1815,6 +1814,7 @@ class _ExternalExamFormScreenState extends State<ExternalExamFormScreen> {
         showTicket: _showTicket,
         showResults: _showResults,
         showRegulation: _showRegulation,
+        termId: activeTermId,
       );
 
       if (widget.existingExam != null) {

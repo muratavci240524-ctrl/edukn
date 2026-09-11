@@ -1,5 +1,6 @@
-import 'dart:ui';
+﻿import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
@@ -204,20 +205,16 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
         },
         child: Scaffold(
           backgroundColor: const Color(0xFFF8FAFC),
-          appBar: AppBar(
-            backgroundColor: Colors.white,
-            elevation: 0,
-            leading: IconButton(
+          appBar: EduknAppBar(
+        title: _selectedPreReg!['fullName'] ?? 'Aday Detayı',
+        leading: IconButton(
               icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Color(0xFF1E293B), size: 18),
               onPressed: () => setState(() {
                 _selectedPreReg = null;
                 _selectedPreRegId = null;
               }),
             ),
-            title: Text(_selectedPreReg!['fullName'] ?? 'Aday Detayı', 
-              style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 16, color: const Color(0xFF1E293B))),
-            centerTitle: true,
-          ),
+      ),
           body: _buildPreRegDetail(),
         ),
       );
@@ -225,9 +222,9 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        title: Text('Ön Kayıt ve Görüşme Yönetimi', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
-        centerTitle: false,
+      appBar: EduknAppBar(
+        title: 'Ön Kayıt ve Görüşme Yönetimi',
+        subtitle: widget.fixedSchoolTypeName,
         actions: [
           if (_canEditPricingSettings())
             IconButton(
@@ -299,42 +296,49 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
   }
 
   Widget _buildEmptyState() {
+    final isMobile = MediaQuery.of(context).size.width < 500;
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(32),
-            decoration: BoxDecoration(
-              color: Colors.indigo.withOpacity(0.1),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(Icons.contact_phone_rounded, size: 80, color: Colors.indigo.shade400),
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: isMobile ? 20 : 40, vertical: 20),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: EdgeInsets.all(isMobile ? 20 : 32),
+                decoration: BoxDecoration(
+                  color: Colors.indigo.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.contact_phone_rounded, size: isMobile ? 48 : 80, color: Colors.indigo.shade400),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Henüz Ön Kayıt Bulunmuyor',
+                style: GoogleFonts.inter(fontSize: isMobile ? 16 : 22, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B)),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Aday görüşmelerinizi buradan kaydederek\nprofesyonelce takip edebilirsiniz.',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.inter(color: const Color(0xFF64748B), fontSize: isMobile ? 13 : 16),
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton.icon(
+                onPressed: () => _handleAddNew(),
+                icon: const Icon(Icons.add, color: Colors.white, size: 18),
+                label: Text('İLK ÖN KAYDI OLUŞTUR', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: Colors.white, fontSize: isMobile ? 12 : 14)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.indigo,
+                  padding: EdgeInsets.symmetric(horizontal: isMobile ? 20 : 40, vertical: isMobile ? 12 : 20),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  elevation: 4,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 24),
-          Text(
-            'Henüz Ön Kayıt Bulunmuyor',
-            style: GoogleFonts.inter(fontSize: 22, fontWeight: FontWeight.w700, color: const Color(0xFF1E293B)),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Aday görüşmelerinizi buradan kaydederek\nprofesyonelce takip edebilirsiniz.',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.inter(color: const Color(0xFF64748B), fontSize: 16),
-          ),
-          const SizedBox(height: 32),
-          ElevatedButton.icon(
-            onPressed: () => _handleAddNew(),
-            icon: const Icon(Icons.add, color: Colors.white),
-            label: Text('İLK ÖN KAYDI OLUŞTUR', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: Colors.white)),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.indigo,
-              padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 20),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              elevation: 4,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -393,7 +397,7 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
                 children: [
                   Expanded(
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
                       decoration: BoxDecoration(
                         color: const Color(0xFFF1F5F9),
                         borderRadius: BorderRadius.circular(12),
@@ -401,11 +405,11 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
                       child: DropdownButtonHideUnderline(
                         child: DropdownButton<String?>(
                           value: _schoolTypeFilter,
-                          hint: Text('Tüm Türler', style: GoogleFonts.inter(fontSize: 13)),
+                          hint: Text('Tüm Türler', style: GoogleFonts.inter(fontSize: 12)),
                           isExpanded: true,
                           items: [
-                            DropdownMenuItem(value: null, child: Text('Tüm Türler', style: GoogleFonts.inter(fontSize: 13))),
-                            ..._schoolTypes.map((t) => DropdownMenuItem(value: t['id'], child: Text(t['schoolTypeName'] ?? t['typeName'] ?? '', style: GoogleFonts.inter(fontSize: 13)))),
+                            DropdownMenuItem(value: null, child: Text('Tüm Türler', style: GoogleFonts.inter(fontSize: 12))),
+                            ..._schoolTypes.map((t) => DropdownMenuItem(value: t['id'], child: Text(t['schoolTypeName'] ?? t['typeName'] ?? '', style: GoogleFonts.inter(fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis))),
                           ],
                           onChanged: (v) {
                             setState(() {
@@ -417,10 +421,10 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
                       decoration: BoxDecoration(
                         color: const Color(0xFFF1F5F9),
                         borderRadius: BorderRadius.circular(12),
@@ -428,13 +432,13 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
                       child: DropdownButtonHideUnderline(
                         child: DropdownButton<String?>(
                           value: _gradeLevelFilter,
-                          hint: Text('Tüm Kademeler', style: GoogleFonts.inter(fontSize: 13)),
+                          hint: Text('Tüm Kademeler', style: GoogleFonts.inter(fontSize: 12)),
                           isExpanded: true,
                           items: [
-                            DropdownMenuItem(value: null, child: Text('Tüm Kademeler', style: GoogleFonts.inter(fontSize: 13))),
+                            DropdownMenuItem(value: null, child: Text('Tüm Kademeler', style: GoogleFonts.inter(fontSize: 12))),
                             ...['3 YAŞ', '4 YAŞ', '5 YAŞ', '1. SINIF', '2. SINIF', '3. SINIF', '4. SINIF', '5. SINIF', '6. SINIF', '7. SINIF', '8. SINIF', '9. SINIF', '10. SINIF', '11. SINIF', '12. SINIF', 'MEZUN']
                                 .where((l) => _preRegistrations.any((r) => r['classLevel'] == l))
-                                .map((l) => DropdownMenuItem(value: l, child: Text(_formatLevelLabel(l), style: GoogleFonts.inter(fontSize: 13)))),
+                                .map((l) => DropdownMenuItem(value: l, child: Text(_formatLevelLabel(l), style: GoogleFonts.inter(fontSize: 12)))),
                           ],
                           onChanged: (v) {
                             setState(() {
@@ -595,26 +599,33 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
               color: const Color(0xFFF1F5F9),
               borderRadius: BorderRadius.circular(27),
             ),
-            child: TabBar(
-              indicatorSize: TabBarIndicatorSize.tab,
-              indicatorPadding: const EdgeInsets.all(4),
-              indicator: BoxDecoration(
-                borderRadius: BorderRadius.circular(27),
-                color: Colors.white,
-                boxShadow: [
-                  BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8, offset: const Offset(0, 2)),
-                ],
-              ),
-              labelColor: Colors.indigo,
-              unselectedLabelColor: const Color(0xFF64748B),
-              overlayColor: MaterialStateProperty.all(Colors.transparent),
-              splashFactory: NoSplash.splashFactory,
-              labelStyle: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13),
-              unselectedLabelStyle: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 13),
-              tabs: const [
-                Tab(text: 'Görüşme Bilgileri'),
-                Tab(text: 'Fiyat Robotu / Teklif'),
-              ],
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final isNarrow = constraints.maxWidth < 360;
+                return TabBar(
+                  isScrollable: isNarrow,
+                  tabAlignment: isNarrow ? TabAlignment.start : null,
+                  indicatorSize: TabBarIndicatorSize.tab,
+                  indicatorPadding: const EdgeInsets.all(4),
+                  indicator: BoxDecoration(
+                    borderRadius: BorderRadius.circular(27),
+                    color: Colors.white,
+                    boxShadow: [
+                      BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8, offset: const Offset(0, 2)),
+                    ],
+                  ),
+                  labelColor: Colors.indigo,
+                  unselectedLabelColor: const Color(0xFF64748B),
+                  overlayColor: MaterialStateProperty.all(Colors.transparent),
+                  splashFactory: NoSplash.splashFactory,
+                  labelStyle: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: isNarrow ? 11 : 13),
+                  unselectedLabelStyle: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: isNarrow ? 11 : 13),
+                  tabs: const [
+                    Tab(text: 'Görüşme Bilgileri'),
+                    Tab(text: 'Fiyat Robotu / Teklif'),
+                  ],
+                );
+              },
             ),
           ),
           Expanded(
@@ -1312,24 +1323,12 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 1. Stats Row with date selector on top-right
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Expanded(
-                    child: Row(
-                      children: [
-                        Expanded(child: _buildPriceCard('TOPLAM', subtotal, Colors.indigo, Icons.receipt_long_rounded)),
-                        const SizedBox(width: 10),
-                        Expanded(child: _buildPriceCard('İNDİRİM', totalDiscount, Colors.orange.shade800, Icons.discount_rounded)),
-                        const SizedBox(width: 10),
-                        Expanded(child: _buildPriceCard('NET TUTAR', anyPerTypeSelected ? perTypeGrandTotal : finalNetTotal, Colors.green.shade700, Icons.verified_rounded)),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  // Date selector button
-                  GestureDetector(
+              // 1. Stats Row with date selector
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final isNarrow = constraints.maxWidth < 500;
+                  
+                  final dateSelector = GestureDetector(
                     onTap: () async {
                       final now = DateTime.now();
                       final picked = await CustomDateRangePicker.showSingle(
@@ -1339,9 +1338,8 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
                       if (picked != null) {
                         setState(() {
                           _priceDate = picked;
-                          // Reset autoGenerated flag so robot reloads prices for new month
                           if (_selectedPreReg != null && _selectedPreReg!['priceOffer'] != null) {
-                             _lastPricedStudentId = null; // Forces reload in next frame
+                             _lastPricedStudentId = null;
                           }
                         });
                       }
@@ -1367,8 +1365,42 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
                         ],
                       ),
                     ),
-                  ),
-                ],
+                  );
+
+                  if (isNarrow) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        dateSelector,
+                        const SizedBox(height: 10),
+                        _buildPriceCardCompact('TOPLAM', subtotal, Colors.indigo, Icons.receipt_long_rounded),
+                        const SizedBox(height: 6),
+                        _buildPriceCardCompact('İNDİRİM', totalDiscount, Colors.orange.shade800, Icons.discount_rounded),
+                        const SizedBox(height: 6),
+                        _buildPriceCardCompact('NET TUTAR', anyPerTypeSelected ? perTypeGrandTotal : finalNetTotal, Colors.green.shade700, Icons.verified_rounded),
+                      ],
+                    );
+                  }
+
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Expanded(child: _buildPriceCard('TOPLAM', subtotal, Colors.indigo, Icons.receipt_long_rounded)),
+                            const SizedBox(width: 10),
+                            Expanded(child: _buildPriceCard('İNDİRİM', totalDiscount, Colors.orange.shade800, Icons.discount_rounded)),
+                            const SizedBox(width: 10),
+                            Expanded(child: _buildPriceCard('NET TUTAR', anyPerTypeSelected ? perTypeGrandTotal : finalNetTotal, Colors.green.shade700, Icons.verified_rounded)),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      dateSelector,
+                    ],
+                  );
+                },
               ),
               const SizedBox(height: 32),
 
@@ -1662,7 +1694,8 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
                         children: [
                           Icon(_getIconForPriceType(typeStr), size: 14, color: Colors.white70),
                           const SizedBox(width: 8),
-                          Expanded(child: Text('$typeStr ($methodName)', style: GoogleFonts.inter(color: Colors.white70, fontSize: 13))),
+                          Expanded(child: Text('$typeStr ($methodName)', style: GoogleFonts.inter(color: Colors.white70, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                          const SizedBox(width: 8),
                           Text(NumberFormat.currency(locale: 'tr_TR', symbol: '₺').format(finalAmt), style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13)),
                         ],
                       ),
@@ -1686,8 +1719,15 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
                         const Divider(color: Colors.white24, height: 24),
                         Row(
                           children: [
-                            Expanded(child: Text('GENEL TOPLAM', style: GoogleFonts.inter(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w800))),
-                            Text(NumberFormat.currency(locale: 'tr_TR', symbol: '₺').format(perTypeTotal), style: GoogleFonts.inter(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900)),
+                            Text('GENEL TOPLAM', style: GoogleFonts.inter(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w800)),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerRight,
+                                child: Text(NumberFormat.currency(locale: 'tr_TR', symbol: '₺').format(perTypeTotal), style: GoogleFonts.inter(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900)),
+                              ),
+                            ),
                           ],
                         ),
                       ],
@@ -1709,9 +1749,12 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
                   children: [
                     Text('NET ÖDENECEK TUTAR', style: GoogleFonts.inter(color: Colors.white.withOpacity(0.8), fontSize: 13, fontWeight: FontWeight.w600, letterSpacing: 1)),
                     const SizedBox(height: 8),
-                    Text(
-                      NumberFormat.currency(locale: 'tr_TR', symbol: '₺').format(anyPerTypeSelected ? perTypeGrandTotal : finalNetTotal),
-                      style: GoogleFonts.inter(color: Colors.white, fontSize: 34, fontWeight: FontWeight.w900, letterSpacing: -0.5),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        NumberFormat.currency(locale: 'tr_TR', symbol: '₺').format(anyPerTypeSelected ? perTypeGrandTotal : finalNetTotal),
+                        style: GoogleFonts.inter(color: Colors.white, fontSize: 34, fontWeight: FontWeight.w900, letterSpacing: -0.5),
+                      ),
                     ),
                     if (totalDiscount > 0)
                       Padding(
@@ -1733,19 +1776,19 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
                 ),
               ),
 
-              const SizedBox(height: 48), // Daha fazla boşluk
+              const SizedBox(height: 32),
               SizedBox(
                 width: double.infinity,
-                height: 56,
+                height: 44,
                 child: ElevatedButton.icon(
                   onPressed: () => _generateOfferPdf(),
-                  icon: const Icon(Icons.picture_as_pdf_outlined),
-                  label: const Text('TEKLİFİ PDF OLARAK YAZDIR'),
+                  icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
+                  label: Text('Teklifi PDF Olarak Yazdır', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600)),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.indigo.shade50,
                     foregroundColor: Colors.indigo,
                     elevation: 0,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                 ),
               ),
@@ -1820,6 +1863,32 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
     );
   }
 
+  Widget _buildPriceCardCompact(String label, double amount, Color color, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withOpacity(0.2)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700, color: const Color(0xFF64748B)),
+          ),
+          const Spacer(),
+          Text(
+            NumberFormat.currency(locale: 'tr_TR', symbol: '\u20ba').format(amount),
+            style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w900, color: color),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildActionFooter() {
     final reg = _selectedPreReg!;
     if (reg['isConverted'] == true) {
@@ -1844,8 +1913,9 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
       );
     }
 
+    final isMobile = MediaQuery.of(context).size.width < 500;
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(isMobile ? 10 : 16),
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border(top: BorderSide(color: Colors.grey.shade200)),
@@ -1855,19 +1925,19 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
           Expanded(
             child: OutlinedButton.icon(
               onPressed: () => _updateStatus('negative'),
-              icon: const Icon(Icons.thumb_down_rounded),
-              label: const Text('OLUMSUZ'),
-              style: OutlinedButton.styleFrom(foregroundColor: Colors.red, side: const BorderSide(color: Colors.red), padding: const EdgeInsets.symmetric(vertical: 12)),
+              icon: Icon(Icons.thumb_down_rounded, size: isMobile ? 16 : 20),
+              label: Text('OLUMSUZ', style: TextStyle(fontSize: isMobile ? 11 : 14)),
+              style: OutlinedButton.styleFrom(foregroundColor: Colors.red, side: const BorderSide(color: Colors.red), padding: EdgeInsets.symmetric(vertical: isMobile ? 8 : 12)),
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
           Expanded(
             flex: 2,
             child: ElevatedButton.icon(
               onPressed: () => _convertToActualRegistration(),
-              icon: const Icon(Icons.thumb_up_rounded),
-              label: const Text('KAYDA DÖNÜŞTÜR'),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 12)),
+              icon: Icon(Icons.thumb_up_rounded, size: isMobile ? 16 : 20),
+              label: Text('KAYDA DÖNÜŞTÜR', style: TextStyle(fontSize: isMobile ? 11 : 14)),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, padding: EdgeInsets.symmetric(vertical: isMobile ? 8 : 12)),
             ),
           ),
         ],
@@ -2191,11 +2261,19 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
               decoration: BoxDecoration(color: Colors.indigo.withOpacity(0.08), borderRadius: BorderRadius.circular(10)),
               child: Icon(icon, size: 20, color: Colors.indigo),
             ),
-            const SizedBox(width: 16),
-            Expanded(child: Text(label, style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)))),
-            Text(
-              NumberFormat.currency(locale: 'tr_TR', symbol: '₺').format(value),
-              style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.indigo),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  const SizedBox(height: 2),
+                  Text(
+                    NumberFormat.currency(locale: 'tr_TR', symbol: '₺').format(value),
+                    style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.indigo),
+                  ),
+                ],
+              ),
             ),
           ],
         ),

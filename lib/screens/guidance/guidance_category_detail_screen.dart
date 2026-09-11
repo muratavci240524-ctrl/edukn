@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../models/guidance/tests/guidance_test_definition.dart';
@@ -103,11 +104,11 @@ class _GuidanceCategoryDetailScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.title, style: GoogleFonts.inter()),
+      appBar: EduknAppBar(
+        title: widget.title,
         actions: [
           IconButton(
-            icon: Icon(_isListView ? Icons.grid_view : Icons.list),
+            icon: Icon(_isListView ? Icons.grid_view : Icons.list, color: Colors.indigo),
             onPressed: () => setState(() => _isListView = !_isListView),
             tooltip: _isListView ? 'Kart Görünümü' : 'Liste Görünümü',
           ),

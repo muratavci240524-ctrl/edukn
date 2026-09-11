@@ -1,8 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../services/term_service.dart';
+import '../../services/dynamic_group_service.dart';
+import '../../models/school/dynamic_course_group_model.dart';
 
 enum AttendanceStatus {
   present,
@@ -31,6 +35,10 @@ class ClassLessonAttendanceScreen extends StatefulWidget {
   final List<String>? combinedClassIds;
   final List<String>? combinedClassNames;
 
+  final String? courseGroupId;
+  final String? subGroupId;
+  final String? subGroupName;
+
   const ClassLessonAttendanceScreen({
     super.key,
     required this.institutionId,
@@ -45,6 +53,9 @@ class ClassLessonAttendanceScreen extends StatefulWidget {
     this.availableLessonHours,
     this.combinedClassIds,
     this.combinedClassNames,
+    this.courseGroupId,
+    this.subGroupId,
+    this.subGroupName,
   });
 
   @override
@@ -57,6 +68,10 @@ class _ClassLessonAttendanceScreenState extends State<ClassLessonAttendanceScree
   bool _saving = false;
   String? _activeWorkPeriodId;
   bool _loadedExisting = false;
+
+  DynamicCourseGroup? _detectedGroup;
+  String? _activeSubGroupId;
+  List<DynamicSubGroup> _availableSubGroups = [];
 
   DateTime _selectedDate = DateTime.now();
   int _selectedLessonHour = 1;
@@ -102,7 +117,47 @@ class _ClassLessonAttendanceScreenState extends State<ClassLessonAttendanceScree
 
       List<Map<String, dynamic>> students = [];
 
-      if (widget.combinedClassIds != null && widget.combinedClassIds!.isNotEmpty) {
+      DynamicCourseGroup? dynamicGroup;
+      if (widget.courseGroupId != null && widget.courseGroupId!.isNotEmpty) {
+        dynamicGroup = await DynamicGroupService().getGroupById(widget.courseGroupId!);
+      } else {
+        dynamicGroup = await DynamicGroupService().findGroupForClassAndLesson(
+          institutionId: widget.institutionId,
+          schoolTypeId: widget.schoolTypeId,
+          classId: widget.classId,
+          lessonId: widget.lessonId,
+          termId: effectiveTermId,
+        );
+      }
+
+      if (dynamicGroup != null && dynamicGroup.subGroups.isNotEmpty) {
+        _detectedGroup = dynamicGroup;
+        _availableSubGroups = dynamicGroup.subGroups;
+
+        final currentUid = FirebaseAuth.instance.currentUser?.uid;
+        if (_activeSubGroupId == null) {
+          if (widget.subGroupId != null && widget.subGroupId!.isNotEmpty) {
+            _activeSubGroupId = widget.subGroupId;
+          } else {
+            final teacherSub = dynamicGroup.subGroups.firstWhere(
+              (s) => s.teacherIds.contains(currentUid),
+              orElse: () => dynamicGroup!.subGroups.first,
+            );
+            _activeSubGroupId = teacherSub.id;
+          }
+        }
+
+        final selectedSub = dynamicGroup.subGroups.firstWhere(
+          (s) => s.id == _activeSubGroupId,
+          orElse: () => dynamicGroup!.subGroups.first,
+        );
+
+        students = await DynamicGroupService().loadStudentsForSubGroup(
+          subGroup: selectedSub,
+          institutionId: widget.institutionId,
+          schoolTypeId: widget.schoolTypeId,
+        );
+      } else if (widget.combinedClassIds != null && widget.combinedClassIds!.isNotEmpty) {
         final fetches = widget.combinedClassIds!.map((cId) async {
           final snapById = await FirebaseFirestore.instance
               .collection('students')
@@ -358,19 +413,24 @@ class _ClassLessonAttendanceScreenState extends State<ClassLessonAttendanceScree
         throw Exception('Aktif dönem bulunamadı. Yoklama sadece aktif dönemde kaydedilebilir.');
       }
 
-      final List<String> targetClassIds = widget.combinedClassIds != null && widget.combinedClassIds!.isNotEmpty
-          ? widget.combinedClassIds!
-          : [widget.classId];
+      final List<String> targetClassIds;
+      if (_detectedGroup != null && _detectedGroup!.targetClassIds.isNotEmpty) {
+        targetClassIds = _detectedGroup!.targetClassIds;
+      } else if (widget.combinedClassIds != null && widget.combinedClassIds!.isNotEmpty) {
+        targetClassIds = widget.combinedClassIds!;
+      } else {
+        targetClassIds = [widget.classId];
+      }
 
       final Map<String, String> classNameMap = {};
-      if (widget.combinedClassIds != null && widget.combinedClassIds!.isNotEmpty) {
-        for (var cId in targetClassIds) {
+      for (var cId in targetClassIds) {
+        if (cId == widget.classId) {
+          classNameMap[cId] = widget.className;
+        } else {
           final classDoc = await FirebaseFirestore.instance.collection('classes').doc(cId).get();
           final className = classDoc.exists ? (classDoc.data()?['className'] ?? classDoc.data()?['name'] ?? 'Sınıf').toString() : 'Sınıf';
           classNameMap[cId] = className;
         }
-      } else {
-        classNameMap[widget.classId] = widget.className;
       }
 
       final List<Future<void>> saveTasks = [];
@@ -427,8 +487,41 @@ class _ClassLessonAttendanceScreenState extends State<ClassLessonAttendanceScree
         ? Center(child: CircularProgressIndicator())
         : Column(
             children: [
+              if (_availableSubGroups.isNotEmpty)
+                Container(
+                  height: 44,
+                  margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _availableSubGroups.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    itemBuilder: (context, idx) {
+                      final sub = _availableSubGroups[idx];
+                      final isSelected = sub.id == _activeSubGroupId;
+                      return ChoiceChip(
+                        label: Text(
+                          '${sub.name} (${sub.studentIds.length})',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          ),
+                        ),
+                        selected: isSelected,
+                        selectedColor: Colors.indigo.shade100,
+                        onSelected: (val) {
+                          if (val && _activeSubGroupId != sub.id) {
+                            setState(() {
+                              _activeSubGroupId = sub.id;
+                            });
+                            _loadStudents();
+                          }
+                        },
+                      );
+                    },
+                  ),
+                ),
               Padding(
-                padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+                padding: EdgeInsets.fromLTRB(16, 8, 16, 8),
                 child: _TopControls(
                   date: _selectedDate,
                   lessonHour: _selectedLessonHour,
@@ -504,17 +597,9 @@ class _ClassLessonAttendanceScreenState extends State<ClassLessonAttendanceScree
         : bodyContent;
 
     return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Yoklama Al', style: TextStyle(color: Colors.grey.shade900, fontSize: 18, fontWeight: FontWeight.w800)),
-            Text('${widget.className} • ${widget.lessonName}', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
-          ],
-        ),
+      appBar: EduknAppBar(
+        title: 'Yoklama Al',
+        subtitle: '${widget.className} • ${widget.lessonName}',
         actions: kIsWeb
             ? null
             : [
@@ -522,12 +607,12 @@ class _ClassLessonAttendanceScreenState extends State<ClassLessonAttendanceScree
                   tooltip: 'Kaydet',
                   onPressed: _saving ? null : _saveAttendance,
                   icon: _saving
-                      ? SizedBox(
+                      ? const SizedBox(
                           width: 20,
                           height: 20,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : Icon(Icons.save_outlined),
+                      : const Icon(Icons.save_outlined, color: Colors.indigo),
                 ),
               ],
       ),

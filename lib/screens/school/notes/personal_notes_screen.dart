@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
@@ -37,11 +38,8 @@ class _PersonalNotesScreenState extends State<PersonalNotesScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        centerTitle: true,
-        title: Text('Notlarım', style: TextStyle(color: Colors.indigo.shade900, fontWeight: FontWeight.w900, fontSize: 20)),
+      appBar: EduknAppBar(
+        title: 'Notlarım',
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.indigo),
           onPressed: () => Navigator.pop(context),
@@ -272,14 +270,12 @@ class _PersonalNotesScreenState extends State<PersonalNotesScreen> {
           fullscreenDialog: true,
           builder: (context) => Scaffold(
             backgroundColor: Colors.white,
-            appBar: AppBar(
-              backgroundColor: Colors.white,
-              elevation: 0,
+            appBar: EduknAppBar(
+              title: docId == null ? 'Yeni Not' : 'Notu Düzenle',
               leading: IconButton(
                 icon: const Icon(Icons.close_rounded, color: Colors.indigo),
                 onPressed: () => Navigator.pop(context),
               ),
-              title: Text(docId == null ? 'Yeni Not' : 'Notu Düzenle', style: GoogleFonts.inter(color: Colors.indigo.shade900, fontWeight: FontWeight.bold)),
             ),
             body: SafeArea(
               child: SingleChildScrollView(

@@ -260,6 +260,7 @@ class ExternalExam {
   final bool showTicket;
   final bool showResults;
   final bool showRegulation;
+  final String? termId; // Dönem ID'si
 
   const ExternalExam({
     this.id,
@@ -283,6 +284,7 @@ class ExternalExam {
     this.showTicket = true,
     this.showResults = true,
     this.showRegulation = true,
+    this.termId,
   });
 
   String get examTypeName {
@@ -348,6 +350,7 @@ class ExternalExam {
       'showTicket': showTicket,
       'showResults': showResults,
       'showRegulation': showRegulation,
+      'termId': termId,
     };
   }
 
@@ -395,6 +398,7 @@ class ExternalExam {
       showTicket: map['showTicket'] ?? true,
       showResults: map['showResults'] ?? true,
       showRegulation: map['showRegulation'] ?? true,
+      termId: map['termId'],
     );
   }
 }

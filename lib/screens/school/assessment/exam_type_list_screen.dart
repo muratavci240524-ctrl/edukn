@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import '../../../../models/assessment/exam_type_model.dart';
 import '../../../../services/assessment_service.dart';
 import './exam_type_form_screen.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
@@ -6,9 +7,13 @@ import './exam_type_form_screen.dart';import 'package:edukn/widgets/safe_stream
 
 class ExamTypeListScreen extends StatefulWidget {
   final String institutionId;
+  final String? schoolTypeName;
 
-  const ExamTypeListScreen({Key? key, required this.institutionId})
-    : super(key: key);
+  const ExamTypeListScreen({
+    Key? key,
+    required this.institutionId,
+    this.schoolTypeName,
+  }) : super(key: key);
 
   @override
   State<ExamTypeListScreen> createState() => _ExamTypeListScreenState();
@@ -69,26 +74,9 @@ class _ExamTypeListScreenState extends State<ExamTypeListScreen> {
 
         if (isMobile) {
           return Scaffold(
-            appBar: AppBar(
-              backgroundColor: Colors.orange,
-              foregroundColor: Colors.white,
-              elevation: 0,
-              iconTheme: const IconThemeData(color: Colors.white),
-              leading: const BackButton(color: Colors.white),
-              title: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text('Sınav Türleri', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                  Text(
-                    'Tanımlar',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.normal,
-                      color: Colors.white70,
-                    ),
-                  ),
-                ],
-              ),
+            appBar: EduknAppBar(
+              title: 'Sınav Türleri',
+              subtitle: widget.schoolTypeName,
             ),
             body: Column(
               children: [
@@ -103,13 +91,9 @@ class _ExamTypeListScreenState extends State<ExamTypeListScreen> {
                   context,
                   MaterialPageRoute(
                     builder: (context) => Scaffold(
-                      appBar: AppBar(
-                        title: const Text('Yeni Sınav Türü', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                        backgroundColor: Colors.orange,
-                        foregroundColor: Colors.white,
-                        iconTheme: const IconThemeData(color: Colors.white),
-                        leading: const BackButton(color: Colors.white),
-                        elevation: 0,
+                      appBar: EduknAppBar(
+                        title: 'Yeni Sınav Türü',
+                        subtitle: widget.schoolTypeName,
                       ),
                       body: ExamTypeForm(
                         institutionId: widget.institutionId,
@@ -126,13 +110,9 @@ class _ExamTypeListScreenState extends State<ExamTypeListScreen> {
           );
         } else {
           return Scaffold(
-            appBar: AppBar(
-              title: const Text('Sınav Türleri Yönetimi', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              backgroundColor: Colors.orange,
-              foregroundColor: Colors.white,
-              iconTheme: const IconThemeData(color: Colors.white),
-              leading: const BackButton(color: Colors.white),
-              elevation: 0,
+            appBar: EduknAppBar(
+              title: 'Sınav Türleri Yönetimi',
+              subtitle: widget.schoolTypeName,
             ),
             body: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -399,13 +379,8 @@ class _ExamTypeListScreenState extends State<ExamTypeListScreen> {
                       context,
                       MaterialPageRoute(
                         builder: (context) => Scaffold(
-                          appBar: AppBar(
-                            title: Text(type.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                            backgroundColor: Colors.orange,
-                            foregroundColor: Colors.white,
-                            iconTheme: const IconThemeData(color: Colors.white),
-                            leading: const BackButton(color: Colors.white),
-                            elevation: 0,
+                          appBar: EduknAppBar(
+                            title: type.name,
                           ),
                           body: ExamTypeForm(
                             institutionId: widget.institutionId,

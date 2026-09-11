@@ -1,5 +1,6 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../services/assessment_service.dart';
@@ -619,13 +620,9 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        title: const Text('Eylem Planları', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-        backgroundColor: Colors.indigo.shade900,
-        foregroundColor: Colors.white,
-        elevation: 0,
+      appBar: EduknAppBar(
+        title: 'Eylem Planları',
         leading: const BackButton(color: Colors.white),
-        iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           if (!_isLoading)
             Padding(

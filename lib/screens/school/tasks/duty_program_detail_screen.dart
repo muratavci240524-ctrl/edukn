@@ -1,10 +1,13 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
 import '../../../services/pdf_service.dart';
 import '../../../models/school/duty_model.dart';
-import 'duty_settings_screen.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+import '../../../services/term_service.dart';
+import 'duty_settings_screen.dart';
 
 
 class DutyProgramDetailScreen extends StatefulWidget {
@@ -13,6 +16,11 @@ class DutyProgramDetailScreen extends StatefulWidget {
   final String institutionId;
   /// 'alt_donem' | 'donem' — nöbetin hangi kapsam modunda oluşturulduğu
   final String scopeType;
+  final String? schoolTypeId;
+  final String? schoolTypeName;
+  final DateTime? periodStartDate;
+  final DateTime? periodEndDate;
+  final String? termId;
 
   const DutyProgramDetailScreen({
     Key? key,
@@ -20,6 +28,11 @@ class DutyProgramDetailScreen extends StatefulWidget {
     required this.periodName,
     required this.institutionId,
     this.scopeType = 'alt_donem', // geriye dönük uyumluluk için default
+    this.periodStartDate,
+    this.periodEndDate,
+    this.schoolTypeId,
+    this.schoolTypeName,
+    this.termId,
   }) : super(key: key);
 
   @override
@@ -39,15 +52,36 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
 
   // Statistics Data
   List<DutyScheduleItem> _statsItems = [];
+  List<DutyScheduleItem> _allPeriodDutyItems = []; // Anlık tüm alt dönem nöbetleri
   List<QueryDocumentSnapshot> _teachers = []; // Cache teachers
   late DateTime _statsStartDate;
   late DateTime _statsEndDate;
+  DateTime? _periodStartDate;
+  DateTime? _periodEndDate;
   bool _isStatsLoading = false;
+  bool _customStatsDateRangePicked = false;
+  bool _isFabMenuOpen = false;
+
+  // Real-time Firestore Dinleyici
+  StreamSubscription<QuerySnapshot>? _dutyItemsSub;
+  String? _termId;
 
   @override
   void initState() {
     super.initState();
+    _termId = widget.termId;
     _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(() {
+      if (mounted) {
+        if (_tabController.index == 1) {
+          _updateStatsForSelectedRange();
+        }
+        if (_tabController.index != 0) {
+          _isFabMenuOpen = false;
+        }
+        setState(() {});
+      }
+    });
 
     // 1. Calendar: Current Week's Monday
     final now = DateTime.now();
@@ -58,45 +92,406 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
       _selectedWeekStart.day,
     );
 
-    // 2. Stats: Current Month
-    _statsStartDate = DateTime(now.year, now.month, 1);
-    _statsEndDate = DateTime(now.year, now.month + 1, 0); // Last day of month
+    // 2. Stats: SADECE alt dönemin tarihleri (kullanıcı talebi)
+    if (widget.periodStartDate != null && widget.periodEndDate != null) {
+      _periodStartDate = widget.periodStartDate;
+      _periodEndDate = widget.periodEndDate;
+      _statsStartDate = widget.periodStartDate!;
+      _statsEndDate = widget.periodEndDate!;
+    } else {
+      _statsStartDate = DateTime(now.year, now.month, 1);
+      _statsEndDate = DateTime(now.year, now.month + 1, 0); // Last day of month
+    }
 
     _loadData(); // Load Calendar & Teachers
     _loadStatsData(); // Load Stats
+    _initDutyItemsStream(); // Anlık Firestore dinleyiciyi başlat
   }
 
   @override
   void dispose() {
+    _dutyItemsSub?.cancel();
     _tabController.dispose();
     super.dispose();
+  }
+
+  bool _isVicePrincipal(Map<String, dynamic> data) {
+    final checkStrings = <String>[];
+    for (var key in ['role', 'title', 'position', 'duty', 'subRole', 'userRole', 'department']) {
+      final val = data[key];
+      if (val != null) checkStrings.add(val.toString().toLowerCase().trim());
+    }
+    if (data['roles'] is List) {
+      for (var r in (data['roles'] as List)) {
+        if (r != null) checkStrings.add(r.toString().toLowerCase().trim());
+      }
+    }
+
+    for (var str in checkStrings) {
+      if (str == 'mudur_yardimcisi' ||
+          str == 'mudir_yardimcisi' ||
+          str == 'müdür yardımcısı' ||
+          str == 'mudur yardimcisi' ||
+          str == 'müdür yrd.' ||
+          str == 'müdür yrd' ||
+          str == 'mudur yrd' ||
+          str == 'vice_principal' ||
+          (str.contains('müdür') && (str.contains('yardımc') || str.contains('yrd'))) ||
+          (str.contains('mudur') && (str.contains('yardimc') || str.contains('yrd')))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool _isPrincipalOrManager(Map<String, dynamic> data) {
+    if (_isVicePrincipal(data)) return false;
+
+    final checkStrings = <String>[];
+    for (var key in ['role', 'title', 'position', 'duty', 'subRole', 'userRole']) {
+      final val = data[key];
+      if (val != null) checkStrings.add(val.toString().toLowerCase().trim());
+    }
+    if (data['roles'] is List) {
+      for (var r in (data['roles'] as List)) {
+        if (r != null) checkStrings.add(r.toString().toLowerCase().trim());
+      }
+    }
+
+    for (var str in checkStrings) {
+      if (str == 'mudur' ||
+          str == 'müdür' ||
+          str == 'okul_muduru' ||
+          str == 'okul müdürü' ||
+          str == 'okul muduru' ||
+          str == 'genel_mudur' ||
+          str == 'genel müdür' ||
+          str == 'kurum_muduru' ||
+          str == 'kurum müdürü' ||
+          str == 'kurum yöneticisi' ||
+          str == 'kurum_yoneticisi' ||
+          str == 'yonetici' ||
+          str == 'yönetici' ||
+          str == 'principal' ||
+          str == 'director' ||
+          (str.contains('müdür') && !str.contains('yardımc') && !str.contains('yrd')) ||
+          (str.contains('mudur') && !str.contains('yardimc') && !str.contains('yrd'))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  String _getUserDisplayTitle(Map<String, dynamic> data) {
+    if (_isVicePrincipal(data)) {
+      return 'Müdür Yardımcısı';
+    }
+    if (_isPrincipalOrManager(data)) {
+      return 'Okul Müdürü';
+    }
+    if (data['branches'] is List && (data['branches'] as List).isNotEmpty) {
+      return (data['branches'] as List).first.toString();
+    } else if (data['branch'] is String && (data['branch'] as String).trim().isNotEmpty) {
+      return (data['branch'] as String).trim();
+    }
+    final title = data['title']?.toString().trim();
+    if (title != null && title.isNotEmpty && title.toLowerCase() != 'öğretmen') {
+      return title;
+    }
+    return 'Öğretmen';
+  }
+
+  bool _isUserInSchoolType(
+    Map<String, dynamic> data,
+    String? targetSchoolTypeId, {
+    String? targetSchoolTypeName,
+  }) {
+    final targetId = targetSchoolTypeId?.trim() ?? '';
+    final targetName = targetSchoolTypeName?.trim() ?? '';
+
+    if (targetId.isEmpty && targetName.isEmpty) {
+      return true;
+    }
+
+    final targetIdLower = targetId.toLowerCase();
+    final targetNameLower = targetName.toLowerCase();
+
+    final userSchoolTypes = <String>{};
+
+    // 1. data['schoolTypes'] (List of IDs, names or Maps)
+    if (data['schoolTypes'] is List) {
+      for (var item in (data['schoolTypes'] as List)) {
+        if (item is Map) {
+          final mId = item['id']?.toString().trim();
+          if (mId != null && mId.isNotEmpty) {
+            userSchoolTypes.add(mId);
+            userSchoolTypes.add(mId.toLowerCase());
+          }
+          final mName = item['name']?.toString().trim();
+          if (mName != null && mName.isNotEmpty) {
+            userSchoolTypes.add(mName);
+            userSchoolTypes.add(mName.toLowerCase());
+          }
+        } else {
+          final str = item?.toString().trim();
+          if (str != null && str.isNotEmpty) {
+            userSchoolTypes.add(str);
+            userSchoolTypes.add(str.toLowerCase());
+          }
+        }
+      }
+    }
+
+    // 2. data['workLocations'] (List of school type names, e.g. ['İlkokul', 'Ortaokul'])
+    if (data['workLocations'] is List) {
+      for (var item in (data['workLocations'] as List)) {
+        final str = item?.toString().trim();
+        if (str != null && str.isNotEmpty) {
+          userSchoolTypes.add(str);
+          userSchoolTypes.add(str.toLowerCase());
+        }
+      }
+    }
+
+    // 3. data['workLocation'] (String, e.g. 'İlkokul')
+    final wLoc = data['workLocation']?.toString().trim();
+    if (wLoc != null && wLoc.isNotEmpty) {
+      userSchoolTypes.add(wLoc);
+      userSchoolTypes.add(wLoc.toLowerCase());
+    }
+
+    // 4. data['schoolTypePermissions'] (Map)
+    if (data['schoolTypePermissions'] is Map) {
+      final perms = data['schoolTypePermissions'] as Map;
+      for (var key in perms.keys) {
+        final str = key?.toString().trim();
+        if (str != null && str.isNotEmpty) {
+          userSchoolTypes.add(str);
+          userSchoolTypes.add(str.toLowerCase());
+        }
+      }
+    }
+
+    // 5. data['schoolTypeId'] (String)
+    final sId = data['schoolTypeId']?.toString().trim();
+    if (sId != null && sId.isNotEmpty) {
+      userSchoolTypes.add(sId);
+      userSchoolTypes.add(sId.toLowerCase());
+    }
+
+    // 6. data['schoolTypeIds'] (List)
+    if (data['schoolTypeIds'] is List) {
+      for (var item in (data['schoolTypeIds'] as List)) {
+        final str = item?.toString().trim();
+        if (str != null && str.isNotEmpty) {
+          userSchoolTypes.add(str);
+          userSchoolTypes.add(str.toLowerCase());
+        }
+      }
+    }
+
+    // 7. data['schoolType'] / schoolTypeName / school / schoolName / schools / assignedSchools
+    for (var key in ['schoolType', 'schoolTypeName', 'school', 'schoolName']) {
+      final s = data[key]?.toString().trim();
+      if (s != null && s.isNotEmpty) {
+        userSchoolTypes.add(s);
+        userSchoolTypes.add(s.toLowerCase());
+      }
+    }
+    for (var key in ['schools', 'assignedSchools']) {
+      if (data[key] is List) {
+        for (var item in (data[key] as List)) {
+          final str = item?.toString().trim();
+          if (str != null && str.isNotEmpty) {
+            userSchoolTypes.add(str);
+            userSchoolTypes.add(str.toLowerCase());
+          }
+        }
+      }
+    }
+
+    // 8. Eğer kullanıcının herhangi bir okul türü kaydı varsa hedef ile eşleşiyor mu kontrol et:
+    if (userSchoolTypes.isNotEmpty) {
+      if (targetId.isNotEmpty &&
+          (userSchoolTypes.contains(targetId) || userSchoolTypes.contains(targetIdLower))) {
+        return true;
+      }
+      if (targetName.isNotEmpty &&
+          (userSchoolTypes.contains(targetName) || userSchoolTypes.contains(targetNameLower))) {
+        return true;
+      }
+      return false;
+    }
+
+    // Kullanıcıda okul türü bulunamadıysa ve işlem yapılan okul türü belliyse sızmaları önlemek için gösterme
+    return false;
+  }
+
+  bool _isUserActive(
+    Map<String, dynamic> data, {
+    String? termId,
+    String? schoolTypeId,
+    String? schoolTypeName,
+  }) {
+    // 0. Okul Müdürü / Kurum Müdürü kontrolü: Müdür yetkisinde olanlara nöbet yazılamaz
+    if (_isPrincipalOrManager(data)) {
+      return false;
+    }
+
+    // 1. Pasiflik kontrolleri
+    final isActive = data['isActive'];
+    if (isActive != null) {
+      if (isActive == false || isActive == 'false') return false;
+    }
+    if (data['isPassive'] == true || data['isPassive'] == 'true') return false;
+
+    final status = (data['status'] ?? '').toString().toLowerCase().trim();
+    if (status == 'passive' || status == 'pasif' || status == 'inactive') return false;
+
+    // 2. Eğer kullanıcıda dönem tanımlıysa mevcut dönemle eşleşmeli
+    if (termId != null && termId.isNotEmpty) {
+      final uTermId = data['termId']?.toString().trim();
+      if (uTermId != null && uTermId.isNotEmpty && uTermId != termId) {
+        return false;
+      }
+      final uAcadTermId = data['academicTermId']?.toString().trim();
+      if (uAcadTermId != null && uAcadTermId.isNotEmpty && uAcadTermId != termId) {
+        return false;
+      }
+      if (data['termIds'] is List) {
+        final tList = (data['termIds'] as List).map((e) => e.toString().trim()).toList();
+        if (tList.isNotEmpty && !tList.contains(termId)) {
+          return false;
+        }
+      }
+    }
+
+    // 3. Okul türü kontrolü: Farklı okul türündekiler görünmeyecek, birden fazlasında görevliyse görünecek
+    if (!_isUserInSchoolType(data, schoolTypeId, targetSchoolTypeName: schoolTypeName)) {
+      return false;
+    }
+
+    return true;
   }
 
   // --- Calendar Loading ---
   Future<void> _loadData() async {
     if (mounted) setState(() => _isLoading = true);
     try {
-      // 1. Load Teachers (if not loaded)
+      // 0. Resolve termId if not provided
+      if (_termId == null || _termId!.isEmpty) {
+        if (widget.scopeType == 'donem') {
+          _termId = widget.periodId;
+        } else {
+          try {
+            final pDoc = await FirebaseFirestore.instance
+                .collection('workPeriods')
+                .doc(widget.periodId)
+                .get();
+            _termId = pDoc.data()?['termId']?.toString();
+          } catch (_) {}
+          if (_termId == null || _termId!.isEmpty) {
+            final selectedTermId = await TermService().getSelectedTermId();
+            final activeTermId = await TermService().getActiveTermId();
+            _termId = selectedTermId ?? activeTermId;
+          }
+        }
+      }
+
+      // 1. Load Teachers (if not loaded) - sadece aktif ve mevcut okul türüyle uyumlu olanlar
       if (_teachers.isEmpty) {
+        final selectedTermId = await TermService().getSelectedTermId();
+        final activeTermId = await TermService().getActiveTermId();
+        final effectiveTermId = _termId ?? selectedTermId ?? activeTermId;
+
         final userSnap = await FirebaseFirestore.instance
             .collection('users')
             .where('institutionId', isEqualTo: widget.institutionId)
             .where('type', whereIn: ['teacher', 'staff', 'admin'])
             .get();
-        _teachers = userSnap.docs;
+        _teachers = userSnap.docs
+            .where((d) => _isUserActive(
+                  d.data(),
+                  termId: effectiveTermId,
+                  schoolTypeId: widget.schoolTypeId,
+                  schoolTypeName: widget.schoolTypeName,
+                ))
+            .toList();
       }
 
-      // 2. Load Locations (shared)
+      // 2. Load Locations (shared + period overrides)
       if (_locations.isEmpty) {
         final locSnap = await FirebaseFirestore.instance
             .collection('dutyLocations')
             .where('institutionId', isEqualTo: widget.institutionId)
             .get();
-        _locations = locSnap.docs.map((d) {
+        var allLocations = locSnap.docs.map((d) {
           final data = d.data();
           data['id'] = d.id;
           return DutyLocation.fromMap(data);
         }).toList();
+
+        // Alt dönem ayarlarını kontrol et (varsayılan kapalı; sadece isEnabled == true olanlar takvime gelir)
+        if (widget.periodId.isNotEmpty) {
+          final periodDoc = await FirebaseFirestore.instance
+              .collection('workPeriods')
+              .doc(widget.periodId)
+              .get();
+          if (periodDoc.exists) {
+            final pData = periodDoc.data();
+            final pStart = (pData?['startDate'] as Timestamp?)?.toDate();
+            final pEnd = (pData?['endDate'] as Timestamp?)?.toDate();
+            if (pStart != null && pEnd != null) {
+              _periodStartDate = pStart;
+              _periodEndDate = pEnd;
+              if (!_customStatsDateRangePicked) {
+                _statsStartDate = pStart;
+                _statsEndDate = pEnd;
+                _updateStatsForSelectedRange();
+              }
+            }
+            final locConfigs = (periodDoc.data()?['dutyLocationConfigs'] as Map<String, dynamic>?) ?? {};
+
+            allLocations = allLocations.where((loc) {
+              final cfg = locConfigs[loc.id] as Map<String, dynamic>?;
+              return cfg != null && cfg['isEnabled'] == true;
+            }).map((loc) {
+              final cfg = locConfigs[loc.id] as Map<String, dynamic>?;
+              if (cfg != null) {
+                final ovDays = cfg['activeDays'] != null
+                    ? List<int>.from(cfg['activeDays'])
+                    : loc.activeDays;
+                final ovStart = cfg['startTime'] ?? loc.startTime;
+                final ovEnd = cfg['endTime'] ?? loc.endTime;
+                final ovOrder = (cfg['order'] as num?)?.toInt() ?? loc.order;
+                final ovGroup = (cfg['group'] ?? loc.group ?? '').toString().trim();
+                return DutyLocation(
+                  id: loc.id,
+                  institutionId: loc.institutionId,
+                  name: loc.name,
+                  activeDays: ovDays,
+                  startTime: ovStart,
+                  endTime: ovEnd,
+                  description: loc.description,
+                  checkOtherDays: loc.checkOtherDays,
+                  order: ovOrder,
+                  group: ovGroup,
+                  eligibilities: loc.eligibilities,
+                );
+              }
+              return loc;
+            }).toList();
+          } else {
+            allLocations = [];
+          }
+        }
+
+        allLocations.sort((a, b) {
+          final cmp = a.order.compareTo(b.order);
+          if (cmp != 0) return cmp;
+          return a.name.compareTo(b.name);
+        });
+        _locations = allLocations;
       }
 
       // 3. Load Items for Selected Week
@@ -134,16 +529,22 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
           .get();
 
       final filterEnd = _statsEndDate.add(const Duration(days: 1));
+      final allItems = <DutyScheduleItem>[];
+      final statsList = <DutyScheduleItem>[];
 
-      _statsItems = itemsSnap.docs
-          .map((d) => DutyScheduleItem.fromMap(d.data(), d.id))
-          .where((item) {
-            if (item.weekStart == null) return false;
-            // Compare DateTime objects directly
-            return item.weekStart!.compareTo(_statsStartDate) >= 0 &&
-                item.weekStart!.compareTo(filterEnd) < 0;
-          })
-          .toList();
+      for (var d in itemsSnap.docs) {
+        final item = DutyScheduleItem.fromMap(d.data(), d.id);
+        allItems.add(item);
+        if (item.weekStart != null) {
+          if (item.weekStart!.compareTo(_statsStartDate) >= 0 &&
+              item.weekStart!.compareTo(filterEnd) < 0) {
+            statsList.add(item);
+          }
+        }
+      }
+
+      _allPeriodDutyItems = allItems;
+      _statsItems = statsList;
     } catch (e) {
       print('Error loading stats data: $e');
     } finally {
@@ -151,10 +552,90 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
     }
   }
 
+  /// Firestore'daki dutyScheduleItems değişikliklerini anlık (real-time) dinler.
+  /// Bir öğretmene nöbet yazıldığında, silindiğinde veya değiştirildiğinde
+  /// hem takvim hem de istatistikler 0ms içinde anlık güncellenir.
+  void _initDutyItemsStream() {
+    _dutyItemsSub?.cancel();
+    _dutyItemsSub = FirebaseFirestore.instance
+        .collection('dutyScheduleItems')
+        .where('periodId', isEqualTo: widget.periodId)
+        .snapshots()
+        .listen((snapshot) {
+      if (!mounted) return;
+      final allItems = <DutyScheduleItem>[];
+      final newMatrix = <String, DutyScheduleItem>{};
+      final statsList = <DutyScheduleItem>[];
+      final startDay = DateTime(_statsStartDate.year, _statsStartDate.month, _statsStartDate.day);
+      final endDay = DateTime(_statsEndDate.year, _statsEndDate.month, _statsEndDate.day, 23, 59, 59);
+
+      for (var doc in snapshot.docs) {
+        final item = DutyScheduleItem.fromMap(doc.data(), doc.id);
+        allItems.add(item);
+
+        // Seçili haftadaki nöbetler
+        if (item.weekStart != null &&
+            item.weekStart!.year == _selectedWeekStart.year &&
+            item.weekStart!.month == _selectedWeekStart.month &&
+            item.weekStart!.day == _selectedWeekStart.day) {
+          final key = '${item.locationId}_${item.dayOfWeek}';
+          newMatrix[key] = item;
+        }
+
+        // İstatistik tarih aralığındaki nöbetler
+        if (item.weekStart != null) {
+          final d = DateTime(item.weekStart!.year, item.weekStart!.month, item.weekStart!.day);
+          if (!d.isBefore(startDay) && !d.isAfter(endDay)) {
+            statsList.add(item);
+          }
+        }
+      }
+
+      setState(() {
+        _allPeriodDutyItems = allItems;
+        _matrix = newMatrix;
+        _statsItems = statsList;
+        _isStatsLoading = false;
+      });
+    }, onError: (e) {
+      debugPrint('Duty items stream error: $e');
+    });
+  }
+
+  void _updateMatrixForSelectedWeek() {
+    final newMatrix = <String, DutyScheduleItem>{};
+    for (var item in _allPeriodDutyItems) {
+      if (item.weekStart != null &&
+          item.weekStart!.year == _selectedWeekStart.year &&
+          item.weekStart!.month == _selectedWeekStart.month &&
+          item.weekStart!.day == _selectedWeekStart.day) {
+        final key = '${item.locationId}_${item.dayOfWeek}';
+        newMatrix[key] = item;
+      }
+    }
+    setState(() {
+      _matrix = newMatrix;
+    });
+  }
+
+  void _updateStatsForSelectedRange() {
+    final startDay = DateTime(_statsStartDate.year, _statsStartDate.month, _statsStartDate.day);
+    final endDay = DateTime(_statsEndDate.year, _statsEndDate.month, _statsEndDate.day, 23, 59, 59);
+    final statsList = _allPeriodDutyItems.where((item) {
+      if (item.weekStart == null) return false;
+      final d = DateTime(item.weekStart!.year, item.weekStart!.month, item.weekStart!.day);
+      return !d.isBefore(startDay) && !d.isAfter(endDay);
+    }).toList();
+    setState(() {
+      _statsItems = statsList;
+    });
+  }
+
   void _changeWeek(int weeks) {
     setState(() {
       _selectedWeekStart = _selectedWeekStart.add(Duration(days: weeks * 7));
     });
+    _updateMatrixForSelectedWeek();
     _loadData();
   }
 
@@ -177,25 +658,38 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
           _selectedWeekStart.day,
         );
       });
+      _updateMatrixForSelectedWeek();
       _loadData();
     }
   }
 
   // Pick Range for Stats
   Future<void> _selectStatsDateRange() async {
+    final firstAllowed = _periodStartDate ?? DateTime(2020);
+    final lastAllowed = _periodEndDate ?? DateTime(2030);
+
+    final initialStart = _statsStartDate.isBefore(firstAllowed)
+        ? firstAllowed
+        : (_statsStartDate.isAfter(lastAllowed) ? firstAllowed : _statsStartDate);
+    final initialEnd = _statsEndDate.isAfter(lastAllowed)
+        ? lastAllowed
+        : (_statsEndDate.isBefore(firstAllowed) ? lastAllowed : _statsEndDate);
+
     final picked = await showDateRangePicker(
       context: context,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2030),
+      firstDate: firstAllowed,
+      lastDate: lastAllowed,
       initialDateRange: DateTimeRange(
-        start: _statsStartDate,
-        end: _statsEndDate,
+        start: initialStart,
+        end: initialEnd.isBefore(initialStart) ? initialStart : initialEnd,
       ),
       locale: const Locale('tr', 'TR'),
       saveText: 'Seç',
+      helpText: '${widget.periodName} Tarih Aralığı',
     );
     if (picked != null) {
       setState(() {
+        _customStatsDateRangePicked = true;
         _statsStartDate = DateTime(
           picked.start.year,
           picked.start.month,
@@ -207,6 +701,7 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
           picked.end.day,
         );
       });
+      _updateStatsForSelectedRange();
       _loadStatsData();
     }
   }
@@ -270,18 +765,31 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
         '${dateFormat.format(_statsStartDate)} - ${dateFormat.format(_statsEndDate)}';
 
     // Prepare Data
+    final selectedTermId = await TermService().getSelectedTermId();
+    final activeTermId = await TermService().getActiveTermId();
+    final effectiveTermId = selectedTermId ?? activeTermId;
+
     final userSnap = await FirebaseFirestore.instance
         .collection('users')
         .where('institutionId', isEqualTo: widget.institutionId)
         .where('type', whereIn: ['teacher', 'staff', 'admin'])
         .get();
 
-    final teachers = userSnap.docs;
+    final teachers = userSnap.docs
+        .where((d) => _isUserActive(
+              d.data(),
+              termId: effectiveTermId,
+              schoolTypeId: widget.schoolTypeId,
+              schoolTypeName: widget.schoolTypeName,
+            ))
+        .toList();
     List<Map<String, dynamic>> stats = [];
 
     for (var t in teachers) {
       final tid = t.id;
-      final tName = t.data()['fullName'] ?? t.data()['name'] ?? 'İsimsiz';
+      final tData = t.data();
+      final tName = tData['fullName'] ?? tData['name'] ?? 'İsimsiz';
+      final branch = _getUserDisplayTitle(tData);
 
       int total = 0;
       Map<String, int> locCounts = {};
@@ -294,21 +802,19 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
         }
       }
 
-      if (total > 0 || true) {
-        stats.add({'name': tName, 'total': total, 'locCounts': locCounts});
-      }
+      stats.add({'name': tName, 'branch': branch, 'total': total, 'locCounts': locCounts});
     }
 
     stats.sort((a, b) => (b['total'] as int).compareTo(a['total'] as int));
 
     // Pdf Headers
-    List<String> headers = ['Öğretmen', 'Toplam'];
+    List<String> headers = ['Öğretmen', 'Branş/Görev', 'Toplam'];
     for (var l in _locations) headers.add(l.name);
 
     // Pdf Rows
     List<List<String>> rows = [];
     for (var s in stats) {
-      List<String> row = [s['name'], s['total'].toString()];
+      List<String> row = [s['name'], s['branch'], s['total'].toString()];
       final locs = s['locCounts'] as Map<String, int>;
       for (var l in _locations) {
         row.add((locs[l.id] ?? 0).toString());
@@ -338,19 +844,8 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        title: const Text(
-          'Nöbet Programı',
-          style: TextStyle(
-            color: Color(0xFF0F172A),
-            fontWeight: FontWeight.bold,
-            fontSize: 18,
-          ),
-        ),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        centerTitle: false,
-        iconTheme: const IconThemeData(color: Color(0xFF0F172A)),
+      appBar: EduknAppBar(
+        title: 'Nöbet Programı',
         actions: [
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert, color: Color(0xFF64748B)),
@@ -363,9 +858,14 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
                       builder: (_) => DutySettingsScreen(
                         institutionId: widget.institutionId,
                         periodId: widget.periodId,
+                        schoolTypeId: widget.schoolTypeId,
+                        schoolTypeName: widget.schoolTypeName,
                       ),
                     ),
-                  );
+                  ).then((_) {
+                    _locations.clear();
+                    _loadData();
+                  });
                   break;
                 case 'print':
                   _printReport();
@@ -420,7 +920,7 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
                     children: [
                       Icon(Icons.delete_sweep, size: 18, color: Colors.red),
                       SizedBox(width: 10),
-                      Text('Bu Haftaı Temizle',
+                      Text('Haftayı Temizle',
                           style: TextStyle(color: Colors.red)),
                     ],
                   ),
@@ -492,28 +992,23 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
           ),
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : _buildCalendarView(),
-          _buildStatisticsView(),
-        ],
+      body: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: () {
+          if (_isFabMenuOpen) setState(() => _isFabMenuOpen = false);
+        },
+        child: TabBarView(
+          controller: _tabController,
+          children: [
+            _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _buildCalendarView(),
+            _buildStatisticsView(),
+          ],
+        ),
       ),
       floatingActionButton: _tabController.index == 0
-          ? FloatingActionButton.extended(
-              onPressed: _showAutoDistributeCall,
-              backgroundColor: const Color(0xFFEF4444),
-              icon: const Icon(Icons.autorenew, color: Colors.white),
-              label: const Text(
-                'Yeni Atama (Otomatik)',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            )
+          ? _buildExpandableFab()
           : null,
     );
   }
@@ -612,13 +1107,101 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
                     cells: [
                       DataCell(
                         Container(
-                          constraints: const BoxConstraints(maxWidth: 150),
-                          child: Text(
-                            loc.name,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF0F172A),
-                            ),
+                          constraints: const BoxConstraints(minWidth: 170, maxWidth: 220),
+                          child: Row(
+                            children: [
+                              // Sıralama Butonları (Yukarı / Aşağı)
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade50,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: Colors.grey.shade200),
+                                ),
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    InkWell(
+                                      onTap: index > 0
+                                          ? () => _moveLocationRow(index, -1)
+                                          : null,
+                                      borderRadius: const BorderRadius.vertical(
+                                        top: Radius.circular(7),
+                                      ),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 4,
+                                          vertical: 1,
+                                        ),
+                                        child: Icon(
+                                          Icons.keyboard_arrow_up_rounded,
+                                          size: 16,
+                                          color: index > 0
+                                              ? const Color(0xFF4F46E5)
+                                              : Colors.grey.shade300,
+                                        ),
+                                      ),
+                                    ),
+                                    Container(
+                                      height: 1,
+                                      width: 18,
+                                      color: Colors.grey.shade200,
+                                    ),
+                                    InkWell(
+                                      onTap: index < _locations.length - 1
+                                          ? () => _moveLocationRow(index, 1)
+                                          : null,
+                                      borderRadius: const BorderRadius.vertical(
+                                        bottom: Radius.circular(7),
+                                      ),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 4,
+                                          vertical: 1,
+                                        ),
+                                        child: Icon(
+                                          Icons.keyboard_arrow_down_rounded,
+                                          size: 16,
+                                          color: index < _locations.length - 1
+                                              ? const Color(0xFF4F46E5)
+                                              : Colors.grey.shade300,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              // Yer Adı ve Saatler
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      loc.name,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF0F172A),
+                                        fontSize: 13,
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    if (loc.startTime.isNotEmpty ||
+                                        loc.endTime.isNotEmpty)
+                                      Text(
+                                        '${loc.startTime} - ${loc.endTime}',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          color: Colors.grey.shade500,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
@@ -785,6 +1368,7 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
       final tid = t.id;
       final tData = t.data() as Map<String, dynamic>;
       final tName = tData['fullName'] ?? tData['name'] ?? 'İsimsiz';
+      final branch = _getUserDisplayTitle(tData);
 
       int total = 0;
       Map<String, int> locCounts = {};
@@ -799,9 +1383,7 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
         }
       }
 
-      if (total > 0 || true) {
-        stats.add({'name': tName, 'total': total, 'locCounts': locCounts});
-      }
+      stats.add({'name': tName, 'branch': branch, 'total': total, 'locCounts': locCounts});
     }
 
     // Sort by Total Descending
@@ -865,6 +1447,22 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
                         ),
                       ),
                     ),
+                    if (_customStatsDateRangePicked &&
+                        _periodStartDate != null &&
+                        _periodEndDate != null)
+                      IconButton(
+                        tooltip: 'Dönem Tarihlerine Sıfırla',
+                        icon: const Icon(Icons.restart_alt_rounded,
+                            size: 20, color: Color(0xFF4F46E5)),
+                        onPressed: () {
+                          setState(() {
+                            _customStatsDateRangePicked = false;
+                            _statsStartDate = _periodStartDate!;
+                            _statsEndDate = _periodEndDate!;
+                          });
+                          _updateStatsForSelectedRange();
+                        },
+                      ),
                     IconButton(
                       tooltip: 'Raporu Yazdır',
                       icon: const Icon(Icons.print_outlined, size: 20),
@@ -999,13 +1597,27 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
 
                             Expanded(
                               flex: 3,
-                              child: Text(
-                                s['name'],
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  color: Color(0xFF334155),
-                                  fontSize: 13,
-                                ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    s['name'],
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      color: Color(0xFF334155),
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                  Text(
+                                    s['branch'] ?? 'Öğretmen',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey.shade500,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
 
@@ -1127,65 +1739,8 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
   // ---------------------------------------------------------------------------
   // 3. Logic: Assignments & Auto Distribute
   // ---------------------------------------------------------------------------
-
-  // Helper method to get teacher's lesson count for a specific day
-  Future<int> _getTeacherLessonCount(
-    String teacherId,
-    int day,
-  ) async {
-    try {
-      // 1. Get ALL active periods for this institution (Handle Primary/Middle/High sync)
-      final periodSnapshot = await FirebaseFirestore.instance
-          .collection('workPeriods')
-          .where('institutionId', isEqualTo: widget.institutionId)
-          .where('isActive', isEqualTo: true)
-          .get();
-
-      if (periodSnapshot.docs.isEmpty) return 0;
-      final activePeriodIds = periodSnapshot.docs.map((d) => d.id).toSet();
-      final dayName = _getDayName(day);
-
-      // 2. Fetch all schedule items for this day in this institution
-      // We filter by institutionId + day + isActive for robustness and cross-period support
-      final scheduleSnap = await FirebaseFirestore.instance
-          .collection('classSchedules')
-          .where('institutionId', isEqualTo: widget.institutionId)
-          .where('day', isEqualTo: dayName)
-          .where('isActive', isEqualTo: true)
-          .get();
-
-      int lessonCount = 0;
-      for (var doc in scheduleSnap.docs) {
-        final data = doc.data();
-        
-        // Ensure it belongs to an active period for this institution
-        if (!activePeriodIds.contains(data['periodId'])) continue;
-
-        final tId = data['teacherId'];
-        final tIds = data['teacherIds'];
-
-        bool match = false;
-        if (tId != null && tId.toString() == teacherId) {
-          match = true;
-        }
-        if (!match && tIds is List) {
-          if (tIds.any((e) => e.toString() == teacherId)) {
-            match = true;
-          }
-        }
-
-        if (match) {
-          lessonCount++;
-        }
-      }
-
-      return lessonCount;
-    } catch (e) {
-      print('Error getting teacher lesson count: $e');
-      return 0;
-    }
-  }
-
+  // 3. Logic: Assignments & Auto Distribute
+  // ---------------------------------------------------------------------------
   Future<void> _showAssignDialog(
     DutyLocation loc,
     int day,
@@ -1205,161 +1760,452 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
       }
     }
 
-    showDialog(
+    // Ensure teachers are loaded
+    if (_teachers.isEmpty) {
+      final selectedTermId = await TermService().getSelectedTermId();
+      final activeTermId = await TermService().getActiveTermId();
+      final effectiveTermId = selectedTermId ?? activeTermId;
+
+      final userSnap = await FirebaseFirestore.instance
+          .collection('users')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .where('type', whereIn: ['teacher', 'staff', 'admin'])
+          .get();
+      _teachers = userSnap.docs
+          .where((d) => _isUserActive(
+                d.data(),
+                termId: effectiveTermId,
+                schoolTypeId: widget.schoolTypeId,
+                schoolTypeName: widget.schoolTypeName,
+              ))
+          .toList();
+    }
+
+    String searchQuery = '';
+    final TextEditingController searchCtrl = TextEditingController();
+
+    String normalizeTr(String text) {
+      return text
+          .toLowerCase()
+          .replaceAll('ı', 'i')
+          .replaceAll('İ', 'i')
+          .replaceAll('I', 'i')
+          .replaceAll('ş', 's')
+          .replaceAll('Ş', 's')
+          .replaceAll('ğ', 'g')
+          .replaceAll('Ğ', 'g')
+          .replaceAll('ü', 'u')
+          .replaceAll('Ü', 'u')
+          .replaceAll('ö', 'o')
+          .replaceAll('Ö', 'o')
+          .replaceAll('ç', 'c')
+          .replaceAll('Ç', 'c');
+    }
+
+    if (!mounted) return;
+
+    await showModalBottomSheet(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('${loc.name} - ${_getDayName(day)}'),
-        content: SizedBox(
-          width: double.maxFinite,
-          height: 400,
-          child: SafeStreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection('users')
-                .where('institutionId', isEqualTo: widget.institutionId)
-                .where('type', whereIn: ['teacher', 'staff', 'admin'])
-                .snapshots(),
-            builder: (context, snap) {
-              if (!snap.hasData)
-                return const Center(child: CircularProgressIndicator());
-              final docs = snap.data!.docs;
-              List<QueryDocumentSnapshot> sorted = List.from(docs);
-              sorted.sort((a, b) {
-                bool ae = eligibleIds.contains(a.id);
-                bool be = eligibleIds.contains(b.id);
-                if (ae && !be) return -1;
-                if (!ae && be) return 1;
-                return (a['fullName'] ?? '').compareTo(b['fullName'] ?? '');
-              });
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          final normQ = normalizeTr(searchQuery.trim());
 
-              return ListView.builder(
-                itemCount: sorted.length + 1,
-                itemBuilder: (context, i) {
-                  if (i == 0)
-                    return ListTile(
-                      leading: const Icon(Icons.clear, color: Colors.red),
-                      title: const Text(
-                        'GÃÂ¶revi KaldÃÂ±r',
-                        style: TextStyle(color: Colors.red),
+          // Sort teachers:
+          // 1. Currently selected teacher first
+          // 2. Eligible teachers (in pool)
+          // 3. Alphabetical by name
+          List<QueryDocumentSnapshot> sorted = List.from(_teachers);
+          sorted.sort((a, b) {
+            final aData = a.data() as Map<String, dynamic>;
+            final bData = b.data() as Map<String, dynamic>;
+            final nameA = (aData['fullName'] ?? aData['name'] ?? '').toString();
+            final nameB = (bData['fullName'] ?? bData['name'] ?? '').toString();
+
+            final isCurrentA = a.id == currentId;
+            final isCurrentB = b.id == currentId;
+            if (isCurrentA && !isCurrentB) return -1;
+            if (!isCurrentA && isCurrentB) return 1;
+
+            final ae = eligibleIds.contains(a.id);
+            final be = eligibleIds.contains(b.id);
+            if (ae && !be) return -1;
+            if (!ae && be) return 1;
+
+            return nameA.compareTo(nameB);
+          });
+
+          // Filter by search
+          final filtered = sorted.where((t) {
+            if (normQ.isEmpty) return true;
+            final tData = t.data() as Map<String, dynamic>;
+            final name = normalizeTr(
+              (tData['fullName'] ?? tData['name'] ?? '').toString(),
+            );
+            final branch = _getUserDisplayTitle(tData);
+            final normB = normalizeTr(branch);
+            return name.contains(normQ) || normB.contains(normQ);
+          }).toList();
+
+          return DraggableScrollableSheet(
+            initialChildSize: 0.85,
+            minChildSize: 0.5,
+            maxChildSize: 0.95,
+            expand: false,
+            builder: (_, scrollController) {
+              return Material(
+                color: Colors.white,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  children: [
+                    // Handle bar
+                    Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(2),
                       ),
-                      onTap: () async {
-                        await _removeItem(loc.id, day);
-                        if (mounted) Navigator.pop(context);
-                      },
-                    );
-                  final t = sorted[i - 1];
-                  final tName = t['fullName'] ?? t['name'] ?? '';
-                  final isElig = eligibleIds.contains(t.id);
-                  final isSelected = currentId == t.id;
-                  final isAssignedElsewhere = assignedTeachers.contains(t.id);
-
-                  final tData = t.data() as Map<String, dynamic>;
-                  String branch = 'Öğretmen';
-                  if (tData['branches'] is List && (tData['branches'] as List).isNotEmpty) {
-                    branch = (tData['branches'] as List).first.toString();
-                  } else if (tData['branch'] is String && (tData['branch'] as String).isNotEmpty) {
-                    branch = tData['branch'];
-                  }
-
-                  return FutureBuilder<int>(
-                    future: _getTeacherLessonCount(t.id, day),
-                    builder: (context, infoSnap) {
-                      final lessonCount = infoSnap.data ?? 0;
-                      final subtitle = '$branch ($lessonCount saat)';
-
-                      // Determine colors based on assignment status
-                      Color avatarBgColor;
-                      Color avatarTextColor;
-                      Color tileColor;
-
-                      if (isAssignedElsewhere) {
-                        // Teacher assigned to another duty location - use orange/amber
-                        avatarBgColor = Colors.orange.shade100;
-                        avatarTextColor = Colors.orange.shade800;
-                        tileColor = Colors.orange.shade50;
-                      } else if (isElig) {
-                        // Teacher in pool - use green
-                        avatarBgColor = const Color(0xFFDCFCE7);
-                        avatarTextColor = Colors.green.shade800;
-                        tileColor = Colors.white;
-                      } else {
-                        // Teacher not in pool - use grey
-                        avatarBgColor = Colors.grey.shade100;
-                        avatarTextColor = Colors.grey;
-                        tileColor = Colors.white;
-                      }
-
-                      return Container(
-                        color: tileColor,
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: avatarBgColor,
-                            child: Text(
-                              tName.isNotEmpty ? tName[0] : '?',
-                              style: TextStyle(
-                                color: avatarTextColor,
-                                fontWeight: isAssignedElsewhere
-                                    ? FontWeight.bold
-                                    : FontWeight.normal,
-                              ),
-                            ),
-                          ),
-                          title: Text(
-                            tName,
-                            style: TextStyle(
-                              fontWeight: isAssignedElsewhere
-                                  ? FontWeight.bold
-                                  : FontWeight.normal,
-                            ),
-                          ),
-                          subtitle:
-                              infoSnap.connectionState ==
-                                  ConnectionState.waiting
-                              ? const SizedBox(
-                                  height: 12,
-                                  width: 12,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : Text(
-                                  subtitle,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: isAssignedElsewhere
-                                        ? Colors.orange.shade700
-                                        : (isElig ? Colors.green : Colors.grey),
-                                    fontWeight: isAssignedElsewhere
-                                        ? FontWeight.w600
-                                        : FontWeight.normal,
+                    ),
+                    // Header
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 4,
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${loc.name} - ${_getDayName(day)}',
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF1E293B),
                                   ),
                                 ),
-                          trailing: isSelected
-                              ? const Icon(
-                                  Icons.check_circle,
-                                  color: Color(0xFF4F46E5),
+                                if (loc.startTime.isNotEmpty || loc.endTime.isNotEmpty)
+                                  Text(
+                                    '${loc.startTime} - ${loc.endTime}',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade600,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close_rounded),
+                            onPressed: () => Navigator.pop(ctx),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    // Search box
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: TextField(
+                        controller: searchCtrl,
+                        decoration: InputDecoration(
+                          hintText: 'Öğretmen veya branş ara...',
+                          prefixIcon: const Icon(
+                            Icons.search,
+                            color: Color(0xFF64748B),
+                          ),
+                          suffixIcon: searchQuery.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear, size: 18),
+                                  onPressed: () {
+                                    searchCtrl.clear();
+                                    setSheetState(() {
+                                      searchQuery = '';
+                                    });
+                                  },
                                 )
-                              : (isAssignedElsewhere
-                                    ? Icon(
-                                        Icons.warning_amber_rounded,
-                                        color: Colors.orange.shade700,
-                                        size: 20,
-                                      )
-                                    : null),
-                          onTap: () async {
-                            await _saveItem(loc.id, day, t.id, tName);
-                            if (mounted) Navigator.pop(context);
-                          },
+                              : null,
+                          filled: true,
+                          fillColor: const Color(0xFFF1F5F9),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            vertical: 0,
+                          ),
                         ),
-                      );
-                    },
-                  );
-                },
+                        onChanged: (val) {
+                          setSheetState(() {
+                            searchQuery = val;
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    // Görevi Kaldır Butonu
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(10),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _removeItem(loc.id, day);
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.red.shade50,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: Colors.red.shade100),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.remove_circle_outline_rounded,
+                                color: Colors.red.shade700,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 10),
+                              Text(
+                                'Nöbet Görevini Kaldır',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.red.shade700,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              const Spacer(),
+                              if (currentId != null && currentId.isNotEmpty)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.red.shade100,
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: const Text(
+                                    'Mevcut Görevli Var',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.red,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Divider(height: 1),
+                    // Teacher List
+                    Expanded(
+                      child: filtered.isEmpty
+                          ? Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(24.0),
+                                child: Text(
+                                  '"$searchQuery" ile eşleşen öğretmen bulunamadı.',
+                                  style: TextStyle(
+                                    color: Colors.grey.shade600,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                            )
+                          : ListView.builder(
+                              controller: scrollController,
+                              itemCount: filtered.length,
+                              itemBuilder: (context, i) {
+                                final t = filtered[i];
+                                final tId = t.id;
+                                final tData = t.data() as Map<String, dynamic>;
+                                final tName =
+                                    tData['fullName'] ?? tData['name'] ?? '';
+                                final isElig = eligibleIds.contains(tId);
+                                final isSelected = currentId == tId;
+                                final isAssignedElsewhere =
+                                    assignedTeachers.contains(tId);
+
+                                final branch = _getUserDisplayTitle(tData);
+
+                                final dutyCount = _allPeriodDutyItems
+                                    .where((it) => it.teacherId == tId)
+                                    .length;
+                                final subtitle = '$branch • $dutyCount nöbet';
+
+                                Color avatarBgColor;
+                                Color avatarTextColor;
+                                Color tileColor;
+
+                                if (isSelected) {
+                                  avatarBgColor = const Color(0xFF4F46E5);
+                                  avatarTextColor = Colors.white;
+                                  tileColor = const Color(0xFF4F46E5).withOpacity(0.06);
+                                } else if (isAssignedElsewhere) {
+                                  avatarBgColor = Colors.orange.shade100;
+                                  avatarTextColor = Colors.orange.shade800;
+                                  tileColor = Colors.orange.shade50;
+                                } else if (isElig) {
+                                  avatarBgColor = const Color(0xFFDCFCE7);
+                                  avatarTextColor = Colors.green.shade800;
+                                  tileColor = Colors.white;
+                                } else {
+                                  avatarBgColor = Colors.grey.shade100;
+                                  avatarTextColor = Colors.grey.shade600;
+                                  tileColor = Colors.white;
+                                }
+
+                                return Material(
+                                  color: tileColor,
+                                  child: ListTile(
+                                    leading: CircleAvatar(
+                                      backgroundColor: avatarBgColor,
+                                      child: Text(
+                                        tName.isNotEmpty
+                                            ? tName.substring(0, 1).toUpperCase()
+                                            : '?',
+                                        style: TextStyle(
+                                          color: avatarTextColor,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                    title: Row(
+                                      children: [
+                                        Flexible(
+                                          child: Text(
+                                            tName,
+                                            style: TextStyle(
+                                              fontWeight: isSelected ||
+                                                      isAssignedElsewhere
+                                                  ? FontWeight.bold
+                                                  : FontWeight.w600,
+                                              color: const Color(0xFF1E293B),
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 1,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFEFF6FF),
+                                            borderRadius:
+                                                BorderRadius.circular(4),
+                                            border: Border.all(
+                                                color: const Color(0xFFBFDBFE)),
+                                          ),
+                                          child: Text(
+                                            '$dutyCount Nöbet',
+                                            style: const TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold,
+                                              color: Color(0xFF1D4ED8),
+                                            ),
+                                          ),
+                                        ),
+                                        if (isElig) ...[
+                                          const SizedBox(width: 6),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 6,
+                                              vertical: 1,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFDCFCE7),
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
+                                            ),
+                                            child: const Text(
+                                              'Havuzda',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                                color: Color(0xFF166534),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                        if (isAssignedElsewhere) ...[
+                                          const SizedBox(width: 6),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 6,
+                                              vertical: 1,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: Colors.orange.shade100,
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
+                                            ),
+                                            child: Text(
+                                              'Başka Yerde Nöbetçi',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.orange.shade800,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                    subtitle: Text(
+                                      subtitle,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: isAssignedElsewhere
+                                            ? Colors.orange.shade800
+                                            : Colors.grey.shade600,
+                                      ),
+                                    ),
+                                    trailing: isSelected
+                                        ? const Icon(
+                                            Icons.check_circle_rounded,
+                                            color: Color(0xFF4F46E5),
+                                          )
+                                        : null,
+                                    onTap: () {
+                                      Navigator.pop(ctx);
+                                      _saveItem(
+                                        loc.id,
+                                        day,
+                                        tId,
+                                        tName,
+                                      );
+                                    },
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
               );
             },
-          ),
-        ),
+          );
+        },
       ),
     );
+    searchCtrl.dispose();
   }
 
   Future<void> _saveItem(
@@ -1371,54 +2217,113 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
     final key = '${locId}_$day';
     final current = _matrix[key];
     final weekStr = _selectedWeekStart.toIso8601String();
+    final locName = _locations
+        .firstWhere(
+          (l) => l.id == locId,
+          orElse: () => DutyLocation(
+            id: locId,
+            institutionId: widget.institutionId,
+            name: 'Nöbet Yeri',
+            activeDays: [],
+            eligibilities: {},
+          ),
+        )
+        .name;
+
+    final dutyDate = _selectedWeekStart.add(Duration(days: day - 1));
+    final isSameTeacherNotified = (current != null && current.teacherId == tid && current.notificationSent == true);
+
+    // 1. Optimistic Local Update (0ms anlık tepki - tablo ve istatistikler anında güncellenir)
+    final tempId = current?.id ?? 'temp_${DateTime.now().millisecondsSinceEpoch}';
+    final optimisticItem = DutyScheduleItem(
+      id: tempId,
+      institutionId: widget.institutionId,
+      periodId: widget.periodId,
+      termId: _termId,
+      locationId: locId,
+      locationName: locName,
+      dayOfWeek: day,
+      teacherId: tid,
+      teacherName: tName,
+      weekStart: _selectedWeekStart,
+      dutyDate: dutyDate.toIso8601String(),
+      notificationSent: isSameTeacherNotified,
+      notifiedTeacherId: isSameTeacherNotified ? tid : null,
+    );
+
+    setState(() {
+      _matrix[key] = optimisticItem;
+      _allPeriodDutyItems.removeWhere((it) =>
+          it.locationId == locId &&
+          it.dayOfWeek == day &&
+          it.weekStart != null &&
+          it.weekStart!.year == _selectedWeekStart.year &&
+          it.weekStart!.month == _selectedWeekStart.month &&
+          it.weekStart!.day == _selectedWeekStart.day);
+      _allPeriodDutyItems.add(optimisticItem);
+      _updateStatsForSelectedRange();
+    });
 
     final data = {
       'institutionId': widget.institutionId,
       'periodId': widget.periodId,
+      'termId': _termId,
       'scopeType': widget.scopeType, // Kapsam modu kaydediliyor
       'locationId': locId,
-      'locationName': _locations
-          .firstWhere(
-            (l) => l.id == locId,
-            orElse: () => DutyLocation(
-              id: locId,
-              institutionId: widget.institutionId,
-              name: 'Nöbet Yeri',
-              activeDays: [],
-              eligibilities: {},
-            ),
-          )
-          .name,
+      'locationName': locName,
       'dayOfWeek': day,
       'teacherId': tid,
       'teacherName': tName,
       'weekStart': weekStr,
+      'dutyDate': dutyDate.toIso8601String(),
+      'sendNotification': false, // Anlık bildirim gönderilmez
+      'notificationSent': isSameTeacherNotified,
+      'notifiedTeacherId': isSameTeacherNotified ? tid : null,
     };
 
-    if (current != null) {
-      await FirebaseFirestore.instance
-          .collection('dutyScheduleItems')
-          .doc(current.id)
-          .update(data);
-    } else {
-      await FirebaseFirestore.instance
-          .collection('dutyScheduleItems')
-          .add(data);
+    try {
+      if (current != null && !current.id.startsWith('temp_')) {
+        await FirebaseFirestore.instance
+            .collection('dutyScheduleItems')
+            .doc(current.id)
+            .update(data);
+      } else {
+        await FirebaseFirestore.instance
+            .collection('dutyScheduleItems')
+            .add(data);
+      }
+    } catch (e) {
+      debugPrint('Error saving duty item: $e');
     }
-    _loadData();
-    _loadStatsData();
   }
 
   Future<void> _removeItem(String locId, int day) async {
     final key = '${locId}_$day';
     final current = _matrix[key];
-    if (current != null) {
-      await FirebaseFirestore.instance
-          .collection('dutyScheduleItems')
-          .doc(current.id)
-          .delete();
-      _loadData();
-      _loadStatsData();
+    if (current == null) return;
+
+    // 1. Optimistic Local Update (0ms anlık tepki - tablodan ve istatistikten anında silinir)
+    setState(() {
+      _matrix.remove(key);
+      _allPeriodDutyItems.removeWhere((it) =>
+          it.locationId == locId &&
+          it.dayOfWeek == day &&
+          it.weekStart != null &&
+          it.weekStart!.year == _selectedWeekStart.year &&
+          it.weekStart!.month == _selectedWeekStart.month &&
+          it.weekStart!.day == _selectedWeekStart.day);
+      _updateStatsForSelectedRange();
+    });
+
+    try {
+      if (!current.id.startsWith('temp_')) {
+        await FirebaseFirestore.instance
+            .collection('dutyScheduleItems')
+            .doc(current.id)
+            .delete();
+      }
+    } catch (e) {
+      debugPrint('Error deleting duty item: $e');
     }
   }
 
@@ -1426,7 +2331,7 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
     final confirm = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
-        title: const Text('Tümünü Temizle'),
+        title: const Text('Haftayı Temizle'),
         content: const Text(
           'Bu haftaya ait tüm nöbet atamaları silinecek. Emin misiniz?',
         ),
@@ -1437,8 +2342,11 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(c, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Sil'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFEF4444),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Temizle'),
           ),
         ],
       ),
@@ -1448,7 +2356,18 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
   }
 
   Future<void> _clearAllDuties() async {
-    setState(() => _isLoading = true);
+    // 1. Optimistic Local Update (0ms anlık tepki)
+    setState(() {
+      _matrix.clear();
+      _allPeriodDutyItems.removeWhere((it) =>
+          it.weekStart != null &&
+          it.weekStart!.year == _selectedWeekStart.year &&
+          it.weekStart!.month == _selectedWeekStart.month &&
+          it.weekStart!.day == _selectedWeekStart.day);
+      _updateStatsForSelectedRange();
+      _isLoading = true;
+    });
+
     try {
       final weekStr = _selectedWeekStart.toIso8601String();
       final exist = await FirebaseFirestore.instance
@@ -1468,8 +2387,6 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
           const SnackBar(content: Text('Tüm nöbetler temizlendi.')),
         );
       }
-      _loadData();
-      _loadStatsData();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -1477,8 +2394,386 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
         ).showSnackBar(SnackBar(content: Text('Hata: $e')));
       }
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  // --- Bildirim Gönderimi ve Expandable FAB Menüsü ---
+
+  List<DutyScheduleItem> get _pendingNotificationItems {
+    return _matrix.values.where((it) {
+      if (it.teacherId.isEmpty) return false;
+      return it.notificationSent != true || it.notifiedTeacherId != it.teacherId;
+    }).toList();
+  }
+
+  Future<void> _showSendNotificationDialog() async {
+    final allAssigned = _matrix.values.where((it) => it.teacherId.isNotEmpty).toList();
+
+    if (allAssigned.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bu haftaya ait nöbet ataması bulunmuyor.')),
+      );
+      return;
+    }
+
+    final pending = _pendingNotificationItems;
+    bool forceSendAll = false;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) {
+          final itemsToPreview = forceSendAll ? allAssigned : pending;
+          final count = itemsToPreview.length;
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF59E0B).withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.notifications_active_rounded, color: Color(0xFFF59E0B), size: 22),
+                ),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text(
+                    'Nöbet Bildirimi Gönder',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            content: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480, maxHeight: 420),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (pending.isEmpty && !forceSendAll) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.green.shade200),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.check_circle_rounded, color: Colors.green.shade700, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Bu haftadaki tüm nöbetçilere daha önce bildirim gönderilmiştir.',
+                              style: TextStyle(fontSize: 13, color: Colors.green.shade900, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ] else ...[
+                    Text(
+                      forceSendAll
+                          ? 'Bu haftadaki tüm nöbetçilere (${allAssigned.length} kişi) bildirim gönderilecek:'
+                          : 'Henüz bildirim gitmemiş veya nöbetçisi değişmiş $count öğretmen bulundu:',
+                      style: TextStyle(fontSize: 13, color: Colors.grey.shade800, fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 8),
+                    Flexible(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade200),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: itemsToPreview.length,
+                          separatorBuilder: (_, __) => const Divider(height: 1),
+                          itemBuilder: (c, idx) {
+                            final it = itemsToPreview[idx];
+                            final locName = _locations.firstWhere(
+                              (l) => l.id == it.locationId,
+                              orElse: () => DutyLocation(id: '', institutionId: '', name: 'Nöbet Yeri', activeDays: []),
+                            ).name;
+                            final dayName = (it.dayOfWeek >= 1 && it.dayOfWeek <= 7) ? _getDayName(it.dayOfWeek) : '';
+                            return ListTile(
+                              dense: true,
+                              leading: CircleAvatar(
+                                radius: 14,
+                                backgroundColor: const Color(0xFF4F46E5).withOpacity(0.12),
+                                child: Text(
+                                  it.teacherName.isNotEmpty ? it.teacherName.substring(0, 1).toUpperCase() : '?',
+                                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF4F46E5)),
+                                ),
+                              ),
+                              title: Text(it.teacherName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                              subtitle: Text('$dayName · $locName', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                              trailing: (it.notificationSent == true && it.notifiedTeacherId == it.teacherId)
+                                  ? const Icon(Icons.done_all, size: 16, color: Colors.green)
+                                  : Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.amber.shade100,
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        'Yeni / Değişen',
+                                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.amber.shade900),
+                                      ),
+                                    ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  // Tümüne gönder checkbox seçeneği
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    value: forceSendAll,
+                    activeColor: const Color(0xFF4F46E5),
+                    title: Text(
+                      'Tüm haftadaki nöbetçilere tekrar gönder (${allAssigned.length} kişi)',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                    ),
+                    onChanged: (val) => setDlgState(() => forceSendAll = val ?? false),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('İptal'),
+              ),
+              ElevatedButton.icon(
+                onPressed: (pending.isEmpty && !forceSendAll)
+                    ? null
+                    : () => Navigator.pop(ctx, true),
+                icon: const Icon(Icons.send_rounded, size: 16),
+                label: Text(forceSendAll
+                    ? 'Tümüne Gönder (${allAssigned.length})'
+                    : 'Bildirim Gönder ($count)'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF4F46E5),
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    if (confirm != true) return;
+
+    final targetItems = forceSendAll ? allAssigned : pending;
+    if (targetItems.isEmpty) return;
+
+    setState(() => _isLoading = true);
+    try {
+      final batch = FirebaseFirestore.instance.batch();
+      for (var it in targetItems) {
+        final docRef = FirebaseFirestore.instance.collection('dutyScheduleItems').doc(it.id);
+        batch.update(docRef, {
+          'sendNotification': true,
+          'notificationSent': true,
+          'notifiedTeacherId': it.teacherId,
+          'notificationRequestedAt': FieldValue.serverTimestamp(),
+        });
+        final key = '${it.locationId}_${it.dayOfWeek}';
+        if (_matrix.containsKey(key)) {
+          _matrix[key] = _matrix[key]!.copyWith(
+            notificationSent: true,
+            notifiedTeacherId: it.teacherId,
+          );
+        }
+      }
+      await batch.commit();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${targetItems.length} öğretmene nöbet bildirimi başarıyla gönderildi.'),
+            backgroundColor: const Color(0xFF10B981),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Bildirim gönderilirken hata oluştu: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Widget _buildExpandableFab() {
+    final pendingCount = _pendingNotificationItems.length;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        if (_isFabMenuOpen) ...[
+          // 1. Yeni Dağılım Yap (En üstteki buton)
+          _buildSpeedDialItem(
+            label: 'Yeni Dağılım Yap',
+            icon: Icons.autorenew_rounded,
+            color: const Color(0xFF10B981),
+            onTap: () {
+              setState(() => _isFabMenuOpen = false);
+              _showAutoDistributeCall();
+            },
+          ),
+          const SizedBox(height: 10),
+
+          // 2. Bildirim Gönder (Ortadaki buton)
+          _buildSpeedDialItem(
+            label: pendingCount > 0
+                ? 'Bildirim Gönder ($pendingCount)'
+                : 'Bildirim Gönder',
+            icon: Icons.notifications_active_rounded,
+            color: const Color(0xFFF59E0B),
+            badgeCount: pendingCount,
+            onTap: () {
+              setState(() => _isFabMenuOpen = false);
+              _showSendNotificationDialog();
+            },
+          ),
+          const SizedBox(height: 10),
+
+          // 3. Haftayı Temizle (En alttaki buton)
+          _buildSpeedDialItem(
+            label: 'Haftayı Temizle',
+            icon: Icons.delete_sweep_rounded,
+            color: const Color(0xFFEF4444),
+            onTap: () {
+              setState(() => _isFabMenuOpen = false);
+              _showClearAllDialog();
+            },
+          ),
+          const SizedBox(height: 12),
+        ],
+
+        // Ana FAB Butonu (3 Çizgi Menü İkonu)
+        FloatingActionButton(
+          heroTag: 'duty_speed_dial_main_fab',
+          backgroundColor: _isFabMenuOpen
+              ? Colors.grey.shade800
+              : const Color(0xFF4F46E5),
+          foregroundColor: Colors.white,
+          elevation: 6,
+          tooltip: _isFabMenuOpen ? 'Kapat' : 'Nöbet İşlemleri',
+          onPressed: () {
+            setState(() {
+              _isFabMenuOpen = !_isFabMenuOpen;
+            });
+          },
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 200),
+            child: _isFabMenuOpen
+                ? const Icon(Icons.close_rounded, key: ValueKey('close'), size: 26)
+                : Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      const Icon(Icons.menu_rounded, key: ValueKey('menu'), size: 26),
+                      if (pendingCount > 0)
+                        Positioned(
+                          top: -3,
+                          right: -3,
+                          child: Container(
+                            width: 10,
+                            height: 10,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFEF4444),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSpeedDialItem({
+    required String label,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+    int? badgeCount,
+  }) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Material(
+          elevation: 4,
+          borderRadius: BorderRadius.circular(8),
+          color: Colors.white,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF1E293B),
+                    ),
+                  ),
+                  if (badgeCount != null && badgeCount > 0) ...[
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEF4444),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        '$badgeCount',
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        FloatingActionButton.small(
+          heroTag: null,
+          backgroundColor: color,
+          foregroundColor: Colors.white,
+          elevation: 4,
+          onPressed: onTap,
+          child: Icon(icon, size: 19),
+        ),
+      ],
+    );
   }
 
   String _getDayName(int d) => [
@@ -1491,6 +2786,43 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
     'Cumartesi',
     'Pazar',
   ][d];
+
+  Future<void> _moveLocationRow(int currentIndex, int direction) async {
+    final targetIndex = currentIndex + direction;
+    if (targetIndex < 0 || targetIndex >= _locations.length) return;
+
+    setState(() {
+      final item = _locations.removeAt(currentIndex);
+      _locations.insert(targetIndex, item);
+      for (int i = 0; i < _locations.length; i++) {
+        _locations[i] = _locations[i].copyWith(order: i);
+      }
+    });
+
+    try {
+      // 1. Alt döneme özel sıra kaydı (dutyLocationConfigs.{locId}.order)
+      if (widget.periodId.isNotEmpty) {
+        final Map<String, dynamic> updates = {};
+        for (int i = 0; i < _locations.length; i++) {
+          updates['dutyLocationConfigs.${_locations[i].id}.order'] = i;
+        }
+        await FirebaseFirestore.instance
+            .collection('workPeriods')
+            .doc(widget.periodId)
+            .update(updates);
+      }
+
+      // 2. Genel dutyLocations koleksiyonundaki sıra numarasını da güncelle
+      final batch = FirebaseFirestore.instance.batch();
+      final col = FirebaseFirestore.instance.collection('dutyLocations');
+      for (int i = 0; i < _locations.length; i++) {
+        batch.update(col.doc(_locations[i].id), {'order': i});
+      }
+      await batch.commit();
+    } catch (e) {
+      debugPrint('Nöbet satır sıralama güncelleme hatası: $e');
+    }
+  }
 
   Future<void> _showAutoDistributeCall() async {
     final dateFormat = DateFormat('dd MMM', 'tr_TR');
@@ -1521,16 +2853,26 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
   Future<void> _distributeDuties() async {
     setState(() => _isLoading = true);
     try {
-      // 1. Fetch Teachers
+      // 1. Fetch Teachers (only active and matching current term)
+      final selectedTermId = await TermService().getSelectedTermId();
+      final activeTermId = await TermService().getActiveTermId();
+      final effectiveTermId = selectedTermId ?? activeTermId;
+
       final userSnap = await FirebaseFirestore.instance
           .collection('users')
           .where('institutionId', isEqualTo: widget.institutionId)
           .where('type', whereIn: ['teacher', 'staff', 'admin'])
           .get();
       final teachers = userSnap.docs
+          .where((d) => _isUserActive(
+                d.data(),
+                termId: effectiveTermId,
+                schoolTypeId: widget.schoolTypeId,
+                schoolTypeName: widget.schoolTypeName,
+              ))
           .map((d) => d.data()..['id'] = d.id)
           .toList();
-      if (teachers.isEmpty) throw 'Hiçbir personel bulunamadı.';
+      if (teachers.isEmpty) throw 'Hiçbir aktif personel bulunamadı.';
 
       // 2. Sort Locations Deterministically (For Consistent Rotation)
       if (_locations.isEmpty) throw 'Hiçbir nöbet yeri yok.';
@@ -1570,21 +2912,36 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
         prevTeacherLocs[tid]![day] = locId;
       }
 
-      // Load Tracker (for fallback assignments)
+      // Load Trackers (Grup Bazlı ve Lokasyon Bazlı Tarihçe)
       final historySnap = await FirebaseFirestore.instance
           .collection('dutyScheduleItems')
           .where('periodId', isEqualTo: widget.periodId)
           .get();
 
       Map<String, int> totalLoad = {};
+      Map<String, int> currentLoad = {};
       Map<String, Map<String, int>> locHistoryCounts = {};
+      Map<String, Map<String, int>> groupTotalLoad = {};
+      Map<String, Map<String, int>> groupWeeklyLoad = {};
+
+      // Lokasyonların grup haritası
+      Map<String, String> locToGroup = {
+        for (var l in _locations)
+          l.id: (l.group.isNotEmpty ? l.group : '__default__'),
+      };
 
       for (var t in teachers) {
         final tid = t['id'];
         totalLoad[tid] = 0;
+        currentLoad[tid] = 0;
         locHistoryCounts[tid] = {};
+        groupTotalLoad[tid] = {};
+        groupWeeklyLoad[tid] = {};
         for (var l in _locations) {
           locHistoryCounts[tid]![l.id] = 0;
+          final g = locToGroup[l.id] ?? '__default__';
+          groupTotalLoad[tid]![g] = 0;
+          groupWeeklyLoad[tid]![g] = 0;
         }
       }
 
@@ -1592,18 +2949,17 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
         final tid = d['teacherId'];
         final lid = d['locationId'];
         totalLoad[tid] = (totalLoad[tid] ?? 0) + 1;
-        if (locHistoryCounts.containsKey(tid)) {
+        if (locHistoryCounts.containsKey(tid) && locHistoryCounts[tid]!.containsKey(lid)) {
           locHistoryCounts[tid]![lid] = (locHistoryCounts[tid]![lid] ?? 0) + 1;
+        }
+        final g = locToGroup[lid];
+        if (g != null && groupTotalLoad.containsKey(tid)) {
+          groupTotalLoad[tid]![g] = (groupTotalLoad[tid]![g] ?? 0) + 1;
         }
       }
 
-      Map<String, int> currentLoad = {};
-      for (var t in teachers) {
-        currentLoad[t['id']] = 0;
-      }
-
       int assignedCount = 0;
-      // 5. Algorithm: Unified Fairness per Location
+      // 5. Algorithm: Grup Bazlı ve Lokasyon Eşitlikli Rotasyon
       for (int day = 1; day <= 7; day++) {
         Set<String> assignedToday = {};
 
@@ -1613,14 +2969,11 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
             .toList();
 
         // Helper: Get Effective Eligibility Pool
-        // If a day has no specific pool defined, fallback to ANY defined pool for that location.
-        // This fixes issues where "Aziz Sancar" might only have Monday defined but is active all week.
         List<String> getEffectiveIds(DutyLocation loc) {
           final specific = loc.eligibilities[day.toString()];
           if (specific != null && specific.isNotEmpty) {
             return List<String>.from(specific);
           }
-          // Fallback: Union of all days
           final all = loc.eligibilities.values
               .expand((e) => (e as List).map((x) => x.toString()))
               .toSet()
@@ -1647,6 +3000,7 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
         for (int i = 0; i < activeLocs.length; i++) {
           final loc = activeLocs[i];
           final eligibleIds = getEffectiveIds(loc);
+          final g = locToGroup[loc.id] ?? '__default__';
 
           if (eligibleIds.isEmpty) continue;
 
@@ -1667,28 +3021,39 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
             double scoreA = 0;
             double scoreB = 0;
 
-            // 1. LOCAL Location Load (ABSOLUTE KING)
-            // Penalty: 100,000,000.
+            // 1. HER NOKTADA EŞİT TUTMA (Location History - EN YÜKSEK ÖNCELİK)
+            // Kural: 7 nöbet yeri varsa, 7 hafta sonunda herkes her noktada 1'er kez tutmuş olacak.
+            // Bu nöbet yerinde daha önce kaç kez nöbet tuttuysa devasa ceza (100.000.000) alır.
+            // Bu noktada henüz 0 nöbeti olan öğretmen doğrudan en öne geçer!
             final locLoadA = locHistoryCounts[idA]?[loc.id] ?? 0;
             final locLoadB = locHistoryCounts[idB]?[loc.id] ?? 0;
             scoreA += locLoadA * 100000000;
             scoreB += locLoadB * 100000000;
 
-            // 2. Weekly Load Soft Cap (Prevent Burnout)
-            // If someone has already done 1 shift this week, push them to back of queue
-            // UNLESS everyone else has also done 1 shift.
-            // Weight: 500,000 (Half of "Repeat Location" penalty)
-            if ((currentLoad[idA] ?? 0) >= 1) scoreA += 100000;
-            if ((currentLoad[idB] ?? 0) >= 1) scoreB += 100000;
+            // 2. GRUP İÇİ HAFTALIK KOTA (Herkes 1'er kez tutmadan 2. nöbet verilmez)
+            // Kural: "Her noktaya 1'er nöbetçi ver, eğer yetmezse 2.ye geç ama tümüne vermeden birine 2.yi verme"
+            // Bu grupta bu hafta nöbet tuttuysa 5.000.000 ceza ile sıranın arkasına atılır.
+            final grpWeeklyA = groupWeeklyLoad[idA]?[g] ?? 0;
+            final grpWeeklyB = groupWeeklyLoad[idB]?[g] ?? 0;
+            if (grpWeeklyA >= 1) scoreA += grpWeeklyA * 5000000;
+            if (grpWeeklyB >= 1) scoreB += grpWeeklyB * 5000000;
 
-            // Further penalty for >2 shifts (Almost impossible to get 3 unless only option)
+            // 3. GRUP İÇİ TOPLAM İSTATİSTİK (Az olandan devam etme)
+            // Kural: "Diğer gruplar kendi içinde değerlendirilecek. İstatistiklere toplam bakılacak az olandan devam edecek."
+            final grpTotalA = groupTotalLoad[idA]?[g] ?? 0;
+            final grpTotalB = groupTotalLoad[idB]?[g] ?? 0;
+            scoreA += grpTotalA * 10000;
+            scoreB += grpTotalB * 10000;
 
-            // 3. Global Load (Tie-breaker for general fairness)
-            // If both have 0 weekly shifts, the one with fewer TOTAL shifts wins.
+            // 4. GENEL HAFTALIK YÜK (Aşırı yüklenme önleme)
+            if ((currentLoad[idA] ?? 0) >= 2) scoreA += 50000;
+            if ((currentLoad[idB] ?? 0) >= 2) scoreB += 50000;
+
+            // 5. Genel Toplam Yük (Genel eşitlik için ince ayar)
             scoreA += (totalLoad[idA] ?? 0) * 100;
             scoreB += (totalLoad[idB] ?? 0) * 100;
 
-            // 3. Same Location Penalty (Fatigue)
+            // 6. Aynı Nöbet Yerinde Peş Peşe Tutma Cezası
             if (prevTeacherLocs[idA]?.values.contains(loc.id) ?? false) {
               scoreA += 500;
             }
@@ -1696,13 +3061,9 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
               scoreB += 500;
             }
 
-            // 4. Rotation Bonus (Consistency)
-            // If they are naturally "Next In Line" (from last week), give a bonus.
-            // This bonus (-250) is smaller than the Total Load weight (10000)
-            // so fairness overrides rotation if there's a load imbalance.
+            // 7. Doğal Döngüsel Rotasyon Bonusu
             final prevLocA = prevTeacherLocs[idA]?[day];
             if (prevLocA == targetPrevLocId) scoreA -= 250;
-
             final prevLocB = prevTeacherLocs[idB]?[day];
             if (prevLocB == targetPrevLocId) scoreB -= 250;
 
@@ -1711,15 +3072,16 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
 
           final selectedTeacher = candidates.first;
 
-          // Assign
+          // Atama
           final tId = selectedTeacher['id'];
           final tName = selectedTeacher['fullName'] ?? selectedTeacher['name'];
           assignedToday.add(tId);
           totalLoad[tId] = (totalLoad[tId] ?? 0) + 1;
           currentLoad[tId] = (currentLoad[tId] ?? 0) + 1;
+          groupTotalLoad[tId]?[g] = (groupTotalLoad[tId]?[g] ?? 0) + 1;
+          groupWeeklyLoad[tId]?[g] = (groupWeeklyLoad[tId]?[g] ?? 0) + 1;
           assignedCount++;
 
-          // Update InMemory History so they aren't assigned same spot again this week
           if (locHistoryCounts.containsKey(tId)) {
             locHistoryCounts[tId]![loc.id] =
                 (locHistoryCounts[tId]![loc.id] ?? 0) + 1;
@@ -1732,12 +3094,17 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
           batch.set(ref, {
             'institutionId': widget.institutionId,
             'periodId': widget.periodId,
+            'termId': _termId,
             'locationId': loc.id,
             'locationName': loc.name,
             'dayOfWeek': day,
             'teacherId': tId,
             'teacherName': tName,
             'weekStart': weekStr,
+            'dutyDate': _selectedWeekStart.add(Duration(days: day - 1)).toIso8601String(),
+            'sendNotification': false,
+            'notificationSent': false,
+            'notifiedTeacherId': null,
           });
         }
       }

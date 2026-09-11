@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../models/assessment/external_exam_model.dart';
@@ -316,11 +317,8 @@ class _ExternalExamAttendanceStatsScreenState extends State<ExternalExamAttendan
           children: [
             Scaffold(
               backgroundColor: const Color(0xFFF8FAFC),
-              appBar: AppBar(
-                backgroundColor: _primaryColor,
-                elevation: 0,
-                iconTheme: const IconThemeData(color: Colors.white),
-                title: Text('Yoklama Raporları', style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: Colors.white)),
+              appBar: EduknAppBar(
+                title: 'Yoklama Raporları',
                 actions: [
                   TextButton.icon(
                     onPressed: _resetAllAttendance,

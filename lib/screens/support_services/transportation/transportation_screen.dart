@@ -1,5 +1,6 @@
-import 'package:edukn/services/user_permission_service.dart';
+﻿import 'package:edukn/services/user_permission_service.dart';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
@@ -306,14 +307,14 @@ class _TransportationScreenState extends State<TransportationScreen>
   Widget build(BuildContext context) {
     if (_isLoading)
       return Scaffold(
-        appBar: AppBar(title: Text('Servis İşlemleri')),
+        appBar: EduknAppBar(title: 'Servis İşlemleri'),
         body: Center(child: CircularProgressIndicator()),
       );
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Servis İşlemleri'),
-        elevation: 1,
+      appBar: EduknAppBar(
+        title: 'Servis İşlemleri',
+        subtitle: widget.fixedSchoolTypeName,
         actions: [
           IconButton(
             icon: Icon(Icons.bar_chart, color: Colors.blue),
@@ -1154,10 +1155,8 @@ class _VehicleDetailScreenState extends State<_VehicleDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          '${widget.vehicle['vehicleNumber']} Nolu Araç (${widget.vehicle['plateNumber']})',
-        ),
+      appBar: EduknAppBar(
+        title: '${widget.vehicle['vehicleNumber']} Nolu Araç (${widget.vehicle['plateNumber']})',
         actions: [
           IconButton(
             icon: Icon(Icons.print),
@@ -1497,8 +1496,8 @@ class _VehicleStudentSelectionScreenState
     }).toList();
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text('${widget.vehicleNumber} Nolu Araç Öğrencileri'),
+      appBar: EduknAppBar(
+        title: '${widget.vehicleNumber} Nolu Araç Öğrencileri',
         actions: [
           TextButton(
             onPressed: _saveChanges,
@@ -2108,7 +2107,7 @@ class _TransportationStatisticsScreen extends StatelessWidget {
         : 0.0;
 
     return Scaffold(
-      appBar: AppBar(title: Text('Servis İstatistikleri')),
+      appBar: EduknAppBar(title: 'Servis İstatistikleri'),
       body: SingleChildScrollView(
         padding: EdgeInsets.all(16),
         child: Column(
@@ -2418,7 +2417,7 @@ class _UsageStatisticsViewState extends State<_UsageStatisticsView> {
   Widget build(BuildContext context) {
     if (!_isLoading && _usageList.isEmpty) {
       return Scaffold(
-        appBar: AppBar(title: Text('Öğrenci Kullanım İstatistikleri')),
+        appBar: EduknAppBar(title: 'Öğrenci Kullanım İstatistikleri'),
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -2442,7 +2441,7 @@ class _UsageStatisticsViewState extends State<_UsageStatisticsView> {
     }).toList();
 
     return Scaffold(
-      appBar: AppBar(title: Text('Öğrenci Kullanım İstatistikleri')),
+      appBar: EduknAppBar(title: 'Öğrenci Kullanım İstatistikleri'),
       body: Column(
         children: [
           Padding(
@@ -2589,8 +2588,8 @@ class _StudentAttendanceReportScreen extends StatelessWidget {
     return DefaultTabController(
       length: 2,
       child: Scaffold(
-        appBar: AppBar(
-          title: Text('${student['name']} - Servis Raporu'),
+        appBar: EduknAppBar(
+          title: '${student['name']} - Servis Raporu',
           actions: [
             IconButton(
               icon: Icon(Icons.print),

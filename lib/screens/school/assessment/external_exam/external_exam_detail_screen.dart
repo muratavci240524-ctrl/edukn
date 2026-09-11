@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/services.dart';
 // dart:html kaldırıldı – mobil uyumlu navigasyon kullanılıyor
 import 'package:google_fonts/google_fonts.dart';
@@ -76,24 +77,13 @@ class _ExternalExamDetailScreenState extends State<ExternalExamDetailScreen>
 
         return Scaffold(
           backgroundColor: const Color(0xFFF8FAFC),
-          appBar: AppBar(
-            title: Text(
-              exam.title,
-              style: GoogleFonts.inter(
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-                fontSize: 16,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-            backgroundColor: _primaryColor,
-            elevation: 0,
-            iconTheme: const IconThemeData(color: Colors.white),
-            leading: IconButton(
+          appBar: EduknAppBar(
+        title: exam.title,
+        leading: IconButton(
               icon: const Icon(Icons.arrow_back_ios_new_rounded),
               onPressed: () => Navigator.pop(context),
             ),
-            actions: [
+        actions: [
               IconButton(
                 icon: const Icon(Icons.link_rounded),
                 onPressed: () {
@@ -126,7 +116,7 @@ class _ExternalExamDetailScreenState extends State<ExternalExamDetailScreen>
                 tooltip: 'Düzenle',
               ),
             ],
-            bottom: TabBar(
+        bottom: TabBar(
               controller: _tabController,
               isScrollable: true,
               indicatorColor: Colors.white,
@@ -145,7 +135,7 @@ class _ExternalExamDetailScreenState extends State<ExternalExamDetailScreen>
                 Tab(text: 'Sınav Seviyeleri'),
               ],
             ),
-          ),
+      ),
           body: TabBarView(
             controller: _tabController,
             children: [

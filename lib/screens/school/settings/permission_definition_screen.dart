@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -72,17 +73,8 @@ class _PermissionDefinitionScreenState
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        title: Text(
-          'Yetki Tanımlama',
-          style: GoogleFonts.inter(
-            fontWeight: FontWeight.bold,
-            color: Colors.indigo.shade900,
-          ),
-        ),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        iconTheme: IconThemeData(color: Colors.indigo.shade900),
+      appBar: EduknAppBar(
+        title: 'Yetki Tanımlama',
         actions: [],
       ),
       body: _isLoading

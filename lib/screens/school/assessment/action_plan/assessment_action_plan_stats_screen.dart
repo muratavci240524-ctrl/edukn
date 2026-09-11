@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../../../../models/assessment/assessment_action_plan_model.dart';
 
@@ -65,11 +66,8 @@ class _AssessmentActionPlanStatsScreenState extends State<AssessmentActionPlanSt
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FE),
-      appBar: AppBar(
-        title: const Text('Eylem Planı Analitiği', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-        backgroundColor: Colors.indigo.shade900,
-        foregroundColor: Colors.white,
-        elevation: 0,
+      appBar: EduknAppBar(
+        title: 'Eylem Planı Analitiği',
         leading: const BackButton(color: Colors.white),
       ),
       body: Column(

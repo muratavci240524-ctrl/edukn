@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import '../../../../services/assessment_service.dart';
 import '../../../../models/assessment/trial_exam_model.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -9,15 +10,18 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../../../../services/pdf_service.dart';
 import 'package:printing/printing.dart';
+import '../../../../services/term_service.dart';
 
 class CombinedExamResultsScreen extends StatefulWidget {
   final String institutionId;
   final String schoolTypeId;
+  final String? schoolTypeName;
 
   const CombinedExamResultsScreen({
     Key? key,
     required this.institutionId,
     required this.schoolTypeId,
+    this.schoolTypeName,
   }) : super(key: key);
 
   @override
@@ -80,6 +84,7 @@ class _CombinedExamResultsScreenState extends State<CombinedExamResultsScreen>
   bool _isSidebarVisible = true;
   String _bestSortMode = 'Başarı %';
   String _worstSortMode = 'Başarı %';
+  String? _activeTermId;
 
   @override
   void initState() {
@@ -100,7 +105,8 @@ class _CombinedExamResultsScreenState extends State<CombinedExamResultsScreen>
 
   Future<void> _loadExams() async {
     try {
-      final stream = _service.getTrialExams(widget.institutionId);
+      _activeTermId = await TermService().getActiveTermId();
+      final stream = _service.getTrialExams(widget.institutionId, termId: _activeTermId);
       stream.listen((exams) {
         if (mounted) {
           setState(() {
@@ -652,6 +658,10 @@ class _CombinedExamResultsScreenState extends State<CombinedExamResultsScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade100,
+      appBar: EduknAppBar(
+        title: 'Birleştirilmiş Sınav Raporları',
+        subtitle: widget.schoolTypeName,
+      ),
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {

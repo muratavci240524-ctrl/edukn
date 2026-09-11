@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/rendering.dart';
 
 import 'package:pdf/pdf.dart';
@@ -234,11 +235,8 @@ class _StudentReportCardDialogState extends State<StudentReportCardDialog> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Sınav Sonuç Belgesi'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 1,
+      appBar: EduknAppBar(
+        title: 'Sınav Sonuç Belgesi',
         actions: [
           IconButton(
             icon: Icon(Icons.print),

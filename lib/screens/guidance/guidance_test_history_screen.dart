@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -21,8 +22,8 @@ class GuidanceTestHistoryScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Geçmiş Paylaşımlar', style: GoogleFonts.inter()),
+      appBar: EduknAppBar(
+        title: 'Geçmiş Paylaşımlar',
       ),
       body: SafeStreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance

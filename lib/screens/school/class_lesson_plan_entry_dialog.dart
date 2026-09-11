@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
@@ -394,15 +395,8 @@ class _ClassLessonPlanEntryDialogState
 
     if (isMobile) {
       return Scaffold(
-        appBar: AppBar(
-          title: Text(
-            widget.existingPlanId != null ? 'Planı Düzenle' : 'Ders Planı Gir',
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
-          leading: IconButton(
-            icon: Icon(Icons.close),
-            onPressed: () => Navigator.pop(context),
-          ),
+        appBar: EduknAppBar(
+          title: widget.existingPlanId != null ? 'Planı Düzenle' : 'Ders Planı Gir',
         ),
         body: Container(
           color: Colors.white,

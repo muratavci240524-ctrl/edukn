@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
@@ -106,18 +107,8 @@ class _ToDoListScreenState extends State<ToDoListScreen>
     if (_isLoading || _tabController == null) {
       return Scaffold(
         backgroundColor: const Color(0xFFF7F8FC),
-        appBar: AppBar(
-          backgroundColor: Colors.white,
-          elevation: 0,
-          title: const Text(
-            'Görevlerim',
-            style: TextStyle(
-              color: Color(0xFF1E293B),
-              fontWeight: FontWeight.w800,
-              fontSize: 24,
-            ),
-          ),
-          iconTheme: const IconThemeData(color: Color(0xFF1E293B)),
+        appBar: EduknAppBar(
+          title: 'Görevlerim',
         ),
         body: const Center(
           child: CircularProgressIndicator(color: Color(0xFF4F46E5)),
@@ -127,92 +118,61 @@ class _ToDoListScreenState extends State<ToDoListScreen>
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F8FC),
-      extendBodyBehindAppBar: true,
-      appBar: PreferredSize(
-        preferredSize: Size.fromHeight(_canAssign ? 110 : 80),
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              ),
-            ],
-            borderRadius: const BorderRadius.vertical(
-              bottom: Radius.circular(24),
-            ),
-          ),
-          child: AppBar(
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            centerTitle: false,
-            title: const Text(
-              'Görevlerim',
-              style: TextStyle(
-                color: Color(0xFF1E293B),
-                fontWeight: FontWeight.w800,
-                fontSize: 24,
-                letterSpacing: -0.5,
-              ),
-            ),
-            iconTheme: const IconThemeData(color: Color(0xFF1E293B)),
-            actions: [
-              if (_canAssign)
-                IconButton(
-                  icon: const Icon(Icons.bar_chart_rounded,
-                      color: Color(0xFF4F46E5)),
-                  tooltip: 'İstatistikler',
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => TaskStatsScreen(
-                        institutionId: widget.institutionId,
-                        termId: _activeTermId,
-                      ),
-                    ),
+      appBar: EduknAppBar(
+        title: 'Görevlerim',
+        actions: [
+          if (_canAssign)
+            IconButton(
+              icon: const Icon(Icons.bar_chart_rounded,
+                  color: Colors.indigo),
+              tooltip: 'İstatistikler',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => TaskStatsScreen(
+                    institutionId: widget.institutionId,
+                    termId: _activeTermId,
                   ),
                 ),
-            ],
-            bottom: _canAssign
-                ? TabBar(
-                    controller: _tabController!,
-                    labelColor: const Color(0xFF4F46E5),
-                    unselectedLabelColor: const Color(0xFF94A3B8),
-                    indicatorSize: TabBarIndicatorSize.label,
-                    indicatorColor: const Color(0xFF4F46E5),
-                    indicatorWeight: 3,
-                    labelStyle: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 15,
+              ),
+            ),
+        ],
+        bottom: _canAssign
+            ? TabBar(
+                controller: _tabController!,
+                labelColor: Colors.indigo,
+                unselectedLabelColor: Colors.indigo.shade200,
+                indicatorSize: TabBarIndicatorSize.label,
+                indicatorColor: Colors.indigo,
+                indicatorWeight: 3,
+                labelStyle: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
+                ),
+                tabs: const [
+                  Tab(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.inbox_outlined, size: 20),
+                        SizedBox(width: 8),
+                        Text('Bana Atananlar'),
+                      ],
                     ),
-                    tabs: const [
-                      Tab(
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.inbox_outlined, size: 20),
-                            SizedBox(width: 8),
-                            Text('Bana Atananlar'),
-                          ],
-                        ),
-                      ),
-                      Tab(
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.outbox_outlined, size: 20),
-                            SizedBox(width: 8),
-                            Text('Verdiğim Görevler'),
-                          ],
-                        ),
-                      ),
-                    ],
-                  )
-                : null,
-          ),
-        ),
+                  ),
+                  Tab(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.outbox_outlined, size: 20),
+                        SizedBox(width: 8),
+                        Text('Verdiğim Görevler'),
+                      ],
+                    ),
+                  ),
+                ],
+              )
+            : null,
       ),
       floatingActionButton: _canAssign
           ? FloatingActionButton.extended(

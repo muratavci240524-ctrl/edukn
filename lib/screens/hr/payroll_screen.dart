@@ -1,5 +1,6 @@
-import 'package:edukn/services/user_permission_service.dart';
+﻿import 'package:edukn/services/user_permission_service.dart';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
@@ -108,12 +109,12 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
 
     return Scaffold(
       backgroundColor: const Color(0xFFF1F5F9),
-      appBar: AppBar(
-        title: const Text('Maaş ve Bordro Yönetimi', style: TextStyle(fontWeight: FontWeight.bold)),
+      appBar: EduknAppBar(
+        title: 'Maaş ve Bordro Yönetimi',
         bottom: TabBar(
           controller: _tabController,
           isScrollable: false,
-          indicatorColor: Colors.white,
+          indicatorColor: Colors.indigo,
           indicatorWeight: 3,
           labelStyle: const TextStyle(fontWeight: FontWeight.bold),
           tabs: const [
@@ -882,7 +883,7 @@ class _SalaryEditScreenState extends State<_SalaryEditScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Maaş Tanımı Düzenle')),
+      appBar: EduknAppBar(title: 'Maaş Tanımı Düzenle'),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(

@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:google_fonts/google_fonts.dart';
@@ -106,14 +107,8 @@ class _ExternalExamSeatingListScreenState
 
         return Scaffold(
           backgroundColor: const Color(0xFFF8FAFC),
-          appBar: AppBar(
-            title: Text(
-              'Öğrenci Dağıtım Listesi',
-              style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16),
-            ),
-            backgroundColor: _primaryColor,
-            elevation: 0,
-            iconTheme: const IconThemeData(color: Colors.white),
+          appBar: EduknAppBar(
+            title: 'Öğrenci Dağıtım Listesi',
             leading: IconButton(
               icon: const Icon(Icons.arrow_back_ios_new_rounded),
               onPressed: () => Navigator.pop(context),

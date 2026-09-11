@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import '../../../../models/assessment/assessment_action_plan_model.dart';
 import '../../../../services/assessment_service.dart';
 import '../../../../widgets/edukn_logo.dart';
@@ -75,14 +76,8 @@ class _ReinforcementDashboardScreenState extends State<ReinforcementDashboardScr
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FE),
-      appBar: AppBar(
-        title: const Text(
-          'Haftalık Performans Özeti',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
-        backgroundColor: Colors.indigo.shade900,
-        elevation: 0,
-        centerTitle: true,
+      appBar: EduknAppBar(
+        title: 'Haftalık Performans Özeti',
         leading: const BackButton(color: Colors.white),
         bottom: TabBar(
           controller: _tabController,

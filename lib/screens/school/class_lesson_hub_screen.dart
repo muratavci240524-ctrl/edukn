@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'class_lesson_attendance_screen.dart';
@@ -28,6 +29,10 @@ class ClassLessonHubScreen extends StatefulWidget {
   final List<String>? combinedClassIds;
   final List<String>? combinedClassNames;
 
+  final String? courseGroupId;
+  final String? subGroupId;
+  final String? subGroupName;
+
   const ClassLessonHubScreen({
     super.key,
     required this.institutionId,
@@ -42,6 +47,9 @@ class ClassLessonHubScreen extends StatefulWidget {
     this.availableLessonHours,
     this.combinedClassIds,
     this.combinedClassNames,
+    this.courseGroupId,
+    this.subGroupId,
+    this.subGroupName,
   });
 
   @override
@@ -136,6 +144,9 @@ class _ClassLessonHubScreenState extends State<ClassLessonHubScreen> {
                                         widget.availableLessonHours,
                                     combinedClassIds: widget.combinedClassIds,
                                     combinedClassNames: widget.combinedClassNames,
+                                    courseGroupId: widget.courseGroupId,
+                                    subGroupId: widget.subGroupId,
+                                    subGroupName: widget.subGroupName,
                                   ),
                                 ),
                               );
@@ -235,31 +246,13 @@ class _ClassLessonHubScreenState extends State<ClassLessonHubScreen> {
     return DefaultTabController(
       length: 3,
       child: Scaffold(
-        appBar: AppBar(
-          elevation: 0,
-          backgroundColor: Colors.white,
-          foregroundColor: Colors.black,
-          title: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '${widget.combinedClassNames != null ? widget.combinedClassNames!.join('/') : widget.className} • ${widget.lessonName}',
-                style: TextStyle(
-                  color: Colors.grey.shade900,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              Text(
-                'Ders Sayfası',
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-              ),
-            ],
-          ),
+        appBar: EduknAppBar(
+          title: '${widget.combinedClassNames != null ? widget.combinedClassNames!.join('/') : widget.className} • ${widget.lessonName}',
+          subtitle: 'Ders Sayfası',
           actions: [
             IconButton(
               tooltip: 'İstatistik',
-              icon: Icon(Icons.insights_outlined, color: Colors.blue.shade700),
+              icon: Icon(Icons.insights_outlined, color: Colors.indigo),
               onPressed: () {
                 Navigator.push(
                   context,
@@ -278,23 +271,16 @@ class _ClassLessonHubScreenState extends State<ClassLessonHubScreen> {
               },
             ),
           ],
-          bottom: PreferredSize(
-            preferredSize: Size.fromHeight(48),
-            child: Container(
-              alignment: Alignment.centerLeft,
-              padding: EdgeInsets.symmetric(horizontal: 12),
-              child: TabBar(
-                labelColor: Colors.blue.shade700,
-                unselectedLabelColor: Colors.grey.shade600,
-                indicatorColor: Colors.blue.shade700,
-                indicatorWeight: 3,
-                tabs: [
-                  Tab(text: 'Ders Planları'),
-                  Tab(text: 'Ödevler'),
-                  Tab(text: 'Notlar'),
-                ],
-              ),
-            ),
+          bottom: TabBar(
+            labelColor: Colors.indigo,
+            unselectedLabelColor: Colors.grey.shade600,
+            indicatorColor: Colors.indigo,
+            indicatorWeight: 3,
+            tabs: const [
+              Tab(text: 'Ders Planları'),
+              Tab(text: 'Ödevler'),
+              Tab(text: 'Notlar'),
+            ],
           ),
         ),
         floatingActionButton: FloatingActionButton(

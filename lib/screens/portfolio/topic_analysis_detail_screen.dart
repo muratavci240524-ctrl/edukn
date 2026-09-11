@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 
 class TopicAnalysisDetailScreen extends StatefulWidget {
   final Map<String, Map<String, Map<String, double>>> allSubjectStats;
@@ -67,15 +68,7 @@ class _TopicAnalysisDetailScreenState extends State<TopicAnalysisDetailScreen> {
     final isMobile = MediaQuery.of(context).size.width < 600;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          'Konu Analiz Raporu - ${widget.studentName}',
-          style: TextStyle(color: Colors.white),
-        ),
-        backgroundColor: Colors.indigo,
-        foregroundColor: Colors.white,
-        iconTheme: IconThemeData(color: Colors.white),
-      ),
+      appBar: EduknAppBar(title: 'Konu Analiz Raporu - ${widget.studentName}'),
       body: SingleChildScrollView(
         child: Column(
           children: [

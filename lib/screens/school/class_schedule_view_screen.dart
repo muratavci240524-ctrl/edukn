@@ -1,5 +1,8 @@
+﻿import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'class_lesson_hub_screen.dart';
@@ -442,37 +445,15 @@ class _ClassScheduleViewScreenState extends State<ClassScheduleViewScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Colors.purple),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Şube Ders Programı',
-              style: TextStyle(
-                color: Colors.grey.shade900,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            Text(
-              widget.schoolTypeName,
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-            ),
-          ],
-        ),
+      appBar: EduknAppBar(
+        title: 'Şube Ders Programı',
+        subtitle: widget.schoolTypeName,
         actions: [
           IconButton(
-            icon: Icon(Icons.print, color: Colors.purple),
+            icon: const Icon(Icons.print, color: Colors.indigo),
             onPressed: () {
-              // Yazdır fonksiyonu
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Yazdırma özelliği yakında eklenecek')),
+                const SnackBar(content: Text('Yazdırma özelliği yakında eklenecek')),
               );
             },
             tooltip: 'Yazdır',
@@ -1801,9 +1782,8 @@ class _ClassScheduleDetailViewState extends State<_ClassScheduleDetailView> {
     final className = widget.classData['className'] ?? '';
 
     return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
+      appBar: EduknAppBar(
+        title: '$className - Ders Programı',
         leading: IconButton(
           icon: Icon(Icons.arrow_back, color: Colors.purple),
           onPressed: () => Navigator.pop(context),
@@ -1823,14 +1803,6 @@ class _ClassScheduleDetailViewState extends State<_ClassScheduleDetailView> {
             },
           ),
         ],
-        title: Text(
-          '$className - Ders Programı',
-          style: TextStyle(
-            color: Colors.grey.shade900,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
       ),
       body: Column(
         children: [

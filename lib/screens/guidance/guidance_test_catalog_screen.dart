@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../models/guidance/tests/guidance_test_definition.dart';
@@ -55,11 +56,13 @@ import 'guidance_category_detail_screen.dart';
 class GuidanceTestCatalogScreen extends StatefulWidget {
   final String institutionId;
   final String schoolTypeId;
+  final String? schoolTypeName;
 
   const GuidanceTestCatalogScreen({
     Key? key,
     required this.institutionId,
     required this.schoolTypeId,
+    this.schoolTypeName,
   }) : super(key: key);
 
   @override
@@ -171,8 +174,9 @@ class _GuidanceTestCatalogScreenState extends State<GuidanceTestCatalogScreen> {
     final isMobile = MediaQuery.of(context).size.width < 600;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Rehberlik Envanterleri', style: GoogleFonts.inter()),
+      appBar: EduknAppBar(
+        title: 'Rehberlik Envanterleri',
+        subtitle: widget.schoolTypeName,
       ),
       body: Center(
         child: ConstrainedBox(

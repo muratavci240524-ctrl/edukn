@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../../models/guidance/demand_model.dart';
@@ -67,20 +68,11 @@ class _DemandAnalyticsScreenState extends State<DemandAnalyticsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
+      appBar: EduknAppBar(
+        title: 'Talep Analizleri',
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.indigo, size: 20),
           onPressed: () => Navigator.pop(context),
-        ),
-        title: Text(
-          'Talep Analizleri',
-          style: GoogleFonts.inter(
-            fontWeight: FontWeight.bold,
-            color: const Color(0xFF1E293B),
-            fontSize: 18,
-          ),
         ),
       ),
       body: Column(

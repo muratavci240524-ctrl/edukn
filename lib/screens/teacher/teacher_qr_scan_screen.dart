@@ -1,4 +1,6 @@
+﻿import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:ui_web' as ui_web;
 import 'dart:html' as html;
@@ -138,13 +140,8 @@ class _TeacherQrScanScreenState extends State<TeacherQrScanScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'QR TARAMA SİSTEMİ v3.14 (FIX)',
-          style: TextStyle(color: Colors.white),
-        ),
-        backgroundColor: Colors.orange,
-        iconTheme: const IconThemeData(color: Colors.white),
+      appBar: EduknAppBar(
+        title: 'QR Tarama Sistemi',
       ),
       backgroundColor: Colors.black,
       body: Stack(

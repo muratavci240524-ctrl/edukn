@@ -498,10 +498,12 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       UserCredential? userCredential;
       String? successEmail;
       bool loginSuccess = false;
+      bool rateLimited = false;
 
       for (final tryEmail in uniqueEmails) {
+        if (loginSuccess || rateLimited) break;
         for (final tryPass in passwordsToTry) {
-          if (loginSuccess) break;
+          if (loginSuccess || rateLimited) break;
           try {
             print('🔐 Deneniyor: $tryEmail');
             userCredential = await FirebaseAuth.instance
@@ -513,20 +515,24 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
           } on FirebaseAuthException catch (authErr) {
             print('⚠️ Başarısız: $tryEmail [${authErr.code}]');
             if (authErr.code == 'too-many-requests') {
-              throw 'Çok fazla hatalı deneme yaptınız. Lütfen daha sonra tekrar deneyin.';
+              rateLimited = true;
+              break;
             }
             if (authErr.code == 'user-disabled') {
               throw 'Bu hesap devre dışı bırakılmış.';
             }
+            // Diğer denemeler arasında kısa bir bekleme ekle (rate limit'i önlemek için)
+            await Future.delayed(const Duration(milliseconds: 300));
           } catch (otherErr) {
             print('⚠️ Diğer hata: $otherErr');
           }
         }
-        if (loginSuccess) break;
+        if (loginSuccess || rateLimited) break;
       }
 
       // ── ADIM 4: Giriş başarısızsa → Senkronize et ve tekrar dene ──
-      if (!loginSuccess && (foundUserData != null || isAdminLogin)) {
+      // Rate limit durumunda Firebase'e ek istek göndermekten kaçın
+      if (!loginSuccess && !rateLimited && (foundUserData != null || isAdminLogin)) {
         print('🔄 Giriş başarısız, Auth senkronizasyonu deneniyor...');
         
         // Senkronize edilecek birincil e-posta
@@ -557,6 +563,10 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
             } catch (_) {}
           }
         }
+      }
+
+      if (rateLimited && !loginSuccess) {
+        throw 'Kısa sürede çok fazla giriş denemesi yapıldı. Lütfen 30 saniye bekleyip tekrar deneyin.';
       }
 
       if (!loginSuccess) {
@@ -1529,9 +1539,13 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         }
       }
     } catch (e) {
-      print('❌ Google Giriş Hatası: $e');
-      final errorMessage = e.toString().contains('popup_closed')
+      final errorMsg = e.toString();
+      final errorMessage = errorMsg.contains('popup_closed')
           ? 'Giriş penceresi kapatıldı. Lütfen tekrar deneyin.'
+          : errorMsg.contains('permission-denied')
+          ? 'Google hesabınız (${ FirebaseAuth.instance.currentUser?.email ?? ''}) ile eşleşen bir kullanıcı bulunamadı veya yetki sorunu var. Lütfen yöneticinize başvurun.'
+          : errorMsg.contains('bulunamadı') || errorMsg.contains('pasif')
+          ? errorMsg
           : 'Google ile giriş yapılamadı. Lütfen tekrar deneyin.';
 
       if (mounted) {

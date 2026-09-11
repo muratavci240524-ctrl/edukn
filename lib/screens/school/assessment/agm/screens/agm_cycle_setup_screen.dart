@@ -1,8 +1,9 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'dart:ui';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:intl/intl.dart';
 
 import '../models/agm_time_slot_model.dart';
@@ -484,17 +485,8 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        title: const Text('Yeni AGM Cycle'),
-        backgroundColor: Colors.deepOrange,
-        iconTheme: const IconThemeData(color: Colors.white),
-        titleTextStyle: const TextStyle(
-          color: Colors.white,
-          fontSize: 18,
-          fontWeight: FontWeight.bold,
-        ),
-        centerTitle: true,
-        elevation: 0,
+      appBar: EduknAppBar(
+        title: 'Yeni AGM Cycle',
         actions: [
           IconButton(
             tooltip: 'Derslik Tanımlama',

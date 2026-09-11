@@ -1,5 +1,6 @@
-import 'package:edukn/services/user_permission_service.dart';
+﻿import 'package:edukn/services/user_permission_service.dart';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
@@ -704,7 +705,7 @@ class _TemplateAddScreenState extends State<_TemplateAddScreen> {
   @override Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(title: Text(widget.template == null ? 'Yeni Şablon Oluştur' : 'Şablonu Düzenle'), backgroundColor: Colors.white, foregroundColor: Colors.black, elevation: 0),
+      appBar: EduknAppBar(title: widget.template == null ? 'Yeni Şablon Oluştur' : 'Şablonu Düzenle'),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1400),
@@ -808,7 +809,7 @@ class _ManualAttendanceScreenState extends State<_ManualAttendanceScreen> {
     final filtered = widget.staff.where((s) => (s['name'] ?? '').toLowerCase().contains(_searchText.toLowerCase())).toList();
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(title: const Text('Hızlı Giriş Paneli'), backgroundColor: Colors.white, foregroundColor: Colors.black, elevation: 0),
+      appBar: EduknAppBar(title: 'Hızlı Giriş Paneli'),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1400),
@@ -883,7 +884,7 @@ class _AddOvertimeScreenState extends State<_AddOvertimeScreen> {
   @override Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(title: const Text('Fazla Mesai Talebi'), backgroundColor: Colors.white, foregroundColor: Colors.black, elevation: 0),
+      appBar: EduknAppBar(title: 'Fazla Mesai Talebi'),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1400),

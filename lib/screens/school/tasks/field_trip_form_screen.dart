@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
@@ -241,18 +242,9 @@ class _FieldTripFormScreenState extends State<FieldTripFormScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        leading: BackButton(color: Colors.black87),
-        title: Text(
-          'Gezi Planla (${_currentStep}/$_totalSteps)',
-          style: const TextStyle(
-            color: Colors.black87,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-
+      appBar: EduknAppBar(
+        title: 'Gezi Planla (${_currentStep}/$_totalSteps)',
+        subtitle: widget.schoolTypeName,
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(4),
           child: LinearProgressIndicator(

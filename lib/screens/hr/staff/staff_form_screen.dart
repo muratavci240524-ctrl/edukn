@@ -1,5 +1,6 @@
 import 'package:edukn/services/user_permission_service.dart';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -565,14 +566,9 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
 
     return Scaffold(
       backgroundColor: isWeb ? const Color(0xFFF8FAFC) : const Color(0xFFF3F4F8),
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.indigo,
-        title: Text(
-          widget.staffId != null ? 'Personeli Düzenle' : 'Yeni Personel Ekle',
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-        ),
+      appBar: EduknAppBar(
+        title: widget.staffId != null ? 'Personeli Düzenle' : 'Yeni Personel Ekle',
+        subtitle: widget.fixedSchoolTypeName,
         actions: [
           if (isWeb)
             Padding(

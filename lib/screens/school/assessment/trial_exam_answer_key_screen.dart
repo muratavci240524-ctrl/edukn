@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:excel/excel.dart' hide Border;
@@ -657,15 +658,8 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'Cevap Anahtarı ve Kazanımlar',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
-        backgroundColor: Colors.indigo,
-        foregroundColor: Colors.white,
-        iconTheme: const IconThemeData(color: Colors.white),
-        elevation: 0,
+      appBar: EduknAppBar(
+        title: 'Cevap Anahtarı ve Kazanımlar',
         leading: const BackButton(color: Colors.white),
         actions: [
           PopupMenuButton<String>(

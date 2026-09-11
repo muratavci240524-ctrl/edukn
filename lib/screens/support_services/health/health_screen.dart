@@ -1,5 +1,6 @@
-import 'package:edukn/services/user_permission_service.dart';
+﻿import 'package:edukn/services/user_permission_service.dart';
 import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
@@ -302,15 +303,15 @@ class _HealthScreenState extends State<HealthScreen>
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Scaffold(
-        appBar: AppBar(title: Text('Sağlık İşlemleri')),
+        appBar: EduknAppBar(title: 'Sağlık İşlemleri'),
         body: Center(child: CircularProgressIndicator()),
       );
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Sağlık İşlemleri'),
-        elevation: 1,
+      appBar: EduknAppBar(
+        title: 'Sağlık İşlemleri',
+        subtitle: widget.fixedSchoolTypeName,
         bottom: TabBar(
           controller: _tabController,
           labelColor: Colors.red,

@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -302,14 +303,14 @@ class _AnnouncementDetailScreenState extends State<AnnouncementDetailScreen> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Duyuru Detayı')),
+        appBar: EduknAppBar(title: 'Duyuru Detayı'),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     if (_announcementData == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Duyuru Detayı')),
+        appBar: EduknAppBar(title: 'Duyuru Detayı'),
         body: const Center(child: Text('Duyuru bulunamadı')),
       );
     }
@@ -326,12 +327,12 @@ class _AnnouncementDetailScreenState extends State<AnnouncementDetailScreen> {
     final groupedData = _getGroupedRecipientData();
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Duyuru Detayı'),
+      appBar: EduknAppBar(
+        title: 'Duyuru Detayı',
         actions: [
           if (_canEditAnnouncements()) ...[
             IconButton(
-              icon: const Icon(Icons.edit),
+              icon: const Icon(Icons.edit, color: Colors.indigo),
               onPressed: () {
                 Navigator.push(
                   context,
@@ -348,7 +349,7 @@ class _AnnouncementDetailScreenState extends State<AnnouncementDetailScreen> {
               },
             ),
             IconButton(
-              icon: const Icon(Icons.delete),
+              icon: const Icon(Icons.delete, color: Colors.indigo),
               onPressed: () => _confirmDelete(context),
             ),
           ],
