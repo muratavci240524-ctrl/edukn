@@ -27,6 +27,7 @@ class DevelopmentReportService {
         targetType: session.targetGroup,
         term: session.title, // using title as term for compatibility
         schoolYear: session.schoolYear,
+        termId: session.termId,
         createdAt: DateTime.now(),
       );
 
@@ -39,17 +40,25 @@ class DevelopmentReportService {
     return docRef.id;
   }
 
-  Stream<List<DevelopmentReportSession>> getSessions(String institutionId) {
+  Stream<List<DevelopmentReportSession>> getSessions(
+    String institutionId, {
+    String? termId,
+  }) {
     return _firestore
         .collection('development_report_sessions')
         .where('institutionId', isEqualTo: institutionId)
         .snapshots()
         .map((snapshot) {
-          final sessions = snapshot.docs.map((doc) {
+          var sessions = snapshot.docs.map((doc) {
             final data = doc.data();
             data['id'] = doc.id;
             return DevelopmentReportSession.fromMap(data);
           }).toList();
+          if (termId != null && termId.isNotEmpty) {
+            sessions = sessions
+                .where((s) => s.termId == null || s.termId!.isEmpty || s.termId == termId)
+                .toList();
+          }
           sessions.sort((a, b) => b.createdAt.compareTo(a.createdAt));
           return sessions;
         });

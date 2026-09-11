@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -84,22 +85,104 @@ class NotificationService {
   /// Sayfa yönlendirmesi için navigator key (main.dart'taki ile aynı)
   static GlobalKey<NavigatorState>? navigatorKey;
 
-  bool _initialized = false;
+  bool _channelsAndListenersConfigured = false;
+  String? _currentUid;
+  StreamSubscription<String>? _tokenRefreshSub;
 
-  /// Servisi başlat: izin iste, token kaydet, listener'ları kur
-  Future<void> initialize({required String uid}) async {
-    if (_initialized) {
-      debugPrint('🔔 NotificationService zaten başlatılmış, atlanıyor.');
-      return;
+  /// Hem iOS hem Android (API 33+) hem de FCM için standart bildirim izni ister.
+  Future<NotificationSettings?> requestPermission({bool force = false}) async {
+    try {
+      // 1. Web için doğrudan tarayıcı bildirim izni iste
+      if (kIsWeb) {
+        try {
+          await requestWebNotificationPermission();
+        } catch (e) {
+          debugPrint('⚠️ Web notification permission error: $e');
+        }
+      } else {
+        // Android (API 33+) & iOS için Local Notifications İzni
+        if (defaultTargetPlatform == TargetPlatform.android) {
+          try {
+            final androidPlugin = _localNotifications
+                ?.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+            await androidPlugin?.requestNotificationsPermission();
+          } catch (e) {
+            debugPrint('⚠️ Android notification permission error: $e');
+          }
+        } else if (defaultTargetPlatform == TargetPlatform.iOS) {
+          try {
+            final iosPlugin = _localNotifications
+                ?.resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>();
+            await iosPlugin?.requestPermissions(
+              alert: true,
+              badge: true,
+              sound: true,
+            );
+          } catch (e) {
+            debugPrint('⚠️ iOS notification permission error: $e');
+          }
+        }
+      }
+
+      // 2. Firebase Cloud Messaging İzni (iOS, Android, Web)
+      final NotificationSettings settings = await _messaging.requestPermission(
+        alert: true,
+        announcement: false,
+        badge: true,
+        carPlay: false,
+        criticalAlert: false,
+        provisional: false,
+        sound: true,
+      );
+
+      debugPrint('🔔 Bildirim İzin Durumu: ${settings.authorizationStatus}');
+      return settings;
+    } catch (e) {
+      debugPrint('⚠️ Bildirim izni istenirken hata oluştu: $e');
+      return null;
     }
-    _initialized = true;
+  }
 
+  /// Servisi başlat: izin iste, token kaydet, listener'ları kur.
+  /// [forcePermissionPrompt] true ise veya kullanıcı değişmişse bildirim izni istenir.
+  Future<void> initialize({required String uid, bool forcePermissionPrompt = true}) async {
+    final bool isUserChanged = _currentUid != uid;
+    _currentUid = uid;
+
+    // Kanal ve listener yapılandırması sadece 1 kez yapılır
+    if (!_channelsAndListenersConfigured) {
+      _channelsAndListenersConfigured = true;
+      await _setupChannels();
+      _setupListeners();
+    }
+
+    // Her kullanıcı girişinde standart olarak izin kontrolü yap ve iste
+    if (forcePermissionPrompt || isUserChanged) {
+      await requestPermission(force: true);
+    }
+
+    // FCM Token Al ve users/{uid} belgesine kaydet
+    await _saveToken(uid);
+
+    // Token yenilenince güncel kullanıcıya kaydet
+    _tokenRefreshSub?.cancel();
+    _tokenRefreshSub = _messaging.onTokenRefresh.listen((newToken) {
+      if (_currentUid != null) {
+        _saveToken(_currentUid!, token: newToken);
+      }
+    });
+  }
+
+  /// Kanal ve yerel bildirim ayarlarını kurar
+  Future<void> _setupChannels() async {
     // Arka plan handler'ı kaydet
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
     if (!kIsWeb) {
-      const AndroidInitializationSettings initializationSettingsAndroid = AndroidInitializationSettings('@mipmap/ic_launcher');
-      const DarwinInitializationSettings initializationSettingsIOS = DarwinInitializationSettings();
+      const AndroidInitializationSettings initializationSettingsAndroid =
+          AndroidInitializationSettings('@mipmap/ic_launcher');
+      const DarwinInitializationSettings initializationSettingsIOS =
+          DarwinInitializationSettings();
       const InitializationSettings initializationSettings = InitializationSettings(
         android: initializationSettingsAndroid,
         iOS: initializationSettingsIOS,
@@ -108,7 +191,7 @@ class NotificationService {
         settings: initializationSettings,
         onDidReceiveNotificationResponse: _onNotificationAction,
       );
-      
+
       // Android için Heads-up notification kanalı (genel bildirimler)
       const AndroidNotificationChannel channel = AndroidNotificationChannel(
         'high_importance_channel',
@@ -133,7 +216,7 @@ class NotificationService {
       await _localNotifications
           ?.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
           ?.createNotificationChannel(callChannel);
-          
+
       // iOS için foreground Heads-up aktif et
       await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
         alert: true,
@@ -141,33 +224,10 @@ class NotificationService {
         sound: true,
       );
     }
+  }
 
-    // 1. İzin İste
-    NotificationSettings settings = await _messaging.requestPermission(
-      alert: true,
-      announcement: false,
-      badge: true,
-      carPlay: false,
-      criticalAlert: false,
-      provisional: false,
-      sound: true,
-    );
-
-    debugPrint('🔔 Bildirim izni: ${settings.authorizationStatus}');
-
-    if (settings.authorizationStatus == AuthorizationStatus.denied) {
-      debugPrint('❌ Bildirim izni reddedildi.');
-      return;
-    }
-
-    // 2. FCM Token Al ve Kaydet
-    await _saveToken(uid);
-
-    // 3. Token yenilenince güncelle
-    _messaging.onTokenRefresh.listen((newToken) {
-      _saveToken(uid, token: newToken);
-    });
-
+  /// Dinleyicileri (foreground, background click, CallKit) kurar
+  void _setupListeners() {
     // 4. Uygulama açıkken gelen bildirimleri dinle (Foreground)
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       debugPrint('📩 Foreground mesaj: ${message.notification?.title}');
@@ -188,14 +248,13 @@ class NotificationService {
         showWebNotification(title, body);
       } else {
         if (isCall) {
-          // 📞 Arama bildirimi: CallKit ile tam ekran VoIP çaldır
           final callerName = message.data['callerName'] ?? title.replaceAll('📹 ', '').replaceAll('📞 ', '');
           
           final callParams = CallKitParams(
             id: message.data['entityId'] ?? message.messageId ?? 'unknown_call',
             nameCaller: callerName,
             appName: 'eduKN',
-            avatar: 'https://i.pravatar.cc/100', // Opsiyonel avatar URL'si
+            avatar: 'https://i.pravatar.cc/100',
             handle: body,
             type: 0,
             duration: 30000,
@@ -209,7 +268,7 @@ class NotificationService {
             android: const AndroidParams(
               isCustomNotification: true,
               isShowLogo: false,
-              ringtonePath: '', // Boş bırakınca sistemin varsayılan çalma sesine döner
+              ringtonePath: '',
               backgroundColor: '#0955fa',
               backgroundUrl: 'assets/test.png',
               actionColor: '#4CAF50',
@@ -233,7 +292,6 @@ class NotificationService {
           );
           FlutterCallkitIncoming.showCallkitIncoming(callParams);
         } else {
-          // 📩 Normal bildirim
           _localNotifications?.show(
             id: message.hashCode,
             title: title,
@@ -265,14 +323,14 @@ class NotificationService {
     });
 
     // 6. Uygulama kapalıyken bildirime tıklandığında (Terminated)
-    final RemoteMessage? initialMessage = await _messaging.getInitialMessage();
-    if (initialMessage != null) {
-      debugPrint('👆 Uygulama açılış bildirimi: ${initialMessage.data}');
-      // Kısa gecikme: Navigator hazır olsun
-      Future.delayed(const Duration(milliseconds: 1500), () {
-        _handleNotificationTap(initialMessage.data);
-      });
-    }
+    _messaging.getInitialMessage().then((RemoteMessage? initialMessage) {
+      if (initialMessage != null) {
+        debugPrint('👆 Uygulama açılış bildirimi: ${initialMessage.data}');
+        Future.delayed(const Duration(milliseconds: 1500), () {
+          _handleNotificationTap(initialMessage.data);
+        });
+      }
+    });
 
     if (!kIsWeb) {
       FlutterCallkitIncoming.onEvent.listen((CallEvent? event) {
@@ -287,6 +345,13 @@ class NotificationService {
         }
       });
     }
+  }
+
+  /// Çıkış yapıldığında oturumu sıfırla
+  void reset() {
+    _currentUid = null;
+    _tokenRefreshSub?.cancel();
+    _tokenRefreshSub = null;
   }
 
   /// FCM token'ı Firestore'a kaydeder

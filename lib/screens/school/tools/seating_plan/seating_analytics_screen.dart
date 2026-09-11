@@ -13,6 +13,7 @@ class SeatingAnalyticsScreen extends StatefulWidget {
   final String schoolTypeId;
   final String schoolTypeName;
   final String? initialClassId;
+  final List<String>? allowedClassIds;
 
   const SeatingAnalyticsScreen({
     Key? key,
@@ -20,6 +21,7 @@ class SeatingAnalyticsScreen extends StatefulWidget {
     required this.schoolTypeId,
     required this.schoolTypeName,
     this.initialClassId,
+    this.allowedClassIds,
   }) : super(key: key);
 
   @override
@@ -52,7 +54,10 @@ class _SeatingAnalyticsScreenState extends State<SeatingAnalyticsScreen> {
           .where('isActive', isEqualTo: true)
           .get();
 
-      final list = snap.docs.map((d) => ClassModel.fromMap(d.data(), d.id)).toList();
+      var list = snap.docs.map((d) => ClassModel.fromMap(d.data(), d.id)).toList();
+      if (widget.allowedClassIds != null) {
+        list = list.where((c) => widget.allowedClassIds!.contains(c.id)).toList();
+      }
       list.sort((a, b) => a.className.compareTo(b.className));
 
       if (mounted) {

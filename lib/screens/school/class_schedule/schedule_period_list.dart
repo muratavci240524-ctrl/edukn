@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import '../../../services/term_service.dart';
@@ -96,8 +96,38 @@ class _ClassScheduleScreenState extends State<ClassScheduleScreen> {
   }
 
   void _showTeacherShareSelector(String periodId) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Ogretmen secici yakininda eklenecek')),
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(Icons.person_rounded, color: Colors.blue.shade700),
+            const SizedBox(width: 10),
+            const Text('Öğretmen Programı Yayınla'),
+          ],
+        ),
+        content: const Text(
+          'Ders programı yayınlanarak tüm öğretmenlerin ders programı ekranına iletilecektir. Onaylıyor musunuz?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('İptal'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _publishSchedule(periodId);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue.shade700,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Yayınla ve İlet'),
+          ),
+        ],
+      ),
     );
   }
 

@@ -301,25 +301,26 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
     _resolvedSchoolTypeName = schoolTypeName;
 
     try {
-      // 1. Yayınlanmış aktif dönemi bul (Case-insensitive institutionId)
+      // 1. Yayınlanmış alt dönemleri bul (Case-insensitive institutionId)
+      final instIds = [instId, instId.toLowerCase()].toSet().toList();
       var periodsSnapshot = await FirebaseFirestore.instance
           .collection('workPeriods')
           .where('schoolTypeId', isEqualTo: schoolTypeId)
-          .where('institutionId', isEqualTo: instId)
-          .where('isActive', isEqualTo: true)
-          .where('schedulePublished', isEqualTo: true)
+          .where('institutionId', whereIn: instIds)
           .get();
 
-      // Fallback: lowercase institutionId
-      if (periodsSnapshot.docs.isEmpty) {
-        periodsSnapshot = await FirebaseFirestore.instance
-            .collection('workPeriods')
-            .where('schoolTypeId', isEqualTo: schoolTypeId)
-            .where('institutionId', isEqualTo: instId.toLowerCase())
-            .where('isActive', isEqualTo: true)
-            .where('schedulePublished', isEqualTo: true)
-            .get();
-      }
+      final publishedPeriods = periodsSnapshot.docs.where((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        final isPub = data['schedulePublished'] == true || data['isPublished'] == true;
+        final isAct = data['isActive'] != false;
+        return isPub && isAct;
+      }).toList();
+
+      publishedPeriods.sort((a, b) {
+        final aStart = ((a.data() as Map<String, dynamic>)['startDate'] as Timestamp?)?.toDate() ?? DateTime(2000);
+        final bStart = ((b.data() as Map<String, dynamic>)['startDate'] as Timestamp?)?.toDate() ?? DateTime(2000);
+        return aStart.compareTo(bStart);
+      });
 
       _days = [];
       _dailyLessonCounts = {};
@@ -327,18 +328,24 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
       _activePeriodId = null;
       _scheduleData = {};
 
-      if (periodsSnapshot.docs.isNotEmpty) {
+      if (publishedPeriods.isNotEmpty) {
         QueryDocumentSnapshot? activePeriodDoc;
-        final targetDate = _weekStart;
+        final weekStartDay = DateTime(_weekStart.year, _weekStart.month, _weekStart.day, 0, 0, 0);
+        final weekEndDay = DateTime(_weekStart.year, _weekStart.month, _weekStart.day, 23, 59, 59)
+            .add(const Duration(days: 6));
 
-        for (var doc in periodsSnapshot.docs) {
+        for (var doc in publishedPeriods) {
           final data = doc.data() as Map<String, dynamic>;
           final start = (data['startDate'] as Timestamp?)?.toDate();
           final end = (data['endDate'] as Timestamp?)?.toDate();
 
           if (start != null && end != null) {
-            if (targetDate.isAfter(start.subtract(const Duration(days: 1))) &&
-                targetDate.isBefore(end.add(const Duration(days: 1)))) {
+            final startDay = DateTime(start.year, start.month, start.day, 0, 0, 0);
+            final endDay = DateTime(end.year, end.month, end.day, 23, 59, 59);
+
+            // Hafta alt dönemin tarih aralığı içine denk geliyor mu?
+            // Kesişim: Hafta bitişi dönem başlangıcından sonra ve hafta başlangıcı dönem bitişinden önce olmalı
+            if (!weekEndDay.isBefore(startDay) && !weekStartDay.isAfter(endDay)) {
               activePeriodDoc = doc;
               break;
             }
@@ -533,7 +540,8 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
           })
           .where((t) {
             // Eğer "Öğretmen Görünümü" ise ve bu kişi BEN isem her türlü geçsin
-            if (widget.isTeacherView && currentUid != null && t['id'] == currentUid) {
+            final userDocId = userData?['id']?.toString() ?? userData?['teacherId']?.toString();
+            if (widget.isTeacherView && currentUid != null && (t['id'] == currentUid || (userDocId != null && t['id'] == userDocId))) {
               return true;
             }
 
@@ -688,7 +696,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
         } else if (resolvedTeacherId != null && _selectedTeacher == null) {
           try {
             final self = _allTeachers.firstWhere(
-              (t) => t['id'] == resolvedTeacherId || t['id'] == currentUid,
+              (t) => t['id'] == resolvedTeacherId || t['id'] == currentUid || t['authUserId'] == currentUid || t['uid'] == currentUid,
               orElse: () => {},
             );
             
@@ -697,14 +705,19 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
               _loadTeacherSchedule(self['id']);
             } else if (widget.isTeacherView) {
               // Failsafe: Listede bulunmasa bile programını çekmeye çalış
-              _selectedTeacher = {'id': resolvedTeacherId, 'name': 'Öğretmen'};
+              _selectedTeacher = {'id': resolvedTeacherId, 'name': userData?['fullName'] ?? 'Öğretmen'};
               _loadTeacherSchedule(resolvedTeacherId);
             }
           } catch (_) {
             if (widget.isTeacherView) {
-              _selectedTeacher = {'id': resolvedTeacherId, 'name': 'Öğretmen'};
+              _selectedTeacher = {'id': resolvedTeacherId, 'name': userData?['fullName'] ?? 'Öğretmen'};
               _loadTeacherSchedule(resolvedTeacherId);
             }
+          }
+        } else if (widget.isTeacherView && _selectedTeacher == null) {
+          _selectedTeacher = {'id': currentUid ?? '', 'name': userData?['fullName'] ?? 'Öğretmen'};
+          if (currentUid != null && currentUid.isNotEmpty) {
+            _loadTeacherSchedule(currentUid);
           }
         }
 
@@ -713,7 +726,19 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
       });
     } catch (e) {
       debugPrint('Veri yükleme hatası: $e');
+      final currentUid = FirebaseAuth.instance.currentUser?.uid;
+      final uData = UserPermissionService.getCachedUserData();
+      final resolvedTeacherId = uData?['id'] ?? uData?['teacherId'] ?? currentUid ?? '';
       setState(() {
+        if (widget.isTeacherView && _selectedTeacher == null) {
+          _selectedTeacher = {
+            'id': resolvedTeacherId,
+            'name': uData?['fullName'] ?? 'Öğretmen',
+          };
+          if (resolvedTeacherId.isNotEmpty) {
+            _loadTeacherSchedule(resolvedTeacherId);
+          }
+        }
         _isLoading = false;
         _isScheduleLoading = false;
       });
@@ -738,35 +763,58 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
       
       final instIds = [instId, instId.toLowerCase()].toSet().toList();
 
-      // 1. Önce öğretmenin ders atamalarını tek sorguyla bul
-      final assignSnap = await FirebaseFirestore.instance
-          .collection('lessonAssignments')
-          .where('institutionId', whereIn: instIds)
-          .where('schoolTypeId', isEqualTo: schoolTypeId)
-          .where('teacherIds', arrayContains: teacherId)
-          .get();
+      final Set<String> validTeacherIds = {teacherId};
+      final currentUid = FirebaseAuth.instance.currentUser?.uid;
+      if (currentUid != null && currentUid.isNotEmpty) {
+        if (teacherId == currentUid || (widget.isTeacherView && (_selectedTeacher == null || _selectedTeacher?['id'] == currentUid))) {
+          final uData = await UserPermissionService.loadUserData();
+          final docId = uData?['id']?.toString();
+          if (docId != null && docId.isNotEmpty) validTeacherIds.add(docId);
+          final tId = uData?['teacherId']?.toString();
+          if (tId != null && tId.isNotEmpty) validTeacherIds.add(tId);
+        }
+      }
+      if (_selectedTeacher != null) {
+        final sId = _selectedTeacher!['id']?.toString();
+        if (sId != null && sId.isNotEmpty) validTeacherIds.add(sId);
+        final sUid = _selectedTeacher!['uid']?.toString() ?? _selectedTeacher!['authUid']?.toString();
+        if (sUid != null && sUid.isNotEmpty) validTeacherIds.add(sUid);
+      }
+
+      // 1. Önce öğretmenin ders atamalarını bul (Tüm olası ID'ler üzerinden)
+      final List<QuerySnapshot<Map<String, dynamic>>> assignSnaps = await Future.wait(
+        validTeacherIds.map((tId) => FirebaseFirestore.instance
+            .collection('lessonAssignments')
+            .where('institutionId', whereIn: instIds)
+            .where('schoolTypeId', isEqualTo: schoolTypeId)
+            .where('teacherIds', arrayContains: tId)
+            .get()),
+      );
 
       final Map<String, Map<String, dynamic>> assignmentMap = {};
       final Set<String> classIds = {};
       final List<Map<String, dynamic>> teacherAssignments = [];
-      final Set<String> seenAssignmentKeys = {};
+      final Set<String> seenAssignmentDocIds = {};
 
-      for (var doc in assignSnap.docs) {
-        final data = doc.data();
-        data['id'] = doc.id;
-        final cid = (data['classId'] ?? '').toString();
-        final lid = (data['lessonId'] ?? '').toString();
-        final docIsActive = data['isActive'] ?? true;
+      for (var snap in assignSnaps) {
+        for (var doc in snap.docs) {
+          if (!seenAssignmentDocIds.add(doc.id)) continue;
+          final data = doc.data();
+          data['id'] = doc.id;
+          final cid = (data['classId'] ?? '').toString();
+          final lid = (data['lessonId'] ?? '').toString();
+          final docIsActive = data['isActive'] ?? true;
 
-        final assignmentKey = '$cid|$lid';
+          final assignmentKey = '$cid|$lid';
 
-        if (cid.isNotEmpty && lid.isNotEmpty && docIsActive) {
-          classIds.add(cid);
-          assignmentMap[assignmentKey] = {
-            'lessonName': (data['lessonName'] ?? '').toString(),
-            'className': (data['className'] ?? '').toString(),
-          };
-          teacherAssignments.add(data);
+          if (cid.isNotEmpty && lid.isNotEmpty && docIsActive) {
+            classIds.add(cid);
+            assignmentMap[assignmentKey] = {
+              'lessonName': (data['lessonName'] ?? '').toString(),
+              'className': (data['className'] ?? '').toString(),
+            };
+            teacherAssignments.add(data);
+          }
         }
       }
 
@@ -805,29 +853,112 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
       }
 
       // 2. Doğrudan öğretmen bazlı aramalar (Failsafe)
-      scheduleFetches.add(
-        FirebaseFirestore.instance
-            .collection('classSchedules')
-            .where('institutionId', whereIn: instIds)
-            .where('teacherIds', arrayContains: teacherId)
-            .get(),
-      );
-      scheduleFetches.add(
-        FirebaseFirestore.instance
-            .collection('classSchedules')
-            .where('institutionId', whereIn: instIds)
-            .where('teacherId', isEqualTo: teacherId)
-            .get(),
-      );
+      final currentTeacherName = (_selectedTeacher?['name'] ?? _selectedTeacher?['fullName'] ?? '').toString().trim();
+      for (final tId in validTeacherIds) {
+        scheduleFetches.add(
+          FirebaseFirestore.instance
+              .collection('classSchedules')
+              .where('institutionId', whereIn: instIds)
+              .where('teacherIds', arrayContains: tId)
+              .get(),
+        );
+        scheduleFetches.add(
+          FirebaseFirestore.instance
+              .collection('classSchedules')
+              .where('institutionId', whereIn: instIds)
+              .where('teacherId', isEqualTo: tId)
+              .get(),
+        );
+      }
+      if (currentTeacherName.isNotEmpty) {
+        scheduleFetches.add(
+          FirebaseFirestore.instance
+              .collection('classSchedules')
+              .where('institutionId', whereIn: instIds)
+              .where('teacherName', isEqualTo: currentTeacherName)
+              .get(),
+        );
+      }
 
       final classSnapshots = await Future.wait(classFetches);
       final scheduleSnapshots = await Future.wait(scheduleFetches);
 
       for (final snap in classSnapshots) {
         for (final doc in snap.docs) {
-          classNameById[doc.id] = (doc.data()['className'] ?? doc.data()['name'] ?? '').toString();
+          final cData = doc.data();
+          final name = (cData['name'] ?? cData['className'] ?? '').toString().trim();
+          final grade = (cData['gradeLevel'] ?? cData['grade'] ?? '').toString().trim();
+          final branch = (cData['branch'] ?? cData['branchName'] ?? '').toString().trim();
+          if (name.isNotEmpty) {
+            classNameById[doc.id] = name;
+          } else if (grade.isNotEmpty && branch.isNotEmpty) {
+            classNameById[doc.id] = '$grade-$branch';
+          } else if (branch.isNotEmpty) {
+            classNameById[doc.id] = branch;
+          }
         }
       }
+
+      // classSchedules içinden gelen ancak classNameById haritasında henüz bulunmayan tüm classId'leri tespit et
+      final Set<String> missingClassIds = {};
+      for (final scheduleSnapshot in scheduleSnapshots) {
+        for (final doc in scheduleSnapshot.docs) {
+          final cid = (doc.data()['classId'] ?? '').toString().trim();
+          if (cid.isNotEmpty && !classNameById.containsKey(cid)) {
+            missingClassIds.add(cid);
+          }
+        }
+      }
+
+      // Eksik şubeleri classes koleksiyonundan batch olarak çek ve haritaya ekle
+      if (missingClassIds.isNotEmpty) {
+        final missingList = missingClassIds.toList();
+        for (int i = 0; i < missingList.length; i += 10) {
+          final batch = missingList.skip(i).take(10).toList();
+          try {
+            final snap = await FirebaseFirestore.instance
+                .collection('classes')
+                .where(FieldPath.documentId, whereIn: batch)
+                .get();
+            for (final doc in snap.docs) {
+              final cData = doc.data();
+              final name = (cData['name'] ?? cData['className'] ?? '').toString().trim();
+              final grade = (cData['gradeLevel'] ?? cData['grade'] ?? '').toString().trim();
+              final branch = (cData['branch'] ?? cData['branchName'] ?? '').toString().trim();
+              if (name.isNotEmpty) {
+                classNameById[doc.id] = name;
+              } else if (grade.isNotEmpty && branch.isNotEmpty) {
+                classNameById[doc.id] = '$grade-$branch';
+              } else if (branch.isNotEmpty) {
+                classNameById[doc.id] = branch;
+              }
+            }
+          } catch (_) {}
+        }
+      }
+
+      // Genel kurum sınıflarını da yükleyerek eksiksiz şube adı garantisi sağla
+      try {
+        for (final inst in instIds) {
+          final instClassesSnap = await FirebaseFirestore.instance
+              .collection('classes')
+              .where('institutionId', isEqualTo: inst)
+              .get();
+          for (final doc in instClassesSnap.docs) {
+            final cData = doc.data();
+            final name = (cData['name'] ?? cData['className'] ?? '').toString().trim();
+            final grade = (cData['gradeLevel'] ?? cData['grade'] ?? '').toString().trim();
+            final branch = (cData['branch'] ?? cData['branchName'] ?? '').toString().trim();
+            if (name.isNotEmpty) {
+              classNameById[doc.id] = name;
+            } else if (grade.isNotEmpty && branch.isNotEmpty) {
+              classNameById[doc.id] = '$grade-$branch';
+            } else if (branch.isNotEmpty) {
+              classNameById[doc.id] = branch;
+            }
+          }
+        }
+      } catch (_) {}
 
       final Map<String, Map<String, dynamic>> updatedSchedule = {};
       final Set<String> processedScheduleDocIds = {};
@@ -861,12 +992,18 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
             lessonTeacherIds.add(slotTeacherId);
           }
 
-          // Eğer saat diliminde öğretmen ID(leri) tanımlıysa, hedef öğretmen ID'si bulunmalı!
+          final slotTeacherName = (data['teacherName'] ?? '').toString().trim();
+          final isNameMatch = currentTeacherName.isNotEmpty &&
+              slotTeacherName.isNotEmpty &&
+              slotTeacherName.toLowerCase() == currentTeacherName.toLowerCase();
+
+          // Eğer saat diliminde öğretmen ID(leri) tanımlıysa, hedef öğretmen ID'si veya isim eşleşmeli!
           if (lessonTeacherIds.isNotEmpty) {
-            if (!lessonTeacherIds.contains(teacherId)) continue;
+            final hasMatchingId = lessonTeacherIds.any((id) => validTeacherIds.contains(id));
+            if (!hasMatchingId && !isNameMatch) continue;
           } else {
-            // Eğer saat diliminde öğretmen ID'si hiç yazılmamışsa, atama haritasına bak
-            if (!hasAssignment) continue;
+            // Eğer saat diliminde öğretmen ID'si hiç yazılmamışsa, atama haritasına veya isme bak
+            if (!hasAssignment && !isNameMatch) continue;
           }
 
           final day = data['day'] as String?;
@@ -876,9 +1013,23 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
           final key = '${day}_$hourIndex';
 
           final assignmentInfo = hasAssignment ? assignmentMap[assignmentKey] : null;
-          final className = assignmentInfo != null
-              ? (classNameById[cid] ?? assignmentInfo['className'])
-              : (classNameById[cid] ?? data['className'] ?? 'Sınıf');
+          
+          // Ham doküman ID'sinin (örn: h1VGHZDvfi) doğrudan ekrana basılmasını engelle
+          final rawSlotClassName = (data['className'] ?? '').toString().trim();
+          final isSlotClassNameAnId = rawSlotClassName.length >= 10 &&
+              !rawSlotClassName.contains('-') &&
+              !rawSlotClassName.contains(' ') &&
+              RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(rawSlotClassName);
+
+          String className = 'Sınıf';
+          if (classNameById[cid] != null && classNameById[cid]!.isNotEmpty) {
+            className = classNameById[cid]!;
+          } else if (assignmentInfo != null && (assignmentInfo['className'] ?? '').isNotEmpty) {
+            className = assignmentInfo['className']!;
+          } else if (!isSlotClassNameAnId && rawSlotClassName.isNotEmpty) {
+            className = rawSlotClassName;
+          }
+
           final lessonName = assignmentInfo != null
               ? (assignmentInfo['lessonName'] ?? data['lessonName'])
               : (data['lessonName'] ?? 'Ders');
@@ -1413,9 +1564,18 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              EduKnLoader(size: 80.0),
-              SizedBox(height: 16),
-              Text('Ders programınız hazırlanıyor...'),
+              Icon(Icons.event_busy_rounded, size: 64, color: Colors.blueGrey.shade300),
+              const SizedBox(height: 16),
+              const Text(
+                'Ders programı bilgisi alınamadı.',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              ElevatedButton.icon(
+                onPressed: () => _loadData(),
+                icon: const Icon(Icons.refresh),
+                label: const Text('Tekrar Dene'),
+              ),
             ],
           ),
         );
@@ -1850,6 +2010,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                                       activePeriodId: _activePeriodId,
                                       institutionId: widget.institutionId,
                                       schoolTypeId: widget.schoolTypeId,
+                                      isTeacherView: widget.isTeacherView,
                                     ),
                               ),
                             );
@@ -2135,7 +2296,8 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
         children: [
           _tabButton(0, 'Program', Icons.grid_on),
           _tabButton(1, 'Etütler', Icons.list_alt),
-          _tabButton(2, 'Atalı Dersler', Icons.assignment_ind),
+          if (!widget.isTeacherView)
+            _tabButton(2, 'Atalı Dersler', Icons.assignment_ind),
         ],
       ),
     );
@@ -2450,7 +2612,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                   style: TextStyle(fontSize: 12, color: Colors.blue.shade900, fontWeight: FontWeight.w500),
                 ),
               ),
-              if (hasUnplacedDuplicates) ...[
+              if (!widget.isTeacherView && hasUnplacedDuplicates) ...[
                 const SizedBox(width: 8),
                 ElevatedButton.icon(
                   onPressed: _cleanUpUnplacedDuplicates,
@@ -2606,20 +2768,22 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                         ],
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    OutlinedButton.icon(
-                      onPressed: () => _confirmCancelAssignment(assignment),
-                      icon: const Icon(Icons.delete_outline, size: 16, color: Colors.red),
-                      label: const Text(
-                        'İptal Et',
-                        style: TextStyle(color: Colors.red, fontSize: 12, fontWeight: FontWeight.bold),
+                    if (!widget.isTeacherView) ...[
+                      const SizedBox(width: 8),
+                      OutlinedButton.icon(
+                        onPressed: () => _confirmCancelAssignment(assignment),
+                        icon: const Icon(Icons.delete_outline, size: 16, color: Colors.red),
+                        label: const Text(
+                          'İptal Et',
+                          style: TextStyle(color: Colors.red, fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: Colors.red.shade200),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
                       ),
-                      style: OutlinedButton.styleFrom(
-                        side: BorderSide(color: Colors.red.shade200),
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
-                    ),
+                    ],
                   ],
                 ),
               );
@@ -3483,75 +3647,114 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
 
                             final etut = _getEtutForSlot(day, hourIndex);
 
-                            // Yarım gün hücresi
+                            // Yarım gün hücresi (Kartları birleştirilmiş tek blok)
                             if (isHalfDay) {
-                              final isFirstHour = (hdBlock!['hours'] as List<int>).first == hourIndex;
-                              final hdCount = (hdBlock['count'] as int?) ?? 1;
+                              final hours = (hdBlock['hours'] as List<int>?) ?? [hourIndex];
+                              final isFirstHour = hours.first == hourIndex;
+                              if (!isFirstHour) {
+                                return const SizedBox.shrink();
+                              }
+
+                              final blockHoursInDay = hours.where((h) => h < dayHourCount).toList();
+                              final hdCount = blockHoursInDay.isNotEmpty ? blockHoursInDay.length : 1;
+                              final totalWidth = 90.0 * hdCount;
+                              final isMorning = hdBlock['type'] == 'morning';
+                              final startHour = hours.first + 1;
+                              final endHour = hours.last + 1;
+                              final title = isMorning ? 'SABAH YARIM GÜN İZNİ' : 'ÖĞLEDEN SONRA İZNİ';
+                              final subtitle = '$hdCount Ders İzin ($startHour - $endHour. Saatler)';
+
                               return Container(
-                                width: 90,
+                                width: totalWidth,
                                 height: 72,
                                 decoration: BoxDecoration(
-                                  color: Colors.amber.shade50,
+                                  color: isMorning ? const Color(0xFFFFFBEB) : const Color(0xFFFFF7ED),
                                   border: Border(
                                     top: BorderSide(color: Colors.amber.shade300, width: 1),
                                     left: BorderSide(color: Colors.amber.shade300, width: 1),
+                                    right: BorderSide(color: Colors.amber.shade300, width: 1),
                                     bottom: isLast
                                         ? BorderSide(color: Colors.amber.shade300, width: 1)
                                         : BorderSide.none,
                                   ),
                                 ),
-                                child: isFirstHour
-                                    ? Stack(
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: isMorning
+                                            ? [const Color(0xFFFEF3C7), const Color(0xFFFDE68A)]
+                                            : [const Color(0xFFFFEDD5), const Color(0xFFFED7AA)],
+                                      ),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: isMorning
+                                            ? const Color(0xFFF59E0B).withOpacity(0.6)
+                                            : const Color(0xFFF97316).withOpacity(0.6),
+                                        width: 1,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: (isMorning ? Colors.amber : Colors.orange).withOpacity(0.15),
+                                          blurRadius: 4,
+                                          offset: const Offset(0, 2),
+                                        ),
+                                      ],
+                                    ),
+                                    child: Center(
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          // Span indicator - amber stripe
-                                          Positioned(
-                                            top: 0, bottom: 0, left: 0,
-                                            child: Container(
-                                              width: 4,
-                                              color: Colors.amber.shade600,
+                                          Container(
+                                            padding: const EdgeInsets.all(6),
+                                            decoration: BoxDecoration(
+                                              color: isMorning ? const Color(0xFFD97706) : const Color(0xFFEA580C),
+                                              shape: BoxShape.circle,
+                                            ),
+                                            child: Icon(
+                                              isMorning ? Icons.wb_sunny_rounded : Icons.brightness_medium_rounded,
+                                              size: 16,
+                                              color: Colors.white,
                                             ),
                                           ),
-                                          Center(
-                                            child: Padding(
-                                              padding: const EdgeInsets.only(left: 6),
-                                              child: Column(
-                                                mainAxisAlignment: MainAxisAlignment.center,
-                                                children: [
-                                                  Icon(Icons.wb_sunny_rounded, size: 16, color: Colors.amber.shade700),
-                                                  const SizedBox(height: 2),
-                                                  Text(
-                                                    hdBlock['type'] == 'morning' ? 'Sabah\nYarım Gün' : 'Öğleden\nSonra',
-                                                    style: TextStyle(
-                                                      fontSize: 9,
-                                                      fontWeight: FontWeight.bold,
-                                                      color: Colors.amber.shade900,
-                                                      height: 1.2,
-                                                    ),
-                                                    textAlign: TextAlign.center,
+                                          const SizedBox(width: 10),
+                                          Flexible(
+                                            child: Column(
+                                              mainAxisSize: MainAxisSize.min,
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  title,
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.bold,
+                                                    letterSpacing: 0.6,
+                                                    color: isMorning ? const Color(0xFF92400E) : const Color(0xFF9A3412),
                                                   ),
-                                                  if (hdCount > 1)
-                                                    Text(
-                                                      '$hdCount ders',
-                                                      style: TextStyle(
-                                                        fontSize: 8,
-                                                        color: Colors.amber.shade700,
-                                                      ),
-                                                    ),
-                                                ],
-                                              ),
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  subtitle,
+                                                  style: TextStyle(
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: isMorning ? const Color(0xFFB45309) : const Color(0xFFC2410C),
+                                                  ),
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                              ],
                                             ),
                                           ),
                                         ],
-                                      )
-                                    : Container(
-                                        alignment: Alignment.centerLeft,
-                                        padding: const EdgeInsets.only(left: 8),
-                                        child: Container(
-                                          width: 4,
-                                          height: double.infinity,
-                                          color: Colors.amber.shade200,
-                                        ),
                                       ),
+                                    ),
+                                  ),
+                                ),
                               );
                             }
 
@@ -3823,6 +4026,9 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
 
 
   Widget _buildCardScheduleWide() {
+    final teacherId = _selectedTeacher?['id']?.toString() ?? '';
+    final hdForTeacher = _teacherHalfDayIndex[teacherId] ?? {};
+
     return SingleChildScrollView(
       child: Padding(
         padding: EdgeInsets.all(16),
@@ -3831,6 +4037,20 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
           children: _days.map((day) {
             final dayHourCount = _dailyLessonCounts[day] ?? 8;
             final dayTimes = _dayLessonTimes[day] ?? [];
+            final hdBlocks = hdForTeacher[day] ?? [];
+
+            // Her saat için hangi yarım gün bloğuna ait olduğunu hesapla
+            Map<int, Map<String, dynamic>?> hourToHdBlock = {};
+            for (int h = 0; h < dayHourCount; h++) {
+              hourToHdBlock[h] = null;
+              for (final block in hdBlocks) {
+                final hours = (block['hours'] as List<int>?) ?? [];
+                if (hours.contains(h)) {
+                  hourToHdBlock[h] = block;
+                  break;
+                }
+              }
+            }
 
             return Container(
               margin: EdgeInsets.only(bottom: 16),
@@ -3906,9 +4126,11 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                         : '';
                     final key = '${day}_$hourIndex';
                     final assignment = _scheduleData[key];
+                    final hdBlock = hourToHdBlock[hourIndex];
+                    final isHalfDay = hdBlock != null;
 
                     return InkWell(
-                      onTap: assignment == null
+                      onTap: (assignment == null || isHalfDay)
                           ? null
                           : () => _onLessonTap(assignment, day, hourIndex),
                       child: Container(
@@ -3937,7 +4159,11 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                                     style: TextStyle(
                                       fontSize: 12,
                                       fontWeight: FontWeight.bold,
-                                      color: Colors.blue,
+                                      color: isHalfDay
+                                          ? (hdBlock['type'] == 'morning'
+                                              ? Colors.amber.shade800
+                                              : Colors.orange.shade800)
+                                          : Colors.blue,
                                     ),
                                   ),
                                   if (startTime.isNotEmpty)
@@ -3960,7 +4186,13 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                               ),
                             ),
                             SizedBox(width: 12),
-                            Expanded(child: _buildCardItemLogic(assignment)),
+                            Expanded(
+                              child: _buildCardItemLogic(
+                                assignment,
+                                hdBlock: hdBlock,
+                                hourIndex: hourIndex,
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -3975,8 +4207,89 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
     );
   }
 
-  Widget _buildCardItemLogic(Map<String, dynamic>? assignment) {
+  Widget _buildCardItemLogic(
+    Map<String, dynamic>? assignment, {
+    Map<String, dynamic>? hdBlock,
+    int? hourIndex,
+  }) {
     if (assignment == null) {
+      if (hdBlock != null) {
+        final isMorning = hdBlock['type'] == 'morning';
+        final lessonNum = (hourIndex ?? 0) + 1;
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: isMorning ? const Color(0xFFFFFBEB) : const Color(0xFFFFF7ED),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isMorning ? const Color(0xFFFDE68A) : const Color(0xFFFED7AA),
+              width: 1.2,
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: isMorning ? const Color(0xFFD97706) : const Color(0xFFEA580C),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  isMorning ? Icons.wb_sunny_rounded : Icons.brightness_medium_rounded,
+                  size: 16,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      isMorning ? 'SABAH YARIM GÜN İZNİ' : 'ÖĞLEDEN SONRA İZNİ',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.4,
+                        color: isMorning ? const Color(0xFF92400E) : const Color(0xFF9A3412),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$lessonNum. Ders • Yarım gün tatili / izni',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: isMorning ? const Color(0xFFB45309) : const Color(0xFFC2410C),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: isMorning ? const Color(0xFFFEF3C7) : const Color(0xFFFFEDD5),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: isMorning ? const Color(0xFFF59E0B) : const Color(0xFFF97316),
+                    width: 0.8,
+                  ),
+                ),
+                child: Text(
+                  'YARIM GÜN',
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                    color: isMorning ? const Color(0xFF92400E) : const Color(0xFF9A3412),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+
       return Container(
         padding: EdgeInsets.all(12),
         decoration: BoxDecoration(
@@ -4086,6 +4399,7 @@ class _TeacherScheduleDetailView extends StatefulWidget {
   final String? activePeriodId;
   final String institutionId;
   final String schoolTypeId;
+  final bool isTeacherView;
 
   const _TeacherScheduleDetailView({
     required this.teacherData,
@@ -4095,6 +4409,7 @@ class _TeacherScheduleDetailView extends StatefulWidget {
     this.activePeriodId,
     required this.institutionId,
     required this.schoolTypeId,
+    this.isTeacherView = false,
   });
 
   @override
@@ -5161,7 +5476,8 @@ class _TeacherScheduleDetailViewState
         children: [
           _tabButton(0, 'Program', Icons.grid_on),
           _tabButton(1, 'Etütler', Icons.list_alt),
-          _tabButton(2, 'Atalı Dersler', Icons.assignment_ind),
+          if (!widget.isTeacherView)
+            _tabButton(2, 'Atalı Dersler', Icons.assignment_ind),
         ],
       ),
     );

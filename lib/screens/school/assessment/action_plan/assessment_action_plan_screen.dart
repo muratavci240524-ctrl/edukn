@@ -1,9 +1,10 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../services/assessment_service.dart';
+import '../../../../services/term_service.dart';
 import '../../../../models/assessment/trial_exam_model.dart';
 import '../../../../models/lesson_model.dart';
 import '../../../../widgets/edukn_logo.dart';
@@ -164,7 +165,8 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
     setState(() => _isLoading = true);
     try {
       // Load Exams
-      final examsStream = _service.getTrialExams(widget.institutionId);
+      final activeTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
+      final examsStream = _service.getTrialExams(widget.institutionId, termId: activeTermId);
       examsStream.first.then((exams) {
         if (mounted) {
           setState(() {

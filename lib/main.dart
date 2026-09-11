@@ -389,7 +389,7 @@ class __GlobalKeyboardUnfocusWrapperState
         _authSub = FirebaseAuth.instance.authStateChanges().listen((user) async {
           if (user != null) {
             // FCM token'ı kaydet ve bildirim servisini başlat
-            NotificationService().initialize(uid: user.uid).catchError((e) {
+            NotificationService().initialize(uid: user.uid, forcePermissionPrompt: true).catchError((e) {
               debugPrint('Notification init error: $e');
             });
             
@@ -416,6 +416,7 @@ class __GlobalKeyboardUnfocusWrapperState
             });
           } else {
             _incomingCallSub?.cancel();
+            NotificationService().reset();
           }
         });
       } catch (e) {

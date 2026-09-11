@@ -1,8 +1,10 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import '../../services/term_service.dart';
+import '../../services/user_permission_service.dart';
 import '../../widgets/edukn_logo.dart';
 import 'etut_settings_screen.dart';
 import 'etut_guide_page.dart';
@@ -175,25 +177,42 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
 
       if (widget.isTeacher && widget.teacherId != null) {
         // Teacher Mode: Filter students by assigned classes
+        final uData = await UserPermissionService.loadUserData();
+        final currentUid = FirebaseAuth.instance.currentUser?.uid;
+        final Set<String> validTeacherIds = {
+          widget.teacherId!,
+          if (currentUid != null && currentUid.isNotEmpty) currentUid,
+          if (uData?['id'] != null) uData!['id'].toString(),
+          if (uData?['teacherId'] != null) uData!['teacherId'].toString(),
+          if (uData?['authUserId'] != null) uData!['authUserId'].toString(),
+        };
+
+        // Kurumdaki tüm aktif atamaları çek ve öğretmenin derslerine filtrele
         final assignmentsSnap = await FirebaseFirestore.instance
             .collection('lessonAssignments')
             .where('institutionId', isEqualTo: widget.institutionId)
-            .where('teacherIds', arrayContains: widget.teacherId)
             .where('isActive', isEqualTo: true)
             .get();
 
-        final classIds = assignmentsSnap.docs
-            .map((doc) => doc.data()['classId']?.toString())
-            .where((id) => id != null)
-            .cast<String>()
-            .toSet();
+        final classIds = <String>{};
+        for (var doc in assignmentsSnap.docs) {
+          final data = doc.data();
+          final tId = (data['teacherId'] ?? '').toString();
+          final tIds = (data['teacherIds'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
+          if (validTeacherIds.contains(tId) || tIds.any((id) => validTeacherIds.contains(id))) {
+            final cid = (data['classId'] ?? '').toString();
+            if (cid.isNotEmpty) classIds.add(cid);
+          }
+        }
 
-        _allStudents = _allStudents.where((s) => classIds.contains(s['classId'])).toList();
+        if (classIds.isNotEmpty) {
+          _allStudents = _allStudents.where((s) => classIds.contains(s['classId']?.toString())).toList();
+        }
         
-        // Teacher Mode: Only show self in teacher list
+        // Teacher Mode: Sadece kendini veya listedeki öğretmenleri göster
         _allTeachers = reqs[1].docs
             .map((doc) => {'id': doc.id, ...doc.data()})
-            .where((t) => t['id'] == widget.teacherId || t['uid'] == widget.teacherId)
+            .where((t) => validTeacherIds.contains(t['id']) || validTeacherIds.contains(t['uid']) || validTeacherIds.contains(t['authUserId']))
             .toList();
             
         if (_allTeachers.isEmpty) {

@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../../models/assessment/external_exam_model.dart';
@@ -39,7 +39,7 @@ class _ExternalExamListScreenState extends State<ExternalExamListScreen> {
   }
 
   Future<void> _loadTermId() async {
-    _activeTermId = await TermService().getActiveTermId();
+    _activeTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
     if (mounted) setState(() => _isLoadingTerm = false);
   }
 

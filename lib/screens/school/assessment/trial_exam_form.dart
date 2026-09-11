@@ -1,4 +1,4 @@
-﻿import 'dart:ui';
+import 'dart:ui';
 import 'package:flutter/foundation.dart' show kIsWeb, compute;
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
@@ -892,8 +892,8 @@ class _TrialExamFormState extends State<TrialExamForm>
           }
         }
 
-        // Aktif dönem ID'sini al
-        final activeTermId = await TermService().getActiveTermId();
+        // Aktif / seçili dönem ID'sini al veya mevcut sınavın termId'sini koru
+        final activeTermId = widget.trialExam?.termId ?? await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
 
         final exam = TrialExam(
           id: _examId ?? '', // Use consistent ID

@@ -58,9 +58,8 @@ class ExternalExamService {
               .map((doc) => ExternalExam.fromMap(doc.data(), doc.id))
               .toList();
           // Client-side termId filtreleme (composite index gerektirmez)
-          // termId null olan eski verileri de göster (geriye uyumluluk)
-          if (termId != null) {
-            list = list.where((e) => e.termId == null || e.termId == termId).toList();
+          if (termId != null && termId.isNotEmpty) {
+            list = list.where((e) => e.termId == termId).toList();
           }
           list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
           return list;

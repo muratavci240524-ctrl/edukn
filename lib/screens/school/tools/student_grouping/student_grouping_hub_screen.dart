@@ -10,6 +10,7 @@ import '../../../../models/class_model.dart';
 import '../../../../models/school/student_grouping_model.dart';
 import '../../../../services/student_grouping_service.dart';
 import '../../../../services/student_grouping_pdf_service.dart';
+import '../../../../services/term_service.dart';
 import '../../../../widgets/edukn_app_bar.dart';
 
 class StudentGroupingHubScreen extends StatefulWidget {
@@ -17,6 +18,9 @@ class StudentGroupingHubScreen extends StatefulWidget {
   final String schoolTypeId;
   final String schoolTypeName;
   final String? initialClassId;
+  final bool isTeacher;
+  final String? teacherId;
+  final List<String>? allowedClassIds;
 
   const StudentGroupingHubScreen({
     Key? key,
@@ -24,6 +28,9 @@ class StudentGroupingHubScreen extends StatefulWidget {
     required this.schoolTypeId,
     required this.schoolTypeName,
     this.initialClassId,
+    this.isTeacher = false,
+    this.teacherId,
+    this.allowedClassIds,
   }) : super(key: key);
 
   @override
@@ -137,12 +144,16 @@ class _StudentGroupingHubScreenState extends State<StudentGroupingHubScreen>
 
   Future<void> _loadTrialExams() async {
     try {
+      final activeTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
       final snap = await FirebaseFirestore.instance
           .collection('trial_exams')
           .where('institutionId', isEqualTo: widget.institutionId)
+          .where('isActive', isEqualTo: true)
           .get();
 
-      final list = snap.docs.map((d) {
+      final list = snap.docs
+          .where((d) => activeTermId == null || activeTermId.isEmpty || d.data()['termId'] == activeTermId)
+          .map((d) {
         return {
           'id': d.id,
           ...d.data(),
@@ -333,7 +344,10 @@ class _StudentGroupingHubScreenState extends State<StudentGroupingHubScreen>
           .where('isActive', isEqualTo: true)
           .get();
 
-      final list = snap.docs.map((d) => ClassModel.fromMap(d.data(), d.id)).toList();
+      var list = snap.docs.map((d) => ClassModel.fromMap(d.data(), d.id)).toList();
+      if (widget.allowedClassIds != null) {
+        list = list.where((c) => widget.allowedClassIds!.contains(c.id)).toList();
+      }
       list.sort((a, b) => a.className.compareTo(b.className));
 
       if (mounted) {

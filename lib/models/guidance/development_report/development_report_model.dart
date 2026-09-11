@@ -23,6 +23,7 @@ class DevelopmentReport {
   final DateTime? updatedAt;
   final double? riskScore;
   final double? growthIndex;
+  final String? termId;
 
   DevelopmentReport({
     required this.id,
@@ -39,6 +40,7 @@ class DevelopmentReport {
     this.updatedAt,
     this.riskScore,
     this.growthIndex,
+    this.termId,
   });
 
   factory DevelopmentReport.fromMap(Map<String, dynamic> map) {
@@ -65,6 +67,7 @@ class DevelopmentReport {
       updatedAt: (map['updatedAt'] as Timestamp?)?.toDate(),
       riskScore: (map['riskScore'] as num?)?.toDouble(),
       growthIndex: (map['growthIndex'] as num?)?.toDouble(),
+      termId: map['termId'],
     );
   }
 
@@ -83,6 +86,7 @@ class DevelopmentReport {
       'updatedAt': updatedAt != null ? Timestamp.fromDate(updatedAt!) : null,
       'riskScore': riskScore,
       'growthIndex': growthIndex,
+      if (termId != null) 'termId': termId,
     };
   }
 }

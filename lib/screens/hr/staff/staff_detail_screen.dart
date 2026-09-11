@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:printing/printing.dart';
 import 'package:pdf/pdf.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -4970,19 +4971,65 @@ class _StatusTabState extends State<_StatusTab> {
     );
   }
 
+  String _calculateDefaultPassword({
+    required Map<String, dynamic> staff,
+    required String username,
+  }) {
+    final instId = (staff['institutionId'] ?? '').toString();
+    final rawTc = (staff['tcKimlik'] ?? staff['tcNo'] ?? staff['tc'] ?? '').toString().trim();
+    String decryptedTc = '';
+    if (rawTc.isNotEmpty) {
+      if (rawTc.startsWith('ENC:')) {
+        try {
+          decryptedTc = CryptoService.decrypt(rawTc, institutionId: instId).trim();
+        } catch (_) {
+          decryptedTc = rawTc;
+        }
+      } else {
+        decryptedTc = rawTc;
+      }
+    }
+
+    final digitsOnly = decryptedTc.replaceAll(RegExp(r'[^0-9]'), '');
+    String defaultPass = '';
+    if (digitsOnly.length >= 6) {
+      defaultPass = digitsOnly.substring(digitsOnly.length - 6);
+    } else {
+      defaultPass = username.trim().toLowerCase();
+    }
+
+    if (defaultPass.length < 6) {
+      defaultPass = defaultPass.padRight(6, '0');
+    }
+    return defaultPass;
+  }
+
   Future<void> _editSystemStatus() async {
     final staff = widget.staff;
     if (staff == null || staff['id'] == null) return;
     final id = staff['id'] as String;
 
-    final usernameCtrl = TextEditingController(
-      text: (staff['username'] ?? '').toString(),
-    );
+    final initialUsername = (staff['username'] ?? '').toString().trim();
+    final usernameCtrl = TextEditingController(text: initialUsername);
+
     String passwordStatus = (staff['passwordStatus'] ?? 'ilk_giris').toString();
     String role = (staff['role'] ?? 'personel').toString();
     final sizeCtrl = TextEditingController(
       text: (staff['clothingSize'] ?? '').toString(),
     );
+
+    final initialStoredPassword = (staff['defaultPassword'] ?? staff['password'] ?? '').toString().trim();
+    final passwordCtrl = TextEditingController();
+    if (passwordStatus == 'ilk_giris') {
+      if (initialStoredPassword.isNotEmpty) {
+        passwordCtrl.text = initialStoredPassword;
+      } else {
+        passwordCtrl.text = _calculateDefaultPassword(staff: staff, username: initialUsername);
+      }
+    }
+
+    bool showPassword = false;
+    bool hasPasswordChanged = false;
 
     await showModalBottomSheet(
       context: context,
@@ -4998,7 +5045,8 @@ class _StatusTabState extends State<_StatusTab> {
           child: StatefulBuilder(
             builder: (context, setSheet) {
               Future<void> save() async {
-                if (usernameCtrl.text.trim().isEmpty) {
+                final newUsername = usernameCtrl.text.trim().toLowerCase();
+                if (newUsername.isEmpty) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text('Kullanıcı adı zorunludur.'),
@@ -5007,30 +5055,214 @@ class _StatusTabState extends State<_StatusTab> {
                   );
                   return;
                 }
+
+                final newPassword = passwordCtrl.text.trim();
+                final isUsernameChanged = newUsername != initialUsername.toLowerCase();
+                final isPasswordChanged = hasPasswordChanged ||
+                    (newPassword.isNotEmpty && (passwordStatus == 'degistirildi' || newPassword != initialStoredPassword));
+
+                if (isPasswordChanged && newPassword.length < 6) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Şifre en az 6 karakter olmalıdır.'),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                  return;
+                }
+
                 setSheet(() => saving = true);
                 try {
+                  final instId = (staff['institutionId'] ?? '').toString();
+                  final oldDocId = (staff['id'] ?? id).toString();
+
+                  // 1. Kullanıcı adı değiştiyse kurum içi benzersizlik kontrolü
+                  if (isUsernameChanged && instId.isNotEmpty) {
+                    final existingQuery = await FirebaseFirestore.instance
+                        .collection('users')
+                        .where('institutionId', isEqualTo: instId)
+                        .where('username', isEqualTo: newUsername)
+                        .limit(1)
+                        .get();
+                    if (existingQuery.docs.isNotEmpty && existingQuery.docs.first.id != oldDocId) {
+                      throw 'Bu kullanıcı adı ("$newUsername") kurumunuzda başka bir personel tarafından kullanılmaktadır.';
+                    }
+                  }
+
+                  // 2. Auth e-posta ve UID belirleme
+                  final currentEmail = (staff['email'] ?? staff['corporateEmail'] ?? '').toString().trim();
+                  final currentAuthId = (staff['authUserId'] ?? '').toString().trim();
+                  String targetUid = currentAuthId.isNotEmpty ? currentAuthId : (oldDocId.length > 20 ? oldDocId : '');
+
+                  String emailToUse = currentEmail;
+                  if (emailToUse.isEmpty || isUsernameChanged) {
+                    if (instId.isNotEmpty) {
+                      emailToUse = '$newUsername@$instId.edukn'.toLowerCase();
+                    } else {
+                      emailToUse = '$newUsername@edukn.internal'.toLowerCase();
+                    }
+                  }
+
+                  // 3. Auth güncelleme (Şifre veya Kullanıcı adı değiştiyse)
+                  if (isPasswordChanged || isUsernameChanged) {
+                    bool authDone = false;
+
+                    // A) Cloud Function updateUserCredentials dene
+                    try {
+                      final params = <String, dynamic>{
+                        if (targetUid.isNotEmpty) 'uid': targetUid,
+                        'email': currentEmail.isNotEmpty ? currentEmail : emailToUse,
+                        if (isPasswordChanged) 'newPassword': newPassword,
+                        if (isUsernameChanged) 'newEmail': emailToUse,
+                      };
+                      final cfResult = await FirebaseFunctions.instance
+                          .httpsCallable('updateUserCredentials')
+                          .call(params);
+                      if (cfResult.data != null && cfResult.data['uid'] != null) {
+                        targetUid = cfResult.data['uid'].toString();
+                      }
+                      authDone = true;
+                    } catch (cfErr) {
+                      debugPrint('Cloud Function updateUserCredentials hatası: $cfErr');
+                    }
+
+                    // B) Cloud Function başarısız olduysa REST API ile fallback
+                    if (!authDone) {
+                      try {
+                        final apiKey = DefaultFirebaseOptions.currentPlatform.apiKey;
+                        final signUpUrl = 'https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=$apiKey';
+                        final signUpRes = await http.post(
+                          Uri.parse(signUpUrl),
+                          headers: {'Content-Type': 'application/json'},
+                          body: json.encode({
+                            'email': emailToUse,
+                            'password': isPasswordChanged ? newPassword : (initialStoredPassword.isNotEmpty ? initialStoredPassword : '123456'),
+                            'returnSecureToken': true,
+                          }),
+                        );
+
+                        if (signUpRes.statusCode == 200) {
+                          final sData = json.decode(signUpRes.body);
+                          targetUid = sData['localId'] as String;
+                          authDone = true;
+                        } else {
+                          final errData = json.decode(signUpRes.body);
+                          final errMsg = (errData['error']?['message'] ?? '').toString();
+                          if (errMsg.contains('EMAIL_EXISTS')) {
+                            final passwordsToTry = <String>[
+                              if (initialStoredPassword.isNotEmpty) initialStoredPassword,
+                              if (staff['password'] != null) staff['password'].toString(),
+                              '123456',
+                            ];
+                            for (final tryPass in passwordsToTry) {
+                              final signInUrl = 'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=$apiKey';
+                              final signInRes = await http.post(
+                                Uri.parse(signInUrl),
+                                headers: {'Content-Type': 'application/json'},
+                                body: json.encode({
+                                  'email': currentEmail.isNotEmpty ? currentEmail : emailToUse,
+                                  'password': tryPass,
+                                  'returnSecureToken': true,
+                                }),
+                              );
+                              if (signInRes.statusCode == 200) {
+                                final signInData = json.decode(signInRes.body);
+                                final idToken = signInData['idToken'] as String;
+                                targetUid = signInData['localId'] as String;
+
+                                final updateUrl = 'https://identitytoolkit.googleapis.com/v1/accounts:update?key=$apiKey';
+                                final updatePayload = <String, dynamic>{
+                                  'idToken': idToken,
+                                  'returnSecureToken': true,
+                                };
+                                if (isPasswordChanged) updatePayload['password'] = newPassword;
+                                if (isUsernameChanged) updatePayload['email'] = emailToUse;
+
+                                final upRes = await http.post(
+                                  Uri.parse(updateUrl),
+                                  headers: {'Content-Type': 'application/json'},
+                                  body: json.encode(updatePayload),
+                                );
+                                if (upRes.statusCode == 200) {
+                                  authDone = true;
+                                  break;
+                                }
+                              }
+                            }
+                          }
+                        }
+                      } catch (restErr) {
+                        debugPrint('REST auth hatası: $restErr');
+                      }
+                    }
+                  }
+
+                  // 4. Firestore dokümanını güncelle
                   final updateData = <String, dynamic>{
-                    'username': usernameCtrl.text.trim(),
-                    'passwordStatus': passwordStatus,
+                    'username': newUsername,
                     'role': role,
                     'clothingSize': sizeCtrl.text.trim(),
+                    'updatedAt': FieldValue.serverTimestamp(),
                   };
+                  if (emailToUse.isNotEmpty) {
+                    updateData['email'] = emailToUse;
+                  }
+                  if (targetUid.isNotEmpty) {
+                    updateData['authUserId'] = targetUid;
+                  }
+                  if (isPasswordChanged) {
+                    updateData['passwordStatus'] = 'ilk_giris';
+                    updateData['defaultPassword'] = newPassword;
+                    updateData['password'] = newPassword;
+                    updateData['_tempPassword'] = newPassword;
+                  }
+
                   await FirebaseFirestore.instance
                       .collection('users')
                       .doc(staff['id'] ?? id)
                       .update(updateData);
 
+                  // 5. Lokal State'leri güncelle
                   if (!mounted) return;
                   setState(() {
-                    widget.staff?['username'] = updateData['username'];
-                    widget.staff?['passwordStatus'] =
-                        updateData['passwordStatus'];
-                    widget.staff?['role'] = updateData['role'];
-                    widget.staff?['clothingSize'] = updateData['clothingSize'];
+                    widget.staff?['username'] = newUsername;
+                    widget.staff?['role'] = role;
+                    widget.staff?['clothingSize'] = sizeCtrl.text.trim();
+                    _staffData['username'] = newUsername;
+                    _staffData['role'] = role;
+                    _staffData['clothingSize'] = sizeCtrl.text.trim();
+
+                    if (emailToUse.isNotEmpty) {
+                      widget.staff?['email'] = emailToUse;
+                      _staffData['email'] = emailToUse;
+                    }
+                    if (targetUid.isNotEmpty) {
+                      widget.staff?['authUserId'] = targetUid;
+                      _staffData['authUserId'] = targetUid;
+                    }
+                    if (isPasswordChanged) {
+                      widget.staff?['passwordStatus'] = 'ilk_giris';
+                      widget.staff?['defaultPassword'] = newPassword;
+                      widget.staff?['password'] = newPassword;
+                      widget.staff?['_tempPassword'] = newPassword;
+
+                      _staffData['passwordStatus'] = 'ilk_giris';
+                      _staffData['defaultPassword'] = newPassword;
+                      _staffData['password'] = newPassword;
+                      _staffData['_tempPassword'] = newPassword;
+                    }
                   });
+
+                  if (!context.mounted) return;
                   Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('✅ Bilgiler başarıyla güncellendi'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
                 } catch (e) {
-                  if (!mounted) return;
+                  if (!context.mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Hata: $e'),
@@ -5047,6 +5279,8 @@ class _StatusTabState extends State<_StatusTab> {
                 children: [
                   Row(
                     children: [
+                      const Icon(Icons.settings_suggest_rounded, color: Colors.indigo, size: 22),
+                      const SizedBox(width: 8),
                       const Text(
                         'Sistem ve Diğer Bilgiler',
                         style: TextStyle(
@@ -5061,263 +5295,184 @@ class _StatusTabState extends State<_StatusTab> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
+                  // Kullanıcı Adı
                   TextField(
                     controller: usernameCtrl,
                     decoration: const InputDecoration(
                       labelText: 'Kullanıcı Adı',
+                      prefixIcon: Icon(Icons.account_circle_outlined, size: 20),
                       border: OutlineInputBorder(),
                       isDense: true,
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  // Şifre gösterimi ve sıfırlama
+                  const SizedBox(height: 12),
+                  // Şifre Bölümü
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
                       border: Border.all(color: Colors.grey.shade300),
-                      borderRadius: BorderRadius.circular(4),
+                      borderRadius: BorderRadius.circular(8),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
                           children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                            Text(
+                              'Giriş Şifresi',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                            const Spacer(),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: passwordStatus == 'ilk_giris'
+                                    ? Colors.orange.shade50
+                                    : Colors.green.shade50,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: passwordStatus == 'ilk_giris'
+                                      ? Colors.orange.shade300
+                                      : Colors.green.shade300,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Text(
-                                    'Şifre',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade600,
-                                    ),
+                                  Icon(
+                                    passwordStatus == 'ilk_giris'
+                                        ? Icons.key_rounded
+                                        : Icons.lock_outline_rounded,
+                                    size: 13,
+                                    color: passwordStatus == 'ilk_giris'
+                                        ? Colors.orange.shade800
+                                        : Colors.green.shade800,
                                   ),
-                                  const SizedBox(height: 4),
-                                  Row(
-                                    children: [
-                                      Text(
-                                        passwordStatus == 'ilk_giris'
-                                            ? (staff['defaultPassword'] ?? staff['password'] ?? staff['username'] ?? '').toString()
-                                            : '*****',
-                                        style: const TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.w600,
-                                          letterSpacing: 0.5,
-                                        ),
-                                      ),
-                                      if (passwordStatus == 'ilk_giris') ...[
-                                        const SizedBox(width: 8),
-                                        IconButton(
-                                          icon: const Icon(Icons.copy_rounded, size: 16, color: Colors.indigo),
-                                          tooltip: 'Giriş Bilgilerini Kopyala',
-                                          constraints: const BoxConstraints(),
-                                          padding: EdgeInsets.zero,
-                                          onPressed: () {
-                                            final u = staff['username'] ?? '';
-                                            final p = (staff['defaultPassword'] ?? staff['password'] ?? staff['username'] ?? '').toString();
-                                            Clipboard.setData(ClipboardData(text: 'Kullanıcı Adı: $u\nŞifre: $p'));
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              const SnackBar(content: Text('Giriş bilgileri panoya kopyalandı'), backgroundColor: Colors.indigo),
-                                            );
-                                          },
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                  const SizedBox(height: 2),
+                                  const SizedBox(width: 4),
                                   Text(
                                     passwordStatus == 'ilk_giris'
-                                        ? 'Varsayılan şifre (Kullanıcıya iletiniz)'
-                                        : 'Kullanıcı şifresini değiştirdi',
+                                        ? 'İlk Giriş / Varsayılan'
+                                        : 'Kullanıcı Değiştirdi',
                                     style: TextStyle(
                                       fontSize: 11,
+                                      fontWeight: FontWeight.w600,
                                       color: passwordStatus == 'ilk_giris'
                                           ? Colors.orange.shade800
-                                          : Colors.green.shade700,
-                                      fontWeight: FontWeight.w500,
+                                          : Colors.green.shade800,
                                     ),
                                   ),
                                 ],
                               ),
                             ),
-                            ElevatedButton.icon(
-                              onPressed: () async {
-                                final confirm = await showDialog<bool>(
-                                  context: context,
-                                  builder: (context) => AlertDialog(
-                                    title: const Text('Şifreyi Sıfırla'),
-                                    content: const Text(
-                                      'Kullanıcının şifresini varsayılan şifreye (123456) sıfırlamak istediğinize emin misiniz?',
-                                    ),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () => Navigator.pop(context, false),
-                                        child: const Text('İptal'),
-                                      ),
-                                      ElevatedButton(
-                                        onPressed: () => Navigator.pop(context, true),
-                                        child: const Text('Sıfırla'),
-                                      ),
-                                    ],
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: passwordCtrl,
+                          obscureText: !showPassword,
+                          onChanged: (val) {
+                            setSheet(() {
+                              hasPasswordChanged = true;
+                              if (val.trim().isNotEmpty) {
+                                passwordStatus = 'ilk_giris';
+                              }
+                            });
+                          },
+                          decoration: InputDecoration(
+                            labelText: passwordStatus == 'degistirildi' && passwordCtrl.text.isEmpty
+                                ? 'Yeni Şifre Belirle'
+                                : 'Şifre',
+                            hintText: passwordStatus == 'degistirildi' && passwordCtrl.text.isEmpty
+                                ? 'Kullanıcı kendi değiştirdi (Yeni şifre için yazın)'
+                                : 'En az 6 karakter',
+                            border: const OutlineInputBorder(),
+                            isDense: true,
+                            prefixIcon: const Icon(Icons.password_rounded, size: 20),
+                            suffixIcon: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: Icon(
+                                    showPassword ? Icons.visibility_off : Icons.visibility,
+                                    size: 20,
+                                    color: Colors.grey.shade700,
+                                  ),
+                                  tooltip: showPassword ? 'Şifreyi Gizle' : 'Şifreyi Göster',
+                                  onPressed: () {
+                                    setSheet(() => showPassword = !showPassword);
+                                  },
+                                ),
+                                if (passwordCtrl.text.isNotEmpty)
+                                  IconButton(
+                                    icon: const Icon(Icons.copy_rounded, size: 18, color: Colors.indigo),
+                                    tooltip: 'Giriş Bilgilerini Kopyala',
+                                    onPressed: () {
+                                      final u = usernameCtrl.text.trim();
+                                      final p = passwordCtrl.text.trim();
+                                      Clipboard.setData(ClipboardData(text: 'Kullanıcı Adı: $u\nŞifre: $p'));
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('Giriş bilgileri panoya kopyalandı'),
+                                          backgroundColor: Colors.indigo,
+                                          duration: Duration(seconds: 2),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                passwordStatus == 'degistirildi' && passwordCtrl.text.isEmpty
+                                    ? 'Kullanıcı şifresini kendisi belirlediği için gizlidir. Unutulduysa yeni şifre yazabilir veya varsayılana sıfırlayabilirsiniz.'
+                                    : 'Varsayılan kural: TC son 6 hanesi (yoksa kullanıcı adı).',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey.shade600,
+                                  height: 1.2,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            OutlinedButton.icon(
+                              onPressed: () {
+                                final defaultPass = _calculateDefaultPassword(
+                                  staff: staff,
+                                  username: usernameCtrl.text.trim(),
+                                );
+                                setSheet(() {
+                                  passwordCtrl.text = defaultPass;
+                                  passwordStatus = 'ilk_giris';
+                                  showPassword = true;
+                                  hasPasswordChanged = true;
+                                });
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Varsayılan şifre ($defaultPass) yazıldı. Uygulamak için "Kaydet"e basınız.'),
+                                    backgroundColor: Colors.orange.shade800,
+                                    duration: const Duration(seconds: 3),
                                   ),
                                 );
-                                
-                                if (confirm == true) {
-                                  try {
-                                    setSheet(() => saving = true);
-                                    
-                                    // Eğer kullanıcının Authentication hesabı yoksa onu oluştur
-                                    final currentEmail = (staff['email'] ?? staff['corporateEmail'] ?? '').toString();
-                                    final currentAuthId = (staff['authUserId'] ?? '').toString();
-                                    final username = (staff['username'] ?? '').toString();
-                                    final instnId = (staff['institutionId'] ?? '').toString();
-                                    
-                                    String emailToUse = currentEmail;
-                                    if (emailToUse.isEmpty && username.isNotEmpty && instnId.isNotEmpty) {
-                                      emailToUse = '$username@$instnId.edukn';
-                                    }
-                                    
-                                    String updatedAuthId = currentAuthId;
-                                    String? authError;
-                                    
-                                    if (currentAuthId.isEmpty && emailToUse.isNotEmpty) {
-                                      try {
-                                        final apiKey = DefaultFirebaseOptions.currentPlatform.apiKey;
-                                        final url = 'https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=$apiKey';
-                                  
-                                        final response = await http.post(
-                                          Uri.parse(url),
-                                          headers: {'Content-Type': 'application/json'},
-                                          body: json.encode({
-                                            'email': emailToUse,
-                                            'password': '123456',
-                                            'returnSecureToken': true,
-                                          }),
-                                        );
-                                  
-                                        if (response.statusCode == 200) {
-                                          final rData = json.decode(response.body);
-                                          updatedAuthId = rData['localId'] as String;
-                                        } else {
-                                          final errData = json.decode(response.body);
-                                          authError = errData['error']['message'];
-                                        }
-                                      } catch (e) {
-                                        authError = e.toString();
-                                      }
-                                    }
-
-                                    if (authError != null && authError.contains('EMAIL_EXISTS')) {
-                                       // Email already exists, assume auth is valid
-                                    } else if (authError != null) {
-                                       throw 'Kullanıcı hesabı oluşturulurken hata: $authError';
-                                    }
-
-                                    // Firestore'u güncelle
-                                    final updates = <String, dynamic>{
-                                      'passwordStatus': 'ilk_giris',
-                                      'defaultPassword': '123456',
-                                      'password': '123456',
-                                      'updatedAt': FieldValue.serverTimestamp(),
-                                    };
-                                    if (emailToUse != currentEmail) {
-                                      updates['email'] = emailToUse;
-                                    }
-                                    
-                                    // Önemli: Eğer modül yetkileri yoksa varsayılanları ekle
-                                    if (staff['modulePermissions'] == null) {
-                                      updates['modulePermissions'] = {
-                                        'genel_duyurular': {'enabled': true, 'level': 'editor'},
-                                        'okul_turleri': {'enabled': true, 'level': 'viewer'},
-                                        'ogrenci_kayit': {'enabled': false, 'level': 'viewer'},
-                                        'insan_kaynaklari': {'enabled': false, 'level': 'viewer'},
-                                        'muhasebe': {'enabled': false, 'level': 'viewer'},
-                                        'satin_alma': {'enabled': false, 'level': 'viewer'},
-                                        'depo': {'enabled': false, 'level': 'viewer'},
-                                        'destek_hizmetleri': {'enabled': false, 'level': 'viewer'},
-                                        'kullanici_yonetimi': {'enabled': false, 'level': 'viewer'},
-                                      };
-                                    }
-                                    
-                                    if (staff['schoolTypes'] == null) {
-                                      updates['schoolTypes'] = [];
-                                    }
-                                    
-                                    final oldDocId = staff['id'].toString();
-
-                                    if (updatedAuthId.isNotEmpty && updatedAuthId != oldDocId) {
-                                      // DOKÜMAN MİGRASYONU: Eski ID -> Auth UID
-                                      final currentDoc = await FirebaseFirestore.instance
-                                          .collection('users')
-                                          .doc(oldDocId)
-                                          .get();
-                                      
-                                      final fullData = Map<String, dynamic>.from(currentDoc.data() ?? {});
-                                      fullData.addAll(updates);
-                                      fullData['authUserId'] = updatedAuthId;
-                                      
-                                      await FirebaseFirestore.instance
-                                          .collection('users')
-                                          .doc(updatedAuthId)
-                                          .set(fullData);
-                                          
-                                      await FirebaseFirestore.instance
-                                          .collection('users')
-                                          .doc(oldDocId)
-                                          .delete();
-                                      
-                                      staff['id'] = updatedAuthId;
-                                    } else {
-                                      if (updatedAuthId.isNotEmpty) {
-                                        updates['authUserId'] = updatedAuthId;
-                                      }
-                                      await FirebaseFirestore.instance
-                                          .collection('users')
-                                          .doc(oldDocId)
-                                          .update(updates);
-                                    }
-                                    
-                                    staff['passwordStatus'] = 'ilk_giris';
-                                    staff['defaultPassword'] = '123456';
-                                    _staffData['passwordStatus'] = 'ilk_giris';
-                                    _staffData['defaultPassword'] = '123456';
-
-                                    setSheet(() {
-                                      passwordStatus = 'ilk_giris';
-                                      saving = false;
-                                    });
-                                    setState(() {});
-                                    
-                                    if (!mounted) return;
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text('✅ Şifre sıfırlandı'),
-                                        backgroundColor: Colors.green,
-                                      ),
-                                    );
-                                  } catch (e) {
-                                    setSheet(() => saving = false);
-                                    if (!mounted) return;
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text('❌ Hata: $e'),
-                                        backgroundColor: Colors.red,
-                                      ),
-                                    );
-                                  }
-                                }
                               },
-                              icon: const Icon(Icons.refresh, size: 16),
-                              label: const Text('Sıfırla'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.orange,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 8,
-                                ),
+                              icon: const Icon(Icons.restart_alt_rounded, size: 16),
+                              label: const Text('Varsayılana Sıfırla'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.orange.shade900,
+                                side: BorderSide(color: Colors.orange.shade400),
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                               ),
                             ),
                           ],
@@ -5325,38 +5480,18 @@ class _StatusTabState extends State<_StatusTab> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
+                  // Kullanıcı Rolü
                   DropdownButtonFormField<String>(
                     value: role,
                     items: const [
-                      DropdownMenuItem(
-                        value: 'genel_mudur',
-                        child: Text('Genel Müdür'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'mudur',
-                        child: Text('Müdür'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'mudur_yardimcisi',
-                        child: Text('Müdür Yardımcısı'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'yonetici',
-                        child: Text('Yönetici'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'rehber_ogretmen',
-                        child: Text('Rehber Öğretmen'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'ogretmen',
-                        child: Text('Öğretmen'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'personel',
-                        child: Text('Personel'),
-                      ),
+                      DropdownMenuItem(value: 'genel_mudur', child: Text('Genel Müdür')),
+                      DropdownMenuItem(value: 'mudur', child: Text('Müdür')),
+                      DropdownMenuItem(value: 'mudur_yardimcisi', child: Text('Müdür Yardımcısı')),
+                      DropdownMenuItem(value: 'yonetici', child: Text('Yönetici')),
+                      DropdownMenuItem(value: 'rehber_ogretmen', child: Text('Rehber Öğretmen')),
+                      DropdownMenuItem(value: 'ogretmen', child: Text('Öğretmen')),
+                      DropdownMenuItem(value: 'personel', child: Text('Personel')),
                     ],
                     decoration: const InputDecoration(
                       labelText: 'Kullanıcı Rolü',
@@ -5368,6 +5503,7 @@ class _StatusTabState extends State<_StatusTab> {
                     }),
                   ),
                   const SizedBox(height: 8),
+                  // Kıyafet Bedeni
                   TextField(
                     controller: sizeCtrl,
                     decoration: const InputDecoration(
@@ -5376,20 +5512,25 @@ class _StatusTabState extends State<_StatusTab> {
                       isDense: true,
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 14),
+                  // Kaydet Butonu
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
                       onPressed: saving ? null : save,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.indigo,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
                       icon: saving
                           ? const SizedBox(
                               height: 18,
                               width: 18,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  Colors.white,
-                                ),
+                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                               ),
                             )
                           : const Icon(Icons.save),
@@ -5560,7 +5701,9 @@ class _StatusTabState extends State<_StatusTab> {
               statusLine(
                 'Şifre',
                 passwordStatus == 'ilk_giris'
-                    ? (staff['defaultPassword'] ?? staff['password'] ?? staff['username'] ?? '').toString()
+                    ? ((staff['defaultPassword'] ?? staff['password'] ?? '').toString().isNotEmpty
+                        ? (staff['defaultPassword'] ?? staff['password']).toString()
+                        : _calculateDefaultPassword(staff: staff, username: username))
                     : '*****',
               ),
               statusLine('Kullanıcı Rolü', formatRole(role)),

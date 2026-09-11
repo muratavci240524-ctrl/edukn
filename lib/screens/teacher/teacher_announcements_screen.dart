@@ -81,21 +81,33 @@ class _TeacherAnnouncementsScreenState extends State<TeacherAnnouncementsScreen>
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
 
+      final uData = userData ?? await UserPermissionService.loadUserData();
       final instId = widget.institutionId.toUpperCase();
+      final instIds = [instId, instId.toLowerCase()].toSet().toList();
 
-      // 1. Atanmış sınıfları bul
-      final snapshot = await FirebaseFirestore.instance
-          .collection('lessonAssignments')
-          .where('institutionId', isEqualTo: instId)
-          .where('teacherIds', arrayContains: user.uid)
-          .where('isActive', isEqualTo: true)
-          .get();
+      final Set<String> validTeacherIds = {user.uid};
+      final docId = uData?['id']?.toString();
+      if (docId != null && docId.isNotEmpty) validTeacherIds.add(docId);
+      final tId = uData?['teacherId']?.toString();
+      if (tId != null && tId.isNotEmpty) validTeacherIds.add(tId);
 
-      final classIds = snapshot.docs
-          .map((doc) => doc.data()['classId']?.toString())
-          .where((id) => id != null)
-          .cast<String>()
-          .toSet();
+      // 1. Atanmış sınıfları bul (Tüm olası öğretmen ID'leri üzerinden)
+      final List<QuerySnapshot> assignSnaps = await Future.wait(
+        validTeacherIds.map((tid) => FirebaseFirestore.instance
+            .collection('lessonAssignments')
+            .where('institutionId', whereIn: instIds)
+            .where('teacherIds', arrayContains: tid)
+            .where('isActive', isEqualTo: true)
+            .get()),
+      );
+
+      final Set<String> classIds = {};
+      for (final snap in assignSnaps) {
+        for (final doc in snap.docs) {
+          final cid = (doc.data() as Map<String, dynamic>)['classId']?.toString();
+          if (cid != null && cid.isNotEmpty) classIds.add(cid);
+        }
+      }
 
       // 2. Bu sınıflardaki öğrencileri bul
       Set<String> studentIds = {};
@@ -105,7 +117,7 @@ class _TeacherAnnouncementsScreenState extends State<TeacherAnnouncementsScreen>
           final chunk = classIdList.skip(i).take(10).toList();
           final studentSnap = await FirebaseFirestore.instance
               .collection('students')
-              .where('institutionId', isEqualTo: instId)
+              .where('institutionId', whereIn: instIds)
               .where('classId', whereIn: chunk)
               .get();
           
@@ -584,6 +596,13 @@ class _TeacherAnnouncementsScreenState extends State<TeacherAnnouncementsScreen>
     final currentUserId = FirebaseAuth.instance.currentUser?.uid;
     final currentUserEmail = FirebaseAuth.instance.currentUser?.email;
 
+    final Set<String> validTeacherIds = {};
+    if (currentUserId != null) validTeacherIds.add(currentUserId);
+    final docId = userData?['id']?.toString();
+    if (docId != null && docId.isNotEmpty) validTeacherIds.add(docId);
+    final tId = userData?['teacherId']?.toString();
+    if (tId != null && tId.isNotEmpty) validTeacherIds.add(tId);
+
     return _announcementService.getAnnouncements().map((snapshot) {
       final List<dynamic> userSchoolTypes = userData!['schoolTypes'] ?? [];
       
@@ -612,7 +631,7 @@ class _TeacherAnnouncementsScreenState extends State<TeacherAnnouncementsScreen>
 
         // - Öğretmenin kendi ID'si veya Email'i alıcılarda varsa görür
         if (!isRecipient &&
-            ((currentUserId != null && recipients.contains('user:$currentUserId')) ||
+            ((validTeacherIds.any((id) => recipients.contains('user:$id') || recipients.contains(id))) ||
                 (currentUserEmail != null && recipients.contains(currentUserEmail)))) {
           isRecipient = true;
         }

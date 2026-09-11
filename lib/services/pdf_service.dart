@@ -1293,73 +1293,332 @@ class PdfService {
     required List<String> days, // Headers: Location, Mon, Tue...
     required List<List<String>>
     rows, // [LocationName, TeacherMon, TeacherTue...]
+    String? schoolName,
+    String? principalName,
   }) async {
     final pdf = pw.Document();
     final font = await PdfGoogleFonts.robotoRegular();
     final fontBold = await PdfGoogleFonts.robotoBold();
 
+    final rowCount = rows.length;
+    final totalRows = rowCount + 1; // Başlık + veri satırları
+
+    // Dinamik ve EŞİT satır yüksekliği — Her satır tam olarak aynı milimetrik yükseklikte olur
+    double targetRowHeight;
+    double headerHeight;
+    double fontSize;
+    double locationFontSize;
+    double headerFontSize;
+
+    if (totalRows <= 12) {
+      targetRowHeight = 36.0;
+      headerHeight = 30.0;
+      fontSize = 8.5;
+      locationFontSize = 8.5;
+      headerFontSize = 9.0;
+    } else if (totalRows <= 16) {
+      targetRowHeight = 30.0;
+      headerHeight = 26.0;
+      fontSize = 8.0;
+      locationFontSize = 8.0;
+      headerFontSize = 8.5;
+    } else if (totalRows <= 20) {
+      targetRowHeight = 26.0;
+      headerHeight = 24.0;
+      fontSize = 7.4;
+      locationFontSize = 7.4;
+      headerFontSize = 8.2;
+    } else if (totalRows <= 25) {
+      targetRowHeight = 22.0;
+      headerHeight = 21.0;
+      fontSize = 6.8;
+      locationFontSize = 6.8;
+      headerFontSize = 7.6;
+    } else if (totalRows <= 30) {
+      targetRowHeight = 18.5;
+      headerHeight = 18.5;
+      fontSize = 6.2;
+      locationFontSize = 6.2;
+      headerFontSize = 7.0;
+    } else {
+      targetRowHeight = (560.0 / totalRows).clamp(14.0, 18.0);
+      headerHeight = targetRowHeight;
+      fontSize = (targetRowHeight * 0.35).clamp(5.4, 6.8);
+      locationFontSize = fontSize;
+      headerFontSize = fontSize + 0.8;
+    }
+
+    // Sütun genişlikleri: Nöbet yeri 1.35x, gün sütunları tamamen eşit 1.0x
+    final columnWidths = <int, pw.TableColumnWidth>{
+      0: const pw.FlexColumnWidth(1.35),
+      for (int i = 1; i < days.length; i++) i: const pw.FlexColumnWidth(1.0),
+    };
+
+    final deepNavy = PdfColor.fromInt(0xFF0F2552); // #0F2552 Kurumsal Lacivert
+    final headerAccent = PdfColor.fromInt(0xFF1E3A8A); // #1E3A8A
+    final amberAccent = PdfColor.fromInt(0xFFF59E0B); // #F59E0B
+    final borderColor = PdfColor.fromInt(0xFFCBD5E1); // #CBD5E1 Slate 300
+    final zebraBg = PdfColor.fromInt(0xFFF8FAFC); // #F8FAFC Slate 50
+    final textDark = PdfColor.fromInt(0xFF0F172A); // #0F172A
+    final textMuted = PdfColor.fromInt(0xFF64748B); // #64748B
+    final badgeBg = PdfColor.fromInt(0xFFEEF2FF); // #EEF2FF
+    final badgeBorder = PdfColor.fromInt(0xFFC7D2FE); // #C7D2FE
+    final badgeText = PdfColor.fromInt(0xFF3730A3); // #3730A3
+
     pdf.addPage(
-      pw.MultiPage(
-        pageFormat: PdfPageFormat.a4.landscape,
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.symmetric(horizontal: 20, vertical: 18),
         theme: pw.ThemeData.withFont(base: font, bold: fontBold),
         build: (pw.Context context) {
-          return [
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Text(
-                      'Nöbet Çizelgesi - $periodName',
-                      style: pw.TextStyle(
-                        fontSize: 20,
-                        fontWeight: pw.FontWeight.bold,
-                        color: PdfColors.indigo900,
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+            children: [
+              // ─── 1. PREMİUM VE RESMİ BAŞLIK ALANI ───────────────────────
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: pw.CrossAxisAlignment.center,
+                children: [
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      if (schoolName != null && schoolName.isNotEmpty) ...[
+                        pw.Text(
+                          schoolName.toUpperCase(),
+                          style: pw.TextStyle(
+                            font: fontBold,
+                            fontSize: 8.5,
+                            letterSpacing: 1.0,
+                            color: textMuted,
+                          ),
+                        ),
+                        pw.SizedBox(height: 2),
+                      ],
+                      pw.Text(
+                        'HAFTALIK ÖĞRETMEN NÖBET ÇİZELGESİ',
+                        style: pw.TextStyle(
+                          font: fontBold,
+                          fontSize: 14.5,
+                          color: deepNavy,
+                          letterSpacing: 0.2,
+                        ),
                       ),
-                    ),
-                    pw.Text(
-                      weekRange,
-                      style: const pw.TextStyle(
-                        fontSize: 12,
-                        color: PdfColors.grey700,
+                      pw.SizedBox(height: 2),
+                      pw.Text(
+                        'Dönem: $periodName',
+                        style: pw.TextStyle(
+                          font: font,
+                          fontSize: 8.5,
+                          color: textMuted,
+                        ),
                       ),
+                    ],
+                  ),
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.end,
+                    children: [
+                      pw.Container(
+                        padding: const pw.EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                        decoration: pw.BoxDecoration(
+                          color: badgeBg,
+                          borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+                          border: pw.Border.all(color: badgeBorder, width: 0.8),
+                        ),
+                        child: pw.Text(
+                          weekRange,
+                          style: pw.TextStyle(
+                            font: fontBold,
+                            fontSize: 9.0,
+                            color: badgeText,
+                          ),
+                        ),
+                      ),
+                      pw.SizedBox(height: 3),
+                      pw.Text(
+                        'Düzenleme: ${DateTime.now().day}.${DateTime.now().month}.${DateTime.now().year}',
+                        style: pw.TextStyle(
+                          font: font,
+                          fontSize: 7.5,
+                          color: textMuted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 6),
+
+              // Şık Çift Tonlu Ayırıcı Çizgi
+              pw.Row(
+                children: [
+                  pw.Expanded(
+                    flex: 85,
+                    child: pw.Container(height: 2.2, color: deepNavy),
+                  ),
+                  pw.Expanded(
+                    flex: 15,
+                    child: pw.Container(height: 2.2, color: amberAccent),
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 7),
+
+              // ─── 2. EŞİT YÜKSEKLİKTE VE NET TABLO ─────────────────────────
+              pw.Table(
+                border: pw.TableBorder.all(color: borderColor, width: 0.5),
+                columnWidths: columnWidths,
+                defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
+                children: [
+                  // Tablo Başlık Satırı (Sabit Yükseklik)
+                  pw.TableRow(
+                    decoration: pw.BoxDecoration(color: headerAccent),
+                    children: [
+                      for (int i = 0; i < days.length; i++)
+                        pw.Container(
+                          height: headerHeight,
+                          alignment: i == 0 ? pw.Alignment.centerLeft : pw.Alignment.center,
+                          padding: i == 0
+                              ? const pw.EdgeInsets.only(left: 6, right: 3)
+                              : const pw.EdgeInsets.symmetric(horizontal: 2),
+                          child: i == 0
+                              ? pw.Align(
+                                  alignment: pw.Alignment.centerLeft,
+                                  child: pw.Text(
+                                    days[i].toUpperCase(),
+                                    style: pw.TextStyle(
+                                      font: fontBold,
+                                      fontSize: headerFontSize,
+                                      color: PdfColors.white,
+                                    ),
+                                    maxLines: 1,
+                                  ),
+                                )
+                              : pw.Center(
+                                  child: pw.Text(
+                                    days[i].toUpperCase(),
+                                    style: pw.TextStyle(
+                                      font: fontBold,
+                                      fontSize: headerFontSize,
+                                      color: PdfColors.white,
+                                    ),
+                                    textAlign: pw.TextAlign.center,
+                                    maxLines: 1,
+                                  ),
+                                ),
+                        ),
+                    ],
+                  ),
+                  // Tablo Veri Satırları (Her satır tam olarak targetRowHeight yüksekliğinde eşit)
+                  for (int r = 0; r < rows.length; r++)
+                    pw.TableRow(
+                      decoration: pw.BoxDecoration(
+                        color: r.isEven ? PdfColors.white : zebraBg,
+                      ),
+                      children: [
+                        for (int c = 0; c < days.length; c++)
+                          pw.Container(
+                            height: targetRowHeight,
+                            alignment: c == 0 ? pw.Alignment.centerLeft : pw.Alignment.center,
+                            padding: c == 0
+                                ? const pw.EdgeInsets.only(left: 6, right: 3)
+                                : const pw.EdgeInsets.symmetric(horizontal: 2),
+                            child: c == 0
+                                ? pw.Align(
+                                    alignment: pw.Alignment.centerLeft,
+                                    child: pw.Text(
+                                      c < rows[r].length ? rows[r][c] : '',
+                                      style: pw.TextStyle(
+                                        font: fontBold,
+                                        fontSize: locationFontSize,
+                                        color: deepNavy,
+                                      ),
+                                      textAlign: pw.TextAlign.left,
+                                      maxLines: 2,
+                                    ),
+                                  )
+                                : pw.Center(
+                                    child: pw.Text(
+                                      c < rows[r].length ? rows[r][c] : '',
+                                      style: pw.TextStyle(
+                                        font: font,
+                                        fontSize: fontSize,
+                                        color: textDark,
+                                        height: 1.15,
+                                      ),
+                                      textAlign: pw.TextAlign.center,
+                                      maxLines: 2,
+                                    ),
+                                  ),
+                          ),
+                      ],
                     ),
-                  ],
-                ),
-                pw.Text(
-                  'Oluşturulma: ${DateTime.now().day}.${DateTime.now().month}.${DateTime.now().year}',
-                  style: const pw.TextStyle(fontSize: 10),
-                ),
-              ],
-            ),
-            pw.SizedBox(height: 20),
-            pw.Table.fromTextArray(
-              context: context,
-              headers: days,
-              data: rows,
-              headerStyle: pw.TextStyle(
-                fontWeight: pw.FontWeight.bold,
-                color: PdfColors.white,
-                fontSize: 10,
+                ],
               ),
-              headerDecoration: const pw.BoxDecoration(
-                color: PdfColors.indigo900,
-                borderRadius: pw.BorderRadius.vertical(
-                  top: pw.Radius.circular(4),
-                ),
+
+              pw.Spacer(),
+
+              // ─── 3. RESMİ ONAY / İMZA ALANI (OKUL MÜDÜRÜ) ─────────────────
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.end,
+                children: [
+                  pw.Padding(
+                    padding: const pw.EdgeInsets.only(right: 25),
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.center,
+                      children: [
+                        pw.Text(
+                          'UYGUNDUR',
+                          style: pw.TextStyle(
+                            font: fontBold,
+                            fontSize: 7.5,
+                            color: textMuted,
+                            letterSpacing: 0.8,
+                          ),
+                        ),
+                        pw.SizedBox(height: 3),
+                        if (principalName != null && principalName.trim().isNotEmpty) ...[
+                          pw.Text(
+                            principalName.trim().toUpperCase(),
+                            style: pw.TextStyle(
+                              font: fontBold,
+                              fontSize: 8.8,
+                              color: deepNavy,
+                            ),
+                          ),
+                          pw.SizedBox(height: 1),
+                        ],
+                        pw.Text(
+                          'Okul Müdürü',
+                          style: pw.TextStyle(
+                            font: (principalName != null && principalName.trim().isNotEmpty)
+                                ? font
+                                : fontBold,
+                            fontSize: 8.5,
+                            color: deepNavy,
+                          ),
+                        ),
+                        pw.SizedBox(height: 18),
+                        pw.Container(
+                          width: 125,
+                          decoration: pw.BoxDecoration(
+                            border: pw.Border(
+                              bottom: pw.BorderSide(color: borderColor, width: 0.8),
+                            ),
+                          ),
+                        ),
+                        pw.SizedBox(height: 3),
+                        pw.Text(
+                          'İmza / Mühür',
+                          style: pw.TextStyle(font: font, fontSize: 6.8, color: textMuted),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-              cellHeight: 40,
-              cellStyle: const pw.TextStyle(fontSize: 10),
-              cellAlignments: {
-                0: pw.Alignment.centerLeft,
-                for (var i = 1; i < days.length; i++) i: pw.Alignment.center,
-              },
-              oddRowDecoration: const pw.BoxDecoration(
-                color: PdfColors.grey100,
-              ),
-            ),
-          ];
+              pw.SizedBox(height: 8),
+            ],
+          );
         },
       ),
     );

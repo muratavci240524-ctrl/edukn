@@ -7,7 +7,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'school_type_stats_screen.dart';
 import 'school_type_detail_screen.dart';
-import 'package:google_fonts/google_fonts.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+import '../../teacher/teacher_main_screen.dart';
+import 'package:google_fonts/google_fonts.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
 
 
 class SchoolTypesScreen extends StatefulWidget {
@@ -46,13 +47,37 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
     if (cached != null) {
       userData = cached;
       _isLoadingPermissions = false;
+      _checkTeacherRedirect();
       // institutionId'yi de hemen çözümle (cache'den gelir)
       _getInstitutionId();
     } else {
       // Cache yoksa paralel başlat (seri bekleme yok)
       Future.wait([
         _loadUserPermissions(),
-      ]).then((_) => _getInstitutionId());
+      ]).then((_) {
+        _checkTeacherRedirect();
+        _getInstitutionId();
+      });
+    }
+  }
+
+  void _checkTeacherRedirect() {
+    final role = (userData?['role'] ?? '').toString().toLowerCase();
+    if (role == 'ogretmen' || role == 'teacher') {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          if (Navigator.canPop(context)) {
+            Navigator.pop(context);
+          } else {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (_) => TeacherMainScreen(institutionId: institutionId ?? 'ABC06'),
+              ),
+            );
+          }
+        }
+      });
     }
   }
 
@@ -73,6 +98,7 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
         userData = data;
         _isLoadingPermissions = false;
       });
+      _checkTeacherRedirect();
     }
   }
 
@@ -458,6 +484,15 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final role = (userData?['role'] ?? '').toString().toLowerCase();
+    if (role == 'ogretmen' || role == 'teacher') {
+      _checkTeacherRedirect();
+      return const Scaffold(
+        backgroundColor: Color(0xFFF0F4FF),
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     if (institutionId == null || _isLoadingPermissions) {
       return Scaffold(
         appBar: EduknAppBar(

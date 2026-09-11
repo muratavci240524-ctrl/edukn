@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../../models/assessment/trial_exam_model.dart';
 import '../../../../services/assessment_service.dart';
+import '../../../../services/term_service.dart';
 import '../../../../widgets/edukn_logo.dart';
 
 class AssessmentActionPlanSelectionDialog extends StatefulWidget {
@@ -48,7 +49,8 @@ class _AssessmentActionPlanSelectionDialogState extends State<AssessmentActionPl
   }
 
   Future<void> _loadData() async {
-    final examsStream = _service.getTrialExams(widget.institutionId);
+    final activeTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
+    final examsStream = _service.getTrialExams(widget.institutionId, termId: activeTermId);
     final exams = await examsStream.first;
     setState(() {
       _allExams = exams;

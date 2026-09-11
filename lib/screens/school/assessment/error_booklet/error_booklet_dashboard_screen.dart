@@ -77,8 +77,8 @@ class _ErrorBookletDashboardScreenState extends State<ErrorBookletDashboardScree
           _filterClassLevels = grades;
         }
       }
-      // Aktif dönem ID'sini al
-      _activeTermId = await TermService().getActiveTermId();
+      // Aktif / seçili dönem ID'sini al
+      _activeTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
     } catch (e) {
       debugPrint('Error loading filter data: $e');
     } finally {

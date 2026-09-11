@@ -11,7 +11,6 @@ import 'teacher_operations_screen.dart';
 import 'teacher_dashboard_tab.dart';
 import '../school/school_types/chat/call/call_service.dart';
 import '../school/school_types/chat/call/call_screen_dialog.dart';
-import '../school/school_types/chat/call/call_models.dart';
 
 class TeacherMainScreen extends StatefulWidget {
   final String institutionId;
@@ -76,6 +75,8 @@ class _TeacherMainScreenState extends State<TeacherMainScreen> {
           isIncoming: true,
         );
       }
+    }, onError: (e) {
+      debugPrint('Arama dinleyicisi hatası: $e');
     });
 
     final user = FirebaseAuth.instance.currentUser;
@@ -92,6 +93,8 @@ class _TeacherMainScreenState extends State<TeacherMainScreen> {
         }
       }
       if (mounted) setState(() => _unreadMessages = count);
+    }, onError: (e) {
+      debugPrint('Mesaj dinleyicisi hatası: $e');
     });
 
     // 2. Duyuru Bildirimleri
@@ -101,22 +104,33 @@ class _TeacherMainScreenState extends State<TeacherMainScreen> {
       final currentUserId = user.uid;
       final currentUserEmail = user.email;
       final instId = widget.institutionId.toUpperCase();
+      final instIds = [instId, instId.toLowerCase()].toSet().toList();
 
       if (schoolId == null) return;
 
-      // Öğretmenin sınıflarını alalım
-      final assignSnap = await FirebaseFirestore.instance
-          .collection('lessonAssignments')
-          .where('institutionId', isEqualTo: instId)
-          .where('teacherIds', arrayContains: currentUserId)
-          .where('isActive', isEqualTo: true)
-          .get();
+      final Set<String> validTeacherIds = {currentUserId};
+      final docId = userData?['id']?.toString();
+      if (docId != null && docId.isNotEmpty) validTeacherIds.add(docId);
+      final tId = userData?['teacherId']?.toString();
+      if (tId != null && tId.isNotEmpty) validTeacherIds.add(tId);
 
-      final assignedClassIds = assignSnap.docs
-          .map((doc) => doc.data()['classId']?.toString())
-          .where((id) => id != null)
-          .cast<String>()
-          .toSet();
+      // Öğretmenin sınıflarını alalım (Tüm olası öğretmen ID'leri üzerinden)
+      final List<QuerySnapshot> assignSnaps = await Future.wait(
+        validTeacherIds.map((tId) => FirebaseFirestore.instance
+            .collection('lessonAssignments')
+            .where('institutionId', whereIn: instIds)
+            .where('teacherIds', arrayContains: tId)
+            .where('isActive', isEqualTo: true)
+            .get()),
+      );
+
+      final Set<String> assignedClassIds = {};
+      for (final snap in assignSnaps) {
+        for (final doc in snap.docs) {
+          final cid = (doc.data() as Map<String, dynamic>)['classId']?.toString();
+          if (cid != null && cid.isNotEmpty) assignedClassIds.add(cid);
+        }
+      }
 
       final schoolTypes = userData?['schoolTypes'] as List<dynamic>? ?? [];
       final userSchoolTypeSet = schoolTypes.map((e) => e.toString()).toSet();
@@ -149,7 +163,8 @@ class _TeacherMainScreenState extends State<TeacherMainScreen> {
           bool isRecipient = false;
           if (recipients.contains('ALL') || recipients.contains('TEACHER') || recipients.contains('unit:ogretmen')) {
             isRecipient = true;
-          } else if (recipients.contains('user:$currentUserId') || (currentUserEmail != null && recipients.contains(currentUserEmail))) {
+          } else if (validTeacherIds.any((id) => recipients.contains('user:$id') || recipients.contains(id)) || 
+                     (currentUserEmail != null && recipients.contains(currentUserEmail))) {
             isRecipient = true;
           } else {
             for (final cid in assignedClassIds) {
@@ -167,6 +182,8 @@ class _TeacherMainScreenState extends State<TeacherMainScreen> {
           if (isRecipient) unreadCount++;
         }
         if (mounted) setState(() => _unreadAnnouncements = unreadCount);
+      }, onError: (e) {
+        debugPrint('Duyuru dinleyicisi hatası: $e');
       });
 
       // 3. Sosyal Medya Bildirimleri (Son 48 saat)
@@ -191,8 +208,9 @@ class _TeacherMainScreenState extends State<TeacherMainScreen> {
 
           bool isRecipient = (recipients.isEmpty || recipients.contains('ALL') || recipients.contains('TEACHER'));
           if (!isRecipient) {
-            if (recipients.contains('user:$currentUserId')) isRecipient = true;
-            else {
+            if (validTeacherIds.any((id) => recipients.contains('user:$id') || recipients.contains(id))) {
+              isRecipient = true;
+            } else {
               for (final cid in assignedClassIds) {
                 if (recipients.contains('class:$cid')) { isRecipient = true; break; }
               }
@@ -206,6 +224,8 @@ class _TeacherMainScreenState extends State<TeacherMainScreen> {
           if (isRecipient) newPostsCount++;
         }
         if (mounted) setState(() => _unreadSocial = newPostsCount);
+      }, onError: (e) {
+        debugPrint('Sosyal medya dinleyicisi hatası: $e');
       });
     } catch (e) {
       debugPrint('Badge Listener Error: $e');

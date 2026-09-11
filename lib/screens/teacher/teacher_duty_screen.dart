@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../models/school/duty_model.dart';
 import '../../services/term_service.dart';
+import '../../services/user_permission_service.dart';
 
 class TeacherDutyScreen extends StatefulWidget {
   final String institutionId;
@@ -37,8 +38,26 @@ class _TeacherDutyScreenState extends State<TeacherDutyScreen> {
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
-      _currentUserId = FirebaseAuth.instance.currentUser?.uid;
-      if (_currentUserId == null) return;
+      final authUid = FirebaseAuth.instance.currentUser?.uid;
+      if (authUid == null) return;
+      _currentUserId = authUid;
+
+      final userData = await UserPermissionService.loadUserData();
+      final docId = userData?['id']?.toString();
+      final authUserId = userData?['authUserId']?.toString();
+      final tId = userData?['teacherId']?.toString();
+      final staffId = userData?['staffId']?.toString();
+      final username = userData?['username']?.toString();
+      final teacherName = (userData?['fullName'] ?? userData?['name'] ?? '').toString().trim();
+
+      final validTeacherIds = <String>{
+        authUid,
+        if (docId != null && docId.isNotEmpty) docId,
+        if (authUserId != null && authUserId.isNotEmpty) authUserId,
+        if (tId != null && tId.isNotEmpty) tId,
+        if (staffId != null && staffId.isNotEmpty) staffId,
+        if (username != null && username.isNotEmpty) username,
+      }.toList();
 
       // 1. Resolve Effective Term & Term Name
       _effectiveTermId = widget.termId;
@@ -64,28 +83,67 @@ class _TeacherDutyScreenState extends State<TeacherDutyScreen> {
 
       // 2. Fetch valid workPeriod IDs for the active term (for backward compatibility)
       Set<String> validWorkPeriodIds = {};
+      final instIds = [
+        widget.institutionId,
+        widget.institutionId.toUpperCase(),
+        widget.institutionId.toLowerCase(),
+      ].toSet().toList();
+
       if (_effectiveTermId != null && _effectiveTermId!.isNotEmpty) {
         try {
-          final wpSnap = await FirebaseFirestore.instance
-              .collection('workPeriods')
-              .where('institutionId', isEqualTo: widget.institutionId)
-              .where('termId', isEqualTo: _effectiveTermId)
-              .get();
-          validWorkPeriodIds = wpSnap.docs.map((d) => d.id).toSet();
+          for (final inst in instIds) {
+            final wpSnap = await FirebaseFirestore.instance
+                .collection('workPeriods')
+                .where('institutionId', isEqualTo: inst)
+                .where('termId', isEqualTo: _effectiveTermId)
+                .get();
+            for (var d in wpSnap.docs) {
+              validWorkPeriodIds.add(d.id);
+            }
+          }
         } catch (e) {
           debugPrint('Error fetching workPeriods: $e');
         }
       }
 
-      // 3. Load my duties
-      final itemsSnap = await FirebaseFirestore.instance
-          .collection('dutyScheduleItems')
-          .where('institutionId', isEqualTo: widget.institutionId)
-          .where('teacherId', isEqualTo: _currentUserId)
-          .get();
+      // 3. Load my duties (Çift Kimlik - DocID, Auth UID, StaffId ve İsim desteği)
+      final List<QueryDocumentSnapshot<Map<String, dynamic>>> allDutyDocs = [];
+      final Set<String> seenDutyDocIds = {};
+
+      for (final inst in instIds) {
+        for (int i = 0; i < validTeacherIds.length; i += 10) {
+          final chunk = validTeacherIds.skip(i).take(10).toList();
+          final itemsSnap = await FirebaseFirestore.instance
+              .collection('dutyScheduleItems')
+              .where('institutionId', isEqualTo: inst)
+              .where('teacherId', whereIn: chunk)
+              .get();
+          for (var doc in itemsSnap.docs) {
+            if (seenDutyDocIds.add(doc.id)) {
+              allDutyDocs.add(doc);
+            }
+          }
+        }
+
+        // İsim bazlı nöbet atamalarını da tara (Failsafe)
+        if (teacherName.isNotEmpty) {
+          try {
+            final itemsByNameSnap = await FirebaseFirestore.instance
+                .collection('dutyScheduleItems')
+                .where('institutionId', isEqualTo: inst)
+                .where('teacherName', isEqualTo: teacherName)
+                .get();
+            for (var doc in itemsByNameSnap.docs) {
+              if (seenDutyDocIds.add(doc.id)) {
+                allDutyDocs.add(doc);
+              }
+            }
+          } catch (_) {}
+        }
+      }
 
       final List<DutyScheduleItem> filteredItems = [];
-      for (var doc in itemsSnap.docs) {
+      for (var doc in allDutyDocs) {
         final data = doc.data();
         final itemTermId = data['termId']?.toString().trim();
         final itemPeriodId = data['periodId']?.toString().trim() ?? '';
@@ -103,6 +161,13 @@ class _TeacherDutyScreenState extends State<TeacherDutyScreen> {
 
         if (matches) {
           filteredItems.add(DutyScheduleItem.fromMap(data, doc.id));
+        }
+      }
+
+      // Dönem filtresi yüzünden hiçbir nöbet eşleşmediyse ama öğretmene ait nöbetler varsa, kullanıcıyı mağdur etmemek için tümünü göster
+      if (filteredItems.isEmpty && allDutyDocs.isNotEmpty) {
+        for (var doc in allDutyDocs) {
+          filteredItems.add(DutyScheduleItem.fromMap(doc.data(), doc.id));
         }
       }
 
@@ -155,6 +220,24 @@ class _TeacherDutyScreenState extends State<TeacherDutyScreen> {
       case 5: return 'Cuma';
       case 6: return 'Cumartesi';
       case 7: return 'Pazar';
+      default: return '';
+    }
+  }
+
+  String _getMonthName(int month) {
+    switch (month) {
+      case 1: return 'Oca';
+      case 2: return 'Şub';
+      case 3: return 'Mar';
+      case 4: return 'Nis';
+      case 5: return 'May';
+      case 6: return 'Haz';
+      case 7: return 'Tem';
+      case 8: return 'Ağu';
+      case 9: return 'Eyl';
+      case 10: return 'Eki';
+      case 11: return 'Kas';
+      case 12: return 'Ara';
       default: return '';
     }
   }
@@ -386,7 +469,7 @@ class _TeacherDutyScreenState extends State<TeacherDutyScreen> {
                         ),
                       ),
                       Text(
-                        dutyDate != null ? DateFormat('MMM').format(dutyDate) : '',
+                        dutyDate != null ? _getMonthName(dutyDate.month) : '',
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,

@@ -16,6 +16,7 @@ class SeatingPlanEditorScreen extends StatefulWidget {
   final String schoolTypeName;
   final SeatingPlan? existingPlan;
   final String? initialClassId;
+  final List<String>? allowedClassIds;
 
   const SeatingPlanEditorScreen({
     Key? key,
@@ -24,6 +25,7 @@ class SeatingPlanEditorScreen extends StatefulWidget {
     required this.schoolTypeName,
     this.existingPlan,
     this.initialClassId,
+    this.allowedClassIds,
   }) : super(key: key);
 
   @override
@@ -140,11 +142,15 @@ class _SeatingPlanEditorScreenState extends State<SeatingPlanEditorScreen> {
           .where('isActive', isEqualTo: true)
           .get();
 
-      final list = snap.docs
+      var list = snap.docs
           .map((d) => ClassModel.fromMap(d.data(), d.id))
           .where((c) =>
               c.schoolTypeId == widget.schoolTypeId || c.schoolTypeId.isEmpty)
           .toList();
+
+      if (widget.allowedClassIds != null) {
+        list = list.where((c) => widget.allowedClassIds!.contains(c.id)).toList();
+      }
 
       list.sort((a, b) => a.className.compareTo(b.className));
 

@@ -9,6 +9,7 @@ import '../guidance/guidance_study_program_screen.dart';
 import 'action_plan/assessment_action_plan_list_screen.dart';
 import 'camp/screens/camp_dashboard_screen.dart';
 import 'parent_report/parent_report_dashboard.dart';
+import '../../../services/user_permission_service.dart';
 
 class AssessmentReportsScreen extends StatelessWidget {
   final String institutionId;
@@ -26,6 +27,39 @@ class AssessmentReportsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final canViewTekil = !isTeacher || 
+        UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'sinav_raporlari') ||
+        UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'sinav_tekil_liste') ||
+        UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'sinav_tekil_karne') ||
+        UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'sinav_tekil_ortalama') ||
+        UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'sinav_tekil_basari_belgesi') ||
+        UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'sinav_tekil_kazanim') ||
+        UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'sinav_tekil_soru');
+
+    final canViewBirlestirilmis = !isTeacher || 
+        (UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'sinav_raporlari') &&
+         UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'sinav_birlestirilmis_raporlar'));
+
+    final canViewGuclendirme = !isTeacher || 
+        (UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'sinav_raporlari') &&
+         UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'sinav_guclendirme_programlari'));
+
+    final canViewAgm = !isTeacher || 
+        (UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'sinav_raporlari') &&
+         UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'sinav_agm'));
+
+    final canViewActionPlan = !isTeacher || 
+        (UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'sinav_raporlari') &&
+         UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'sinav_aksiyon_plani'));
+
+    final canViewCamp = !isTeacher || 
+        (UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'sinav_raporlari') &&
+         UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'sinav_kamp_programi'));
+
+    final canViewParent = !isTeacher || 
+        (UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'sinav_raporlari') &&
+         UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'sinav_veli_raporu'));
+
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
       appBar: EduknAppBar(
@@ -43,20 +77,8 @@ class AssessmentReportsScreen extends StatelessWidget {
                 // Grid of Main Cards
                 LayoutBuilder(
                   builder: (context, constraints) {
-                    final crossAxisCount = constraints.maxWidth > 800 ? 4 : (constraints.maxWidth > 500 ? 2 : 1);
-                    final isSmallMobile = constraints.maxWidth < 360;
-                    return GridView.count(
-                      crossAxisCount: crossAxisCount,
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      crossAxisSpacing: 20,
-                      mainAxisSpacing: 20,
-                      childAspectRatio: constraints.maxWidth > 800
-                          ? 0.85
-                          : (constraints.maxWidth > 500
-                              ? 1.1
-                              : (isSmallMobile ? 1.8 : 2.2)),
-                      children: [
+                    final gridItems = <Widget>[
+                      if (canViewTekil)
                         _buildHubCard(
                           context,
                           title: 'Tekil Sınav Raporları',
@@ -77,6 +99,7 @@ class AssessmentReportsScreen extends StatelessWidget {
                             );
                           },
                         ),
+                      if (canViewBirlestirilmis)
                         _buildHubCard(
                           context,
                           title: 'Birleştirilmiş Sınav Raporları',
@@ -97,6 +120,7 @@ class AssessmentReportsScreen extends StatelessWidget {
                             );
                           },
                         ),
+                      if (canViewGuclendirme)
                         _buildHubCard(
                           context,
                           title: 'Güçlendirme Programları',
@@ -117,6 +141,7 @@ class AssessmentReportsScreen extends StatelessWidget {
                             );
                           },
                         ),
+                      if (canViewAgm)
                         _buildHubCard(
                           context,
                           title: 'AGM – Akademik Güçlendirme',
@@ -137,7 +162,24 @@ class AssessmentReportsScreen extends StatelessWidget {
                             );
                           },
                         ),
-                      ],
+                    ];
+
+                    if (gridItems.isEmpty) return const SizedBox.shrink();
+
+                    final crossAxisCount = constraints.maxWidth > 800 ? (gridItems.length < 4 ? gridItems.length : 4) : (constraints.maxWidth > 500 ? 2 : 1);
+                    final isSmallMobile = constraints.maxWidth < 360;
+                    return GridView.count(
+                      crossAxisCount: crossAxisCount,
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      crossAxisSpacing: 20,
+                      mainAxisSpacing: 20,
+                      childAspectRatio: constraints.maxWidth > 800
+                          ? 0.85
+                          : (constraints.maxWidth > 500
+                              ? 1.1
+                              : (isSmallMobile ? 1.8 : 2.2)),
+                      children: gridItems,
                     );
                   },
                 ),
@@ -156,11 +198,13 @@ class AssessmentReportsScreen extends StatelessWidget {
                               flex: 2,
                               child: _buildPerformanceBanner(context),
                             ),
-                            const SizedBox(width: 24),
-                            Expanded(
-                              flex: 1,
-                              child: _buildActionPlanCard(context, isCompact: true),
-                            ),
+                            if (canViewActionPlan) ...[
+                              const SizedBox(width: 24),
+                              Expanded(
+                                flex: 1,
+                                child: _buildActionPlanCard(context, isCompact: true),
+                              ),
+                            ],
                           ],
                         ),
                       );
@@ -168,23 +212,27 @@ class AssessmentReportsScreen extends StatelessWidget {
                       return Column(
                         children: [
                           _buildPerformanceBanner(context),
-                          const SizedBox(height: 24),
-                          _buildActionPlanCard(context, isCompact: false),
+                          if (canViewActionPlan) ...[
+                            const SizedBox(height: 24),
+                            _buildActionPlanCard(context, isCompact: false),
+                          ],
                         ],
                       );
                     }
                   },
                 ),
 
-                const SizedBox(height: 24),
+                if (canViewCamp) ...[
+                  const SizedBox(height: 24),
+                  // Full-width Kamp Programı Card
+                  _buildCampBanner(context),
+                ],
 
-                // Full-width Kamp Programı Card
-                _buildCampBanner(context),
-
-                const SizedBox(height: 24),
-
-                // Full-width Veli Bilgilendirme Raporu Card
-                _buildParentReportBanner(context),
+                if (canViewParent) ...[
+                  const SizedBox(height: 24),
+                  // Full-width Veli Bilgilendirme Raporu Card
+                  _buildParentReportBanner(context),
+                ],
               ],
             ),
           ),

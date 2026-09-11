@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -10,6 +10,7 @@ import 'dart:html' as html;
 import 'package:archive/archive.dart';
 import 'dart:typed_data';
 import 'parent_report_pdf_helper.dart';
+import '../../../../services/term_service.dart';
 
 class ParentReportDashboard extends StatefulWidget {
   final String institutionId;
@@ -288,13 +289,22 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
       loadedStudents.sort((a, b) => a['name'].toString().compareTo(b['name'].toString()));
 
       // 2. Fetch Trial Exams
+      final activeTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
       final examSnap = await _db
           .collection('trial_exams')
           .where('institutionId', isEqualTo: widget.institutionId)
           .where('isActive', isEqualTo: true)
           .get();
 
-      final List<Map<String, dynamic>> loadedExams = examSnap.docs.map((doc) {
+      final List<Map<String, dynamic>> loadedExams = examSnap.docs
+          .where((doc) {
+            if (activeTermId != null && activeTermId.isNotEmpty) {
+              final term = doc.data()['termId']?.toString();
+              if (term != activeTermId) return false;
+            }
+            return true;
+          })
+          .map((doc) {
         final data = doc.data();
         return {
           'id': doc.id,

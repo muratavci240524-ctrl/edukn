@@ -12,6 +12,9 @@ class QuickPerformanceTrackerHubScreen extends StatefulWidget {
   final String schoolTypeId;
   final String schoolTypeName;
   final String? initialClassId;
+  final bool isTeacher;
+  final String? teacherId;
+  final List<String>? allowedClassIds;
 
   const QuickPerformanceTrackerHubScreen({
     super.key,
@@ -19,6 +22,9 @@ class QuickPerformanceTrackerHubScreen extends StatefulWidget {
     required this.schoolTypeId,
     required this.schoolTypeName,
     this.initialClassId,
+    this.isTeacher = false,
+    this.teacherId,
+    this.allowedClassIds,
   });
 
   @override
@@ -79,7 +85,10 @@ class _QuickPerformanceTrackerHubScreenState extends State<QuickPerformanceTrack
           .where('isActive', isEqualTo: true)
           .get();
 
-      final list = snap.docs.map((d) => ClassModel.fromMap(d.data(), d.id)).toList();
+      var list = snap.docs.map((d) => ClassModel.fromMap(d.data(), d.id)).toList();
+      if (widget.allowedClassIds != null) {
+        list = list.where((c) => widget.allowedClassIds!.contains(c.id)).toList();
+      }
       list.sort((a, b) => a.className.compareTo(b.className));
 
       if (mounted) {

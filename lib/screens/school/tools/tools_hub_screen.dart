@@ -14,12 +14,16 @@ import 'quick_performance_tracker/quick_performance_tracker_hub_screen.dart';
 import 'classroom_timer/classroom_timer_hub_screen.dart';
 import 'noise_meter/noise_meter_hub_screen.dart';
 import 'butterfly_exam/butterfly_exam_hub_screen.dart';
+import '../notes/personal_notes_screen.dart';
 
 class ToolsHubScreen extends StatefulWidget {
   final String institutionId;
   final String schoolTypeId;
   final String schoolTypeName;
   final int initialCategoryIndex;
+  final bool isTeacher;
+  final String? teacherId;
+  final List<String>? allowedClassIds;
 
   const ToolsHubScreen({
     Key? key,
@@ -27,6 +31,9 @@ class ToolsHubScreen extends StatefulWidget {
     required this.schoolTypeId,
     required this.schoolTypeName,
     this.initialCategoryIndex = 0,
+    this.isTeacher = false,
+    this.teacherId,
+    this.allowedClassIds,
   }) : super(key: key);
 
   @override
@@ -84,6 +91,12 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
           subtitle: 'Mikrofon üzerinden desibel ölçüm ve görsel uyarı sistemi',
           icon: Icons.mic_rounded,
           color: Color(0xFFFF7043),
+        ),
+        _ToolItem(
+          title: 'Notlarım',
+          subtitle: 'Kişisel ve ders içi notlarınızı kaydedin ve yönetin',
+          icon: Icons.edit_note_rounded,
+          color: Color(0xFF8E24AA),
         ),
       ],
     ),
@@ -201,7 +214,7 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
   @override
   void initState() {
     super.initState();
-    _selectedCategoryIndex = widget.initialCategoryIndex;
+    _selectedCategoryIndex = widget.isTeacher ? 0 : widget.initialCategoryIndex;
     _animationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 400),
@@ -275,14 +288,16 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
     super.dispose();
   }
 
-  int get _totalCategoryCount => _staticCategories.length + 1; // +1 for Online Hizmetler
+  int get _totalCategoryCount => widget.isTeacher ? 1 : (_staticCategories.length + 1); // +1 for Online Hizmetler
 
   _ToolCategory _getCategoryAt(int index) {
+    if (widget.isTeacher) return _staticCategories[0];
     if (index < _staticCategories.length) return _staticCategories[index];
     return _onlineHizmetlerMeta;
   }
 
   void _switchCategory(int index) {
+    if (widget.isTeacher) return;
     if (index == _selectedCategoryIndex) return;
     _animationController.reverse().then((_) {
       setState(() => _selectedCategoryIndex = index);
@@ -303,12 +318,12 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
     return Scaffold(
       backgroundColor: const Color(0xFFF5F6FA),
       appBar: EduknAppBar(
-        title: 'Araçlar',
+        title: widget.isTeacher ? 'Sınıf İçi Yönetim Araçları' : 'Araçlar',
         subtitle: widget.schoolTypeName,
       ),
       body: Column(
         children: [
-          _buildCategoryTabs(isMobile),
+          if (!widget.isTeacher) _buildCategoryTabs(isMobile),
           Expanded(
             child: FadeTransition(
               opacity: _fadeAnimation,
@@ -580,6 +595,9 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
             institutionId: widget.institutionId,
             schoolTypeId: widget.schoolTypeId,
             schoolTypeName: widget.schoolTypeName,
+            isTeacher: widget.isTeacher,
+            teacherId: widget.teacherId,
+            allowedClassIds: widget.allowedClassIds,
           ),
         ),
       );
@@ -592,6 +610,9 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
             institutionId: widget.institutionId,
             schoolTypeId: widget.schoolTypeId,
             schoolTypeName: widget.schoolTypeName,
+            isTeacher: widget.isTeacher,
+            teacherId: widget.teacherId,
+            allowedClassIds: widget.allowedClassIds,
           ),
         ),
       );
@@ -604,6 +625,9 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
             institutionId: widget.institutionId,
             schoolTypeId: widget.schoolTypeId,
             schoolTypeName: widget.schoolTypeName,
+            isTeacher: widget.isTeacher,
+            teacherId: widget.teacherId,
+            allowedClassIds: widget.allowedClassIds,
           ),
         ),
       );
@@ -616,8 +640,17 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
             institutionId: widget.institutionId,
             schoolTypeId: widget.schoolTypeId,
             schoolTypeName: widget.schoolTypeName,
+            isTeacher: widget.isTeacher,
+            teacherId: widget.teacherId,
+            allowedClassIds: widget.allowedClassIds,
           ),
         ),
+      );
+      return;
+    } else if (tool.title == 'Notlarım') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const PersonalNotesScreen()),
       );
       return;
     } else if (tool.title == 'Sınıf Zamanlayıcısı / Kronometre') {

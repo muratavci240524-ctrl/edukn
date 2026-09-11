@@ -1533,6 +1533,7 @@ class _OperationsTabState extends State<_OperationsTab> {
             {'title': 'Akademik Ölçme ve Başarı Takibi', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ToolsHubScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName, initialCategoryIndex: 2)))},
             {'title': 'Evrak, Liste ve Şablon Otomasyonları', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ToolsHubScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName, initialCategoryIndex: 3)))},
             {'title': 'Online Hizmetler', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ToolsHubScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName, initialCategoryIndex: 4)))},
+            {'title': 'Notlarım', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => const PersonalNotesScreen()))},
           ],
           onTap: () => setState(() => _selectedCategory = 'Araçlar'),
         ),
@@ -1628,23 +1629,7 @@ class _OperationsTabState extends State<_OperationsTab> {
           ],
           onTap: () => setState(() => _selectedCategory = 'Ayarlar'),
         ),
-      if (_hasModuleAccess('kisisel_islemler'))
-        _ModuleCardWidget(
-          key: const ValueKey('kisisel'),
-          title: 'KİŞİSEL İŞLEMLER',
-          badge: 'Kişisel',
-          icon: Icons.person,
-          color: Colors.pink,
-          cardWidth: currentCardWidth,
-          isMobile: isMobile,
-          category: 'Kişisel',
-          showAllItems: isFiltered,
-          items: [
-            if (_hasSubModuleAccess('kisisel_islemler', 'notlarim'))
-              {'title': 'Notlarım', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => const PersonalNotesScreen()))},
-          ],
-          onTap: () => setState(() => _selectedCategory = 'Kişisel'),
-        ),
+
 
     ];
 
@@ -1671,7 +1656,7 @@ class _OperationsTabState extends State<_OperationsTab> {
         category: 'Ders',
         showAllItems: isFiltered,
         items: [
-          {'title': 'Haftalık Ders Programım', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => TeacherScheduleViewScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
+          {'title': 'Haftalık Ders Programım', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => TeacherScheduleViewScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName, isTeacherView: true)))},
           {'title': 'Yoklama Girişi', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => AttendanceOperationsScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
           {'title': 'Kazanım Takip', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => CurriculumTrackingScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
           {'title': 'Ödev Takibi', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => HomeworkOperationsScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
@@ -1733,10 +1718,25 @@ class _OperationsTabState extends State<_OperationsTab> {
           {'title': 'Nöbet Programım', 'onTap': () => print('Nöbetlerim')},
           {'title': 'Gezi Görevlerim', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => FieldTripListScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
           {'title': 'To-Do List', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ToDoListScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
-          {'title': 'Öğretmen Ajandası', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => PersonalNotesScreen()))},
           {'title': 'Profil Bilgilerim', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (ctx) => const UserProfileScreen()))},
         ],
         onTap: () => setState(() => _selectedCategory = 'Kişisel'),
+      ),
+      _ModuleCardWidget(
+        key: const ValueKey('t_araclar'),
+        title: 'ARAÇLAR',
+        badge: 'Araçlar',
+        icon: Icons.build_circle_outlined,
+        color: Colors.amber.shade700,
+        cardWidth: currentCardWidth,
+        isMobile: isMobile,
+        category: 'Araçlar',
+        showAllItems: isFiltered,
+        items: [
+          {'title': 'Sınıf İçi Yönetim ve Etkileşim', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ToolsHubScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName, initialCategoryIndex: 0, isTeacher: true)))},
+          {'title': 'Notlarım', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => const PersonalNotesScreen()))},
+        ],
+        onTap: () => setState(() => _selectedCategory = 'Araçlar'),
       ),
 
     ];
@@ -2496,6 +2496,7 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
   List<Map<String, dynamic>> _events = [];
   bool _isLoading = false;
   bool _isWeeklyView = false;
+  String? _activeTermName;
 
   final List<String> _daysOfWeek = ['Pt', 'Sa', 'Çr', 'Pr', 'Cu', 'Ct', 'Pz'];
   final List<String> _months = [
@@ -2512,13 +2513,61 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
     'Kasım',
     'Aralık',
   ];
+  final List<String> _shortMonths = [
+    'Oca',
+    'Şub',
+    'Mar',
+    'Nis',
+    'May',
+    'Haz',
+    'Tem',
+    'Ağu',
+    'Eyl',
+    'Eki',
+    'Kas',
+    'Ara',
+  ];
+
+  String _formatDateTr(dynamic dateVal, {bool short = false}) {
+    DateTime? dt;
+    if (dateVal is Timestamp) dt = dateVal.toDate();
+    if (dateVal is DateTime) dt = dateVal;
+    if (dateVal is String) dt = DateTime.tryParse(dateVal);
+    if (dt == null) return '';
+    final m = short ? _shortMonths[dt.month - 1] : _months[dt.month - 1];
+    return '${dt.day} $m';
+  }
+
+  String _formatFullDateTr(dynamic dateVal) {
+    DateTime? dt;
+    if (dateVal is Timestamp) dt = dateVal.toDate();
+    if (dateVal is DateTime) dt = dateVal;
+    if (dateVal is String) dt = DateTime.tryParse(dateVal);
+    if (dt == null) return '';
+    return '${dt.day} ${_months[dt.month - 1]} ${dt.year}';
+  }
 
   DateTime? _parseDateTime(dynamic val) {
     if (val == null) return null;
     if (val is Timestamp) return val.toDate();
     if (val is DateTime) return val;
     if (val is String) {
-      return DateTime.tryParse(val);
+      final clean = val.trim();
+      final isoParsed = DateTime.tryParse(clean);
+      if (isoParsed != null) return isoParsed;
+
+      try {
+        final regex = RegExp(r'(\d{2})\.(\d{2})\.(\d{4})(?:\s+(\d{2}):(\d{2}))?');
+        final match = regex.firstMatch(clean);
+        if (match != null) {
+          final day = int.parse(match.group(1)!);
+          final month = int.parse(match.group(2)!);
+          final year = int.parse(match.group(3)!);
+          final hour = match.group(4) != null ? int.parse(match.group(4)!) : 0;
+          final minute = match.group(5) != null ? int.parse(match.group(5)!) : 0;
+          return DateTime(year, month, day, hour, minute);
+        }
+      } catch (_) {}
     }
     return null;
   }
@@ -2542,84 +2591,140 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
         59,
       );
 
-      final List<String> instIds = [widget.institutionId.toUpperCase(), widget.institutionId.toLowerCase()];
+      final List<String> instIds = [widget.institutionId, widget.institutionId.toUpperCase(), widget.institutionId.toLowerCase()];
       final role = (widget.userData?['role'] as String?)?.toLowerCase() ?? '';
       final title = (widget.userData?['title'] as String?)?.toLowerCase() ?? '';
       final type = (widget.userData?['type'] as String?)?.toLowerCase() ?? '';
-      final isTeacher = role.contains('ogretmen') || role.contains('öğretmen') || role.contains('teacher') ||
+      final isTeacher = widget.schoolTypeId.isEmpty ||
+                        role.contains('ogretmen') || role.contains('öğretmen') || role.contains('teacher') ||
                         title.contains('ogretmen') || title.contains('öğretmen') || title.contains('teacher') ||
-                        type == 'staff';
+                        type == 'staff' || type == 'teacher';
       final isStudent = role.contains('ogrenci') || role.contains('öğrenci') || role.contains('student') ||
                         title.contains('ogrenci') || title.contains('öğrenci') || title.contains('student') ||
                         type == 'student';
-      final myId = widget.userData?['id'];
+      final currentAuthUid = FirebaseAuth.instance.currentUser?.uid;
+      final docId = widget.userData?['id']?.toString();
+      final authUserId = widget.userData?['authUserId']?.toString();
+      final validTeacherIds = <String>{
+        if (currentAuthUid != null && currentAuthUid.isNotEmpty) currentAuthUid,
+        if (docId != null && docId.isNotEmpty) docId,
+        if (authUserId != null && authUserId.isNotEmpty) authUserId,
+      }.toList();
+      final myId = validTeacherIds.isNotEmpty ? validTeacherIds.first : null;
+
+      // Aktif dönem filtresi ve geçerli çalışma dönemleri
+      final activeTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
+      if (activeTermId != null && activeTermId.isNotEmpty) {
+        try {
+          final termDoc = await FirebaseFirestore.instance.collection('terms').doc(activeTermId).get();
+          if (termDoc.exists) {
+            _activeTermName = (termDoc.data()?['name'] ?? termDoc.data()?['termName'])?.toString();
+          }
+        } catch (_) {}
+      }
+
+      Set<String> validWorkPeriodIds = {};
+      final Map<String, Map<String, dynamic>> wpLocationConfigs = {};
+      try {
+        final wpSnap = await FirebaseFirestore.instance
+            .collection('workPeriods')
+            .where('institutionId', whereIn: instIds)
+            .get();
+        for (var wpDoc in wpSnap.docs) {
+          final wpData = wpDoc.data();
+          final wpTermId = wpData['termId']?.toString().trim();
+          if (activeTermId == null || activeTermId.isEmpty || wpTermId == activeTermId || wpDoc.id == activeTermId) {
+            validWorkPeriodIds.add(wpDoc.id);
+          }
+          if (wpData['dutyLocationConfigs'] is Map) {
+            wpLocationConfigs[wpDoc.id] = Map<String, dynamic>.from(wpData['dutyLocationConfigs'] as Map);
+          }
+        }
+      } catch (e) {
+        debugPrint('Error loading workPeriods for calendar: $e');
+      }
 
       // Öğretmen sınıflarını ve tüm verileri paralel yükleyelim (8x Hızlı)
       final Set<String> assignedClassIds = {};
       final startTs = Timestamp.fromDate(startOfMonth.subtract(const Duration(days: 15)));
       final endTs = Timestamp.fromDate(endOfMonth.add(const Duration(days: 15)));
 
-      final assignFuture = (isTeacher && myId != null)
-          ? FirebaseFirestore.instance
+      final assignFuture = (isTeacher && validTeacherIds.isNotEmpty)
+          ? Future.wait(validTeacherIds.map((tId) => FirebaseFirestore.instance
               .collection('lessonAssignments')
               .where('institutionId', whereIn: instIds)
-              .where('teacherIds', arrayContains: myId)
+              .where('teacherIds', arrayContains: tId)
               .where('isActive', isEqualTo: true)
-              .get()
-          : Future.value(null);
+              .get().catchError((_) => FirebaseFirestore.instance.collection('lessonAssignments').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get())))
+          : Future.value(<QuerySnapshot>[]);
 
       final classesFuture = FirebaseFirestore.instance
           .collection('classes')
           .where('institutionId', whereIn: instIds)
-          .get();
+          .get().catchError((_) => FirebaseFirestore.instance.collection('classes').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get());
 
       final activitiesFuture = FirebaseFirestore.instance
           .collection('activities')
           .where('institutionId', whereIn: instIds)
           .where('date', isGreaterThanOrEqualTo: startTs)
           .where('date', isLessThanOrEqualTo: endTs)
-          .get();
+          .get().catchError((_) => FirebaseFirestore.instance.collection('activities').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get());
 
-      Query etutQuery = FirebaseFirestore.instance
-          .collection('etut_requests')
-          .where('institutionId', whereIn: instIds);
-      if (isTeacher && myId != null) {
-        etutQuery = etutQuery.where('teacherId', isEqualTo: myId);
-      }
-      final etutFuture = etutQuery.get();
+      final etutFuture = (validTeacherIds.isNotEmpty)
+          ? Future.wait(validTeacherIds.map((tId) => FirebaseFirestore.instance
+              .collection('etut_requests')
+              .where('institutionId', whereIn: instIds)
+              .where('teacherId', isEqualTo: tId)
+              .get().catchError((_) => FirebaseFirestore.instance.collection('etut_requests').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get())))
+          : FirebaseFirestore.instance
+              .collection('etut_requests')
+              .where('institutionId', whereIn: instIds)
+              .get()
+              .then((snap) => [snap])
+              .catchError((_) => <QuerySnapshot>[]);
 
       final geziFuture = FirebaseFirestore.instance
           .collection('field_trips')
           .where('institutionId', whereIn: instIds)
           .where('departureTime', isGreaterThanOrEqualTo: startTs)
           .where('departureTime', isLessThanOrEqualTo: endTs)
-          .get();
+          .get().catchError((_) => FirebaseFirestore.instance.collection('field_trips').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get());
 
-      final dutyFuture = (isTeacher && myId != null)
-          ? FirebaseFirestore.instance
+      final dutyFuture = (validTeacherIds.isNotEmpty)
+          ? Future.wait(instIds.map((inst) => FirebaseFirestore.instance
               .collection('dutyScheduleItems')
-              .where('institutionId', whereIn: instIds)
-              .where('teacherId', isEqualTo: myId)
-              .get()
-          : Future.value(null);
+              .where('institutionId', isEqualTo: inst)
+              .where('teacherId', whereIn: validTeacherIds)
+              .get().catchError((e) {
+                debugPrint('Calendar duty fetch error for $inst: $e');
+                return FirebaseFirestore.instance.collection('dutyScheduleItems').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get();
+              })))
+          : Future.value(<QuerySnapshot>[]);
 
-      final homeworkFuture = (isTeacher && myId != null)
-          ? FirebaseFirestore.instance
+      final homeworkFuture = (validTeacherIds.isNotEmpty)
+          ? Future.wait(validTeacherIds.map((tId) => FirebaseFirestore.instance
               .collection('homeworks')
               .where('institutionId', whereIn: instIds)
-              .where('teacherId', isEqualTo: myId)
+              .where('teacherId', isEqualTo: tId)
               .where('dueDate', isGreaterThanOrEqualTo: startTs)
               .where('dueDate', isLessThanOrEqualTo: endTs)
-              .get()
-          : Future.value(null);
+              .get().catchError((_) => FirebaseFirestore.instance.collection('homeworks').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get())))
+          : Future.value(<QuerySnapshot>[]);
 
-      final classExamsFuture = (isTeacher && myId != null)
+      final classExamsFuture = (myId != null)
           ? FirebaseFirestore.instance
               .collection('class_exams')
               .where('institutionId', whereIn: instIds)
               .where('date', isGreaterThanOrEqualTo: startTs)
               .where('date', isLessThanOrEqualTo: endTs)
-              .get()
+              .get().catchError((_) => FirebaseFirestore.instance.collection('class_exams').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get())
+          : Future.value(null);
+
+      final dutyLocationsFuture = (myId != null)
+          ? FirebaseFirestore.instance
+              .collection('dutyLocations')
+              .where('institutionId', whereIn: instIds)
+              .get().catchError((_) => FirebaseFirestore.instance.collection('dutyLocations').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get())
           : Future.value(null);
 
       final results = await Future.wait([
@@ -2631,20 +2736,80 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
         dutyFuture,
         homeworkFuture,
         classExamsFuture,
+        dutyLocationsFuture,
       ]);
 
-      final assignSnap = results[0] as QuerySnapshot?;
+      final assignSnapshots = results[0] as List<QuerySnapshot>?;
       final classesSnapshot = results[1] as QuerySnapshot;
       final activitiesSnapshot = results[2] as QuerySnapshot;
-      final etutSnapshot = results[3] as QuerySnapshot;
+      final etutSnapshots = results[3] as List<QuerySnapshot>?;
       final geziSnapshot = results[4] as QuerySnapshot;
-      final dutySnapshot = results[5] as QuerySnapshot?;
-      final homeworkSnapshot = results[6] as QuerySnapshot?;
+      final dutySnapshots = results[5] as List<QuerySnapshot>?;
+      final homeworkSnapshots = results[6] as List<QuerySnapshot>?;
       final classExamsSnapshot = results[7] as QuerySnapshot?;
+      final dutyLocationsSnapshot = results[8] as QuerySnapshot?;
 
-      if (assignSnap != null) {
-        for (var doc in assignSnap.docs) {
-          final cid = (doc.data() as Map<String, dynamic>)['classId']?.toString();
+      final List<QueryDocumentSnapshot> allAssignDocs = [];
+      if (assignSnapshots != null) {
+        final seen = <String>{};
+        for (final s in assignSnapshots) {
+          for (final d in s.docs) {
+            if (seen.add(d.id)) allAssignDocs.add(d);
+          }
+        }
+      }
+
+      final List<QueryDocumentSnapshot> allEtutDocs = [];
+      if (etutSnapshots != null) {
+        final seen = <String>{};
+        for (final s in etutSnapshots) {
+          for (final d in s.docs) {
+            if (seen.add(d.id)) allEtutDocs.add(d);
+          }
+        }
+      }
+
+      final List<QueryDocumentSnapshot> allDutyDocs = [];
+      if (dutySnapshots != null) {
+        final seen = <String>{};
+        for (final s in dutySnapshots) {
+          for (final d in s.docs) {
+            if (seen.add(d.id)) allDutyDocs.add(d);
+          }
+        }
+      }
+
+      final List<QueryDocumentSnapshot> allHomeworkDocs = [];
+      if (homeworkSnapshots != null) {
+        final seen = <String>{};
+        for (final s in homeworkSnapshots) {
+          for (final d in s.docs) {
+            if (seen.add(d.id)) allHomeworkDocs.add(d);
+          }
+        }
+      }
+
+      final Map<String, Map<String, dynamic>> dutyLocationsMap = {};
+      if (dutyLocationsSnapshot != null) {
+        for (var doc in dutyLocationsSnapshot.docs) {
+          final locData = Map<String, dynamic>.from(doc.data() as Map);
+          locData['id'] = doc.id;
+          dutyLocationsMap[doc.id] = locData;
+          final locName = (locData['name'] ?? '').toString().trim().toLowerCase();
+          if (locName.isNotEmpty) {
+            dutyLocationsMap['name_$locName'] = locData;
+          }
+        }
+      }
+
+      if (allAssignDocs.isNotEmpty) {
+        for (var doc in allAssignDocs) {
+          final data = doc.data() as Map<String, dynamic>;
+          final itemTermId = data['termId']?.toString().trim();
+          if (activeTermId != null && activeTermId.isNotEmpty && itemTermId != null && itemTermId.isNotEmpty) {
+            if (itemTermId != activeTermId) continue;
+          }
+          final cid = data['classId']?.toString();
           if (cid != null) assignedClassIds.add(cid);
         }
       }
@@ -2678,6 +2843,11 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
             .where((data) {
               final sId = data['schoolTypeId'] as String?;
               if (widget.schoolTypeId.isNotEmpty && sId != null && sId != widget.schoolTypeId) return false;
+
+              final itemTermId = data['termId']?.toString().trim();
+              if (activeTermId != null && activeTermId.isNotEmpty && itemTermId != null && itemTermId.isNotEmpty) {
+                if (itemTermId != activeTermId) return false;
+              }
               
               // Öğretmen filtreleme: Eğer activities içinde targetRoles veya recipients varsa kontrol et
               if (isTeacher) {
@@ -2717,7 +2887,7 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
 
       // Mapper: Etütler
       allEvents.addAll(
-        etutSnapshot.docs
+        allEtutDocs
             .map((doc) {
                 final data = doc.data() as Map<String, dynamic>;
                 final lesson = data['lessonName'] ?? '';
@@ -2746,6 +2916,11 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
             .where((data) {
               final sId = data['schoolTypeId'] as String?;
               if (widget.schoolTypeId.isNotEmpty && sId != null && sId != widget.schoolTypeId) return false;
+
+              final itemTermId = data['termId']?.toString().trim();
+              if (activeTermId != null && activeTermId.isNotEmpty && itemTermId != null && itemTermId.isNotEmpty) {
+                if (itemTermId != activeTermId) return false;
+              }
               
               // Öğrenci Filtreleme: Eğer isStudent ise sadece kendi olduğu etütleri görsün
               if (isStudent && myId != null) {
@@ -2786,11 +2961,16 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
             .where((data) {
               final sId = data['schoolTypeId'] as String?;
               if (widget.schoolTypeId.isNotEmpty && sId != null && sId != widget.schoolTypeId) return false;
+
+              final itemTermId = data['termId']?.toString().trim();
+              if (activeTermId != null && activeTermId.isNotEmpty && itemTermId != null && itemTermId.isNotEmpty) {
+                if (itemTermId != activeTermId) return false;
+              }
               
               if (isTeacher) {
                  // Gezilerde öğretmen filtreleme: Eğer teacherIds listesi varsa kontrol et
                  final teacherIds = data['teacherIds'] as List<dynamic>?;
-                 if (teacherIds != null && !teacherIds.contains(myId)) return false;
+                 if (teacherIds != null && !teacherIds.any((id) => validTeacherIds.contains(id))) return false;
               }
 
               final dateTs = data['departureTime'] as Timestamp?;
@@ -2804,30 +2984,127 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
       );
 
       // 4. Öğretmen özel yüklemeleri (Nöbetler, Ödevler, Sınavlar)
-      if (isTeacher && myId != null) {
+      if (isTeacher && (myId != null || validTeacherIds.isNotEmpty)) {
         // A. dutyScheduleItems (Nöbetler)
-        if (dutySnapshot != null) {
-          for (var doc in dutySnapshot.docs) {
+        if (allDutyDocs.isNotEmpty) {
+          for (var doc in allDutyDocs) {
             final data = doc.data() as Map<String, dynamic>;
+            final itemTermId = data['termId']?.toString().trim();
+            final itemPeriodId = data['periodId']?.toString().trim() ?? '';
+
+            bool termMatches = false;
+            if (activeTermId == null || activeTermId.isEmpty) {
+              termMatches = true;
+            } else if (itemTermId != null && itemTermId.isNotEmpty) {
+              termMatches = (itemTermId == activeTermId);
+            } else if (itemPeriodId == activeTermId || validWorkPeriodIds.contains(itemPeriodId) || itemPeriodId.isEmpty) {
+              termMatches = true;
+            }
+            if (!termMatches) continue;
+
             final dDayOfWeek = data['dayOfWeek'] as int?;
             final dWeekStart = _parseDateTime(data['weekStart']);
             final location = data['locationName'] ?? data['dutyLocation'] ?? 'Nöbet Yeri';
+            final locationId = (data['locationId'] ?? '').toString();
+            var locData = dutyLocationsMap[locationId] ??
+                dutyLocationsMap['name_${location.toString().trim().toLowerCase()}'];
+
+            if (locData == null && locationId.isNotEmpty) {
+              try {
+                final dDoc = await FirebaseFirestore.instance.collection('dutyLocations').doc(locationId).get();
+                if (dDoc.exists && dDoc.data() != null) {
+                  locData = Map<String, dynamic>.from(dDoc.data()!);
+                  locData['id'] = dDoc.id;
+                  dutyLocationsMap[locationId] = locData;
+                }
+              } catch (_) {}
+            }
+
+            final actualLocId = locationId.isNotEmpty ? locationId : (locData?['id']?.toString() ?? '');
+            Map<String, dynamic>? cfg = (actualLocId.isNotEmpty && itemPeriodId.isNotEmpty)
+                ? (wpLocationConfigs[itemPeriodId]?[actualLocId] as Map<String, dynamic>?)
+                : null;
+            if (cfg == null && actualLocId.isNotEmpty) {
+              for (var c in wpLocationConfigs.values) {
+                if (c.containsKey(actualLocId) && c[actualLocId] is Map) {
+                  cfg = Map<String, dynamic>.from(c[actualLocId] as Map);
+                  break;
+                }
+              }
+            }
+
+            final dutyDesc = (locData?['description'] ?? cfg?['description'] ?? data['locationDescription'] ?? data['description'] ?? '').toString().trim();
+
+            DateTime? dutyDate;
+            if (data['dutyDate'] != null) {
+              dutyDate = _parseDateTime(data['dutyDate']);
+            }
+            if (dutyDate == null && dDayOfWeek != null && dWeekStart != null) {
+              dutyDate = dWeekStart.add(Duration(days: dDayOfWeek - 1));
+            }
             
-            if (dDayOfWeek != null && dWeekStart != null) {
-              final dutyDate = dWeekStart.add(Duration(days: dDayOfWeek - 1));
+            if (dutyDate != null) {
               if (dutyDate.isAfter(startOfMonth.subtract(const Duration(seconds: 1))) &&
                   dutyDate.isBefore(endOfMonth.add(const Duration(seconds: 1)))) {
                 
+                String startStr = '';
+                if (locData?['startTime'] != null && locData!['startTime'].toString().trim().isNotEmpty) {
+                  startStr = locData['startTime'].toString().trim();
+                } else if (cfg?['startTime'] != null && cfg!['startTime'].toString().trim().isNotEmpty) {
+                  startStr = cfg['startTime'].toString().trim();
+                } else if (data['startTime'] is String && (data['startTime'] as String).trim().isNotEmpty) {
+                  startStr = (data['startTime'] as String).trim();
+                }
+
+                String endStr = '';
+                if (locData?['endTime'] != null && locData!['endTime'].toString().trim().isNotEmpty) {
+                  endStr = locData['endTime'].toString().trim();
+                } else if (cfg?['endTime'] != null && cfg!['endTime'].toString().trim().isNotEmpty) {
+                  endStr = cfg['endTime'].toString().trim();
+                } else if (data['endTime'] is String && (data['endTime'] as String).trim().isNotEmpty) {
+                  endStr = (data['endTime'] as String).trim();
+                }
+
+                final normStart = startStr.replaceAll('.', ':').trim();
+                final normEnd = endStr.replaceAll('.', ':').trim();
+
+                DateTime? dutyStartDateTime;
+                DateTime? dutyEndDateTime;
+
+                if (normStart.isNotEmpty && normStart.contains(':')) {
+                  final parts = normStart.split(':');
+                  final sh = int.tryParse(parts[0]) ?? 8;
+                  final sm = int.tryParse(parts[1]) ?? 0;
+                  dutyStartDateTime = DateTime(dutyDate.year, dutyDate.month, dutyDate.day, sh, sm);
+                } else if (startStr.isNotEmpty || endStr.isNotEmpty) {
+                  dutyStartDateTime = DateTime(dutyDate.year, dutyDate.month, dutyDate.day, 8, 0);
+                }
+
+                if (normEnd.isNotEmpty && normEnd.contains(':')) {
+                  final parts = normEnd.split(':');
+                  final eh = int.tryParse(parts[0]) ?? ((dutyStartDateTime?.hour ?? 8) + 9);
+                  final em = int.tryParse(parts[1]) ?? (dutyStartDateTime?.minute ?? 0);
+                  dutyEndDateTime = DateTime(dutyDate.year, dutyDate.month, dutyDate.day, eh, em);
+                } else if (dutyStartDateTime != null) {
+                  dutyEndDateTime = dutyStartDateTime.add(const Duration(hours: 9));
+                }
+
                 allEvents.add(<String, dynamic>{
                   ...data,
                   'id': 'duty_${doc.id}',
                   'source': 'duty',
                   'title': 'Nöbet: $location',
+                  'locationName': location,
+                  'dutyLocation': location,
+                  'description': dutyDesc,
+                  'locationDescription': dutyDesc,
+                  'rawStartTime': startStr,
+                  'rawEndTime': endStr,
                   'displayType': 'Nöbet',
                   'type': 'Nöbet',
                   'date': Timestamp.fromDate(dutyDate),
-                  'startTime': Timestamp.fromDate(dutyDate),
-                  'endTime': Timestamp.fromDate(dutyDate.add(const Duration(hours: 8))),
+                  'startTime': dutyStartDateTime != null ? Timestamp.fromDate(dutyStartDateTime) : null,
+                  'endTime': dutyEndDateTime != null ? Timestamp.fromDate(dutyEndDateTime) : null,
                 });
               }
             }
@@ -2835,9 +3112,14 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
         }
 
         // C. homeworks (Ödevler)
-        if (homeworkSnapshot != null) {
-          for (var doc in homeworkSnapshot.docs) {
+        if (allHomeworkDocs.isNotEmpty) {
+          for (var doc in allHomeworkDocs) {
             final data = doc.data() as Map<String, dynamic>;
+            final itemTermId = data['termId']?.toString().trim();
+            if (activeTermId != null && activeTermId.isNotEmpty && itemTermId != null && itemTermId.isNotEmpty) {
+              if (itemTermId != activeTermId) continue;
+            }
+
             final dueDate = _parseDateTime(data['dueDate']);
             final classId = data['classId']?.toString() ?? '';
             final className = classIdToName[classId] ?? data['className'] ?? '';
@@ -2866,6 +3148,11 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
         if (classExamsSnapshot != null) {
           for (var doc in classExamsSnapshot.docs) {
             final data = doc.data() as Map<String, dynamic>;
+            final itemTermId = data['termId']?.toString().trim();
+            if (activeTermId != null && activeTermId.isNotEmpty && itemTermId != null && itemTermId.isNotEmpty) {
+              if (itemTermId != activeTermId) continue;
+            }
+
             final cId = data['classId']?.toString();
             final examDate = _parseDateTime(data['date']);
             final name = data['examName'] ?? 'Sınav';
@@ -2900,6 +3187,11 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
 
         for (var doc in trialExamsSnapshot.docs) {
           final data = doc.data() as Map<String, dynamic>;
+          final itemTermId = data['termId']?.toString().trim();
+          if (activeTermId != null && activeTermId.isNotEmpty && itemTermId != null && itemTermId.isNotEmpty) {
+            if (itemTermId != activeTermId) continue;
+          }
+
           final examDate = _parseDateTime(data['date']);
           final name = data['name'] ?? data['examName'] ?? 'Deneme Sınavı';
           
@@ -2933,17 +3225,6 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
     }
   }
 
-  int? _parseWeekdayTr(String dayName) {
-    final clean = dayName.toLowerCase().replaceAll('ı', 'i').replaceAll('İ', 'i').trim();
-    if (clean.contains('pazartesi')) return 1;
-    if (clean.contains('sali')) return 2;
-    if (clean.contains('carsamba')) return 3;
-    if (clean.contains('persembe')) return 4;
-    if (clean.contains('cuma')) return 5;
-    if (clean.contains('cumartesi')) return 6;
-    if (clean.contains('pazar')) return 7;
-    return null;
-  }
 
   String _formatTime(dynamic time) {
     if (time == null) return '';
@@ -3003,13 +3284,37 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
                               FittedBox(
                                 fit: BoxFit.scaleDown,
                                 alignment: Alignment.centerLeft,
-                                child: Text(
-                                  '${_months[_focusedDay.month - 1]} ${_focusedDay.year}',
-                                  style: TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.grey.shade900,
-                                  ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      '${_months[_focusedDay.month - 1]} ${_focusedDay.year}',
+                                      style: TextStyle(
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.grey.shade900,
+                                      ),
+                                    ),
+                                    if (_activeTermName != null && _activeTermName!.isNotEmpty) ...[
+                                      const SizedBox(width: 8),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                        decoration: BoxDecoration(
+                                          color: Colors.blue.shade50,
+                                          borderRadius: BorderRadius.circular(8),
+                                          border: Border.all(color: Colors.blue.shade200),
+                                        ),
+                                        child: Text(
+                                          _activeTermName!,
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.blue.shade800,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
                                 ),
                               ),
                               if (_isLoading)
@@ -3267,18 +3572,24 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
                     ),
                   ),
                   if (dayEvents.isNotEmpty)
-                    Container(
-                      margin: EdgeInsets.only(top: 1),
-                      width: 4,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: isSelected ? Colors.white : Colors.blue.shade500,
-                        shape: BoxShape.circle,
-                        boxShadow: isSelected ? null : [
-                          BoxShadow(color: Colors.blue.withOpacity(0.2), blurRadius: 4, spreadRadius: 1)
-                        ],
-                      ),
-                    ),
+                    Builder(builder: (context) {
+                      final hasDuty = dayEvents.any((e) => e['source'] == 'duty' || e['type'] == 'Nöbet' || e['displayType'] == 'Nöbet');
+                      final dotColor = isSelected
+                          ? Colors.white
+                          : (hasDuty ? Colors.orange.shade700 : Colors.blue.shade500);
+                      return Container(
+                        margin: const EdgeInsets.only(top: 1),
+                        width: hasDuty ? 6 : 4,
+                        height: hasDuty ? 6 : 4,
+                        decoration: BoxDecoration(
+                          color: dotColor,
+                          shape: BoxShape.circle,
+                          boxShadow: isSelected ? null : [
+                            BoxShadow(color: dotColor.withOpacity(0.3), blurRadius: 4, spreadRadius: 1)
+                          ],
+                        ),
+                      );
+                    }),
                 ],
               ),
             ),
@@ -3419,8 +3730,28 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
                                         final isHomework = event['source'] == 'homework';
                                         final String description = isHomework ? (event['content'] ?? '').toString().trim() : '';
                                         final hasDescription = isHomework && description.isNotEmpty;
+                                        final isDuty = event['source'] == 'duty';
+                                        final String dutyDesc = isDuty ? (event['description'] ?? event['locationDescription'] ?? '').toString().trim() : '';
+                                        final hasDutyDesc = isDuty && dutyDesc.isNotEmpty;
+                                        final dateStr = event['date'] != null ? _formatDateTr(event['date'], short: true) : '';
+                                        final hasTime = event['startTime'] != null;
+                                        final rawStart = (event['rawStartTime'] ?? '').toString().trim();
+                                        final rawEnd = (event['rawEndTime'] ?? '').toString().trim();
+                                        final String timeStr;
+                                        if (rawStart.isNotEmpty && rawEnd.isNotEmpty) {
+                                          timeStr = '$rawStart - $rawEnd';
+                                        } else if (hasTime && event['endTime'] != null) {
+                                          timeStr = '${_formatTime(event['startTime'])} - ${_formatTime(event['endTime'])}';
+                                        } else if (hasTime) {
+                                          timeStr = _formatTime(event['startTime']);
+                                        } else {
+                                          timeStr = '';
+                                        }
+                                        final prefix = dateStr.isNotEmpty && timeStr.isNotEmpty
+                                            ? '$dateStr • $timeStr'
+                                            : (dateStr.isNotEmpty ? dateStr : timeStr);
                                         return Text(
-                                          '${event['date'] is Timestamp ? DateFormat('dd MMM').format((event['date'] as Timestamp).toDate()) : ''} • ${_formatTime(event['startTime'])} - ${_formatTime(event['endTime'])}' + (hasClassroom ? ' • Derslik: $classroom' : '') + (hasDescription ? ' • $description' : ''),
+                                          prefix + (hasClassroom ? ' • Derslik: $classroom' : '') + (hasDescription ? ' • $description' : '') + (hasDutyDesc ? ' • $dutyDesc' : ''),
                                           style: const TextStyle(
                                             color: Colors.grey,
                                             fontSize: 12,
@@ -3490,14 +3821,24 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
 
   void _showEventDetails(Map<String, dynamic> event) {
     final bool isEtut = event['source'] == 'etut';
+    final bool isDuty = event['source'] == 'duty' || event['type'] == 'Nöbet' || event['displayType'] == 'Nöbet';
     final String title = event['title'] ?? 'Etkinlik Detayı';
     final String type = event['displayType'] ?? 'Genel';
-    final String dateStr = event['date'] is Timestamp
-        ? DateFormat('dd MMMM yyyy').format((event['date'] as Timestamp).toDate())
-        : '';
-    final String timeStr = event['startTime'] != null
-        ? '${_formatTime(event['startTime'])} - ${_formatTime(event['endTime'])}'
-        : '';
+    final String dateStr = _formatFullDateTr(event['date']);
+    final rawStart = (event['rawStartTime'] ?? '').toString().trim();
+    final rawEnd = (event['rawEndTime'] ?? '').toString().trim();
+    final String timeStr;
+    if (rawStart.isNotEmpty && rawEnd.isNotEmpty) {
+      timeStr = '$rawStart - $rawEnd';
+    } else if (rawStart.isNotEmpty) {
+      timeStr = rawStart;
+    } else if (event['startTime'] != null && event['endTime'] != null) {
+      timeStr = '${_formatTime(event['startTime'])} - ${_formatTime(event['endTime'])}';
+    } else if (event['startTime'] != null) {
+      timeStr = _formatTime(event['startTime']);
+    } else {
+      timeStr = '';
+    }
 
     showModalBottomSheet(
       context: context,
@@ -3570,8 +3911,29 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
                 padding: const EdgeInsets.all(24),
                 children: [
                   if (timeStr.isNotEmpty)
-                    _buildDetailItem(Icons.access_time_rounded, 'Saat', timeStr),
+                    _buildDetailItem(Icons.access_time_rounded, isDuty ? 'Nöbet Saati' : 'Saat', timeStr),
                   
+                  if (isDuty) ...[
+                    Builder(
+                      builder: (context) {
+                        final locName = (event['locationName'] ?? event['dutyLocation'] ?? '').toString().trim();
+                        if (locName.isNotEmpty) {
+                          return _buildDetailItem(Icons.security_rounded, 'Nöbet Yeri', locName);
+                        }
+                        return const SizedBox.shrink();
+                      },
+                    ),
+                    Builder(
+                      builder: (context) {
+                        final dutyDesc = (event['locationDescription'] ?? event['description'] ?? '').toString().trim();
+                        if (dutyDesc.isNotEmpty) {
+                          return _buildDetailItem(Icons.info_outline_rounded, 'Nöbet Yeri Açıklaması', dutyDesc);
+                        }
+                        return const SizedBox.shrink();
+                      },
+                    ),
+                  ],
+
                   Builder(
                     builder: (context) {
                       final String classroom = (event['classroomName'] ?? 
@@ -3592,8 +3954,8 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
                   if (isEtut && event['topic'] != null)
                     _buildDetailItem(Icons.auto_awesome_rounded, 'Kazanım Bilgisi', event['topic']),
 
-                  if (event['description'] != null && event['description'].toString().isNotEmpty)
-                    _buildDetailItem(Icons.description_outlined, 'Açıklama', event['description']),
+                  if (!isDuty && event['description'] != null && event['description'].toString().trim().isNotEmpty)
+                    _buildDetailItem(Icons.description_outlined, 'Açıklama', event['description'].toString().trim()),
 
                   if (isEtut) ...[
                     // Öğrenci değilse katılımcı listesini göster

@@ -1966,8 +1966,17 @@ class AnnouncementService {
   Future<String> getTeacherAnnouncementMode(String schoolId) async {
     try {
       final doc = await _firestore.collection('schools').doc(schoolId).collection('settings').doc('announcements').get();
-      if (doc.exists && doc.data() != null) {
-        return doc.data()!['teacherAnnouncementMode']?.toString() ?? 'approval_required';
+      if (doc.exists && doc.data() != null && doc.data()!['teacherAnnouncementMode'] != null) {
+        return doc.data()!['teacherAnnouncementMode'].toString();
+      }
+    } catch (_) {}
+    try {
+      final sDoc = await _firestore.collection('schools').doc(schoolId).get();
+      if (sDoc.exists && sDoc.data() != null) {
+        final appSettings = sDoc.data()!['appSettings'] as Map<String, dynamic>?;
+        if (appSettings != null && appSettings['teacherAnnouncementMode'] != null) {
+          return appSettings['teacherAnnouncementMode'].toString();
+        }
       }
     } catch (_) {}
     return 'approval_required';
@@ -1975,10 +1984,20 @@ class AnnouncementService {
 
   /// Öğretmen duyuru modunu güncelle
   Future<void> setTeacherAnnouncementMode(String schoolId, String mode) async {
-    await _firestore.collection('schools').doc(schoolId).collection('settings').doc('announcements').set({
-      'teacherAnnouncementMode': mode,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    try {
+      await _firestore.collection('schools').doc(schoolId).set({
+        'appSettings': {
+          'teacherAnnouncementMode': mode,
+        }
+      }, SetOptions(merge: true));
+    } catch (_) {}
+
+    try {
+      await _firestore.collection('schools').doc(schoolId).collection('settings').doc('announcements').set({
+        'teacherAnnouncementMode': mode,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (_) {}
   }
 
   /// Duyuruyu onayla (Yönetici)

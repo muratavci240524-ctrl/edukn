@@ -6,8 +6,10 @@ import '../../../services/development_report_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../models/guidance/development_report/development_criterion_model.dart';
 import 'development_report_session_detail_screen.dart';
-import 'development_report_export_dialogs.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
-
+import 'development_report_export_dialogs.dart';
+import 'package:edukn/widgets/safe_stream_builder.dart';
+import '../../../services/term_service.dart';
+import '../../../services/user_permission_service.dart';
 
 class DevelopmentReportManagementScreen extends StatefulWidget {
   final String institutionId;
@@ -33,9 +35,47 @@ class DevelopmentReportManagementScreen extends StatefulWidget {
 class _DevelopmentReportManagementScreenState
     extends State<DevelopmentReportManagementScreen> {
   final DevelopmentReportService _service = DevelopmentReportService();
+  String? _activeTermId;
+  String? _activeTermName;
+  bool _isManager = false;
 
-  // Simple student picker would be needed here.
-  // For now, let's list latest reports and have a "Create New" FAB that asks for student ID (mock).
+  @override
+  void initState() {
+    super.initState();
+    _loadContextData();
+  }
+
+  Future<void> _loadContextData() async {
+    final termId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
+    String? termName;
+    if (termId != null && termId.isNotEmpty) {
+      try {
+        final termDoc = await FirebaseFirestore.instance.collection('terms').doc(termId).get();
+        if (termDoc.exists) {
+          termName = (termDoc.data()?['name'] ?? termDoc.data()?['termName'])?.toString();
+        }
+      } catch (_) {}
+    }
+
+    final userData = await UserPermissionService.loadUserData();
+    final role = (userData?['role'] as String?)?.toLowerCase() ?? '';
+    final title = (userData?['title'] as String?)?.toLowerCase() ?? '';
+    final isManager = role.contains('admin') ||
+        role.contains('mudur') ||
+        role.contains('müdür') ||
+        role.contains('kurucu') ||
+        role.contains('rehber') ||
+        title.contains('müdür') ||
+        title.contains('rehber');
+
+    if (mounted) {
+      setState(() {
+        _activeTermId = termId;
+        _activeTermName = termName;
+        _isManager = isManager;
+      });
+    }
+  }
 
   String _formatTargetGroup(String group) {
     switch (group) {
@@ -57,9 +97,41 @@ class _DevelopmentReportManagementScreenState
       appBar: EduknAppBar(
         title: '360 Gelişim Raporları',
         subtitle: widget.schoolTypeName,
+        actions: _activeTermName != null
+            ? [
+                Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: Colors.indigo.shade50,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.indigo.shade200),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.calendar_today, size: 12, color: Colors.indigo.shade700),
+                          const SizedBox(width: 5),
+                          Text(
+                            _activeTermName!,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.indigo.shade700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ]
+            : null,
       ),
       body: SafeStreamBuilder<List<DevelopmentReportSession>>(
-        stream: _service.getSessions(widget.institutionId),
+        stream: _service.getSessions(widget.institutionId, termId: _activeTermId),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting)
             return Center(child: CircularProgressIndicator());
@@ -358,17 +430,18 @@ class _DevelopmentReportManagementScreenState
       },
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       itemBuilder: (context) => [
-        PopupMenuItem(
-          value: 'edit',
-          child: Row(
-            children: [
-              Icon(Icons.edit_outlined, size: 20, color: Colors.blue),
-              SizedBox(width: 12),
-              Text("Düzenle", style: TextStyle(fontSize: 14)),
-            ],
+        if (_isManager)
+          const PopupMenuItem(
+            value: 'edit',
+            child: Row(
+              children: [
+                Icon(Icons.edit_outlined, size: 20, color: Colors.blue),
+                SizedBox(width: 12),
+                Text("Düzenle", style: TextStyle(fontSize: 14)),
+              ],
+            ),
           ),
-        ),
-        PopupMenuItem(
+        const PopupMenuItem(
           value: 'recalculate',
           child: Row(
             children: [
@@ -378,16 +451,17 @@ class _DevelopmentReportManagementScreenState
             ],
           ),
         ),
-        PopupMenuItem(
-          value: 'delete',
-          child: Row(
-            children: [
-              Icon(Icons.delete_outline_rounded, size: 20, color: Colors.red),
-              SizedBox(width: 12),
-              Text("Sil", style: TextStyle(fontSize: 14)),
-            ],
+        if (_isManager)
+          const PopupMenuItem(
+            value: 'delete',
+            child: Row(
+              children: [
+                Icon(Icons.delete_outline_rounded, size: 20, color: Colors.red),
+                SizedBox(width: 12),
+                Text("Sil", style: TextStyle(fontSize: 14)),
+              ],
+            ),
           ),
-        ),
       ],
       child: Container(
         padding: EdgeInsets.all(8),
@@ -465,6 +539,8 @@ class _DevelopmentReportManagementScreenState
           builder: (context) => _CreateReportDialog(
             institutionId: widget.institutionId,
             service: _service,
+            activeTermId: _activeTermId,
+            activeTermName: _activeTermName,
           ),
         ),
       );
@@ -474,6 +550,8 @@ class _DevelopmentReportManagementScreenState
         builder: (context) => _CreateReportDialog(
           institutionId: widget.institutionId,
           service: _service,
+          activeTermId: _activeTermId,
+          activeTermName: _activeTermName,
         ),
       );
     }
@@ -483,11 +561,15 @@ class _DevelopmentReportManagementScreenState
 class _CreateReportDialog extends StatefulWidget {
   final String institutionId;
   final DevelopmentReportService service;
+  final String? activeTermId;
+  final String? activeTermName;
 
   const _CreateReportDialog({
     Key? key,
     required this.institutionId,
     required this.service,
+    this.activeTermId,
+    this.activeTermName,
   }) : super(key: key);
 
   @override
@@ -495,9 +577,18 @@ class _CreateReportDialog extends StatefulWidget {
 }
 
 class __CreateReportDialogState extends State<_CreateReportDialog> {
-  final _titleController = TextEditingController(
-    text: "2024-2025 Güz - Gelişim Raporu",
-  );
+  late final TextEditingController _titleController;
+
+  @override
+  void initState() {
+    super.initState();
+    final defaultTitle = widget.activeTermName != null
+        ? "${widget.activeTermName} - Gelişim Raporu"
+        : "2024-2025 Güz - Gelişim Raporu";
+    _titleController = TextEditingController(text: defaultTitle);
+    _loadReviewers();
+    _loadFiltersForTargetGroup();
+  }
 
   String _targetGroup = 'student'; // 'student', 'teacher', 'personnel'
 
@@ -524,13 +615,6 @@ class __CreateReportDialogState extends State<_CreateReportDialog> {
   bool _isLoadingCriteria = false;
 
   final _criteriaService = DevelopmentReportService();
-
-  @override
-  void initState() {
-    super.initState();
-    _loadReviewers();
-    _loadFiltersForTargetGroup();
-  }
 
   Future<void> _loadReviewers() async {
     try {
@@ -1061,6 +1145,7 @@ class __CreateReportDialogState extends State<_CreateReportDialog> {
         targetUserIds: finalTargets,
         isPublished: false,
         createdAt: DateTime.now(),
+        termId: widget.activeTermId,
       );
 
       await widget.service.createSession(session);

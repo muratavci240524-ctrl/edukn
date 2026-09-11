@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../models/field_trip_model.dart';
 import '../../../../services/field_trip_service.dart';
 import 'field_trip_form_screen.dart';
-import 'field_trip_detail_screen.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
-
+import 'field_trip_detail_screen.dart';
+import 'package:edukn/widgets/safe_stream_builder.dart';
+import '../../../../services/term_service.dart';
+import '../../../../services/user_permission_service.dart';
 
 class FieldTripListScreen extends StatefulWidget {
   final String institutionId;
@@ -24,6 +27,112 @@ class FieldTripListScreen extends StatefulWidget {
 
 class _FieldTripListScreenState extends State<FieldTripListScreen> {
   final FieldTripService _service = FieldTripService();
+  String? _activeTermId;
+  String? _activeTermName;
+  bool _isManager = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadContextData();
+  }
+
+  Future<void> _loadContextData() async {
+    final termId = await TermService().getSelectedTermId() ??
+        await TermService().getActiveTermId();
+    String? termName;
+    if (termId != null && termId.isNotEmpty) {
+      try {
+        final termDoc = await FirebaseFirestore.instance
+            .collection('terms')
+            .doc(termId)
+            .get();
+        if (termDoc.exists) {
+          termName = (termDoc.data()?['name'] ?? termDoc.data()?['termName'])
+              ?.toString();
+        }
+      } catch (_) {}
+    }
+
+    final userData = await UserPermissionService.loadUserData();
+    final role = (userData?['role'] as String?)?.toLowerCase() ?? '';
+    final title = (userData?['title'] as String?)?.toLowerCase() ?? '';
+    final isManager = role.contains('admin') ||
+        role.contains('mudur') ||
+        role.contains('müdür') ||
+        role.contains('kurucu') ||
+        role.contains('rehber') ||
+        title.contains('müdür') ||
+        title.contains('rehber');
+
+    if (mounted) {
+      setState(() {
+        _activeTermId = termId;
+        _activeTermName = termName;
+        _isManager = isManager;
+      });
+    }
+  }
+
+  Future<void> _confirmDelete(FieldTrip trip) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Geziyi Sil'),
+        content: Text(
+          '"${trip.name}" gezi kaydını silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('İptal'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Sil'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        await _service.deleteFieldTrip(trip.id);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Gezi başarıyla silindi.'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Silme hatası: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  void _editTrip(FieldTrip trip) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => FieldTripFormScreen(
+          institutionId: widget.institutionId,
+          schoolTypeId: widget.schoolTypeId,
+          schoolTypeName: widget.schoolTypeName,
+          initialTrip: trip,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -35,6 +144,47 @@ class _FieldTripListScreenState extends State<FieldTripListScreen> {
             expandedHeight: 120.0,
             floating: false,
             pinned: true,
+            actions: _activeTermName != null
+                ? [
+                    Padding(
+                      padding: const EdgeInsets.only(right: 16),
+                      child: Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: Colors.white.withOpacity(0.3),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.calendar_today,
+                                size: 12,
+                                color: Colors.white,
+                              ),
+                              const SizedBox(width: 5),
+                              Text(
+                                _activeTermName!,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ]
+                : null,
             flexibleSpace: FlexibleSpaceBar(
               title: const Text(
                 'Gezi Görevlendirmeleri',
@@ -101,7 +251,17 @@ class _FieldTripListScreenState extends State<FieldTripListScreen> {
                   );
                 }
 
-                final trips = snapshot.data ?? [];
+                var trips = snapshot.data ?? [];
+                if (_activeTermId != null && _activeTermId!.isNotEmpty) {
+                  trips = trips
+                      .where(
+                        (t) =>
+                            t.termId == null ||
+                            t.termId!.isEmpty ||
+                            t.termId == _activeTermId,
+                      )
+                      .toList();
+                }
 
                 if (trips.isEmpty) {
                   return SliverFillRemaining(
@@ -155,24 +315,33 @@ class _FieldTripListScreenState extends State<FieldTripListScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => FieldTripFormScreen(
-                institutionId: widget.institutionId,
-                schoolTypeId: widget.schoolTypeId,
-                schoolTypeName: widget.schoolTypeName,
+      floatingActionButton: _isManager
+          ? FloatingActionButton.extended(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => FieldTripFormScreen(
+                      institutionId: widget.institutionId,
+                      schoolTypeId: widget.schoolTypeId,
+                      schoolTypeName: widget.schoolTypeName,
+                    ),
+                  ),
+                );
+              },
+              label: const Text(
+                'Yeni Gezi Planla',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
-            ),
-          );
-        },
-        label: const Text('Yeni Gezi Planla'),
-        icon: const Icon(Icons.add_location_alt),
-        backgroundColor: Colors.indigo,
-        elevation: 4,
-      ),
+              icon: const Icon(Icons.add_location_alt, color: Colors.white),
+              backgroundColor: Colors.indigo,
+              foregroundColor: Colors.white,
+              elevation: 4,
+            )
+          : null,
     );
   }
 
@@ -261,6 +430,56 @@ class _FieldTripListScreenState extends State<FieldTripListScreen> {
                       ),
                     ),
                     _buildStatusBadge(trip),
+                    if (_isManager) ...[
+                      const SizedBox(width: 4),
+                      PopupMenuButton<String>(
+                        icon: Icon(
+                          Icons.more_vert,
+                          size: 20,
+                          color: Colors.grey.shade600,
+                        ),
+                        onSelected: (val) {
+                          if (val == 'edit') {
+                            _editTrip(trip);
+                          } else if (val == 'delete') {
+                            _confirmDelete(trip);
+                          }
+                        },
+                        itemBuilder: (ctx) => [
+                          const PopupMenuItem(
+                            value: 'edit',
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.edit_outlined,
+                                  size: 18,
+                                  color: Colors.blue,
+                                ),
+                                SizedBox(width: 8),
+                                Text('Düzenle'),
+                              ],
+                            ),
+                          ),
+                          const PopupMenuItem(
+                            value: 'delete',
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.delete_outline,
+                                  size: 18,
+                                  color: Colors.red,
+                                ),
+                                SizedBox(width: 8),
+                                Text(
+                                  'Sil',
+                                  style: TextStyle(color: Colors.red),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -320,8 +539,6 @@ class _FieldTripListScreenState extends State<FieldTripListScreen> {
       );
     }
 
-    // Check if active (date passed but not completed?)
-    // For simplicity:
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
@@ -368,7 +585,7 @@ class _FieldTripListScreenState extends State<FieldTripListScreen> {
           value,
           style: TextStyle(
             fontWeight: FontWeight.bold,
-            fontSize: 14, // Use standard font size
+            fontSize: 14,
             color: isHighlight ? Colors.orange[800] : Colors.grey[800],
           ),
           maxLines: 1,

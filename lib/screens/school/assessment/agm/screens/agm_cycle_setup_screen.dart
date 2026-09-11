@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'dart:ui';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import '../models/agm_time_slot_model.dart';
 import '../repository/agm_repository.dart';
 import '../services/agm_service.dart';
+import '../../../../../services/term_service.dart';
 import '../../../classroom_management_screen.dart';
 
 /// AGM Cycle Kurulum Ekranı – 3 adımlı wizard
@@ -122,7 +123,9 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
 
     // Sınavlar - trial_exams collection
     QuerySnapshot? examSnap;
+    String? activeTermId;
     try {
+      activeTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
       examSnap = await _db
           .collection('trial_exams')
           .where('institutionId', isEqualTo: widget.institutionId)
@@ -181,7 +184,15 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
 
       setState(() {
         _exams = examSnap != null 
-            ? examSnap.docs.map((d) => {'id': d.id, ...d.data() as Map<String, dynamic>}).toList()
+            ? examSnap.docs
+                .where((d) {
+                  if (activeTermId != null && activeTermId.isNotEmpty) {
+                    final t = (d.data() as Map<String, dynamic>)['termId']?.toString();
+                    if (t != activeTermId) return false;
+                  }
+                  return true;
+                })
+                .map((d) => {'id': d.id, ...d.data() as Map<String, dynamic>}).toList()
             : [];
         // Tarihe göre manuel sırala (eğer alan varsa)
         _exams.sort((a, b) {

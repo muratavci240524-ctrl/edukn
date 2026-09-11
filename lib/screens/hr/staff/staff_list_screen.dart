@@ -38,6 +38,7 @@ class _StaffListScreenState extends State<StaffListScreen>
   List<Map<String, dynamic>> _filteredStaff = [];
   Map<String, dynamic>? _selectedStaff;
   bool _isLoading = false;
+  int _detectedDuplicateCount = 0;
 
   // Geçerli Ünvanlar Haritası (Kullanıcı Dostu İsim -> Sistem Kodu)
   final Map<String, String> _validTitlesMapping = {
@@ -137,9 +138,39 @@ class _StaffListScreenState extends State<StaffListScreen>
         return role != 'veli' && role != 'ogrenci' && role != 'öğrenci';
       }).toList();
 
+      // Mükerrer kayıtları tespit et ve arayüzde tekilleştir
+      final Map<String, Map<String, dynamic>> uniqueStaffMap = {};
+      int dupCount = 0;
+
+      for (final item in items) {
+        final tc = (item['tcKimlik'] ?? item['tc'] ?? '').toString().trim();
+        final fullName = (item['fullName'] ?? item['name'] ?? '').toString().trim().toLowerCase();
+        final key = (tc.isNotEmpty && tc != '-' && tc.length >= 11) ? 'tc_$tc' : 'name_$fullName';
+
+        if (uniqueStaffMap.containsKey(key)) {
+          dupCount++;
+          final existing = uniqueStaffMap[key]!;
+          // Eksik auth bilgilerini veya fcmTokens'ı birleştir
+          final hasAuth = (item['authUserId'] ?? item['googleUid'] ?? '').toString().isNotEmpty;
+          final existingHasAuth = (existing['authUserId'] ?? existing['googleUid'] ?? '').toString().isNotEmpty;
+          if (hasAuth && !existingHasAuth) {
+            existing['authUserId'] = item['authUserId'];
+            existing['googleUid'] = item['googleUid'];
+          }
+          if (item['personalEmail'] != null && (existing['personalEmail'] == null || existing['personalEmail'].toString().isEmpty)) {
+            existing['personalEmail'] = item['personalEmail'];
+          }
+        } else {
+          uniqueStaffMap[key] = Map<String, dynamic>.from(item);
+        }
+      }
+
+      final deduplicatedItems = uniqueStaffMap.values.toList();
+
       if (mounted) {
         setState(() {
-          _staff = items;
+          _staff = deduplicatedItems;
+          _detectedDuplicateCount = dupCount;
           _applyFilters();
           if (_filteredStaff.isNotEmpty) {
             _selectedStaff = _filteredStaff.first;
@@ -154,6 +185,258 @@ class _StaffListScreenState extends State<StaffListScreen>
           _isLoading = false;
         });
       }
+    }
+  }
+
+  // --- MÜKERRER PERSONEL TEMİZLEME MOTORU ---
+
+  Future<void> _scanAndCleanDuplicates() async {
+    final instId = _institutionId;
+    if (instId == null || instId.isEmpty) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.auto_fix_high_rounded, color: Colors.deepOrange),
+            SizedBox(width: 8),
+            Text('Mükerrer Personelleri Temizle', style: TextStyle(fontSize: 18)),
+          ],
+        ),
+        content: const Text(
+          'Kurumdaki mükerrer personel (öğretmen) kayıtları taranacak:\n\n'
+          '• Sisteme giriş esnasında açılan çift hesaplar tespit edilir.\n'
+          '• Giriş kimlikleri (Auth/Google UID) ve bildirim tokenları ana hesaba güvenle aktarılır.\n'
+          '• Ders programı atamaları korunur ve mükerrer klon kayıtlar veritabanından silinir.\n\n'
+          'İşlemi başlatmak istiyor musunuz?',
+          style: TextStyle(fontSize: 13, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('İPTAL'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.deepOrange,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('TARA VE TEMİZLE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true || !mounted) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      final instVariants = UserPermissionService.getInstitutionIdVariants(instId);
+      QuerySnapshot<Map<String, dynamic>> query;
+      if (instVariants.length > 1) {
+        query = await FirebaseFirestore.instance
+            .collection('users')
+            .where('institutionId', whereIn: instVariants)
+            .get();
+      } else {
+        query = await FirebaseFirestore.instance
+            .collection('users')
+            .where('institutionId', isEqualTo: instId)
+            .get();
+      }
+
+      final allStaff = query.docs.map((doc) {
+        var data = doc.data();
+        data['id'] = doc.id;
+        data = CryptoService.decryptMap(data, institutionId: instId);
+        return data;
+      }).where((data) {
+        final role = (data['role'] ?? '').toString().toLowerCase();
+        return role != 'veli' && role != 'ogrenci' && role != 'öğrenci';
+      }).toList();
+
+      // Grupla: TC veya Ad Soyad bazlı
+      final Map<String, List<Map<String, dynamic>>> groups = {};
+      for (final s in allStaff) {
+        final tc = (s['tcKimlik'] ?? s['tc'] ?? '').toString().trim();
+        final fullName = (s['fullName'] ?? s['name'] ?? '').toString().trim().toLowerCase();
+        if (fullName.isEmpty && tc.isEmpty) continue;
+
+        final key = (tc.isNotEmpty && tc != '-' && tc.length >= 11) ? 'tc_$tc' : 'name_$fullName';
+        groups.putIfAbsent(key, () => []).add(s);
+      }
+
+      final List<String> cleanedSummary = [];
+      int deletedCount = 0;
+
+      for (final entry in groups.entries) {
+        final list = entry.value;
+        if (list.length <= 1) continue;
+
+        // Mükerrer kayıtlar bulundu!
+        // 1. Ana dokümanı belirle:
+        // Ders programı (lessonAssignments veya classSchedules) içinde ataması olan doküman ana kayıttır.
+        Map<String, dynamic>? canonicalDoc;
+
+        for (final doc in list) {
+          final docId = doc['id'].toString();
+          try {
+            final laSnap = await FirebaseFirestore.instance
+                .collection('lessonAssignments')
+                .where('teacherIds', arrayContains: docId)
+                .limit(1)
+                .get();
+            if (laSnap.docs.isNotEmpty) {
+              canonicalDoc = doc;
+              break;
+            }
+          } catch (_) {}
+
+          if (canonicalDoc == null) {
+            try {
+              final csSnap = await FirebaseFirestore.instance
+                  .collection('classSchedules')
+                  .where('teacherId', isEqualTo: docId)
+                  .limit(1)
+                  .get();
+              if (csSnap.docs.isNotEmpty) {
+                canonicalDoc = doc;
+                break;
+              }
+            } catch (_) {}
+          }
+        }
+
+        // Eğer ders ataması bulunamazsa:
+        // Otomatik ID'ye sahip olanı (uzunluğu < 25 ve Auth UID olmayan) ana kayıt yap
+        canonicalDoc ??= list.firstWhere(
+          (d) => d['id'].toString().length < 25 && !d['id'].toString().contains('-'),
+          orElse: () => list.first,
+        );
+
+        final canonicalId = canonicalDoc['id'].toString();
+        final duplicates = list.where((d) => d['id'].toString() != canonicalId).toList();
+
+        // 2. Klon dokümanlardaki verileri ana dokümana aktar
+        final mergeUpdates = <String, dynamic>{};
+        for (final dup in duplicates) {
+          final dupId = dup['id'].toString();
+          final authUid = (dup['authUserId'] ?? dup['googleUid'] ?? (dupId.length >= 25 ? dupId : '')).toString().trim();
+          if (authUid.isNotEmpty) {
+            mergeUpdates['authUserId'] = authUid;
+            mergeUpdates['googleUid'] = authUid;
+          }
+          final pEmail = (dup['personalEmail'] ?? '').toString().trim();
+          if (pEmail.isNotEmpty && (canonicalDoc['personalEmail'] == null || canonicalDoc['personalEmail'].toString().isEmpty)) {
+            mergeUpdates['personalEmail'] = pEmail;
+          }
+          final cEmail = (dup['corporateEmail'] ?? '').toString().trim();
+          if (cEmail.isNotEmpty && (canonicalDoc['corporateEmail'] == null || canonicalDoc['corporateEmail'].toString().isEmpty)) {
+            mergeUpdates['corporateEmail'] = cEmail;
+          }
+          final uName = (dup['username'] ?? '').toString().trim();
+          if (uName.isNotEmpty && (canonicalDoc['username'] == null || canonicalDoc['username'].toString().isEmpty)) {
+            mergeUpdates['username'] = uName;
+          }
+          final fcmTokens = dup['fcmTokens'];
+          if (fcmTokens is List && fcmTokens.isNotEmpty) {
+            mergeUpdates['fcmTokens'] = FieldValue.arrayUnion(fcmTokens);
+          }
+
+          // Eğer kaza eseri bu dupId'ye atanmış dersler varsa ana kayda yönlendir
+          try {
+            final csDupSnap = await FirebaseFirestore.instance
+                .collection('classSchedules')
+                .where('teacherId', isEqualTo: dupId)
+                .get();
+            for (final csDoc in csDupSnap.docs) {
+              await csDoc.reference.update({'teacherId': canonicalId});
+            }
+          } catch (_) {}
+
+          // Klon dokümanı Firestore'dan sil
+          await FirebaseFirestore.instance.collection('users').doc(dupId).delete();
+          deletedCount++;
+        }
+
+        // Ana dokümanı güncelle
+        if (mergeUpdates.isNotEmpty) {
+          mergeUpdates['updatedAt'] = FieldValue.serverTimestamp();
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(canonicalId)
+              .set(mergeUpdates, SetOptions(merge: true));
+        }
+
+        final name = canonicalDoc['fullName'] ?? canonicalDoc['name'] ?? 'Personel';
+        cleanedSummary.add('$name (${duplicates.length} mükerrer silindi)');
+      }
+
+      await _loadStaff();
+
+      if (!mounted) return;
+
+      if (deletedCount > 0) {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Row(
+              children: [
+                Icon(Icons.check_circle_rounded, color: Colors.green),
+                SizedBox(width: 8),
+                Text('Temizleme Başarılı'),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Toplam $deletedCount mükerrer personel kaydı birleştirilip silindi:\n'),
+                  ...cleanedSummary.map((s) => Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.check, size: 16, color: Colors.green),
+                        const SizedBox(width: 6),
+                        Expanded(child: Text(s, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13))),
+                      ],
+                    ),
+                  )),
+                ],
+              ),
+            ),
+            actions: [
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('TAMAM'),
+              ),
+            ],
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Kurumda mükerrer personel kaydı bulunamadı. Tüm kayıtlar tekil.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Mükerrer temizleme hatası: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -774,6 +1057,38 @@ class _StaffListScreenState extends State<StaffListScreen>
             ],
           ),
         ),
+        if (_detectedDuplicateCount > 0)
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.amber.shade50,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.amber.shade300),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.warning_amber_rounded, color: Colors.amber.shade800, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '$_detectedDuplicateCount mükerrer personel tespit edildi.',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.amber.shade900),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: _scanAndCleanDuplicates,
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  icon: const Icon(Icons.auto_fix_high_rounded, size: 14, color: Colors.deepOrange),
+                  label: const Text('Temizle', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.deepOrange)),
+                ),
+              ],
+            ),
+          ),
         const SizedBox(height: 10),
         Expanded(
           child: _isLoading
@@ -862,9 +1177,23 @@ class _StaffListScreenState extends State<StaffListScreen>
                 case 'upload_excel':
                   _uploadExcel();
                   break;
+                case 'clean_duplicates':
+                  _scanAndCleanDuplicates();
+                  break;
               }
             },
             itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'clean_duplicates',
+                child: Row(
+                  children: [
+                    Icon(Icons.auto_fix_high_rounded, size: 20, color: Colors.deepOrange),
+                    SizedBox(width: 8),
+                    Text('Mükerrerleri Tara ve Temizle', style: TextStyle(color: Colors.deepOrange, fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
               const PopupMenuItem(
                 value: 'download_list',
                 child: Row(children: [Icon(Icons.download, size: 20), SizedBox(width: 8), Text('Personel Listesi İndir')]),

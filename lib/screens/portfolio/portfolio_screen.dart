@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -36,7 +36,8 @@ import '../../services/guidance_service.dart';
 import '../student/student_homework_stats_screen.dart';
 import '../student/student_attendance_stats_screen.dart';
 import '../student/student_etut_stats_screen.dart';
-import '../student/student_exam_stats_screen.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+import '../student/student_exam_stats_screen.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+import '../../services/user_permission_service.dart';
 
 
 class PortfolioScreen extends StatefulWidget {
@@ -785,9 +786,19 @@ class PortfolioDetailView extends StatefulWidget {
   _PortfolioDetailViewState createState() => _PortfolioDetailViewState();
 }
 
+class _PortfolioTabConfig {
+  final String key;
+  final String title;
+  final Widget Function() builder;
+
+  const _PortfolioTabConfig(this.key, this.title, this.builder);
+}
+
 class _PortfolioDetailViewState extends State<PortfolioDetailView>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  late final List<_PortfolioTabConfig> _allTabs;
+  late List<_PortfolioTabConfig> _activeTabs;
 
   // Trial Exam State
   String? _selectedExamType;
@@ -824,7 +835,36 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 14, vsync: this, initialIndex: widget.initialTab.clamp(0, 13));
+    _allTabs = [
+      _PortfolioTabConfig('portfolyo_genel_bilgiler', 'Genel Bilgiler', _buildGeneralInfoTab),
+      _PortfolioTabConfig('portfolyo_deneme_sinavlari', 'Deneme Sınavları', _buildTrialExamsTab),
+      _PortfolioTabConfig('portfolyo_yazili_sinavlar', 'Yazılı Sınavlar', _buildWrittenExamsTab),
+      _PortfolioTabConfig('portfolyo_odevler', 'Ödevler', _buildHomeworksTab),
+      _PortfolioTabConfig('portfolyo_devamsizlik', 'Devamsızlık', _buildAttendanceTab),
+      _PortfolioTabConfig('portfolyo_eylem_planlari', 'Eylem Planları', _buildEylemPlanlariTab),
+      _PortfolioTabConfig('portfolyo_etutler', 'Etütler', _buildEtutlerTab),
+      _PortfolioTabConfig('portfolyo_kitaplar', 'Kitaplar', _buildBooksTab),
+      _PortfolioTabConfig('portfolyo_gorusmeler', 'Görüşmeler', _buildInterviewsTab),
+      _PortfolioTabConfig('portfolyo_talepler', 'Talepler', _buildDemandsTab),
+      _PortfolioTabConfig('portfolyo_gelisim_raporu', 'Gelişim Raporu', _buildDevelopmentReportTab),
+      _PortfolioTabConfig('portfolyo_mentor_calismalari', 'Mentör Çalışmaları', _buildStudyProgramsTab),
+      _PortfolioTabConfig('portfolyo_rehberlik_testleri', 'Rehberlik Testleri', _buildGuidanceTestsTab),
+      _PortfolioTabConfig('portfolyo_etkinlik_raporlari', 'Etkinlik Raporları', _buildActivityReportsTab),
+    ];
+
+    _activeTabs = _allTabs.where((t) => UserPermissionService.hasTeacherModuleAccess('rehberlik_islemleri', subModuleKey: t.key)).toList();
+    if (_activeTabs.isEmpty) {
+      _activeTabs = _allTabs;
+    }
+
+    int initialIdx = 0;
+    if (widget.initialTab >= 0 && widget.initialTab < _allTabs.length) {
+      final targetKey = _allTabs[widget.initialTab].key;
+      final foundIdx = _activeTabs.indexWhere((t) => t.key == targetKey);
+      if (foundIdx != -1) initialIdx = foundIdx;
+    }
+
+    _tabController = TabController(length: _activeTabs.length, vsync: this, initialIndex: initialIdx.clamp(0, _activeTabs.length - 1));
 
     // Listen to Exam Types to get subject order and question counts
     _examTypesSubscription = AssessmentService()
@@ -840,7 +880,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
     _selectedWrittenSubject = 'Tümü';
 
     // Initialize Streams
-    _trialExamsStream = AssessmentService().getTrialExams(widget.institutionId);
+    _trialExamsStream = AssessmentService().getTrialExams(widget.institutionId, termId: widget.activeTermId);
 
     final classId = widget.student['classId'];
     _writtenExamsStream = FirebaseFirestore.instance
@@ -1059,43 +1099,13 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
           unselectedLabelColor: Colors.grey.shade600,
           indicatorColor: Colors.indigo,
           indicatorWeight: 3,
-          labelStyle: TextStyle(fontWeight: FontWeight.bold),
-          tabs: [
-            Tab(text: 'Genel Bilgiler'),
-            Tab(text: 'Deneme Sınavları'),
-            Tab(text: 'Yazılı Sınavlar'),
-            Tab(text: 'Ödevler'),
-            Tab(text: 'Devamsızlık'),
-            Tab(text: 'Eylem Planları'),
-            Tab(text: 'Etütler'),
-            Tab(text: 'Kitaplar'),
-            Tab(text: 'Görüşmeler'),
-            Tab(text: 'Talepler'),
-            Tab(text: 'Gelişim Raporu'),
-            Tab(text: 'Mentör Çalışmaları'),
-            Tab(text: 'Rehberlik Testleri'),
-            Tab(text: 'Etkinlik Raporları'),
-          ],
+          labelStyle: const TextStyle(fontWeight: FontWeight.bold),
+          tabs: _activeTabs.map((t) => Tab(text: t.title)).toList(),
         ),
       ),
       body: TabBarView(
         controller: _tabController,
-        children: [
-          _buildGeneralInfoTab(),
-          _buildTrialExamsTab(),
-          _buildWrittenExamsTab(),
-          _buildHomeworksTab(),
-          _buildAttendanceTab(),
-          _buildEylemPlanlariTab(),
-          _buildEtutlerTab(),
-          _buildBooksTab(),
-          _buildInterviewsTab(),
-          _buildDemandsTab(),
-          _buildDevelopmentReportTab(),
-          _buildStudyProgramsTab(),
-          _buildGuidanceTestsTab(),
-          _buildActivityReportsTab(),
-        ],
+        children: _activeTabs.map((t) => t.builder()).toList(),
       ),
     );
   }
@@ -5854,16 +5864,17 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                 'Öğrenciye Ait Talepler',
                 style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16),
               ),
-              ElevatedButton.icon(
-                onPressed: () => _showCreateDemandDialogForStudent(),
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('Yeni Talep'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.indigo,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              if (UserPermissionService.canEditTeacherModule('rehberlik_islemleri', subModuleKey: 'portfolyo_talepler'))
+                ElevatedButton.icon(
+                  onPressed: () => _showCreateDemandDialogForStudent(),
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Yeni Talep'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.indigo,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
                 ),
-              ),
             ],
           ),
         ),

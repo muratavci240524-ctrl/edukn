@@ -1,10 +1,10 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../../constants/app_modules.dart';
 import '../../../constants/school_type_modules.dart';
+import '../../../constants/teacher_modules.dart';
 import '../../../services/role_permission_service.dart';
 import '../../../services/user_permission_service.dart';
 
@@ -134,10 +134,14 @@ class _PermissionDefinitionScreenState
     if (hasTemplate) {
       final app = _templates[roleKey]?['appPermissions'] as Map? ?? {};
       final st = _templates[roleKey]?['schoolTypePermissions'] as Map? ?? {};
+      final tp = _templates[roleKey]?['teacherPermissions'] as Map? ?? {};
       app.forEach((_, v) {
         if (v is Map && v['enabled'] == true) activeCount++;
       });
       st.forEach((_, v) {
+        if (v is Map && v['enabled'] == true) activeCount++;
+      });
+      tp.forEach((_, v) {
         if (v is Map && v['enabled'] == true) activeCount++;
       });
     }
@@ -411,6 +415,29 @@ class _PermissionDefinitionScreenState
       }
     });
 
+    final isTeacherRole = roleKey == 'ogretmen' ||
+        roleKey == 'rehber_ogretmen' ||
+        roleKey.contains('ogretmen') ||
+        roleKey.contains('teacher') ||
+        roleKey.contains('öğretmen');
+
+    Map<String, dynamic> teacherPerms = {};
+    final srcTeacher = template['teacherPermissions'] as Map<String, dynamic>? ??
+        RolePermissionService.getDefaultTeacherPermissions(roleKey);
+    srcTeacher.forEach((k, v) {
+      if (v is Map) {
+        final modCopy = Map<String, dynamic>.from(v);
+        if (modCopy['subModules'] is Map) {
+          modCopy['subModules'] = Map<String, dynamic>.from(modCopy['subModules']);
+        } else {
+          modCopy['subModules'] = <String, dynamic>{};
+        }
+        teacherPerms[k] = modCopy;
+      } else {
+        teacherPerms[k] = v;
+      }
+    });
+
     final color = RolePermissionService.getRoleColor(roleKey);
     final icon = RolePermissionService.getRoleIcon(roleKey);
 
@@ -446,58 +473,155 @@ class _PermissionDefinitionScreenState
             );
           }
 
+          final Map<String, bool> collapsedSubGroups = {
+            'sinav_raporlari': false,
+            'ogrenci_portfolyolari': false,
+            'gozlem_ve_etkinlik': false,
+          };
+
+          bool isGroupParent(String key) =>
+              key == 'sinav_raporlari' ||
+              key == 'ogrenci_portfolyolari' ||
+              key == 'gozlem_ve_etkinlik';
+
+          String? getParentGroupKey(String key) {
+            if (key.startsWith('sinav_') && key != 'sinav_raporlari') return 'sinav_raporlari';
+            if (key.startsWith('portfolyo_') && key != 'ogrenci_portfolyolari') return 'ogrenci_portfolyolari';
+            if (key.startsWith('gozlem_etkinlik_') && key != 'gozlem_ve_etkinlik') return 'gozlem_ve_etkinlik';
+            return null;
+          }
+
           Widget subModuleTile(String modKey, String subKey, String subName, Map<String, dynamic> subPerms, Color modColor) {
+            final parentKey = getParentGroupKey(subKey);
+            final isNestedChild = parentKey != null;
+            final isParent = isGroupParent(subKey);
+
+            // Eğer ebeveyn grup daraltılmışsa alt öğeleri gizle
+            if (isNestedChild && (collapsedSubGroups[parentKey] == true)) {
+              return const SizedBox.shrink();
+            }
+
             final p = subPerms[subKey];
             final isEnabled = (p is Map && p['enabled'] == true);
             final level = (p is Map ? p['level'] : 'viewer') ?? 'viewer';
             final isMobile = MediaQuery.of(ctx).size.width < 600;
 
+            void toggleSubModule() {
+              setModalState(() {
+                final newVal = !isEnabled;
+                subPerms[subKey] = {
+                  'enabled': newVal,
+                  'level': level,
+                };
+
+                if (isParent) {
+                  if (newVal) collapsedSubGroups[subKey] = false;
+                  final modDef = TeacherModules.modules[modKey];
+                  if (modDef != null) {
+                    for (final k in modDef.subModules.keys) {
+                      if (getParentGroupKey(k) == subKey) {
+                        final childLvl = (subPerms[k] is Map ? subPerms[k]['level'] : level) ?? level;
+                        subPerms[k] = {'enabled': newVal, 'level': childLvl};
+                      }
+                    }
+                  }
+                } else if (isNestedChild && newVal == true) {
+                  final parentP = subPerms[parentKey];
+                  final parentLvl = (parentP is Map ? parentP['level'] : 'viewer') ?? 'viewer';
+                  subPerms[parentKey] = {'enabled': true, 'level': parentLvl};
+                }
+              });
+            }
+
+            void toggleSubLevel() {
+              setModalState(() {
+                final newLevel = level == 'viewer' ? 'editor' : 'viewer';
+                subPerms[subKey] = {
+                  'enabled': isEnabled,
+                  'level': newLevel,
+                };
+                if (isParent) {
+                  final modDef = TeacherModules.modules[modKey];
+                  if (modDef != null) {
+                    for (final k in modDef.subModules.keys) {
+                      if (getParentGroupKey(k) == subKey) {
+                        final childEn = (subPerms[k] is Map ? subPerms[k]['enabled'] : isEnabled) ?? isEnabled;
+                        subPerms[k] = {'enabled': childEn, 'level': newLevel};
+                      }
+                    }
+                  }
+                }
+              });
+            }
+
             return Container(
-              padding: const EdgeInsets.only(left: 48, right: 16, top: 8, bottom: 8),
+              margin: const EdgeInsets.symmetric(vertical: 2),
+              padding: EdgeInsets.only(left: isNestedChild ? 56 : 40, right: 16, top: 4, bottom: 4),
               child: Row(
                 children: [
                   // Checkbox
                   InkWell(
-                    onTap: () {
-                      setModalState(() {
-                        final currentVal = isEnabled;
-                        subPerms[subKey] = {
-                          'enabled': !currentVal,
-                          'level': level,
-                        };
-                      });
-                    },
+                    onTap: toggleSubModule,
+                    borderRadius: BorderRadius.circular(6),
                     child: Container(
-                      width: 20,
-                      height: 20,
+                      width: 22,
+                      height: 22,
                       decoration: BoxDecoration(
                         color: isEnabled ? modColor : Colors.transparent,
-                        borderRadius: BorderRadius.circular(5),
+                        borderRadius: BorderRadius.circular(6),
                         border: Border.all(
                           color: isEnabled ? modColor : Colors.grey.shade400,
                           width: 1.5,
                         ),
                       ),
-                      child: isEnabled ? const Icon(Icons.check, color: Colors.white, size: 14) : null,
+                      child: isEnabled ? const Icon(Icons.check, color: Colors.white, size: 15) : null,
                     ),
                   ),
                   const SizedBox(width: 12),
+                  // Title
                   Expanded(
-                    child: Text(
-                      subName,
-                      style: GoogleFonts.inter(
-                        fontSize: 13,
-                        color: isEnabled ? Colors.indigo.shade700 : Colors.grey.shade500,
+                    child: InkWell(
+                      onTap: toggleSubModule,
+                      borderRadius: BorderRadius.circular(6),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Text(
+                          subName,
+                          style: GoogleFonts.inter(
+                            fontSize: isNestedChild ? 12 : 13,
+                            fontWeight: isParent ? FontWeight.w600 : FontWeight.w500,
+                            color: isEnabled
+                                ? (isNestedChild ? Colors.indigo.shade800 : Colors.indigo.shade900)
+                                : Colors.grey.shade500,
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                  if (isEnabled)
-                    InkWell(
-                      onTap: () {
+                  // Expand/Collapse Chevron if this item has children
+                  if (isParent)
+                    IconButton(
+                      icon: Icon(
+                        (collapsedSubGroups[subKey] == true)
+                            ? Icons.expand_more_rounded
+                            : Icons.expand_less_rounded,
+                        color: modColor,
+                        size: 22,
+                      ),
+                      tooltip: (collapsedSubGroups[subKey] == true) ? 'Alt Başlıkları Göster' : 'Alt Başlıkları Gizle',
+                      onPressed: () {
                         setModalState(() {
-                          subPerms[subKey]['level'] = level == 'viewer' ? 'editor' : 'viewer';
+                          collapsedSubGroups[subKey] = !(collapsedSubGroups[subKey] ?? false);
                         });
                       },
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      constraints: const BoxConstraints(),
+                    ),
+                  const SizedBox(width: 8),
+                  // Level Badge Button
+                  if (isEnabled)
+                    InkWell(
+                      onTap: toggleSubLevel,
                       borderRadius: BorderRadius.circular(16),
                       child: Container(
                         padding: EdgeInsets.symmetric(horizontal: isMobile ? 8 : 12, vertical: 4),
@@ -510,7 +634,7 @@ class _PermissionDefinitionScreenState
                           children: [
                             Icon(
                               level == 'editor' ? Icons.edit : Icons.visibility,
-                              size: 14,
+                              size: 13,
                               color: level == 'editor' ? Colors.white : modColor,
                             ),
                             if (!isMobile) ...[
@@ -534,12 +658,18 @@ class _PermissionDefinitionScreenState
           }
 
           Widget moduleTile(dynamic mod, Map<String, dynamic> perms, String key) {
+            if (perms[key] == null || perms[key] is! Map) {
+              perms[key] = {'enabled': false, 'level': 'viewer', 'subModules': <String, dynamic>{}};
+            }
+            if (perms[key]['subModules'] == null || perms[key]['subModules'] is! Map) {
+              perms[key]['subModules'] = <String, dynamic>{};
+            }
+            final Map<String, dynamic> subPerms = perms[key]['subModules'] as Map<String, dynamic>;
+
             final p = perms[key];
             final isEnabled = (p is Map && p['enabled'] == true);
             final level = (p is Map ? p['level'] : 'viewer') ?? 'viewer';
             final hasSubModules = mod.subModules.isNotEmpty;
-            final subPerms = Map<String, dynamic>.from(
-                (p is Map ? p['subModules'] : null) ?? <String, dynamic>{});
             final isMobile = MediaQuery.of(ctx).size.width < 600;
 
             return Column(
@@ -568,11 +698,8 @@ class _PermissionDefinitionScreenState
                               // Ana başlık değişince tüm alt başlıklara yay (Cascading)
                               if (hasSubModules) {
                                 mod.subModules.forEach((sk, _) {
-                                  if (subPerms[sk] == null) {
-                                    subPerms[sk] = {'enabled': newVal, 'level': level};
-                                  } else {
-                                    subPerms[sk]['enabled'] = newVal;
-                                  }
+                                  final curLvl = (subPerms[sk] is Map ? subPerms[sk]['level'] : level) ?? level;
+                                  subPerms[sk] = {'enabled': newVal, 'level': curLvl};
                                 });
                               }
                             });
@@ -595,23 +722,37 @@ class _PermissionDefinitionScreenState
                         Icon(mod.icon, color: isEnabled ? mod.color : Colors.grey.shade400, size: 22),
                         const SizedBox(width: 14),
                         Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                mod.name,
-                                style: GoogleFonts.inter(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 14,
-                                  color: isEnabled ? Colors.indigo.shade900 : Colors.grey.shade500,
-                                ),
-                              ),
-                              if (mod.description.isNotEmpty)
+                          child: InkWell(
+                            onTap: () {
+                              setModalState(() {
+                                final newVal = !isEnabled;
+                                perms[key]['enabled'] = newVal;
+                                if (hasSubModules) {
+                                  mod.subModules.forEach((sk, _) {
+                                    final curLvl = (subPerms[sk] is Map ? subPerms[sk]['level'] : level) ?? level;
+                                    subPerms[sk] = {'enabled': newVal, 'level': curLvl};
+                                  });
+                                }
+                              });
+                            },
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
                                 Text(
-                                  mod.description,
-                                  style: TextStyle(color: Colors.grey.shade400, fontSize: 11),
+                                  mod.name,
+                                  style: GoogleFonts.inter(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14,
+                                    color: isEnabled ? Colors.indigo.shade900 : Colors.grey.shade500,
+                                  ),
                                 ),
-                            ],
+                                if (mod.description.isNotEmpty)
+                                  Text(
+                                    mod.description,
+                                    style: TextStyle(color: Colors.grey.shade400, fontSize: 11),
+                                  ),
+                              ],
+                            ),
                           ),
                         ),
                         if (isEnabled)
@@ -624,11 +765,8 @@ class _PermissionDefinitionScreenState
                                 // Ana başlık seviyesi değişince tüm alt başlıklara yay (Cascading)
                                 if (hasSubModules) {
                                   mod.subModules.forEach((sk, _) {
-                                    if (subPerms[sk] != null) {
-                                      subPerms[sk]['level'] = newLevel;
-                                    } else {
-                                      subPerms[sk] = {'enabled': true, 'level': newLevel};
-                                    }
+                                    final curEn = (subPerms[sk] is Map ? subPerms[sk]['enabled'] : true) ?? true;
+                                    subPerms[sk] = {'enabled': curEn, 'level': newLevel};
                                   });
                                 }
                               });
@@ -746,20 +884,33 @@ class _PermissionDefinitionScreenState
                       crossAxisAlignment:
                           CrossAxisAlignment.start,
                       children: [
-                        sectionHeader(
-                            'ANA MODÜLLER', Icons.apps),
-                        ...AppModules.allModuleKeys.map((k) =>
-                            moduleTile(
-                                AppModules.getModule(k)!,
-                                appPerms,
-                                k)),
-                        sectionHeader('OKUL TÜRÜ MODÜLLERİ',
-                            Icons.school),
-                        ...SchoolTypeModules.allModuleKeys
-                            .map((k) => moduleTile(
-                                SchoolTypeModules.getModule(k)!,
-                                stPerms,
-                                k)),
+                        if (isTeacherRole) ...[
+                          sectionHeader('ÖĞRETMEN ARAYÜZÜ MODÜLLERİ', Icons.school),
+                          ...TeacherModules.allModuleKeys.map((k) =>
+                              moduleTile(
+                                  TeacherModules.getModule(k)!,
+                                  teacherPerms,
+                                  k)),
+                          sectionHeader('OKUL TÜRÜ YÖNETİM MODÜLLERİ', Icons.admin_panel_settings_outlined),
+                          ...SchoolTypeModules.allModuleKeys.map((k) =>
+                              moduleTile(
+                                  SchoolTypeModules.getModule(k)!,
+                                  stPerms,
+                                  k)),
+                        ] else ...[
+                          sectionHeader('ANA MODÜLLER', Icons.apps),
+                          ...AppModules.allModuleKeys.map((k) =>
+                              moduleTile(
+                                  AppModules.getModule(k)!,
+                                  appPerms,
+                                  k)),
+                          sectionHeader('OKUL TÜRÜ MODÜLLERİ', Icons.school),
+                          ...SchoolTypeModules.allModuleKeys.map((k) =>
+                              moduleTile(
+                                  SchoolTypeModules.getModule(k)!,
+                                  stPerms,
+                                  k)),
+                        ],
                       ],
                     ),
                   ),
@@ -807,8 +958,8 @@ class _PermissionDefinitionScreenState
                                       {
                                     'roleName': roleName,
                                     'appPermissions': appPerms,
-                                    'schoolTypePermissions':
-                                        stPerms,
+                                    'schoolTypePermissions': stPerms,
+                                    'teacherPermissions': teacherPerms,
                                   });
                               await _loadAll();
                               if (mounted) {

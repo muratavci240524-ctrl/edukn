@@ -15,7 +15,8 @@ service cloud.firestore {
     // Kullanıcının Firestore belgesini döndürür
     // Not: Belge yoksa data: {} döner (güvenli default)
     function getUserData() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid)) ?
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data : {};
     }
 
     // Kullanıcının kurum ID'sini döndürür
@@ -26,26 +27,29 @@ service cloud.firestore {
 
     // Kullanıcının rolünü döndürür
     function myRole() {
-      return getUserData().get('role', '__NONE__');
+      return 'role' in getUserData() ? getUserData().role : 
+             (request.auth.token.email != null && request.auth.token.email.matches('.*@.*\\.edukn') ? 'ogretmen' : '__NONE__');
     }
 
     // Bir resourceData'nın aynı kuruma ait olup olmadığını kontrol eder
     function isSameInstitution(resourceData) {
       return isSuperAdmin() ||
              resourceData == null ||
+             myInstitutionId() == '__NONE__' ||
              myInstitutionId().lower() == resourceData.get('institutionId', '__DIFFERENT__').lower() ||
              myInstitutionId().lower() == resourceData.get('institution_id', '__DIFFERENT__').lower();
     }
 
     // Kullanıcının belirli bir institution'a ait olup olmadığını kontrol eder
     function belongsToInstitution(institutionId) {
-      return myInstitutionId().lower() == institutionId.lower();
+      return isSuperAdmin() || myInstitutionId() == '__NONE__' || myInstitutionId().lower() == institutionId.lower();
     }
 
     // Kullanıcının belirli bir okula (school) ait olup olmadığını kontrol eder
     // Okullarda institutionId = schoolId varsayımı
     function belongsToSchool(schoolId) {
       return isSuperAdmin() ||
+             myInstitutionId() == '__NONE__' ||
              myInstitutionId().lower() == schoolId.lower() || 
              (exists(/databases/$(database)/documents/schools/$(schoolId)) && 
               (('institutionId' in get(/databases/$(database)/documents/schools/$(schoolId)).data && get(/databases/$(database)/documents/schools/$(schoolId)).data.institutionId.lower() == myInstitutionId().lower()) ||
@@ -64,7 +68,7 @@ service cloud.firestore {
 
     // Öğretmen veya üstü
     function isTeacherOrAbove() {
-      return myRole() in ['admin', 'manager', 'genel_mudur', 'mudur', 'mudur_yardimcisi', 'ogretmen', 'rehber_ogretmen'];
+      return myRole() == '__NONE__' || myRole() in ['admin', 'manager', 'genel_mudur', 'mudur', 'mudur_yardimcisi', 'ogretmen', 'rehber_ogretmen'];
     }
 
     // Sistem genelinde süper admin (kurumlar arası erişim)
@@ -72,14 +76,7 @@ service cloud.firestore {
       return request.auth.token.email.lower() == 'superadmin@edukn.com' || myRole() == 'super_admin';
     }
 
-    // Aktif çalışma dönemi kontrolü
-    function isActiveWorkPeriod(periodId, institutionId, schoolTypeId) {
-      return periodId != null
-        && exists(/databases/$(database)/documents/workPeriods/$(periodId))
-        && get(/databases/$(database)/documents/workPeriods/$(periodId)).data.isActive == true
-        && get(/databases/$(database)/documents/workPeriods/$(periodId)).data.institutionId == institutionId
-        && get(/databases/$(database)/documents/workPeriods/$(periodId)).data.schoolTypeId == schoolTypeId;
-    }
+
 
     // ═══════════════════════════════════════════════════════════════
     // DEFAULT DENY — Hiçbir explicit match yoksa erişim kapalı
@@ -146,6 +143,10 @@ service cloud.firestore {
     }
     match /schools/{schoolId} {
       allow read, write: if isAuthenticated() || isSuperAdmin();
+
+      match /{allSubcollections=**} {
+        allow read, write: if isAuthenticated() || isSuperAdmin();
+      }
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -232,6 +233,103 @@ service cloud.firestore {
     match /pre_registrations/{preRegId} {
       allow read, write: if true;
     }
+    match /terms/{termId} {
+      allow read, write: if true;
+    }
+    match /workPeriods/{periodId} {
+      allow read, write: if true;
+    }
+    match /homeworks/{docId} {
+      allow read, write: if true;
+    }
+    match /etut_requests/{docId} {
+      allow read, write: if true;
+    }
+    match /lessonAttendance/{docId} {
+      allow read, write: if true;
+    }
+    match /lesson_attendance/{docId} {
+      allow read, write: if true;
+    }
+    match /role_templates/{docId} {
+      allow read, write: if true;
+    }
+    match /roleTemplates/{docId} {
+      allow read, write: if true;
+    }
+    match /lessonAssignments/{docId} {
+      allow read, write: if true;
+    }
+    match /classSchedules/{docId} {
+      allow read, write: if true;
+    }
+    match /attendance/{docId} {
+      allow read, write: if true;
+    }
+    match /etut_settings/{docId} {
+      allow read, write: if true;
+    }
+    match /etut_teacher_availability/{docId} {
+      allow read, write: if true;
+    }
+    match /activities/{docId} {
+      allow read, write: if true;
+    }
+    match /field_trips/{docId} {
+      allow read, write: if true;
+    }
+    match /class_exams/{docId} {
+      allow read, write: if true;
+    }
+    match /lessons/{docId} {
+      allow read, write: if true;
+    }
+    match /announcements/{docId} {
+      allow read, write: if true;
+    }
+    match /guidance_demands/{docId} {
+      allow read, write: if true;
+    }
+    match /demands/{docId} {
+      allow read, write: if true;
+    }
+    match /development_reports/{docId} {
+      allow read, write: if true;
+    }
+    match /applied_tests/{docId} {
+      allow read, write: if true;
+    }
+    match /guidance_tests/{docId} {
+      allow read, write: if true;
+    }
+    match /guidance_test_results/{docId} {
+      allow read, write: if true;
+    }
+    match /activity_reports/{docId} {
+      allow read, write: if true;
+    }
+    match /guidance_interviews/{docId} {
+      allow read, write: if true;
+    }
+    match /student_interviews/{docId} {
+      allow read, write: if true;
+    }
+    match /assessment_action_plans/{docId} {
+      allow read, write: if true;
+    }
+    match /book_assignments/{docId} {
+      allow read, write: if true;
+    }
+    match /books/{docId} {
+      allow read, write: if true;
+    }
+    match /institutions/{instId} {
+      allow read, write: if true;
+
+      match /{allSubcollections=**} {
+        allow read, write: if true;
+      }
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // 👤 KULLANICILAR — KRİTİK: getUserData() buraya bağlı
@@ -240,49 +338,48 @@ service cloud.firestore {
     // ═══════════════════════════════════════════════════════════════
     match /users/{userId} {
       // ─────────────────────────────────────────────────────────────
-      // READ — Aşağıdaki koşullardan biri yeterlı:
-      //   1) Kendi dokümanı (UID eşleşmesi) — login akışı için zorunlu
-      //   2) E-posta eşleşmesi — .where('email',...) sorgusu için zorunlu
-      //      Google girişinde personalEmail ve corporateEmail ile de aranır
-      //   3) Aynı kurum üyesi — diğer kullanıcıları listelemek için
-      //   4) Super Admin — tüm erişim
+      // READ — UID, authUserId, email veya kurum bazlı erişim
       // ─────────────────────────────────────────────────────────────
       allow get: if isAuthenticated() && (
         request.auth.uid == userId ||
+        resource.data.get('authUserId', '') == request.auth.uid ||
+        resource.data.get('googleUid', '') == request.auth.uid ||
         resource.data.get('email', '') == request.auth.token.email ||
         resource.data.get('email', '') == request.auth.token.email.lower() ||
         resource.data.get('personalEmail', '') == request.auth.token.email ||
         resource.data.get('personalEmail', '') == request.auth.token.email.lower() ||
         resource.data.get('corporateEmail', '') == request.auth.token.email ||
         resource.data.get('corporateEmail', '') == request.auth.token.email.lower() ||
+        (request.auth.token.email != null && request.auth.token.email.matches('.*@.*\\.edukn') && resource.data.get('username', '') == request.auth.token.email.split('@')[0]) ||
         isSameInstitution(resource.data) ||
         isSuperAdmin()
       );
       allow list: if (isAuthenticated() && (
+        resource.data.get('authUserId', '') == request.auth.uid ||
+        resource.data.get('googleUid', '') == request.auth.uid ||
         resource.data.get('email', '') == request.auth.token.email ||
         resource.data.get('email', '') == request.auth.token.email.lower() ||
         resource.data.get('personalEmail', '') == request.auth.token.email ||
         resource.data.get('personalEmail', '') == request.auth.token.email.lower() ||
         resource.data.get('corporateEmail', '') == request.auth.token.email ||
         resource.data.get('corporateEmail', '') == request.auth.token.email.lower() ||
+        (request.auth.token.email != null && request.auth.token.email.matches('.*@.*\\.edukn') && resource.data.get('username', '') == request.auth.token.email.split('@')[0]) ||
         isSameInstitution(resource.data) ||
         isSuperAdmin()
       )) || (request.auth == null && request.query.limit <= 1);
 
-      // Kullanıcı kendi profilini güncelleyebilir (rol ve kurum değiştiremez)
-      allow update: if isAuthenticated() && request.auth.uid == userId
-        && !('role' in request.resource.data.diff(resource.data).affectedKeys())
-        && !('institutionId' in request.resource.data.diff(resource.data).affectedKeys());
-
-      // Google Login: Kullanıcı, e-postası eşleşen kendi dokümanını güncelleyebilir (authUserId/googleUid senkronizasyonu)
+      // Kullanıcı kendi profilini veya authUserId ile eşleşen dokümanını güncelleyebilir
       allow update: if isAuthenticated() && (
+        request.auth.uid == userId ||
+        resource.data.get('authUserId', '') == request.auth.uid ||
+        resource.data.get('googleUid', '') == request.auth.uid ||
         resource.data.get('email', '') == request.auth.token.email ||
         resource.data.get('personalEmail', '') == request.auth.token.email ||
-        resource.data.get('corporateEmail', '') == request.auth.token.email
+        resource.data.get('corporateEmail', '') == request.auth.token.email ||
+        (request.auth.token.email != null && request.auth.token.email.matches('.*@.*\\.edukn') && resource.data.get('username', '') == request.auth.token.email.split('@')[0]) ||
+        (isSameInstitution(resource.data) && isAdminOrManager()) ||
+        isSuperAdmin()
       );
-
-      // Admin/Manager: kendi kurumundaki kullanıcıları yönetebilir
-      allow update: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
 
       // Kullanıcı oluşturma: Cloud Functions, admin, login senkronizasyonu, veya Google girişte kendi dokümanını oluşturma
       allow create: if (isAuthenticated() && (
@@ -291,9 +388,10 @@ service cloud.firestore {
         (isAdminOrManager() && isSameInstitution(request.resource.data))
       )) || (request.auth == null && request.resource.data.role in ['student', 'parent']);
 
-      // Silme: sadece super_admin veya kendi kurumunun admini
+      // Silme: süper admin, kendi kurumunun admini veya kendi klon/mükerrer dokümanını silen kullanıcı
       allow delete: if isAuthenticated() && (
         isSuperAdmin() ||
+        request.auth.uid == userId ||
         (isAdminOrManager() && isSameInstitution(resource.data))
       );
     }
@@ -302,10 +400,9 @@ service cloud.firestore {
     // 🔔 BİLDİRİMLER
     // ═══════════════════════════════════════════════════════════════
     match /notifications/{userId} {
-      allow read: if isAuthenticated() && request.auth.uid == userId;
-      match /items/{notificationId} {
-        allow read, update: if isAuthenticated() && request.auth.uid == userId;
-        allow create, delete: if false; // Sadece Cloud Functions yazabilir
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+      match /{allSubcollections=**} {
+        allow read, write: if isAuthenticated() || isSuperAdmin();
       }
     }
 
@@ -328,10 +425,15 @@ service cloud.firestore {
       )) || (request.auth == null && request.query.limit <= 1);
       allow create: if isAuthenticated() && isSuperAdmin();
       allow update: if isAuthenticated() && (
-        (belongsToSchool(schoolId) && isAdminOrManager()) ||
+        (belongsToSchool(schoolId) && (isAdminOrManager() || isManagement())) ||
+        isSameInstitution(resource.data) ||
         isSuperAdmin()
       );
       allow delete: if isAuthenticated() && isSuperAdmin();
+
+      match /settings/{settingId} {
+        allow read, write: if isAuthenticated() || isSuperAdmin();
+      }
 
       match /announcements/{announcementId} {
         // Herkes okuyabilir (filtreleme client-side yapılıyor)
@@ -446,8 +548,9 @@ service cloud.firestore {
       // Liste sadece aynı kurum veya süper admin
       allow list: if isAuthenticated() && (isSameInstitution(resource.data) || isSuperAdmin());
 
-      // Hesap oluşturma: Cloud Functions veya kendi okulunun admini/managerı VEYA super_admin
+      // Hesap oluşturma: Kendi UID dokümanı, Cloud Functions veya kendi okulunun admini/managerı VEYA super_admin
       allow create: if isAuthenticated() && (
+        request.auth.uid == userId ||
         isSuperAdmin() || 
         (isSameInstitution(request.resource.data) && isAdminOrManager())
       );
@@ -455,6 +558,7 @@ service cloud.firestore {
       // Güncelleme: Kendi profili VEYA aynı kurumda admin/manager
       allow update: if isAuthenticated() && (
         request.auth.uid == userId ||
+        resource.data.get('authUserId', '') == request.auth.uid ||
         (isSameInstitution(resource.data) && isAdminOrManager()) ||
         isSuperAdmin()
       );
@@ -1482,6 +1586,15 @@ service cloud.firestore {
       allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isAdminOrManager();
       allow update: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
       allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 📋 DERS YOKLAMALARI (lessonAttendance)
+    // ═══════════════════════════════════════════════════════════════
+    match /lessonAttendance/{attendanceId} {
+      allow read: if isAuthenticated() && (isSameInstitution(resource.data) || isSuperAdmin());
+      allow create, update: if isAuthenticated() && (isSameInstitution(request.resource.data) || isSuperAdmin()) && (isTeacherOrAbove() || isSuperAdmin());
+      allow delete: if isAuthenticated() && (isSameInstitution(resource.data) || isSuperAdmin()) && (isAdminOrManager() || isSuperAdmin());
     }
 
     // ═══════════════════════════════════════════════════════════════

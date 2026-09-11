@@ -1,8 +1,10 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/user_permission_service.dart';
+import '../../services/term_service.dart';
+import '../../services/crypto_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../school/student_detail_view_screen.dart';
 
@@ -54,23 +56,40 @@ class _TeacherStudentListScreenState extends State<TeacherStudentListScreen> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
+      await CryptoService.init();
       final userData = await UserPermissionService.loadUserData();
-      final teacherId = userData?['id'] ?? user.uid;
-      final instId = userData?['institutionId'] ?? widget.institutionId;
+      final instId = (userData?['institutionId'] ?? widget.institutionId).toString();
+      final instIds = [instId, instId.toLowerCase(), instId.toUpperCase()].toSet().toList();
+      final activeTermId = await TermService().getActiveTermId();
 
-      // 1. Atanmış sınıfları bul
-      final assignmentsSnap = await FirebaseFirestore.instance
-          .collection('lessonAssignments')
-          .where('institutionId', isEqualTo: instId)
-          .where('teacherIds', arrayContains: teacherId)
-          .where('isActive', isEqualTo: true)
-          .get();
+      final Set<String> validTeacherIds = {user.uid};
+      final docId = userData?['id']?.toString();
+      if (docId != null && docId.isNotEmpty) validTeacherIds.add(docId);
+      final tId = userData?['teacherId']?.toString();
+      if (tId != null && tId.isNotEmpty) validTeacherIds.add(tId);
 
-      final classIds = assignmentsSnap.docs
-          .map((doc) => doc.data()['classId']?.toString())
-          .where((id) => id != null)
-          .cast<String>()
-          .toSet();
+      // 1. Atanmış sınıfları bul (Aktif dönem filtreli, tüm olası öğretmen ID'leri ile)
+      final List<QuerySnapshot> assignSnaps = await Future.wait(
+        validTeacherIds.map((tId) {
+          Query q = FirebaseFirestore.instance
+              .collection('lessonAssignments')
+              .where('institutionId', whereIn: instIds)
+              .where('teacherIds', arrayContains: tId)
+              .where('isActive', isEqualTo: true);
+          if (activeTermId != null && activeTermId.isNotEmpty) {
+            q = q.where('termId', isEqualTo: activeTermId);
+          }
+          return q.get();
+        }),
+      );
+
+      final Set<String> classIds = {};
+      for (final snap in assignSnaps) {
+        for (final doc in snap.docs) {
+          final cid = (doc.data() as Map<String, dynamic>)['classId']?.toString();
+          if (cid != null && cid.isNotEmpty) classIds.add(cid);
+        }
+      }
 
       if (classIds.isEmpty) {
         setState(() {
@@ -87,14 +106,15 @@ class _TeacherStudentListScreenState extends State<TeacherStudentListScreen> {
         final chunk = classIdList.skip(i).take(10).toList();
         final studentSnap = await FirebaseFirestore.instance
             .collection('students')
-            .where('institutionId', isEqualTo: widget.institutionId)
+            .where('institutionId', whereIn: instIds)
             .where('classId', whereIn: chunk)
             .get();
         
         for (var doc in studentSnap.docs) {
-          final data = doc.data();
-          data['id'] = doc.id;
-          allStudents.add(data);
+          final rawData = doc.data();
+          rawData['id'] = doc.id;
+          final decrypted = CryptoService.decryptMap(rawData, institutionId: instId);
+          allStudents.add(decrypted);
         }
       }
 

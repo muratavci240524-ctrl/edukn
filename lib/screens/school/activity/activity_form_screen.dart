@@ -1,11 +1,14 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../../../models/activity/activity_model.dart';
 import '../../../../models/survey_model.dart'; // For SurveyQuestion
 import '../../../../services/activity_service.dart';
-import '../../../../models/class_model.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+import '../../../../models/class_model.dart';
+import 'package:edukn/widgets/safe_stream_builder.dart';
+import '../../../../services/term_service.dart';
+import '../../../../services/user_permission_service.dart';
 
 
 class ActivityFormScreen extends StatefulWidget {
@@ -855,14 +858,23 @@ class _ActivityFormScreenState extends State<ActivityFormScreen> {
   }
 
   Future<void> _saveActivity() async {
+    if (!UserPermissionService.canEditTeacherModule('rehberlik_islemleri', subModuleKey: 'gozlem_etkinlik_yeni_form')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Yeni form açma veya düzenleme yetkiniz bulunmamaktadır.')),
+      );
+      return;
+    }
     setState(() => _isLoading = true);
     try {
+      final activeTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
+      final termId = widget.existingActivity?.termId ?? activeTermId;
+
       final activity = ActivityObservation(
         id: widget.existingActivity?.id ?? '',
         institutionId: widget.institutionId,
         schoolTypeId: widget.schoolTypeId,
-        title: _titleController.text,
-        description: _descController.text,
+        title: _titleController.text.trim(),
+        description: _descController.text.trim(),
         type: _type,
         date: _selectedDate,
         responsibleTeacherId: _responsibleTeacherId!,
@@ -870,8 +882,9 @@ class _ActivityFormScreenState extends State<ActivityFormScreen> {
         targetStudentIds: _selectedStudentIds,
         isEvaluationEnabled: _isEvaluationEnabled,
         questions: _questions,
-        createdAt: DateTime.now(),
-        status: ActivityStatus.planned,
+        createdAt: widget.existingActivity?.createdAt ?? DateTime.now(),
+        status: widget.existingActivity?.status ?? ActivityStatus.planned,
+        termId: termId,
       );
 
       final service = ActivityService();

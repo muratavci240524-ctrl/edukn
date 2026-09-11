@@ -1,9 +1,13 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../services/activity_service.dart';
 import '../../../../models/activity/activity_model.dart';
 import 'activity_form_screen.dart';
-import 'activity_detail_screen.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+import 'activity_detail_screen.dart';
+import 'package:edukn/widgets/safe_stream_builder.dart';
+import '../../../../services/term_service.dart';
+import '../../../../services/user_permission_service.dart';
 
 import 'activity_statistics_screen.dart'; // We will create this later
 
@@ -28,10 +32,96 @@ class _ActivityListScreenState extends State<ActivityListScreen>
   late TabController _tabController;
   final ActivityService _activityService = ActivityService();
 
+  String? _activeTermId;
+  String? _activeTermName;
+  bool _isManager = false;
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _loadContextData();
+  }
+
+  Future<void> _loadContextData() async {
+    final termId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
+    String? termName;
+    if (termId != null && termId.isNotEmpty) {
+      try {
+        final termDoc = await FirebaseFirestore.instance.collection('terms').doc(termId).get();
+        if (termDoc.exists) {
+          termName = (termDoc.data()?['name'] ?? termDoc.data()?['termName'])?.toString();
+        }
+      } catch (_) {}
+    }
+
+    final userData = await UserPermissionService.loadUserData();
+    final role = (userData?['role'] as String?)?.toLowerCase() ?? '';
+    final title = (userData?['title'] as String?)?.toLowerCase() ?? '';
+    final isManager = role.contains('admin') ||
+        role.contains('mudur') ||
+        role.contains('müdür') ||
+        role.contains('kurucu') ||
+        role.contains('rehber') ||
+        title.contains('müdür') ||
+        title.contains('rehber');
+
+    if (mounted) {
+      setState(() {
+        _activeTermId = termId;
+        _activeTermName = termName;
+        _isManager = isManager;
+      });
+    }
+  }
+
+  Future<void> _confirmDelete(ActivityObservation activity) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Gözlem/Etkinlik Sil'),
+        content: Text('"${activity.title}" kaydını silmek istediğinize emin misiniz? Bu işlem geri alınamaz.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('İptal'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Sil'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        await _activityService.deleteActivity(activity.id);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Kayıt başarıyla silindi'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Hata: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
   }
 
   @override
@@ -45,7 +135,7 @@ class _ActivityListScreenState extends State<ActivityListScreen>
     return Scaffold(
       appBar: EduknAppBar(
         title: 'Gözlem ve Etkinlik İşlemleri',
-        subtitle: widget.schoolTypeName,
+        subtitle: widget.schoolTypeName + (_activeTermName != null ? ' • $_activeTermName' : ''),
         actions: [
           IconButton(
             icon: const Icon(Icons.bar_chart),
@@ -81,26 +171,28 @@ class _ActivityListScreenState extends State<ActivityListScreen>
           _buildActivityList('activity'),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          // Pass the type based on current tab
-          final type = _tabController.index == 0 ? 'observation' : 'activity';
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => ActivityFormScreen(
-                institutionId: widget.institutionId,
-                schoolTypeId: widget.schoolTypeId,
-                initialType: type,
-              ),
-            ),
-          );
-        },
-        label: const Text('Yeni Ekle'),
-        icon: const Icon(Icons.add),
-        backgroundColor: Colors.indigo,
-        foregroundColor: Colors.white,
-      ),
+      floatingActionButton: UserPermissionService.canEditTeacherModule('rehberlik_islemleri', subModuleKey: 'gozlem_etkinlik_yeni_form')
+          ? FloatingActionButton.extended(
+              onPressed: () {
+                // Pass the type based on current tab
+                final type = _tabController.index == 0 ? 'observation' : 'activity';
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => ActivityFormScreen(
+                      institutionId: widget.institutionId,
+                      schoolTypeId: widget.schoolTypeId,
+                      initialType: type,
+                    ),
+                  ),
+                );
+              },
+              label: const Text('Yeni Ekle'),
+              icon: const Icon(Icons.add),
+              backgroundColor: Colors.indigo,
+              foregroundColor: Colors.white,
+            )
+          : null,
     );
   }
 
@@ -120,7 +212,12 @@ class _ActivityListScreenState extends State<ActivityListScreen>
           return const Center(child: CircularProgressIndicator());
         }
 
-        final activities = snapshot.data ?? [];
+        final allActivities = snapshot.data ?? [];
+        final activities = allActivities.where((a) {
+          if (_activeTermId == null || _activeTermId!.isEmpty) return true;
+          if (a.termId == null || a.termId!.isEmpty) return true;
+          return a.termId == _activeTermId;
+        }).toList();
 
         if (activities.isEmpty) {
           return Center(
@@ -310,13 +407,59 @@ class _ActivityListScreenState extends State<ActivityListScreen>
                               ),
                             ),
                           ),
-                          Padding(
-                            padding: const EdgeInsets.only(right: 16.0),
-                            child: Icon(
-                              Icons.chevron_right,
-                              color: Colors.grey.shade400,
+                          if (_isManager && UserPermissionService.canEditTeacherModule('rehberlik_islemleri', subModuleKey: 'gozlem_etkinlik_yeni_form')) ...[
+                            PopupMenuButton<String>(
+                              icon: Icon(Icons.more_vert, color: Colors.grey.shade600),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              onSelected: (value) {
+                                if (value == 'edit') {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => ActivityFormScreen(
+                                        institutionId: widget.institutionId,
+                                        schoolTypeId: widget.schoolTypeId,
+                                        initialType: activity.type,
+                                        existingActivity: activity,
+                                      ),
+                                    ),
+                                  );
+                                } else if (value == 'delete') {
+                                  _confirmDelete(activity);
+                                }
+                              },
+                              itemBuilder: (ctx) => [
+                                const PopupMenuItem(
+                                  value: 'edit',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.edit_outlined, size: 18, color: Colors.blue),
+                                      SizedBox(width: 8),
+                                      Text('Düzenle'),
+                                    ],
+                                  ),
+                                ),
+                                const PopupMenuItem(
+                                  value: 'delete',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                                      SizedBox(width: 8),
+                                      Text('Sil', style: TextStyle(color: Colors.red)),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
+                          ] else ...[
+                            Padding(
+                              padding: const EdgeInsets.only(right: 16.0),
+                              child: Icon(
+                                Icons.chevron_right,
+                                color: Colors.grey.shade400,
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),

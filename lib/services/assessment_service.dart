@@ -134,9 +134,8 @@ class AssessmentService {
                 .toList();
             
             // Client-side termId filtreleme (composite index gerektirmez)
-            // termId null olan eski verileri de göster (geriye uyumluluk)
-            if (termId != null) {
-              exams = exams.where((exam) => exam.termId == null || exam.termId == termId).toList();
+            if (termId != null && termId.isNotEmpty) {
+              exams = exams.where((exam) => exam.termId == termId).toList();
             }
             
             if (classLevels != null && classLevels.isNotEmpty) {

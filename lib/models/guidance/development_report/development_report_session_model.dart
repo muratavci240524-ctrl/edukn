@@ -11,6 +11,7 @@ class DevelopmentReportSession {
   final DateTime createdAt;
   final String? createdBy;
   final bool isPublished;
+  final String? termId;
 
   DevelopmentReportSession({
     required this.id,
@@ -23,6 +24,7 @@ class DevelopmentReportSession {
     required this.createdAt,
     this.createdBy,
     this.isPublished = false,
+    this.termId,
   });
 
   factory DevelopmentReportSession.fromMap(Map<String, dynamic> map) {
@@ -37,6 +39,7 @@ class DevelopmentReportSession {
       createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       createdBy: map['createdBy'],
       isPublished: map['isPublished'] ?? false,
+      termId: map['termId'],
     );
   }
 
@@ -51,6 +54,7 @@ class DevelopmentReportSession {
       'createdAt': Timestamp.fromDate(createdAt),
       'createdBy': createdBy,
       'isPublished': isPublished,
+      if (termId != null) 'termId': termId,
     };
   }
 }

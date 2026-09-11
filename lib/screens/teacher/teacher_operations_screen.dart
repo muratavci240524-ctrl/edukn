@@ -26,6 +26,8 @@ import 'teacher_duty_screen.dart';
 import '../school/tasks/field_trip_list_screen.dart';
 import '../school/assessment/assessment_reports_screen.dart';
 import 'teacher_qr_scan_screen.dart';
+import '../school/tools/tools_hub_screen.dart';
+import '../school/notes/personal_notes_screen.dart';
 
 class TeacherOperationsScreen extends StatefulWidget {
   final String institutionId;
@@ -46,6 +48,239 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
   String _selectedCategory = 'Tümü';
   bool _isNavigating = false;
 
+  Future<List<String>> _resolveTeacherSchoolTypes(
+    String instId,
+    Map<String, dynamic>? userData,
+    User user,
+  ) async {
+    List<String> userSTIds = List<String>.from(userData?['schoolTypes'] ?? []);
+    if (userSTIds.isNotEmpty) return userSTIds;
+
+    final Set<String> validTeacherIds = {user.uid};
+    final docId = userData?['id']?.toString();
+    if (docId != null && docId.isNotEmpty) validTeacherIds.add(docId);
+    final authUserId = userData?['authUserId']?.toString();
+    if (authUserId != null && authUserId.isNotEmpty) validTeacherIds.add(authUserId);
+    final tId = userData?['teacherId']?.toString();
+    if (tId != null && tId.isNotEmpty) validTeacherIds.add(tId);
+    final sId = userData?['staffId']?.toString();
+    if (sId != null && sId.isNotEmpty) validTeacherIds.add(sId);
+    final uName = userData?['username']?.toString();
+    if (uName != null && uName.isNotEmpty) validTeacherIds.add(uName);
+    final fullName = (userData?['fullName'] ?? userData?['name'] ?? '').toString().trim();
+
+    final instIds = [instId, instId.toLowerCase(), instId.toUpperCase()].toSet().toList();
+    final Set<String> foundTypes = {};
+
+    for (final tid in validTeacherIds) {
+      final assignmentsSnap = await FirebaseFirestore.instance
+          .collection('lessonAssignments')
+          .where('institutionId', whereIn: instIds)
+          .where('teacherIds', arrayContains: tid)
+          .where('isActive', isEqualTo: true)
+          .get();
+
+      for (var doc in assignmentsSnap.docs) {
+        final stId = doc.data()['schoolTypeId']?.toString();
+        if (stId != null && stId.isNotEmpty) foundTypes.add(stId);
+      }
+    }
+
+    // İsim bazlı arama (Failsafe)
+    if (foundTypes.isEmpty && fullName.isNotEmpty) {
+      for (final inst in instIds) {
+        final nameSnap = await FirebaseFirestore.instance
+            .collection('lessonAssignments')
+            .where('institutionId', isEqualTo: inst)
+            .where('teacherNames', arrayContains: fullName)
+            .where('isActive', isEqualTo: true)
+            .get();
+        for (var doc in nameSnap.docs) {
+          final stId = doc.data()['schoolTypeId']?.toString();
+          if (stId != null && stId.isNotEmpty) foundTypes.add(stId);
+        }
+      }
+    }
+
+    // classSchedules üzerinden okul türü tespiti
+    if (foundTypes.isEmpty) {
+      for (final inst in instIds) {
+        for (final tid in validTeacherIds) {
+          final csSnap = await FirebaseFirestore.instance
+              .collection('classSchedules')
+              .where('institutionId', isEqualTo: inst)
+              .where('teacherId', isEqualTo: tid)
+              .get();
+          for (var doc in csSnap.docs) {
+            final stId = doc.data()['schoolTypeId']?.toString();
+            if (stId != null && stId.isNotEmpty) foundTypes.add(stId);
+          }
+        }
+      }
+    }
+
+    // Kurumun okul türleri genel fallback
+    if (foundTypes.isEmpty) {
+      final stSnap = await FirebaseFirestore.instance
+          .collection('school_types')
+          .where('institutionId', whereIn: instIds)
+          .get();
+      for (var doc in stSnap.docs) {
+        foundTypes.add(doc.id);
+      }
+    }
+
+    return foundTypes.toList();
+  }
+
+  Future<List<String>> _resolveTeacherAssignedClassIds(
+    String instId,
+    Map<String, dynamic>? userData,
+    User user, {
+    String? termId,
+  }) async {
+    final Set<String> validTeacherIds = {user.uid};
+    final docId = userData?['id']?.toString();
+    if (docId != null && docId.isNotEmpty) validTeacherIds.add(docId);
+    final authUserId = userData?['authUserId']?.toString();
+    if (authUserId != null && authUserId.isNotEmpty) validTeacherIds.add(authUserId);
+    final tId = userData?['teacherId']?.toString();
+    if (tId != null && tId.isNotEmpty) validTeacherIds.add(tId);
+    final sId = userData?['staffId']?.toString();
+    if (sId != null && sId.isNotEmpty) validTeacherIds.add(sId);
+    final uName = userData?['username']?.toString();
+    if (uName != null && uName.isNotEmpty) validTeacherIds.add(uName);
+    final fullName = (userData?['fullName'] ?? userData?['name'] ?? '').toString().trim();
+
+    final instIds = [instId, instId.toLowerCase(), instId.toUpperCase()].toSet().toList();
+
+    final Set<String> classIds = {};
+    final Set<String> termFilteredClassIds = {};
+
+    // 1. lessonAssignments sorguları (Array teacherIds ve single teacherId)
+    for (final inst in instIds) {
+      for (final tid in validTeacherIds) {
+        // Array teacherIds
+        final arraySnap = await FirebaseFirestore.instance
+            .collection('lessonAssignments')
+            .where('institutionId', isEqualTo: inst)
+            .where('teacherIds', arrayContains: tid)
+            .where('isActive', isEqualTo: true)
+            .get();
+        for (final doc in arraySnap.docs) {
+          final data = doc.data();
+          final cid = data['classId']?.toString();
+          if (cid != null && cid.isNotEmpty) {
+            classIds.add(cid);
+            if (termId != null && data['termId']?.toString() == termId) {
+              termFilteredClassIds.add(cid);
+            }
+          }
+        }
+
+        // Single teacherId
+        final singleSnap = await FirebaseFirestore.instance
+            .collection('lessonAssignments')
+            .where('institutionId', isEqualTo: inst)
+            .where('teacherId', isEqualTo: tid)
+            .where('isActive', isEqualTo: true)
+            .get();
+        for (final doc in singleSnap.docs) {
+          final data = doc.data();
+          final cid = data['classId']?.toString();
+          if (cid != null && cid.isNotEmpty) {
+            classIds.add(cid);
+            if (termId != null && data['termId']?.toString() == termId) {
+              termFilteredClassIds.add(cid);
+            }
+          }
+        }
+      }
+
+      // İsim ile lessonAssignments
+      if (fullName.isNotEmpty) {
+        try {
+          final nameSnap = await FirebaseFirestore.instance
+              .collection('lessonAssignments')
+              .where('institutionId', isEqualTo: inst)
+              .where('teacherNames', arrayContains: fullName)
+              .where('isActive', isEqualTo: true)
+              .get();
+          for (final doc in nameSnap.docs) {
+            final data = doc.data();
+            final cid = data['classId']?.toString();
+            if (cid != null && cid.isNotEmpty) {
+              classIds.add(cid);
+              if (termId != null && data['termId']?.toString() == termId) {
+                termFilteredClassIds.add(cid);
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
+      // 2. classSchedules sorguları (Ders programındaki şubeleri de bağla)
+      for (final tid in validTeacherIds) {
+        final csSnap = await FirebaseFirestore.instance
+            .collection('classSchedules')
+            .where('institutionId', isEqualTo: inst)
+            .where('teacherId', isEqualTo: tid)
+            .get();
+        for (final doc in csSnap.docs) {
+          final data = doc.data();
+          final cid = data['classId']?.toString();
+          if (cid != null && cid.isNotEmpty) {
+            classIds.add(cid);
+            if (termId != null && (data['termId']?.toString() == termId || data['periodId']?.toString() == termId)) {
+              termFilteredClassIds.add(cid);
+            }
+          }
+        }
+
+        final csArraySnap = await FirebaseFirestore.instance
+            .collection('classSchedules')
+            .where('institutionId', isEqualTo: inst)
+            .where('teacherIds', arrayContains: tid)
+            .get();
+        for (final doc in csArraySnap.docs) {
+          final data = doc.data();
+          final cid = data['classId']?.toString();
+          if (cid != null && cid.isNotEmpty) {
+            classIds.add(cid);
+            if (termId != null && (data['termId']?.toString() == termId || data['periodId']?.toString() == termId)) {
+              termFilteredClassIds.add(cid);
+            }
+          }
+        }
+      }
+
+      if (fullName.isNotEmpty) {
+        try {
+          final csNameSnap = await FirebaseFirestore.instance
+              .collection('classSchedules')
+              .where('institutionId', isEqualTo: inst)
+              .where('teacherName', isEqualTo: fullName)
+              .get();
+          for (final doc in csNameSnap.docs) {
+            final data = doc.data();
+            final cid = data['classId']?.toString();
+            if (cid != null && cid.isNotEmpty) {
+              classIds.add(cid);
+              if (termId != null && (data['termId']?.toString() == termId || data['periodId']?.toString() == termId)) {
+                termFilteredClassIds.add(cid);
+              }
+            }
+          }
+        } catch (_) {}
+      }
+    }
+
+    if (termFilteredClassIds.isNotEmpty) {
+      return termFilteredClassIds.toList();
+    }
+    return classIds.toList();
+  }
+
   Future<void> _navigateToAssessmentReports() async {
     setState(() => _isNavigating = true);
     try {
@@ -53,25 +288,8 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       if (user == null) return;
       final userData = await UserPermissionService.loadUserData();
       final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
-      final teacherId = userData?['id'] ?? user.uid;
 
-      List<String> userSTIds = List<String>.from(userData?['schoolTypes'] ?? []);
-      
-      if (userSTIds.isEmpty) {
-        final assignmentsSnap = await FirebaseFirestore.instance
-            .collection('lessonAssignments')
-            .where('institutionId', isEqualTo: instId)
-            .where('teacherIds', arrayContains: teacherId)
-            .where('isActive', isEqualTo: true)
-            .get();
-
-        userSTIds = assignmentsSnap.docs
-            .map((doc) => doc.data()['schoolTypeId']?.toString())
-            .where((id) => id != null)
-            .cast<String>()
-            .toSet()
-            .toList();
-      }
+      List<String> userSTIds = await _resolveTeacherSchoolTypes(instId, userData, user);
 
       if (userSTIds.isEmpty) {
         if (mounted) {
@@ -319,24 +537,7 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
       final teacherId = userData?['id'] ?? user.uid;
 
-      // Deducing school types
-      List<String> userSTIds = List<String>.from(userData?['schoolTypes'] ?? []);
-      
-      if (userSTIds.isEmpty) {
-        final assignmentsSnap = await FirebaseFirestore.instance
-            .collection('lessonAssignments')
-            .where('institutionId', isEqualTo: instId)
-            .where('teacherIds', arrayContains: teacherId)
-            .where('isActive', isEqualTo: true)
-            .get();
-
-        userSTIds = assignmentsSnap.docs
-            .map((doc) => doc.data()['schoolTypeId']?.toString())
-            .where((id) => id != null)
-            .cast<String>()
-            .toSet()
-            .toList();
-      }
+      List<String> userSTIds = await _resolveTeacherSchoolTypes(instId, userData, user);
 
       if (userSTIds.isEmpty) {
         if (mounted) {
@@ -426,24 +627,7 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
       final teacherId = userData?['id'] ?? user.uid;
 
-      // Deducing school types
-      List<String> userSTIds = List<String>.from(userData?['schoolTypes'] ?? []);
-      
-      if (userSTIds.isEmpty) {
-        final assignmentsSnap = await FirebaseFirestore.instance
-            .collection('lessonAssignments')
-            .where('institutionId', isEqualTo: instId)
-            .where('teacherIds', arrayContains: teacherId)
-            .where('isActive', isEqualTo: true)
-            .get();
-
-        userSTIds = assignmentsSnap.docs
-            .map((doc) => doc.data()['schoolTypeId']?.toString())
-            .where((id) => id != null)
-            .cast<String>()
-            .toSet()
-            .toList();
-      }
+      List<String> userSTIds = await _resolveTeacherSchoolTypes(instId, userData, user);
 
       if (userSTIds.isEmpty) {
         if (mounted) {
@@ -532,25 +716,7 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       final userData = await UserPermissionService.loadUserData();
       final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
 
-      // Deducing school types
-      List<String> userSTIds = List<String>.from(userData?['schoolTypes'] ?? []);
-      
-      if (userSTIds.isEmpty) {
-        final teacherId = userData?['id'] ?? user.uid;
-        final assignmentsSnap = await FirebaseFirestore.instance
-            .collection('lessonAssignments')
-            .where('institutionId', isEqualTo: instId)
-            .where('teacherIds', arrayContains: teacherId)
-            .where('isActive', isEqualTo: true)
-            .get();
-
-        userSTIds = assignmentsSnap.docs
-            .map((doc) => doc.data()['schoolTypeId']?.toString())
-            .where((id) => id != null)
-            .cast<String>()
-            .toSet()
-            .toList();
-      }
+      List<String> userSTIds = await _resolveTeacherSchoolTypes(instId, userData, user);
 
       if (userSTIds.isEmpty) {
         if (mounted) {
@@ -632,25 +798,7 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       final userData = await UserPermissionService.loadUserData();
       final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
 
-      // Similar logic to deduce school types
-      List<String> userSTIds = List<String>.from(userData?['schoolTypes'] ?? []);
-      
-      if (userSTIds.isEmpty) {
-        final teacherId = userData?['id'] ?? user.uid;
-        final assignmentsSnap = await FirebaseFirestore.instance
-            .collection('lessonAssignments')
-            .where('institutionId', isEqualTo: instId)
-            .where('teacherIds', arrayContains: teacherId)
-            .where('isActive', isEqualTo: true)
-            .get();
-
-        userSTIds = assignmentsSnap.docs
-            .map((doc) => doc.data()['schoolTypeId']?.toString())
-            .where((id) => id != null)
-            .cast<String>()
-            .toSet()
-            .toList();
-      }
+      List<String> userSTIds = await _resolveTeacherSchoolTypes(instId, userData, user);
 
       if (userSTIds.isEmpty) {
         if (mounted) {
@@ -735,26 +883,7 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       final userData = await UserPermissionService.loadUserData();
       final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
 
-      // Similar logic to portfolio for school type selection
-      List<String> userSTIds = List<String>.from(userData?['schoolTypes'] ?? []);
-      
-      if (userSTIds.isEmpty) {
-        // Find assigned classes to deduce school types
-        final teacherId = userData?['id'] ?? user.uid;
-        final assignmentsSnap = await FirebaseFirestore.instance
-            .collection('lessonAssignments')
-            .where('institutionId', isEqualTo: instId)
-            .where('teacherIds', arrayContains: teacherId)
-            .where('isActive', isEqualTo: true)
-            .get();
-
-        userSTIds = assignmentsSnap.docs
-            .map((doc) => doc.data()['schoolTypeId']?.toString())
-            .where((id) => id != null)
-            .cast<String>()
-            .toSet()
-            .toList();
-      }
+      List<String> userSTIds = await _resolveTeacherSchoolTypes(instId, userData, user);
 
       if (userSTIds.isEmpty) {
         if (mounted) {
@@ -839,127 +968,46 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
       final userData = await UserPermissionService.loadUserData();
-      final teacherId = userData?['id'] ?? user.uid;
       final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
+      final activeTermId = await TermService().getActiveTermId();
 
-      // Get assigned classes
-      final assignmentsSnap = await FirebaseFirestore.instance
-          .collection('lessonAssignments')
-          .where('institutionId', isEqualTo: instId)
-          .where('teacherIds', arrayContains: teacherId)
-          .where('isActive', isEqualTo: true)
-          .get();
+      // Get assigned classes (Filtered by active term)
+      final classIds = await _resolveTeacherAssignedClassIds(
+        instId,
+        userData,
+        user,
+        termId: activeTermId,
+      );
 
-      final classIds = assignmentsSnap.docs
-          .map((doc) => doc.data()['classId']?.toString())
-          .where((id) => id != null)
-          .cast<String>()
-          .toSet()
-          .toList();
+      final effectiveClassIds = classIds.isNotEmpty ? classIds : null;
 
-      if (classIds.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Portfolyosunu görebileceğiniz atanmış bir sınıfınız bulunamadı.')),
-          );
-        }
-        return;
-      }
-
-      // Check teacher's school types
-      List<String> userSTIds = List<String>.from(userData?['schoolTypes'] ?? []);
+      // Resolve teacher school types
+      List<String> userSTIds = await _resolveTeacherSchoolTypes(instId, userData, user);
       
-      if (userSTIds.isEmpty && classIds.isNotEmpty) {
-        // Fallback: Get school types from assigned classes if not in profile
-        // Limited to first 30 classes for whereIn safety
-        final limitIds = classIds.length > 30 ? classIds.take(30).toList() : classIds;
-        final classesSnap = await FirebaseFirestore.instance
-            .collection('classes')
-            .where(FieldPath.documentId, whereIn: limitIds)
-            .get();
-        
-        userSTIds = classesSnap.docs
-            .map((doc) => doc.data()['schoolTypeId']?.toString())
-            .where((id) => id != null)
-            .cast<String>()
-            .toSet()
-            .toList();
-      }
-      
-      if (userSTIds.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')),
-          );
-        }
-        return;
-      }
-
-      // If only one school type, navigate directly
-      if (userSTIds.length == 1) {
-        final stId = userSTIds.first.toString();
-        // Get school type name
-        final stDoc = await FirebaseFirestore.instance.collection('school_types').doc(stId).get();
-        final stName = stDoc.exists ? (stDoc.data()?['name'] ?? 'Okul') : 'Okul';
-
-        if (mounted) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (ctx) => PortfolioScreen(
-                institutionId: instId,
-                schoolTypeId: stId,
-                schoolTypeName: stName,
-                allowedClassIds: classIds,
-              ),
-            ),
-          );
-        }
-      } else {
-        // Multiple school types: show selection dialog
-        final List<Map<String, String>> schoolTypesWithNames = [];
-        for (var stId in userSTIds) {
-          final stDoc = await FirebaseFirestore.instance.collection('school_types').doc(stId.toString()).get();
+      String targetSTId = userSTIds.isNotEmpty ? userSTIds.first.toString() : '';
+      String targetSTName = 'Öğrenci Portfolyosu';
+      if (targetSTId.isNotEmpty) {
+        try {
+          final stDoc = await FirebaseFirestore.instance.collection('school_types').doc(targetSTId).get();
           if (stDoc.exists) {
-            schoolTypesWithNames.add({
-              'id': stId.toString(),
-              'name': stDoc.data()?['name'] ?? 'Okul',
-            });
+            targetSTName = stDoc.data()?['name'] ?? stDoc.data()?['schoolTypeName'] ?? 'Okul';
           }
-        }
+        } catch (_) {}
+      }
 
-        if (mounted) {
-          showDialog(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              title: const Text('Okul Türü Seçin'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: schoolTypesWithNames.map((st) => ListTile(
-                  title: Text(st['name']!),
-                  leading: const Icon(Icons.school, color: Colors.indigo),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (ctx) => PortfolioScreen(
-                          institutionId: instId,
-                          schoolTypeId: st['id']!,
-                          schoolTypeName: st['name']!,
-                          allowedClassIds: classIds,
-                        ),
-                      ),
-                    );
-                  },
-                )).toList(),
-              ),
-              actions: [
-                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('İptal')),
-              ],
+      if (mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (ctx) => PortfolioScreen(
+              institutionId: instId,
+              schoolTypeId: targetSTId,
+              schoolTypeName: targetSTName,
+              allowedClassIds: effectiveClassIds,
+              showAllSchoolTypes: userSTIds.length != 1,
             ),
-          );
-        }
+          ),
+        );
       }
     } catch (e) {
       debugPrint('Error navigating to portfolio: $e');
@@ -982,11 +1030,7 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
       final teacherId = userData?['id'] ?? user.uid;
 
-      List<String> userSTIds = List<String>.from(userData?['schoolTypes'] ?? []);
-      if (userSTIds.isEmpty) {
-        final assignmentsSnap = await FirebaseFirestore.instance.collection('lessonAssignments').where('institutionId', isEqualTo: instId).where('teacherIds', arrayContains: teacherId).where('isActive', isEqualTo: true).get();
-        userSTIds = assignmentsSnap.docs.map((doc) => doc.data()['schoolTypeId']?.toString()).where((id) => id != null).cast<String>().toSet().toList();
-      }
+      List<String> userSTIds = await _resolveTeacherSchoolTypes(instId, userData, user);
 
       if (userSTIds.isEmpty) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')));
@@ -1014,13 +1058,8 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       if (user == null) return;
       final userData = await UserPermissionService.loadUserData();
       final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
-      final teacherId = userData?['id'] ?? user.uid;
 
-      List<String> userSTIds = List<String>.from(userData?['schoolTypes'] ?? []);
-      if (userSTIds.isEmpty) {
-        final assignmentsSnap = await FirebaseFirestore.instance.collection('lessonAssignments').where('institutionId', isEqualTo: instId).where('teacherIds', arrayContains: teacherId).where('isActive', isEqualTo: true).get();
-        userSTIds = assignmentsSnap.docs.map((doc) => doc.data()['schoolTypeId']?.toString()).where((id) => id != null).cast<String>().toSet().toList();
-      }
+      List<String> userSTIds = await _resolveTeacherSchoolTypes(instId, userData, user);
 
       if (userSTIds.isEmpty) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')));
@@ -1048,10 +1087,8 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       if (user == null) return;
       final userData = await UserPermissionService.loadUserData();
       final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
-      final teacherId = userData?['id'] ?? user.uid;
 
-      final assignmentsSnap = await FirebaseFirestore.instance.collection('lessonAssignments').where('institutionId', isEqualTo: instId).where('teacherIds', arrayContains: teacherId).where('isActive', isEqualTo: true).get();
-      final classIds = assignmentsSnap.docs.map((doc) => doc.data()['classId']?.toString()).where((id) => id != null).cast<String>().toSet().toList();
+      final classIds = await _resolveTeacherAssignedClassIds(instId, userData, user);
 
       List<String> classNames = [];
       List<String> studentIds = [];
@@ -1070,10 +1107,7 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
         }
       }
 
-      List<String> userSTIds = List<String>.from(userData?['schoolTypes'] ?? []);
-      if (userSTIds.isEmpty) {
-        userSTIds = assignmentsSnap.docs.map((doc) => doc.data()['schoolTypeId']?.toString()).where((id) => id != null).cast<String>().toSet().toList();
-      }
+      List<String> userSTIds = await _resolveTeacherSchoolTypes(instId, userData, user);
 
       if (userSTIds.isEmpty) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')));
@@ -1105,12 +1139,7 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       final userData = await UserPermissionService.loadUserData();
       final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
       
-      List<String> userSTIds = List<String>.from(userData?['schoolTypes'] ?? []);
-      if (userSTIds.isEmpty) {
-        final teacherId = userData?['id'] ?? user.uid;
-        final assignmentsSnap = await FirebaseFirestore.instance.collection('lessonAssignments').where('institutionId', isEqualTo: instId).where('teacherIds', arrayContains: teacherId).where('isActive', isEqualTo: true).get();
-        userSTIds = assignmentsSnap.docs.map((doc) => doc.data()['schoolTypeId']?.toString()).where((id) => id != null).cast<String>().toSet().toList();
-      }
+      List<String> userSTIds = await _resolveTeacherSchoolTypes(instId, userData, user);
 
       if (userSTIds.isEmpty) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')));
@@ -1158,13 +1187,8 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       if (user == null) return;
       final userData = await UserPermissionService.loadUserData();
       final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
-      final teacherId = userData?['id'] ?? user.uid;
 
-      List<String> userSTIds = List<String>.from(userData?['schoolTypes'] ?? []);
-      if (userSTIds.isEmpty) {
-        final assignmentsSnap = await FirebaseFirestore.instance.collection('lessonAssignments').where('institutionId', isEqualTo: instId).where('teacherIds', arrayContains: teacherId).where('isActive', isEqualTo: true).get();
-        userSTIds = assignmentsSnap.docs.map((doc) => doc.data()['schoolTypeId']?.toString()).where((id) => id != null).cast<String>().toSet().toList();
-      }
+      List<String> userSTIds = await _resolveTeacherSchoolTypes(instId, userData, user);
 
       if (userSTIds.isEmpty) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')));
@@ -1242,13 +1266,8 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       if (user == null) return;
       final userData = await UserPermissionService.loadUserData();
       final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
-      final teacherId = userData?['id'] ?? user.uid;
 
-      List<String> userSTIds = List<String>.from(userData?['schoolTypes'] ?? []);
-      if (userSTIds.isEmpty) {
-        final assignmentsSnap = await FirebaseFirestore.instance.collection('lessonAssignments').where('institutionId', isEqualTo: instId).where('teacherIds', arrayContains: teacherId).where('isActive', isEqualTo: true).get();
-        userSTIds = assignmentsSnap.docs.map((doc) => doc.data()['schoolTypeId']?.toString()).where((id) => id != null).cast<String>().toSet().toList();
-      }
+      List<String> userSTIds = await _resolveTeacherSchoolTypes(instId, userData, user);
 
       if (userSTIds.isEmpty) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')));
@@ -1278,12 +1297,102 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     }
   }
 
+  Future<void> _navigateToTools(int initialCategoryIndex) async {
+    setState(() => _isNavigating = true);
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      final userData = await UserPermissionService.loadUserData();
+      final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
+      final teacherId = userData?['id'] ?? user.uid;
+
+      // 1. Öğretmenin dersine girdiği sınıfları bul (Tüm olası ID'ler ile)
+      final classIds = await _resolveTeacherAssignedClassIds(instId, userData, user);
+
+      // 2. Okul türlerini belirle
+      List<String> userSTIds = await _resolveTeacherSchoolTypes(instId, userData, user);
+
+      if (userSTIds.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')),
+          );
+        }
+        return;
+      }
+
+      void openTools(String stId, String stName) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (ctx) => ToolsHubScreen(
+              institutionId: instId,
+              schoolTypeId: stId,
+              schoolTypeName: stName,
+              initialCategoryIndex: initialCategoryIndex,
+              isTeacher: true,
+              teacherId: teacherId,
+              allowedClassIds: classIds,
+            ),
+          ),
+        );
+      }
+
+      if (userSTIds.length == 1) {
+        final stId = userSTIds.first;
+        final stDoc = await FirebaseFirestore.instance.collection('school_types').doc(stId).get();
+        final stName = stDoc.exists ? (stDoc.data()?['name'] ?? 'Okul') : 'Okul';
+        if (mounted) openTools(stId, stName);
+      } else {
+        final List<Map<String, String>> schoolTypesWithNames = [];
+        for (var stId in userSTIds) {
+          final stDoc = await FirebaseFirestore.instance.collection('school_types').doc(stId).get();
+          if (stDoc.exists) {
+            schoolTypesWithNames.add({
+              'id': stId,
+              'name': stDoc.data()?['name'] ?? 'Okul',
+            });
+          }
+        }
+
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Okul Türü Seçin'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: schoolTypesWithNames.map((st) => ListTile(
+                  title: Text(st['name']!),
+                  leading: const Icon(Icons.school, color: Colors.orange),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    openTools(st['id']!, st['name']!);
+                  },
+                )).toList(),
+              ),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error navigating to tools: $e');
+    } finally {
+      if (mounted) setState(() => _isNavigating = false);
+    }
+  }
+
   Widget _buildCategorySelector() {
     final categories = [
       {'label': 'Tümü', 'icon': Icons.grid_view_rounded, 'id': 'Tümü'},
-      {'label': 'Eğitim', 'icon': Icons.school, 'id': 'egitim'},
-      {'label': 'Rehberlik', 'icon': Icons.folder_special, 'id': 'rehberlik'},
-      {'label': 'Görev', 'icon': Icons.assignment_ind, 'id': 'gorev'},
+      if (UserPermissionService.hasTeacherModuleAccess('egitim_islemleri'))
+        {'label': 'Eğitim', 'icon': Icons.school, 'id': 'egitim'},
+      if (UserPermissionService.hasTeacherModuleAccess('rehberlik_islemleri'))
+        {'label': 'Rehberlik', 'icon': Icons.folder_special, 'id': 'rehberlik'},
+      if (UserPermissionService.hasTeacherModuleAccess('gorevlendirme_ve_izin'))
+        {'label': 'Görev', 'icon': Icons.assignment_ind, 'id': 'gorev'},
+      if (UserPermissionService.hasTeacherModuleAccess('araclar'))
+        {'label': 'Araçlar', 'icon': Icons.build_circle_outlined, 'id': 'araclar'},
     ];
 
     return Container(
@@ -1388,66 +1497,115 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       cardWidth = availableWidth;
     }
 
+    final List<Map<String, dynamic>> egitimItems = [
+      if (UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'ders_programi'))
+        {'title': 'Ders Programı', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (ctx) => TeacherLessonsScreen(institutionId: widget.institutionId)))},
+      if (UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'tanimli_ogrencilerim'))
+        {'title': 'Tanımlı Öğrencilerim', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (ctx) => TeacherStudentListScreen(institutionId: widget.institutionId)))},
+      if (UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'ders_isleyis_plani'))
+        {'title': 'Ders İşleyiş Planı', 'onTap': _navigateToWorkCalendar},
+      if (UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'yoklama_istatistikleri'))
+        {'title': 'Yoklama İstatistikleri', 'onTap': _navigateToAttendanceStats},
+      if (UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'odev_istatistikleri'))
+        {'title': 'Ödev İstatistikleri', 'onTap': _navigateToHomeworkStats},
+      if (UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'etut_islemleri'))
+        {'title': 'Etüt İşlemleri', 'onTap': _navigateToEtutProcess},
+      if (UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'anket_islemleri'))
+        {'title': 'Anket İşlemleri', 'onTap': _navigateToSurvey},
+      if (UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'sinav_raporlari'))
+        {'title': 'Sınav Raporları', 'onTap': _navigateToAssessmentReports},
+    ];
+
+    final List<Map<String, dynamic>> rehberlikItems = [
+      if (UserPermissionService.hasTeacherModuleAccess('rehberlik_islemleri', subModuleKey: 'ogrenci_portfolyolari'))
+        {'title': 'Öğrenci Portfolyoları', 'onTap': _navigateToPortfolio},
+      if (UserPermissionService.hasTeacherModuleAccess('rehberlik_islemleri', subModuleKey: 'gorusmeler'))
+        {'title': 'Görüşmeler', 'onTap': _navigateToGuidanceInterview},
+      if (UserPermissionService.hasTeacherModuleAccess('rehberlik_islemleri', subModuleKey: 'gozlem_ve_etkinlik'))
+        {'title': 'Gözlem ve Etkinlik İşlemleri', 'onTap': _navigateToGuidanceActivity},
+      if (UserPermissionService.hasTeacherModuleAccess('rehberlik_islemleri', subModuleKey: 'ders_calisma_programi'))
+        {'title': 'Ders Çalışma Programı', 'onTap': _navigateToSavedStudyPrograms},
+      if (UserPermissionService.hasTeacherModuleAccess('rehberlik_islemleri', subModuleKey: 'rehberlik_envanterleri'))
+        {'title': 'Rehberlik Envanterleri', 'onTap': _navigateToGuidanceTestCatalog},
+      if (UserPermissionService.hasTeacherModuleAccess('rehberlik_islemleri', subModuleKey: 'rehberlik_kutuphanesi'))
+        {'title': 'Rehberlik Kütüphanesi', 'onTap': _navigateToGuidanceLibrary},
+      if (UserPermissionService.hasTeacherModuleAccess('rehberlik_islemleri', subModuleKey: 'gelisim_raporlari'))
+        {'title': '360 Gelişim Raporları', 'onTap': _navigateToDevelopmentReports},
+    ];
+
+    final List<Map<String, dynamic>> gorevItems = [
+      if (UserPermissionService.hasTeacherModuleAccess('gorevlendirme_ve_izin', subModuleKey: 'nobetlerim'))
+        {'title': 'Nöbetlerim', 'onTap': _navigateToTeacherDuty},
+      if (UserPermissionService.hasTeacherModuleAccess('gorevlendirme_ve_izin', subModuleKey: 'izin_islemleri'))
+        {'title': 'İzin İşlemleri', 'onTap': _navigateToLeaveManagement},
+      if (UserPermissionService.hasTeacherModuleAccess('gorevlendirme_ve_izin', subModuleKey: 'yapilacaklar'))
+        {'title': 'Yapılacaklar (To-Do)', 'onTap': _navigateToTodoList},
+      if (UserPermissionService.hasTeacherModuleAccess('gorevlendirme_ve_izin', subModuleKey: 'giris_cikis_qr'))
+        {'title': 'Giriş-Çıkış (QR)', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TeacherQrScanScreen()))},
+      if (UserPermissionService.hasTeacherModuleAccess('gorevlendirme_ve_izin', subModuleKey: 'gezi_gorevlendirmeleri'))
+        {'title': 'Gezi Görevlendirmeleri', 'onTap': _navigateToFieldTrip},
+    ];
+
+    final List<Map<String, dynamic>> araclarItems = [
+      if (UserPermissionService.hasTeacherModuleAccess('araclar', subModuleKey: 'sinif_ici_yonetim'))
+        {'title': 'Sınıf İçi Yönetim ve Etkileşim', 'onTap': () => _navigateToTools(0)},
+      if (UserPermissionService.hasTeacherModuleAccess('araclar', subModuleKey: 'notlarim'))
+        {'title': 'Notlarım', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PersonalNotesScreen()))},
+    ];
+
     final List<_ModuleCardWidget> allModules = [
-      _ModuleCardWidget(
-        title: 'EĞİTİM İŞLEMLERİ',
-        badge: 'Eğitim',
-        icon: Icons.school,
-        color: Colors.orange,
-        cardWidth: cardWidth,
-        isMobile: isMobile,
-        category: 'Eğitim',
-        showAllItems: isFiltered,
-        items: [
-          {'title': 'Ders Programı', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (ctx) => TeacherLessonsScreen(institutionId: widget.institutionId)))},
-          {'title': 'Tanımlı Öğrencilerim', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (ctx) => TeacherStudentListScreen(institutionId: widget.institutionId)))},
-          {'title': 'Ders İşleyiş Planı', 'onTap': _navigateToWorkCalendar},
-          {'title': 'Yoklama İstatistikleri', 'onTap': _navigateToAttendanceStats},
-          {'title': 'Ödev İstatistikleri', 'onTap': _navigateToHomeworkStats},
-          {'title': 'Etüt İşlemleri', 'onTap': _navigateToEtutProcess},
-          {'title': 'Anket İşlemleri', 'onTap': _navigateToSurvey},
-          {'title': 'Sınav Raporları', 'onTap': _navigateToAssessmentReports},
-        ],
-        onTap: () => setState(() => _selectedCategory = 'Eğitim'),
-      ),
-      _ModuleCardWidget(
-        title: 'REHBERLİK İŞLEMLERİ',
-        badge: 'Rehberlik',
-        icon: Icons.folder_special,
-        color: Colors.deepPurple,
-        cardWidth: cardWidth,
-        isMobile: isMobile,
-        category: 'Rehberlik',
-        showAllItems: isFiltered,
-        items: [
-          {'title': 'Öğrenci Portfolyoları', 'onTap': _navigateToPortfolio},
-          {'title': 'Görüşmeler', 'onTap': _navigateToGuidanceInterview},
-          {'title': 'Gözlem ve Etkinlik İşlemleri', 'onTap': _navigateToGuidanceActivity},
-          {'title': 'Ders Çalışma Programı', 'onTap': _navigateToSavedStudyPrograms},
-          {'title': 'Rehberlik Envanterleri', 'onTap': _navigateToGuidanceTestCatalog},
-          {'title': 'Rehberlik Kütüphanesi', 'onTap': _navigateToGuidanceLibrary},
-          {'title': '360 Gelişim Raporları', 'onTap': _navigateToDevelopmentReports},
-        ],
-        onTap: () => setState(() => _selectedCategory = 'Rehberlik'),
-      ),
-      _ModuleCardWidget(
-        title: 'GÖREVLENDİRME VE İZİN',
-        badge: 'Görev',
-        icon: Icons.assignment_ind,
-        color: Colors.brown,
-        cardWidth: cardWidth,
-        isMobile: isMobile,
-        category: 'Görev',
-        showAllItems: isFiltered,
-        items: [
-          {'title': 'Nöbetlerim', 'onTap': _navigateToTeacherDuty},
-          {'title': 'İzin İşlemleri', 'onTap': _navigateToLeaveManagement},
-          {'title': 'Yapılacaklar (To-Do)', 'onTap': _navigateToTodoList},
-          {'title': 'Giriş-Çıkış (QR)', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TeacherQrScanScreen()))},
-          {'title': 'Gezi Görevlendirmeleri', 'onTap': _navigateToFieldTrip},
-        ],
-        onTap: () => setState(() => _selectedCategory = 'Görev'),
-      ),
+      if (UserPermissionService.hasTeacherModuleAccess('egitim_islemleri') && egitimItems.isNotEmpty)
+        _ModuleCardWidget(
+          title: 'EĞİTİM İŞLEMLERİ',
+          badge: 'Eğitim',
+          icon: Icons.school,
+          color: Colors.orange,
+          cardWidth: cardWidth,
+          isMobile: isMobile,
+          category: 'Eğitim',
+          showAllItems: isFiltered,
+          items: egitimItems,
+          onTap: () => setState(() => _selectedCategory = 'Eğitim'),
+        ),
+      if (UserPermissionService.hasTeacherModuleAccess('rehberlik_islemleri') && rehberlikItems.isNotEmpty)
+        _ModuleCardWidget(
+          title: 'REHBERLİK İŞLEMLERİ',
+          badge: 'Rehberlik',
+          icon: Icons.folder_special,
+          color: Colors.deepPurple,
+          cardWidth: cardWidth,
+          isMobile: isMobile,
+          category: 'Rehberlik',
+          showAllItems: isFiltered,
+          items: rehberlikItems,
+          onTap: () => setState(() => _selectedCategory = 'Rehberlik'),
+        ),
+      if (UserPermissionService.hasTeacherModuleAccess('gorevlendirme_ve_izin') && gorevItems.isNotEmpty)
+        _ModuleCardWidget(
+          title: 'GÖREVLENDİRME VE İZİN',
+          badge: 'Görev',
+          icon: Icons.assignment_ind,
+          color: Colors.brown,
+          cardWidth: cardWidth,
+          isMobile: isMobile,
+          category: 'Görev',
+          showAllItems: isFiltered,
+          items: gorevItems,
+          onTap: () => setState(() => _selectedCategory = 'Görev'),
+        ),
+      if (UserPermissionService.hasTeacherModuleAccess('araclar') && araclarItems.isNotEmpty)
+        _ModuleCardWidget(
+          title: 'ARAÇLAR',
+          badge: 'Araçlar',
+          icon: Icons.build_circle_outlined,
+          color: Colors.amber.shade700,
+          cardWidth: cardWidth,
+          isMobile: isMobile,
+          category: 'Araçlar',
+          showAllItems: isFiltered,
+          items: araclarItems,
+          onTap: () => setState(() => _selectedCategory = 'Araçlar'),
+        ),
     ];
 
     final filteredModules = (_selectedCategory == 'Tümü' 

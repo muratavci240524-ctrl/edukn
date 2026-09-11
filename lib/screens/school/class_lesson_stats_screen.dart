@@ -1,8 +1,9 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:intl/intl.dart';
+import '../../services/term_service.dart';
 
 import 'parent_weekly_updates_overview_screen.dart';
 
@@ -93,6 +94,7 @@ class _ClassLessonStatsScreenState extends State<ClassLessonStatsScreen> {
       try {
         if (classLevel.isNotEmpty) {
           debugPrint('DEBUG: Fetching trials, Level: $classLevel');
+          final activeTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
           final trialsSnap = await FirebaseFirestore.instance
               .collection('trial_exams')
               .where('institutionId', isEqualTo: widget.institutionId)
@@ -110,6 +112,10 @@ class _ClassLessonStatsScreenState extends State<ClassLessonStatsScreen> {
 
           final trials = trialsSnap.docs
               .where((d) {
+                if (activeTermId != null && activeTermId.isNotEmpty) {
+                  final examTermId = d.data()['termId']?.toString();
+                  if (examTermId != activeTermId) return false;
+                }
                 final lvl = (d.data()['classLevel'] ?? '').toString().trim();
                 final target = classLevel.trim();
                 // Gevşek eşleştirme: "8" == "8. Sınıf"

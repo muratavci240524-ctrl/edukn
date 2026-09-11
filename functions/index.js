@@ -302,16 +302,44 @@ exports.updateUserCredentials = onCall({ enforceAppCheck: false }, async (reques
     const { data, auth } = request;
     verifyAuth(auth);
 
-    const { uid, newEmail, newPassword } = data;
-    if (!uid) throw new HttpsError("invalid-argument", "Eksik bilgi: 'uid' gereklidir.");
+    const { uid, newEmail, newPassword, email } = data;
+    let targetUid = uid;
+    const lookupEmail = (email || newEmail || "").trim();
+
+    if (!targetUid && lookupEmail) {
+        try {
+            const userRec = await admin.auth().getUserByEmail(lookupEmail);
+            targetUid = userRec.uid;
+        } catch (e) {
+            // User might not exist in Auth yet
+        }
+    }
+
+    if (!targetUid && !lookupEmail) {
+        throw new HttpsError("invalid-argument", "Eksik bilgi: 'uid' veya 'email' gereklidir.");
+    }
 
     // Başkasının şifresini değiştirmeye çalışıyor mu?
-    if (auth.uid !== uid) {
-        // Süper admin veya kurum admini kontrolü
+    if (!targetUid || auth.uid !== targetUid) {
         const callerDoc = await db.collection("users").doc(auth.uid).get();
         if (!callerDoc.exists) throw new HttpsError("permission-denied", "Yetkisiz.");
-        const callerRole = callerDoc.data().role;
-        if (!["super_admin", "admin", "manager", "genel_mudur"].includes(callerRole)) {
+        const callerData = callerDoc.data() || {};
+        const callerRole = (callerData.role || "").toLowerCase();
+        const allowedRoles = [
+            "super_admin", "admin", "manager", "genel_mudur",
+            "mudur", "mudur_yardimcisi", "yonetici", "kurucu", "insan_kaynaklari"
+        ];
+        const hasRole = allowedRoles.includes(callerRole);
+        const hasPermission = callerData.permissions && (
+            callerData.permissions.kullanici_yonetimi === true ||
+            callerData.permissions.insan_kaynaklari === true ||
+            callerData.permissions.personel_yonetimi === true
+        );
+        const modulePerms = callerData.modulePermissions || {};
+        const hasModulePerm = (modulePerms.insan_kaynaklari && modulePerms.insan_kaynaklari.enabled) ||
+                              (modulePerms.kullanici_yonetimi && modulePerms.kullanici_yonetimi.enabled);
+
+        if (!hasRole && !hasPermission && !hasModulePerm) {
             throw new HttpsError("permission-denied", "Başka bir kullanıcının bilgilerini değiştirme yetkiniz yok.");
         }
     }
@@ -335,16 +363,40 @@ exports.updateUserCredentials = onCall({ enforceAppCheck: false }, async (reques
             return { status: "no-change", message: "Güncellenecek veri gönderilmedi." };
         }
 
-        await admin.auth().updateUser(uid, updateData);
+        let finalUid = targetUid;
+        if (finalUid) {
+            try {
+                await admin.auth().updateUser(finalUid, updateData);
+            } catch (err) {
+                if (err.code === "auth/user-not-found") {
+                    const createPayload = {
+                        uid: finalUid,
+                        email: newEmail || lookupEmail || `${finalUid}@edukn.internal`,
+                        password: newPassword || "123456",
+                    };
+                    const created = await admin.auth().createUser(createPayload);
+                    finalUid = created.uid;
+                } else {
+                    throw err;
+                }
+            }
+        } else {
+            const createPayload = {
+                email: newEmail || lookupEmail,
+                password: newPassword || "123456",
+            };
+            const created = await admin.auth().createUser(createPayload);
+            finalUid = created.uid;
+        }
 
         await writeAuditLog({
             action: "UPDATE_USER_CREDENTIALS",
             performedBy: auth.uid,
-            targetId: uid,
+            targetId: finalUid,
             details: { emailChanged: !!newEmail, passwordChanged: !!newPassword },
         });
 
-        return { status: "success", message: "Kullanıcı bilgileri güncellendi." };
+        return { status: "success", uid: finalUid, message: "Kullanıcı bilgileri güncellendi." };
     } catch (error) {
         throw new HttpsError("internal", `Auth Hatası: ${error.message} (${error.code || "unknown"})`);
     }
@@ -1219,6 +1271,114 @@ exports.onDutyAssigned = onDocumentWritten("dutyScheduleItems/{itemId}", async (
         type: "duty",
         entityId: event.params.itemId,
     });
+});
+
+/**
+ * 'sendDutyNotifications' — Yönetici 'Bildirim Gönder' dediğinde seçili nöbetçilere doğrudan bildirim gönderir.
+ */
+exports.sendDutyNotifications = onCall({ enforceAppCheck: false }, async (request) => {
+    const { data, auth } = request;
+    verifyAuth(auth);
+
+    const { dutyItemIds } = data;
+    if (!dutyItemIds || !Array.isArray(dutyItemIds) || dutyItemIds.length === 0) {
+        throw new HttpsError("invalid-argument", "dutyItemIds listesi gereklidir.");
+    }
+
+    const dayNames = { 1: "Pazartesi", 2: "Salı", 3: "Çarşamba", 4: "Perşembe", 5: "Cuma", 6: "Cumartesi", 7: "Pazar" };
+    const monthNames = [
+        "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
+        "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"
+    ];
+
+    let sentCount = 0;
+    const batch = db.batch();
+    const now = admin.firestore.FieldValue.serverTimestamp();
+
+    for (const itemId of dutyItemIds) {
+        try {
+            const docRef = db.collection("dutyScheduleItems").doc(itemId);
+            const docSnap = await docRef.get();
+            if (!docSnap.exists) continue;
+
+            const item = docSnap.data();
+            const { teacherId, locationName, dayOfWeek, weekStart, dutyDate, date } = item;
+            if (!teacherId) continue;
+
+            const dayNum = parseInt(dayOfWeek, 10);
+            const dayName = dayNames[dayNum] || (dayOfWeek ? `${dayOfWeek}. gün` : "");
+            const location = locationName || "Belirtilmemiş";
+
+            let datePrefix = "";
+            const directDateVal = dutyDate || date;
+            if (directDateVal) {
+                if (directDateVal.toDate) {
+                    const d = directDateVal.toDate();
+                    datePrefix = `${d.getDate()} ${monthNames[d.getMonth()]} ${d.getFullYear()} ${dayName} Günü`;
+                } else if (typeof directDateVal === "string") {
+                    const match = directDateVal.match(/^(\d{4})-(\d{2})-(\d{2})/);
+                    if (match) {
+                        const y = parseInt(match[1], 10);
+                        const m = parseInt(match[2], 10) - 1;
+                        const d = parseInt(match[3], 10);
+                        datePrefix = `${d} ${monthNames[m]} ${y} ${dayName} Günü`;
+                    }
+                }
+            }
+
+            if (!datePrefix && weekStart) {
+                if (typeof weekStart === "string") {
+                    const match = weekStart.match(/^(\d{4})-(\d{2})-(\d{2})/);
+                    if (match) {
+                        const y = parseInt(match[1], 10);
+                        const m = parseInt(match[2], 10) - 1;
+                        const d = parseInt(match[3], 10);
+                        const offsetDays = !isNaN(dayNum) && dayNum >= 1 ? dayNum - 1 : 0;
+                        const targetObj = new Date(Date.UTC(y, m, d + offsetDays, 12, 0, 0));
+                        datePrefix = `${targetObj.getUTCDate()} ${monthNames[targetObj.getUTCMonth()]} ${targetObj.getUTCFullYear()} ${dayName} Günü`;
+                    }
+                } else if (weekStart.toDate) {
+                    const ws = weekStart.toDate();
+                    const offsetDays = !isNaN(dayNum) && dayNum >= 1 ? dayNum - 1 : 0;
+                    const targetObj = new Date(ws.getTime());
+                    targetObj.setDate(targetObj.getDate() + offsetDays);
+                    datePrefix = `${targetObj.getDate()} ${monthNames[targetObj.getMonth()]} ${targetObj.getFullYear()} ${dayName} Günü`;
+                }
+            }
+
+            if (!datePrefix) {
+                datePrefix = dayName ? `${dayName} Günü` : "Yeni";
+            }
+
+            await sendNotifications({
+                recipientUids: [teacherId],
+                title: `🛡️ Nöbet Atandı`,
+                body: `${datePrefix} Nöbet oluşturulmuştur. Nöbet Yeriniz : ${location}`,
+                route: "/school-dashboard",
+                type: "duty",
+                entityId: itemId,
+            });
+
+            batch.update(docRef, {
+                sendNotification: true,
+                notificationSent: true,
+                notifiedTeacherId: teacherId,
+                notificationRequestedAt: now,
+            });
+
+            sentCount++;
+        } catch (err) {
+            console.error(`sendDutyNotifications item (${itemId}) hatası:`, err);
+        }
+    }
+
+    try {
+        await batch.commit();
+    } catch (bErr) {
+        console.error("sendDutyNotifications batch commit hatası:", bErr);
+    }
+
+    return { status: "success", count: sentCount };
 });
 
 // ─── Trigger: Gezi Oluşturulduğunda ──────────────────────────────────────────

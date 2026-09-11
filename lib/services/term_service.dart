@@ -1,6 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'user_permission_service.dart';
 
 /// Dönem yönetimi için merkezi servis
@@ -20,7 +21,7 @@ class TermService {
   /// Eğer geçmiş dönem seçilmişse onu, yoksa null döndürür
   /// NOT: Aktif dönemi döndürmez - bu sayede aktif dönemde olduğumuz anlaşılır
   Future<String?> getSelectedTermId() async {
-    // Her zaman SharedPreferences'tan oku (cache güvenilir değil)
+    if (_cachedSelectedTermId != null) return _cachedSelectedTermId;
     final prefs = await SharedPreferences.getInstance();
     final savedTermId = prefs.getString('selected_term_id');
     _cachedSelectedTermId = savedTermId;
@@ -30,25 +31,51 @@ class TermService {
   /// Kayıt için aktif dönem ID'sini döndürür (Firestore'dan)
   /// YENİ KAYITLAR HER ZAMAN AKTİF DÖNEME YAPILIR
   Future<String?> getActiveTermId() async {
-    if (_cachedActiveTermId != null) return _cachedActiveTermId;
+    if (_cachedActiveTermId != null && _cachedActiveTermId!.isNotEmpty) {
+      return _cachedActiveTermId;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final savedActiveTermId = prefs.getString('active_term_id');
+    if (savedActiveTermId != null && savedActiveTermId.isNotEmpty) {
+      _cachedActiveTermId = savedActiveTermId;
+    }
     
     try {
       final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return null;
+      if (user == null) return _cachedActiveTermId;
       
-      final email = user.email!;
+      final email = user.email ?? '';
       final userData = await UserPermissionService.loadUserData();
+      
+      if (userData != null) {
+        final directTermId = (userData['activeTermId'] ?? userData['termId'] ?? userData['currentTermId'])?.toString();
+        if (directTermId != null && directTermId.isNotEmpty) {
+          _cachedActiveTermId = directTermId;
+          await prefs.setString('active_term_id', directTermId);
+          return _cachedActiveTermId;
+        }
+      }
+
       final institutionId = await UserPermissionService.resolveInstitutionId(email, userData: userData);
       if (institutionId == 'GMAIL' || institutionId.isEmpty) {
-        return null;
+        return _cachedActiveTermId;
       }
       
-      final snapshot = await FirebaseFirestore.instance
-          .collection('terms')
-          .where('institutionId', isEqualTo: institutionId)
-          .get();
+      final instIds = [institutionId, institutionId.toUpperCase(), institutionId.toLowerCase()].toSet().toList();
+      QuerySnapshot<Map<String, dynamic>>? snapshot;
+
+      for (final inst in instIds) {
+        try {
+          snapshot = await FirebaseFirestore.instance
+              .collection('terms')
+              .where('institutionId', isEqualTo: inst)
+              .get();
+          if (snapshot.docs.isNotEmpty) break;
+        } catch (_) {}
+      }
       
-      if (snapshot.docs.isNotEmpty) {
+      if (snapshot != null && snapshot.docs.isNotEmpty) {
         QueryDocumentSnapshot<Map<String, dynamic>>? activeDoc;
         for (final doc in snapshot.docs) {
           if (doc.data()['isActive'] == true) {
@@ -58,18 +85,59 @@ class TermService {
         }
         activeDoc ??= snapshot.docs.first;
         _cachedActiveTermId = activeDoc.id;
+        await prefs.setString('active_term_id', activeDoc.id);
+        final tName = activeDoc.data()['name']?.toString();
+        if (tName != null) {
+          await prefs.setString('active_term_name', tName);
+        }
         return _cachedActiveTermId;
       }
+
+      // Fallback 1: Kurum belgesinde tanımlı aktif dönem
+      for (final inst in instIds) {
+        try {
+          final instDoc = await FirebaseFirestore.instance.collection('institutions').doc(inst).get();
+          if (instDoc.exists) {
+            final instTerm = (instDoc.data()?['activeTermId'] ?? instDoc.data()?['termId'])?.toString();
+            if (instTerm != null && instTerm.isNotEmpty) {
+              _cachedActiveTermId = instTerm;
+              await prefs.setString('active_term_id', instTerm);
+              return _cachedActiveTermId;
+            }
+          }
+        } catch (_) {}
+      }
+
+      // Fallback 2: trial_exams koleksiyonu üzerinden son aktif dönem
+      for (final inst in instIds) {
+        try {
+          final examSnap = await FirebaseFirestore.instance
+              .collection('trial_exams')
+              .where('institutionId', isEqualTo: inst)
+              .limit(5)
+              .get();
+          for (final doc in examSnap.docs) {
+            final tId = doc.data()['termId']?.toString();
+            if (tId != null && tId.isNotEmpty) {
+              _cachedActiveTermId = tId;
+              await prefs.setString('active_term_id', tId);
+              return _cachedActiveTermId;
+            }
+          }
+        } catch (_) {}
+      }
     } catch (e) {
-      print('Aktif dönem alınırken hata: $e');
+      debugPrint('Aktif dönem alınırken hata: $e');
     }
-    return null;
+
+    if (_cachedActiveTermId != null) return _cachedActiveTermId;
+    return prefs.getString('selected_term_id');
   }
   
   /// Seçili dönem adını döndürür
   Future<String?> getSelectedTermName() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('selected_term_name');
+    return prefs.getString('selected_term_name') ?? prefs.getString('active_term_name');
   }
   
   /// Geçmiş dönem görüntüleniyor mu?
@@ -83,7 +151,9 @@ class TermService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('selected_term_id', termId);
     await prefs.setString('selected_term_name', termName);
+    await prefs.setString('active_term_id', termId);
     _cachedSelectedTermId = termId;
+    _cachedActiveTermId ??= termId;
   }
   
   /// Dönem seçimini temizle (aktif döneme dön)

@@ -67,8 +67,8 @@ class StylishBottomNav extends StatelessWidget {
                   padding: const EdgeInsets.only(left: 38, right: 12), // Left padding to avoid the cutout
                   child: _buildFeatureContent(
                     title: 'İşlemler',
-                    subtitle: 'Notlarım ve diğerleri',
-                    icon: Icons.edit_note_rounded, // matches "Notlarım" icon
+                    subtitle: 'Modüller ve Araçlar',
+                    icon: Icons.apps_rounded,
                     color: Colors.purple,
                     isSelected: currentIndex == 2,
                   ),

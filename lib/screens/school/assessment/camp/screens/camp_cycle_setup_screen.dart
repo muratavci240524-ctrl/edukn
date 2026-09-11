@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'dart:ui';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -10,6 +10,7 @@ import '../models/camp_group_model.dart';
 import '../models/camp_time_slot_model.dart';
 import '../repository/camp_repository.dart';
 import '../services/camp_service.dart';
+import '../../../../../services/term_service.dart';
 import '../../../classroom_management_screen.dart';
 
 class CampCycleSetupScreen extends StatefulWidget {
@@ -125,6 +126,7 @@ class _CampCycleSetupScreenState extends State<CampCycleSetupScreen>
   }
 
   Future<void> _loadData() async {
+    final activeTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
     final librarySlots = await _repo.getTimeSlots(widget.institutionId, includeInactive: false);
     final teacherSnap = await _db.collection('users').where('institutionId', isEqualTo: widget.institutionId).where('type', isEqualTo: 'staff').get();
     final classroomSnap = await _db.collection('classrooms').where('institutionId', isEqualTo: widget.institutionId).where('schoolTypeId', isEqualTo: widget.schoolTypeId).where('isActive', isEqualTo: true).get();
@@ -133,7 +135,15 @@ class _CampCycleSetupScreenState extends State<CampCycleSetupScreen>
     if (mounted) {
       setState(() {
         _allLibrarySlots = librarySlots;
-        _exams = examSnap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+        _exams = examSnap.docs
+            .where((d) {
+              if (activeTermId != null && activeTermId.isNotEmpty) {
+                final t = (d.data())['termId']?.toString();
+                if (t != activeTermId) return false;
+              }
+              return true;
+            })
+            .map((d) => {'id': d.id, ...d.data()}).toList();
 
         // Robust sorting: Newest first
         _exams.sort((a, b) {

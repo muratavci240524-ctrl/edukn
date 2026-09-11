@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/gestures.dart';
@@ -10,6 +10,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../services/assessment_service.dart';
+import '../../../services/term_service.dart';
 import '../../../services/guidance_service.dart';
 import '../../../models/assessment/trial_exam_model.dart';
 import '../../../models/guidance/study_template_model.dart';
@@ -1799,8 +1800,9 @@ class _GuidanceStudyProgramScreenState
 
     try {
       // 1. Fetch Exams
+      final activeTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
       final exams = await AssessmentService()
-          .getTrialExams(widget.institutionId)
+          .getTrialExams(widget.institutionId, termId: activeTermId)
           .first;
 
       exams.sort((a, b) => b.date.compareTo(a.date));
@@ -1979,8 +1981,9 @@ class _GuidanceStudyProgramScreenState
 
     try {
       // 1. Fetch Exams
+      final activeTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
       final exams = await AssessmentService()
-          .getTrialExams(widget.institutionId)
+          .getTrialExams(widget.institutionId, termId: activeTermId)
           .first;
 
       exams.sort((a, b) => b.date.compareTo(a.date));

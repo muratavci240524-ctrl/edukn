@@ -1,5 +1,6 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
+import '../../services/crypto_service.dart';
 
 class StudentDetailViewScreen extends StatefulWidget {
   final Map<String, dynamic> student;
@@ -20,7 +21,8 @@ class _StudentDetailViewScreenState extends State<StudentDetailViewScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    _student = widget.student;
+    final instId = widget.student['institutionId']?.toString();
+    _student = CryptoService.decryptMap(widget.student, institutionId: instId);
   }
 
   @override

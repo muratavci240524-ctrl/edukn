@@ -70,74 +70,159 @@ class UserPermissionService {
           print('❌ Impersonated kullanıcı bulunamadı!');
         }
       } else {
-        // Normal mod - Email'den kullanıcıyı bul (En güvenli yöntem)
-        print('👤 Normal mod - Email: ${user.email}');
+        // Normal mod - Orijinal dokümanı bul ve TEKİL olarak bağla (Asla mükerrer klon açma!)
+        print('👤 Normal mod - UID: ${user.uid}, Email: ${user.email}');
 
-        final userQuery = await FirebaseFirestore.instance
+        DocumentSnapshot<Map<String, dynamic>>? canonicalDoc;
+
+        // 1. Strateji: authUserId alanı ile eşleşen dokümanı bul
+        final authUserQuery = await FirebaseFirestore.instance
             .collection('users')
-            .where('email', isEqualTo: user.email?.toLowerCase())
+            .where('authUserId', isEqualTo: user.uid)
+            .limit(1)
             .get();
 
-        if (userQuery.docs.isNotEmpty) {
-          // Eğer birden fazla doküman varsa, gerçek bir institutionId'si olanı tercih et
-          QueryDocumentSnapshot? bestDoc;
-          for (var doc in userQuery.docs) {
-            final data = doc.data() as Map<String, dynamic>;
-            final instId = data['institutionId']?.toString();
-            if (instId != null && instId.isNotEmpty && instId.toUpperCase() != 'GMAIL') {
-              bestDoc = doc;
-              break;
-            }
+        if (authUserQuery.docs.isNotEmpty) {
+          canonicalDoc = authUserQuery.docs.first;
+          print('✅ authUserId alanı ile orijinal kullanıcı bulundu: ${canonicalDoc.data()?['fullName']} (ID: ${canonicalDoc.id})');
+        }
+
+        // 2. Strateji: googleUid alanı ile ara
+        if (canonicalDoc == null) {
+          final googleUidQuery = await FirebaseFirestore.instance
+              .collection('users')
+              .where('googleUid', isEqualTo: user.uid)
+              .limit(1)
+              .get();
+          if (googleUidQuery.docs.isNotEmpty) {
+            canonicalDoc = googleUidQuery.docs.first;
+            print('✅ googleUid alanı ile orijinal kullanıcı bulundu: ${canonicalDoc.data()?['fullName']} (ID: ${canonicalDoc.id})');
           }
-          
-          if (bestDoc == null) {
-             for (var doc in userQuery.docs) {
-               final data = doc.data() as Map<String, dynamic>;
-               if (data['institutionId'] != null) {
-                 bestDoc = doc;
-                 break;
-               }
-             }
-          }
-          
-          final selectedDoc = bestDoc ?? userQuery.docs.first;
-          userData = selectedDoc.data() as Map<String, dynamic>;
-          userData['id'] = selectedDoc.id;
-          print('✅ Email ile kullanıcı bulundu: ${userData['fullName']} (ID: ${selectedDoc.id})');
-          if (userData['institutionId'] == null) {
-            print('⚠️ UYARI: Kullanıcının institutionId bilgisi boş!');
-          }
-        } else {
-          // Email ile bulunamazsa doküman ID'si olarak UID'yi dene
-          print('🔍 Email ile bulunamadı, UID (doc id) deneniyor...');
+        }
+
+        // 3. Strateji: Doğrudan UID ile doküman kontrolü
+        if (canonicalDoc == null) {
           final userDoc = await FirebaseFirestore.instance
               .collection('users')
               .doc(user.uid)
               .get();
-
           if (userDoc.exists) {
-            userData = userDoc.data();
-            if (userData != null) {
-              userData['id'] = user.uid;
-              print(
-                '✅ UID (doc id) ile kullanıcı bulundu: ${userData['fullName']}',
-              );
+            final data = userDoc.data();
+            final origId = data?['originalDocId']?.toString();
+            if (origId != null && origId.isNotEmpty && origId != user.uid) {
+              // Bu eski bir ayna/kopya dokümandır, gerçek asıl dokümanı getir
+              final realDoc = await FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(origId)
+                  .get();
+              if (realDoc.exists) {
+                canonicalDoc = realDoc;
+                print('✅ originalDocId takip edilerek asıl dokümana ulaşıldı: $origId');
+                // Kopya dokümanı hemen temizle
+                userDoc.reference.delete().catchError((_) {});
+              } else {
+                canonicalDoc = userDoc;
+              }
+            } else {
+              canonicalDoc = userDoc;
             }
-          } else {
-            // Hala bulunamazsa authUserId alanı ile dene
-            print('🔍 Email ile bulunamadı, authUserId alanı ile deneniyor...');
-            final authUserQuery = await FirebaseFirestore.instance
+          }
+        }
+
+        // 4. Strateji: EduKN e-posta formatı (username@institution.edukn)
+        if (canonicalDoc == null && user.email != null && user.email!.contains('@') && user.email!.endsWith('.edukn')) {
+          try {
+            final parts = user.email!.split('@');
+            final uName = parts[0].trim().toLowerCase();
+            final hostParts = parts[1].split('.');
+            final instId = hostParts[0].trim().toUpperCase();
+
+            print('🔍 eduKN email yapısından username: $uName, inst: $instId ile aranıyor...');
+            final usernameQuery = await FirebaseFirestore.instance
                 .collection('users')
-                .where('authUserId', isEqualTo: user.uid)
+                .where('institutionId', whereIn: [instId, instId.toLowerCase()])
+                .where('username', isEqualTo: uName)
                 .limit(1)
                 .get();
 
-            if (authUserQuery.docs.isNotEmpty) {
-              userData = authUserQuery.docs.first.data();
-              userData['id'] = authUserQuery.docs.first.id;
-              print(
-                '✅ authUserId alanı ile kullanıcı bulundu: ${userData['fullName']}',
-              );
+            if (usernameQuery.docs.isNotEmpty) {
+              canonicalDoc = usernameQuery.docs.first;
+              print('✅ Username + Kurum ile kullanıcı bulundu: ${canonicalDoc.data()?['fullName']} (ID: ${canonicalDoc.id})');
+            } else {
+              // Kurum kısıtı olmadan dene
+              final uQueryNoInst = await FirebaseFirestore.instance
+                  .collection('users')
+                  .where('username', isEqualTo: uName)
+                  .limit(1)
+                  .get();
+              if (uQueryNoInst.docs.isNotEmpty) {
+                canonicalDoc = uQueryNoInst.docs.first;
+                print('✅ Username ile kullanıcı bulundu: ${canonicalDoc.data()?['fullName']} (ID: ${canonicalDoc.id})');
+              }
+            }
+          } catch (e) {
+            print('⚠️ Username bazlı arama hatası: $e');
+          }
+        }
+
+        // 5. Strateji: Email alanları ile ara (email, corporateEmail, personalEmail)
+        if (canonicalDoc == null && user.email != null && user.email!.isNotEmpty) {
+          final targetEmail = user.email!.toLowerCase();
+          
+          final queries = [
+            FirebaseFirestore.instance.collection('users').where('email', isEqualTo: targetEmail).get(),
+            FirebaseFirestore.instance.collection('users').where('corporateEmail', isEqualTo: targetEmail).get(),
+            FirebaseFirestore.instance.collection('users').where('personalEmail', isEqualTo: targetEmail).get(),
+          ];
+
+          final emailResults = await Future.wait(queries);
+          for (final snap in emailResults) {
+            if (snap.docs.isNotEmpty) {
+              // Mümkünse institutionId olanı ve klon olmayanı tercih et
+              for (var d in snap.docs) {
+                if (d.data()['originalDocId'] == null) {
+                  canonicalDoc = d;
+                  break;
+                }
+              }
+              canonicalDoc ??= snap.docs.first;
+              print('✅ Email ile kullanıcı bulundu: ${canonicalDoc.data()?['fullName']} (ID: ${canonicalDoc.id})');
+              break;
+            }
+          }
+        }
+
+        // Orijinal doküman bulunduysa veriyi hazırla ve TEKİL olarak bağla
+        if (canonicalDoc != null && canonicalDoc.exists) {
+          userData = canonicalDoc.data();
+          if (userData != null) {
+            userData['id'] = canonicalDoc.id;
+
+            // Orijinal dokümana authUserId & googleUid'yi bağla
+            if (userData['authUserId'] != user.uid || userData['googleUid'] != user.uid) {
+              userData['authUserId'] = user.uid;
+              userData['googleUid'] = user.uid;
+              canonicalDoc.reference.update({
+                'authUserId': user.uid,
+                'googleUid': user.uid,
+              }).catchError((e) {
+                print('⚠️ authUserId güncelleme hatası: $e');
+              });
+              print('🔗 authUserId orijinal dokümana başarıyla bağlandı: ${canonicalDoc.id}');
+            }
+
+            // Eğer /users/{user.uid} şeklinde ayrı bir klon/mükerrer doküman varsa onu otomatik temizle
+            if (canonicalDoc.id != user.uid) {
+              try {
+                final cloneDoc = await FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(user.uid)
+                    .get();
+                if (cloneDoc.exists) {
+                  await cloneDoc.reference.delete();
+                  print('🧹 Eski mükerrer kopya doküman otomatik silindi: ${user.uid}');
+                }
+              } catch (_) {}
             }
           }
         }
@@ -204,32 +289,85 @@ class UserPermissionService {
     try {
       final template = await RolePermissionService().loadRoleTemplate(institutionId, role);
       if (template != null) {
+        template['teacherPermissions'] ??= RolePermissionService.getDefaultTeacherPermissions(role);
+        template['appPermissions'] ??= RolePermissionService.getDefaultPermissions(role);
+        template['schoolTypePermissions'] ??= RolePermissionService.getDefaultSchoolTypePermissions(role);
         _cachedRoleTemplate = template;
         print('✅ Rol şablonu yüklendi: $role');
-        // Debug: Şablondaki modülleri listele
-        final appPerms = template['appPermissions'] as Map<String, dynamic>?;
-        if (appPerms != null) {
-          print('📋 Şablon modülleri ($role):');
-          appPerms.forEach((key, value) {
-            if (value is Map) {
-              print('   ${value['enabled'] == true ? "✅" : "❌"} $key (${value['level'] ?? "yok"})');
-            }
-          });
-        } else {
-          print('⚠️ Şablonda appPermissions yok! Anahtarlar: ${template.keys.toList()}');
-        }
       } else {
         // Varsayılan şablonu oluştur
         _cachedRoleTemplate = {
+          'roleName': role,
           'appPermissions': RolePermissionService.getDefaultPermissions(role),
           'schoolTypePermissions': RolePermissionService.getDefaultSchoolTypePermissions(role),
+          'teacherPermissions': RolePermissionService.getDefaultTeacherPermissions(role),
         };
         print('ℹ️ Varsayılan rol şablonu kullanıldı: $role');
       }
     } catch (e) {
-      print('⚠️ Rol şablonu yüklenemedi: $e');
-      _cachedRoleTemplate = null;
+      print('ℹ️ Rol şablonu Firestore\'dan alınamadı ($e). Varsayılan rol şablonu kullanılıyor: $role');
+      _cachedRoleTemplate = {
+        'roleName': role,
+        'appPermissions': RolePermissionService.getDefaultPermissions(role),
+        'schoolTypePermissions': RolePermissionService.getDefaultSchoolTypePermissions(role),
+        'teacherPermissions': RolePermissionService.getDefaultTeacherPermissions(role),
+      };
     }
+  }
+
+  /// Öğretmen modülü yetkisi kontrolü (Kategori veya alt modül)
+  static bool hasTeacherModuleAccess(String moduleKey, {String? subModuleKey}) {
+    if (_cachedRoleTemplate == null) return true; // Güvenli fallback: açık
+    
+    final tPerms = _cachedRoleTemplate!['teacherPermissions'] as Map<String, dynamic>?;
+    if (tPerms == null) return true;
+    
+    final modData = tPerms[moduleKey] as Map<String, dynamic>?;
+    if (modData == null) return true;
+
+    // Ana modül kapalıysa doğrudan false
+    if (modData['enabled'] != true) return false;
+
+    // Alt modül kontrolü
+    if (subModuleKey != null) {
+      final subPerms = modData['subModules'] as Map<String, dynamic>?;
+      if (subPerms != null && subPerms.containsKey(subModuleKey)) {
+        final subData = subPerms[subModuleKey] as Map<String, dynamic>?;
+        if (subData != null) {
+          return subData['enabled'] == true;
+        }
+      }
+    }
+
+    return true;
+  }
+
+  /// Öğretmen modülü yetki seviyesi ('editor' / 'viewer')
+  static String getTeacherModuleLevel(String moduleKey, {String? subModuleKey}) {
+    if (_cachedRoleTemplate == null) return 'editor';
+    
+    final tPerms = _cachedRoleTemplate!['teacherPermissions'] as Map<String, dynamic>?;
+    if (tPerms == null) return 'editor';
+    
+    final modData = tPerms[moduleKey] as Map<String, dynamic>?;
+    if (modData == null) return 'editor';
+
+    if (subModuleKey != null) {
+      final subPerms = modData['subModules'] as Map<String, dynamic>?;
+      if (subPerms != null && subPerms.containsKey(subModuleKey)) {
+        final subData = subPerms[subModuleKey] as Map<String, dynamic>?;
+        if (subData != null) {
+          return (subData['level'] ?? modData['level'] ?? 'editor').toString();
+        }
+      }
+    }
+
+    return (modData['level'] ?? 'editor').toString();
+  }
+
+  /// Öğretmen modülünde düzenleme yetkisi var mı?
+  static bool canEditTeacherModule(String moduleKey, {String? subModuleKey}) {
+    return getTeacherModuleLevel(moduleKey, subModuleKey: subModuleKey) == 'editor';
   }
 
   /// Cache'lenmiş rol şablonunu al

@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../constants/app_modules.dart';
 import '../constants/school_type_modules.dart';
+import '../constants/teacher_modules.dart';
 
 class RolePermissionService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -96,6 +97,36 @@ class RolePermissionService {
       if (['genel_mudur', 'mudur', 'mudur_yardimcisi', 'ogretmen', 'rehber_ogretmen'].contains(roleKey)) {
         enabled = true;
         level = 'editor';
+      }
+
+      // Sub-modules permissions
+      Map<String, Map<String, dynamic>> subPerms = {};
+      moduleInfo.subModules.forEach((subKey, subName) {
+        subPerms[subKey] = {'enabled': enabled, 'level': level};
+      });
+
+      perms[moduleKey] = {
+        'enabled': enabled, 
+        'level': level,
+        'subModules': subPerms,
+      };
+    }
+
+    return perms;
+  }
+
+  /// Get default teacher permissions for a role
+  static Map<String, dynamic> getDefaultTeacherPermissions(String roleKey) {
+    Map<String, dynamic> perms = {};
+    
+    for (var moduleKey in TeacherModules.allModuleKeys) {
+      final moduleInfo = TeacherModules.getModule(moduleKey)!;
+      bool enabled = true;
+      String level = 'editor';
+
+      if (['ogrenci', 'veli'].contains(roleKey)) {
+        enabled = false;
+        level = 'viewer';
       }
 
       // Sub-modules permissions

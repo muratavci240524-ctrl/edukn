@@ -1,9 +1,12 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../models/activity/activity_model.dart';
 import '../../../../services/activity_service.dart';
 import 'activity_evaluation_screen.dart';
+
+import '../../../../services/user_permission_service.dart';
+import 'activity_form_screen.dart';
 
 class ActivityDetailScreen extends StatefulWidget {
   final ActivityObservation activity;
@@ -23,13 +26,34 @@ class _ActivityDetailScreenState extends State<ActivityDetailScreen>
   // Cache student info
   Map<String, Map<String, dynamic>> _studentDetails = {};
   bool _isLoadingStudents = true;
+  bool _isManager = false;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _participatedIds = widget.activity.participatedStudentIds.toSet();
+    _checkManagerRole();
     _loadStudentDetails();
+  }
+
+  Future<void> _checkManagerRole() async {
+    final userData = await UserPermissionService.loadUserData();
+    final role = (userData?['role'] as String?)?.toLowerCase() ?? '';
+    final title = (userData?['title'] as String?)?.toLowerCase() ?? '';
+    final isManager = role.contains('admin') ||
+        role.contains('mudur') ||
+        role.contains('müdür') ||
+        role.contains('kurucu') ||
+        role.contains('rehber') ||
+        title.contains('müdür') ||
+        title.contains('rehber');
+
+    if (mounted) {
+      setState(() {
+        _isManager = isManager;
+      });
+    }
   }
 
   Future<void> _loadStudentDetails() async {
@@ -65,11 +89,87 @@ class _ActivityDetailScreenState extends State<ActivityDetailScreen>
     if (mounted) setState(() => _isLoadingStudents = false);
   }
 
+  Future<void> _confirmDelete() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Kaydı Sil'),
+        content: Text(
+          '"${widget.activity.title}" kaydını silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('İptal'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Sil'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        await ActivityService().deleteActivity(widget.activity.id);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Kayıt başarıyla silindi.'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          Navigator.pop(context, true);
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Silme işlemi başarısız: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: EduknAppBar(
         title: widget.activity.title,
+        actions: (_isManager && UserPermissionService.canEditTeacherModule('rehberlik_islemleri', subModuleKey: 'gozlem_etkinlik_yeni_form'))
+            ? [
+                IconButton(
+                  icon: const Icon(Icons.edit_outlined),
+                  tooltip: 'Düzenle',
+                  onPressed: () async {
+                    final updated = await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ActivityFormScreen(
+                          institutionId: widget.activity.institutionId,
+                          schoolTypeId: widget.activity.schoolTypeId,
+                          initialType: widget.activity.type,
+                          existingActivity: widget.activity,
+                        ),
+                      ),
+                    );
+                    if (updated == true && mounted) {
+                      Navigator.pop(context, true);
+                    }
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  tooltip: 'Sil',
+                  onPressed: _confirmDelete,
+                ),
+              ]
+            : null,
         bottom: TabBar(
           controller: _tabController,
           labelColor: Colors.indigo,
@@ -248,12 +348,13 @@ class _ActivityDetailScreenState extends State<ActivityDetailScreen>
                       Checkbox(
                         value: isParticipated,
                         activeColor: Colors.green,
-                        onChanged: (val) =>
-                            _toggleParticipation(studentId, val),
+                        onChanged: UserPermissionService.canEditTeacherModule('rehberlik_islemleri', subModuleKey: 'gozlem_etkinlik_form_doldur')
+                            ? (val) => _toggleParticipation(studentId, val)
+                            : null,
                       ),
                     ],
                   ),
-                if (widget.activity.isEvaluationEnabled) ...[
+                if (widget.activity.isEvaluationEnabled && UserPermissionService.canEditTeacherModule('rehberlik_islemleri', subModuleKey: 'gozlem_etkinlik_form_doldur')) ...[
                   const SizedBox(width: 8),
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(

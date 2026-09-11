@@ -71,10 +71,11 @@ class _ScheduleEditorScreenState extends State<ScheduleEditorScreen> {
   String?
   _cachedTermId; // Cache'lenmiş termId ÔÇö her seferinde Firestore'dan ğekmemek iğin
 
-  // Gİrünüm Modu ve Yerleşemeyen Ders Seğimi State
+  // Görünüm Modu ve Yerleşemeyen Ders Seçimi State
   List<Map<String, dynamic>> _teachers = [];
   bool _isTeacherView = false;
-  bool _isFitToScreen = false; // Web'de ekrana sışdırma modu
+  bool _isSchedulePublished = false;
+  bool _isFitToScreen = false; // Web'de ekrana sığdırma modu
   Map<String, dynamic>? _selectedUnassignedLesson;
   String?
   _unassignedFilterId; // Yerleşemeyen ders filtresi: classId veya teacherId
@@ -151,8 +152,23 @@ class _ScheduleEditorScreenState extends State<ScheduleEditorScreen> {
       final termIdFuture = TermService().getSelectedTermId();
       final activeTermIdFuture = TermService().getActiveTermId();
 
+      // Aktif öğretmenleri users koleksiyonundan çek
+      final usersFuture = firestore
+          .collection('users')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .where('type', isEqualTo: 'staff')
+          .where('isActive', isEqualTo: true)
+          .get();
+
+      final usersLowerFuture = firestore
+          .collection('users')
+          .where('institutionId', isEqualTo: widget.institutionId.toLowerCase())
+          .where('type', isEqualTo: 'staff')
+          .where('isActive', isEqualTo: true)
+          .get();
+
       // PARALEL BEKLE
-      final results = await Future.wait([
+      final results = await Future.wait<dynamic>([
         periodDocFuture, // 0
         classesFuture, // 1
         lessonsFuture, // 2
@@ -160,6 +176,8 @@ class _ScheduleEditorScreenState extends State<ScheduleEditorScreen> {
         assignmentsFuture, // 4
         termIdFuture, // 5
         activeTermIdFuture, // 6
+        usersFuture, // 7
+        usersLowerFuture, // 8
       ]);
 
       final periodDoc = results[0] as DocumentSnapshot;
@@ -169,6 +187,8 @@ class _ScheduleEditorScreenState extends State<ScheduleEditorScreen> {
       final assignmentsSnapshot = results[4] as QuerySnapshot;
       final selectedTermId = results[5] as String?;
       final activeTermId = results[6] as String?;
+      final usersSnapshot = results[7] as QuerySnapshot;
+      final usersLowerSnapshot = results[8] as QuerySnapshot;
 
       // TermId cache
       _cachedTermId = selectedTermId ?? activeTermId;
@@ -403,6 +423,43 @@ class _ScheduleEditorScreenState extends State<ScheduleEditorScreen> {
         print('Ders saatleri yüklenemedi: $e');
       }
 
+      // ── Aktif Öğretmen Haritası (Canlı users Koleksiyonundan) ──
+      final Set<String> seenUserDocIds = {};
+      final Map<String, Map<String, dynamic>> activeTeachersById = {};
+      final Map<String, String> activeTeacherIdByName = {};
+
+      final allUserDocs = [...usersSnapshot.docs, ...usersLowerSnapshot.docs];
+      for (var doc in allUserDocs) {
+        if (!seenUserDocIds.add(doc.id)) continue;
+        final data = doc.data() as Map<String, dynamic>;
+        final title = (data['title'] ?? '').toString().toLowerCase();
+        final role = (data['role'] ?? '').toString().toLowerCase();
+        final isTeacher = data['type'] == 'staff' ||
+            title == 'ogretmen' ||
+            title == 'teacher' ||
+            title == 'öğretmen' ||
+            role == 'teacher';
+        if (!isTeacher) continue;
+
+        final fullName = (data['fullName'] ?? '').toString().trim();
+        final firstName = (data['firstName'] ?? '').toString().trim();
+        final lastName = (data['lastName'] ?? '').toString().trim();
+        final name = fullName.isNotEmpty
+            ? fullName
+            : '$firstName $lastName'.trim();
+        if (name.isEmpty) continue;
+
+        activeTeachersById[doc.id] = {
+          'id': doc.id,
+          'name': name,
+          'firstName': firstName,
+          'lastName': lastName,
+          'branch': (data['branch'] ?? '').toString(),
+        };
+        final normName = name.toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+        activeTeacherIdByName[normName] = doc.id;
+      }
+
       // Ders Atamaları - TEK QUERY sonucunu classId'ye göre grupla
       final Map<String, List<Map<String, dynamic>>> classLessons = {};
       final Map<String, int> remainingHours = {};
@@ -413,20 +470,80 @@ class _ScheduleEditorScreenState extends State<ScheduleEditorScreen> {
         data['id'] = doc.id;
         final classId = data['classId']?.toString();
         if (classId != null && classIdSet.contains(classId)) {
+          // Eski/silinmiş öğretmen referansını aktif öğretmenle eşle (örn. silinip tekrar açılan Fatih Bay)
+          final rawTIds = (data['teacherIds'] as List?)?.map((e) => e.toString()).toList() ?? [];
+          final rawTNames = (data['teacherNames'] as List?)?.map((e) => e.toString()).toList() ?? [];
+          final singleTId = data['teacherId']?.toString();
+          final singleTName = data['teacherName']?.toString();
+
+          final List<String> resolvedTIds = [];
+          final List<String> resolvedTNames = [];
+
+          if (rawTIds.isNotEmpty) {
+            for (int i = 0; i < rawTIds.length; i++) {
+              final tId = rawTIds[i];
+              final tName = i < rawTNames.length ? rawTNames[i] : '';
+              if (activeTeachersById.containsKey(tId)) {
+                resolvedTIds.add(tId);
+                resolvedTNames.add(activeTeachersById[tId]!['name'] as String);
+              } else {
+                final normTName = tName.toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+                if (normTName.isNotEmpty && activeTeacherIdByName.containsKey(normTName)) {
+                  final newId = activeTeacherIdByName[normTName]!;
+                  if (!resolvedTIds.contains(newId)) {
+                    resolvedTIds.add(newId);
+                    resolvedTNames.add(activeTeachersById[newId]!['name'] as String);
+                  }
+                }
+              }
+            }
+          } else if (singleTId != null && singleTId.isNotEmpty) {
+            if (activeTeachersById.containsKey(singleTId)) {
+              resolvedTIds.add(singleTId);
+              resolvedTNames.add(activeTeachersById[singleTId]!['name'] as String);
+            } else {
+              final normTName = (singleTName ?? '').toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+              if (normTName.isNotEmpty && activeTeacherIdByName.containsKey(normTName)) {
+                final newId = activeTeacherIdByName[normTName]!;
+                resolvedTIds.add(newId);
+                resolvedTNames.add(activeTeachersById[newId]!['name'] as String);
+              }
+            }
+          }
+
+          if (resolvedTIds.isNotEmpty) {
+            data['teacherIds'] = resolvedTIds;
+            data['teacherNames'] = resolvedTNames;
+            data['teacherId'] = resolvedTIds.first;
+            data['teacherName'] = resolvedTNames.first;
+          }
+
           classLessons.putIfAbsent(classId, () => []).add(data);
           final lessonKey = '${classId}_${data['lessonId']}';
           remainingHours[lessonKey] = (data['weeklyHours'] ?? 0) as int;
         }
       }
-      // classIdSet'te olup assignment'ı olmayan sınıflar iğin boş liste
+      // classIdSet'te olup assignment'ı olmayan sınıflar için boş liste
       for (var cId in classIdSet) {
         classLessons.putIfAbsent(cId, () => []);
       }
 
-      // ÔöÇÔöÇ Mevcut programı parse et ÔöÇÔöÇ
+      // ── Mevcut programı parse et ──
       final Map<String, Map<String, dynamic>> scheduleData = {};
       for (var doc in scheduleSnapshot.docs) {
         final data = doc.data() as Map<String, dynamic>;
+        // Hücredeki öğretmen silinmiş veya eski ID ise güncel aktif öğretmenle eşle
+        final currentTId = data['teacherId']?.toString();
+        final currentTName = (data['teacherName'] ?? '').toString().trim();
+        if (currentTId != null && !activeTeachersById.containsKey(currentTId)) {
+          final normTName = currentTName.toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+          if (normTName.isNotEmpty && activeTeacherIdByName.containsKey(normTName)) {
+            final newId = activeTeacherIdByName[normTName]!;
+            data['teacherId'] = newId;
+            data['teacherIds'] = [newId];
+            data['teacherName'] = activeTeachersById[newId]!['name'];
+          }
+        }
         final key = '${data['classId']}_${data['day']}_${data['hourIndex']}';
         scheduleData[key] = {...data, 'id': doc.id};
 
@@ -436,7 +553,7 @@ class _ScheduleEditorScreenState extends State<ScheduleEditorScreen> {
         }
       }
 
-      // ÔöÇÔöÇ Filtre iğin sınıf seviyeleri ve tipleri ÔöÇÔöÇ
+      // ── Filtre için sınıf seviyeleri ve tipleri ──
       final Set<int> classLevels = {};
       final Set<String> classTypes = {};
       for (var c in classes) {
@@ -452,40 +569,35 @@ class _ScheduleEditorScreenState extends State<ScheduleEditorScreen> {
         }
       }
 
-      // Öğretmen Listesi
+      // Öğretmen Listesi - Yalnızca canlı aktif öğretmenler
       final Map<String, Map<String, dynamic>> teacherMap = {};
       for (var lessonList in classLessons.values) {
         for (var l in lessonList) {
           final tIds = (l['teacherIds'] as List?)
               ?.map((e) => e.toString())
               .toList();
-          final tNames = (l['teacherNames'] as List?)
-              ?.map((e) => e.toString())
-              .toList();
-          if (tIds != null && tNames != null) {
-            for (int i = 0; i < tIds.length; i++) {
-              final id = tIds[i];
-              final name = i < tNames.length ? tNames[i] : 'Öğretmen';
-              if (!teacherMap.containsKey(id) && id.isNotEmpty) {
-                teacherMap[id] = {'id': id, 'name': name};
+          if (tIds != null) {
+            for (var id in tIds) {
+              if (activeTeachersById.containsKey(id)) {
+                teacherMap[id] = activeTeachersById[id]!;
               }
-            }
-          } else if (l['teacherId'] != null) {
-            final id = l['teacherId'].toString();
-            final name = (l['teacherName'] ?? 'Öğretmen').toString();
-            if (!teacherMap.containsKey(id) && id.isNotEmpty) {
-              teacherMap[id] = {'id': id, 'name': name};
             }
           }
         }
       }
+      if (teacherMap.isEmpty && activeTeachersById.isNotEmpty) {
+        teacherMap.addAll(activeTeachersById);
+      }
       final teachersList = teacherMap.values.toList()
         ..sort((a, b) => (a['name'] as String).compareTo(b['name'] as String));
+
+      final isPublished = (periodDoc.data() as Map<String, dynamic>?)?['schedulePublished'] == true;
 
       setState(() {
         _allClasses = classes;
         _classes = classes;
         _teachers = teachersList;
+        _isSchedulePublished = isPublished;
         _lessonHours = hours;
         _classLessons = classLessons;
         _remainingHours = remainingHours;
@@ -2659,6 +2771,160 @@ class _ScheduleEditorScreenState extends State<ScheduleEditorScreen> {
     }
   }
 
+  Future<void> _publishSchedule() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(Icons.publish_rounded, color: Colors.green.shade700),
+            const SizedBox(width: 10),
+            const Text('Ders Programını Yayınla'),
+          ],
+        ),
+        content: Text(
+          '${widget.periodData['periodName'] ?? 'Ders Programı'} tüm öğretmenlerin ve şubelerin ders programı ekranına iletilecektir. Yayınlamak istiyor musunuz?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('İptal'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green.shade700,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Yayınla'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('workPeriods')
+          .doc(widget.periodId)
+          .update({'schedulePublished': true});
+
+      setState(() => _isSchedulePublished = true);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Ders programı yayınlandı ve öğretmen ders programına iletildi!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _unpublishSchedule() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(Icons.visibility_off_outlined, color: Colors.orange.shade700),
+            const SizedBox(width: 10),
+            const Text('Yayından Kaldır'),
+          ],
+        ),
+        content: const Text(
+          'Ders programı öğretmenlerin ekranından kaldırılacaktır. Devam etmek istiyor musunuz?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('İptal'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange.shade700,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Yayından Kaldır'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('workPeriods')
+          .doc(widget.periodId)
+          .update({'schedulePublished': false});
+
+      setState(() => _isSchedulePublished = false);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Ders programı yayından kaldırıldı.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  void _showPublishStatusDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(Icons.check_circle_rounded, color: Colors.green.shade700),
+            const SizedBox(width: 10),
+            const Text('Program Yayında'),
+          ],
+        ),
+        content: Text(
+          '${widget.periodData['periodName'] ?? 'Ders Programı'} şu anda yayınlanmış durumdadır ve öğretmenlerin ders programı ekranında görüntülenmektedir.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Kapat'),
+          ),
+          OutlinedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _unpublishSchedule();
+            },
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.orange.shade800,
+              side: BorderSide(color: Colors.orange.shade300),
+            ),
+            child: const Text('Yayından Kaldır'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final periodName = widget.periodData['periodName'] ?? 'Ders Programı';
@@ -2723,6 +2989,37 @@ class _ScheduleEditorScreenState extends State<ScheduleEditorScreen> {
               );
             },
           ),
+          // Yayınla / Yayında Butonu
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+            child: _isSchedulePublished
+                ? OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.green.shade700,
+                      side: BorderSide(color: Colors.green.shade300),
+                      backgroundColor: Colors.green.shade50,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    icon: const Icon(Icons.check_circle_rounded, size: 15),
+                    label: const Text('Yayında', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    onPressed: _showPublishStatusDialog,
+                  )
+                : ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green.shade600,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    icon: const Icon(Icons.send_rounded, size: 14),
+                    label: const Text('Yayınla', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    onPressed: _publishSchedule,
+                  ),
+          ),
           // 3 nokta menüsü (yazdır, kopyala vb.)
           PopupMenuButton<String>(
             icon: Icon(Icons.more_vert, color: Colors.grey.shade700),
@@ -2737,6 +3034,10 @@ class _ScheduleEditorScreenState extends State<ScheduleEditorScreen> {
                 _showScheduleSettings();
               } else if (value == 'auto_distribute') {
                 _autoDistributeSchedule();
+              } else if (value == 'publish') {
+                _publishSchedule();
+              } else if (value == 'unpublish') {
+                _unpublishSchedule();
               }
             },
             itemBuilder: (context) => [
@@ -2787,6 +3088,26 @@ class _ScheduleEditorScreenState extends State<ScheduleEditorScreen> {
                     Icon(Icons.smart_toy, color: Colors.orange, size: 20),
                     SizedBox(width: 8),
                     Text('Otomatik Dağıt'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: _isSchedulePublished ? 'unpublish' : 'publish',
+                child: Row(
+                  children: [
+                    Icon(
+                      _isSchedulePublished
+                          ? Icons.visibility_off_outlined
+                          : Icons.publish_rounded,
+                      color: _isSchedulePublished ? Colors.orange : Colors.green,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      _isSchedulePublished
+                          ? 'Yayından Kaldır'
+                          : 'Öğretmenlere Yayınla',
+                    ),
                   ],
                 ),
               ),

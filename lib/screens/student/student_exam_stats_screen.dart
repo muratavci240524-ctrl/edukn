@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
+import '../../services/term_service.dart';
 
 /// Öğrenciye özel sınav istatistikleri.
 /// Tab 1 → Yazılı Sınavlar (class_exams)
@@ -64,6 +65,7 @@ class _StudentExamStatsScreenState extends State<StudentExamStatsScreen>
   Future<void> _loadWritten() async {
     setState(() => _loadingYazili = true);
     try {
+      final activeTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
       final snap = await FirebaseFirestore.instance
           .collection('class_exams')
           .where('institutionId', isEqualTo: widget.institutionId)
@@ -73,6 +75,10 @@ class _StudentExamStatsScreenState extends State<StudentExamStatsScreen>
       final exams = <_WrittenExam>[];
       for (final doc in snap.docs) {
         final d = doc.data();
+        final examTerm = d['termId']?.toString();
+        if (activeTermId != null && activeTermId.isNotEmpty && examTerm != null && examTerm.isNotEmpty && examTerm != activeTermId) {
+          continue;
+        }
         final date = (d['date'] as Timestamp?)?.toDate();
         final grades = Map<String, dynamic>.from(d['grades'] ?? {});
         final studentGrade = grades[widget.studentId];
@@ -164,6 +170,7 @@ class _StudentExamStatsScreenState extends State<StudentExamStatsScreen>
   Future<void> _loadTrial() async {
     setState(() => _loadingDeneme = true);
     try {
+      final activeTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
       // Tüm kuruma ait aktif denemeleri çek (classLevel sorgu filtresi yok)
       final snap = await FirebaseFirestore.instance
           .collection('trial_exams')
@@ -176,6 +183,10 @@ class _StudentExamStatsScreenState extends State<StudentExamStatsScreen>
 
       for (final doc in snap.docs) {
         final d = doc.data();
+        final examTermId = d['termId']?.toString();
+        if (activeTermId != null && activeTermId.isNotEmpty && examTermId != activeTermId) {
+          continue;
+        }
         final examClassLevel = (d['classLevel'] ?? '').toString().trim();
 
         final date = (d['date'] as Timestamp?)?.toDate();

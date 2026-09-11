@@ -105,7 +105,7 @@ class _CombinedExamResultsScreenState extends State<CombinedExamResultsScreen>
 
   Future<void> _loadExams() async {
     try {
-      _activeTermId = await TermService().getActiveTermId();
+      _activeTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
       final stream = _service.getTrialExams(widget.institutionId, termId: _activeTermId);
       stream.listen((exams) {
         if (mounted) {

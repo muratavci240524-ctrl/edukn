@@ -84,6 +84,7 @@ class FieldTrip {
   final String authorId;
   final DateTime createdAt;
   final String status;
+  final String? termId;
 
   FieldTrip({
     required this.id,
@@ -109,6 +110,7 @@ class FieldTrip {
     required this.authorId,
     required this.createdAt,
     this.status = 'planned',
+    this.termId,
   });
 
   factory FieldTrip.fromMap(Map<String, dynamic> map, String id) {
@@ -156,6 +158,7 @@ class FieldTrip {
       authorId: map['authorId'] ?? '',
       createdAt: (map['createdAt'] as Timestamp).toDate(),
       status: map['status'] ?? 'planned',
+      termId: map['termId'],
     );
   }
 
@@ -185,6 +188,7 @@ class FieldTrip {
       'authorId': authorId,
       'createdAt': Timestamp.fromDate(createdAt),
       'status': status,
+      if (termId != null) 'termId': termId,
     };
   }
 }

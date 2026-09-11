@@ -1,4 +1,4 @@
-﻿import 'package:flutter/gestures.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'exam_detail_table_screen.dart';
@@ -124,7 +124,7 @@ class _SingleExamResultsScreenState extends State<SingleExamResultsScreen>
 
   Future<void> _loadExams() async {
     try {
-      _activeTermId = await TermService().getActiveTermId();
+      _activeTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
       final stream = _service.getTrialExams(widget.institutionId, termId: _activeTermId);
       stream.listen((exams) {
         if (mounted) {

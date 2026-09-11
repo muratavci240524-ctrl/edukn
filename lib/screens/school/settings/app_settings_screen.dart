@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -18,6 +18,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
   String? _institutionId;
   List<String> _disabledModules = [];
   String _teacherAnnouncementMode = 'approval_required';
+  bool _notifyTeacherMissingAttendance = true;
 
   @override
   void initState() {
@@ -47,11 +48,19 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
           _institutionId = instId;
           
           final appSettings = data['appSettings'] as Map<String, dynamic>?;
-          if (appSettings != null && appSettings['disabledModules'] != null) {
-            _disabledModules = List<String>.from(appSettings['disabledModules']);
+          if (appSettings != null) {
+            if (appSettings['disabledModules'] != null) {
+              _disabledModules = List<String>.from(appSettings['disabledModules']);
+            }
+            if (appSettings['notifyTeacherMissingAttendance'] != null) {
+              _notifyTeacherMissingAttendance = appSettings['notifyTeacherMissingAttendance'] == true;
+            }
+            if (appSettings['teacherAnnouncementMode'] != null) {
+              _teacherAnnouncementMode = appSettings['teacherAnnouncementMode'].toString();
+            }
           }
 
-          // Öğretmen duyuru yetkisi
+          // Öğretmen duyuru yetkisi (alt koleksiyondan kontrol, varsa öncelikli)
           try {
             final annSettingsDoc = await FirebaseFirestore.instance
                 .collection('schools')
@@ -60,7 +69,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
                 .doc('announcements')
                 .get();
             if (annSettingsDoc.exists) {
-              _teacherAnnouncementMode = annSettingsDoc.data()?['teacherAnnouncementMode'] ?? 'approval_required';
+              _teacherAnnouncementMode = annSettingsDoc.data()?['teacherAnnouncementMode'] ?? _teacherAnnouncementMode;
             }
           } catch (_) {}
         }
@@ -76,13 +85,36 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
     if (_schoolId == null) return;
     
     setState(() => _isLoading = true);
+    bool mainSaved = false;
+    Object? saveError;
+
+    // 1. Ana okul belgesindeki appSettings'i kaydet
     try {
       await FirebaseFirestore.instance.collection('schools').doc(_schoolId).set({
         'appSettings': {
           'disabledModules': _disabledModules,
+          'notifyTeacherMissingAttendance': _notifyTeacherMissingAttendance,
+          'teacherAnnouncementMode': _teacherAnnouncementMode,
         }
       }, SetOptions(merge: true));
+      mainSaved = true;
+    } catch (e) {
+      debugPrint('Error saving appSettings with set: $e');
+      try {
+        await FirebaseFirestore.instance.collection('schools').doc(_schoolId).update({
+          'appSettings.disabledModules': _disabledModules,
+          'appSettings.notifyTeacherMissingAttendance': _notifyTeacherMissingAttendance,
+          'appSettings.teacherAnnouncementMode': _teacherAnnouncementMode,
+        });
+        mainSaved = true;
+      } catch (e2) {
+        debugPrint('Error saving appSettings with update: $e2');
+        saveError = e2;
+      }
+    }
 
+    // 2. Alt koleksiyon (settings/announcements) - bağımsız kayıt
+    try {
       await FirebaseFirestore.instance
           .collection('schools')
           .doc(_schoolId)
@@ -92,23 +124,28 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
         'teacherAnnouncementMode': _teacherAnnouncementMode,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
-      
-      if (mounted) {
+    } catch (annErr) {
+      debugPrint('Notice: settings/announcements subcollection save skipped: $annErr');
+    }
+
+    if (mounted) {
+      setState(() => _isLoading = false);
+      if (mainSaved) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Ayarlar başarıyla kaydedildi.'), backgroundColor: Colors.green),
         );
-        // Otomatik olarak bir önceki sayfaya dön
         Navigator.pop(context);
-      }
-    } catch (e) {
-      debugPrint('Error saving app settings: $e');
-      if (mounted) {
+      } else {
+        debugPrint('Error saving app settings: $saveError');
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Ayarlar kaydedilirken hata oluştu.'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text(saveError != null && saveError.toString().contains('permission-denied')
+                ? 'Yetki hatası: Bu ayarları kaydetmek için yönetici yetkisi gerekmektedir.'
+                : 'Ayarlar kaydedilirken hata oluştu.'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -380,6 +417,50 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
                   setState(() => _teacherAnnouncementMode = val);
                 }
               },
+            ),
+            const SizedBox(height: 24),
+            const Divider(),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.withOpacity(0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.event_busy_rounded, color: Colors.amber.shade800, size: 24),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'YOKLAMA ALINMADIĞINDA BİLDİRİM GİTSİN',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.5,
+                          color: Colors.indigo.shade900,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Öğretmen derse girdikten 5 dakika sonra yoklama almamışsa sistem otomatik yoklama uyarısı bildirimi gönderir.',
+                        style: TextStyle(fontSize: 12, color: Colors.blueGrey.shade600),
+                      ),
+                    ],
+                  ),
+                ),
+                Switch(
+                  value: _notifyTeacherMissingAttendance,
+                  activeColor: Colors.indigo,
+                  onChanged: (val) {
+                    setState(() => _notifyTeacherMissingAttendance = val);
+                  },
+                ),
+              ],
             ),
           ],
         ),

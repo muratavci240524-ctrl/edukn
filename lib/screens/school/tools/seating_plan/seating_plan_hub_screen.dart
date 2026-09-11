@@ -15,12 +15,18 @@ class SeatingPlanHubScreen extends StatefulWidget {
   final String institutionId;
   final String schoolTypeId;
   final String schoolTypeName;
+  final bool isTeacher;
+  final String? teacherId;
+  final List<String>? allowedClassIds;
 
   const SeatingPlanHubScreen({
     Key? key,
     required this.institutionId,
     required this.schoolTypeId,
     required this.schoolTypeName,
+    this.isTeacher = false,
+    this.teacherId,
+    this.allowedClassIds,
   }) : super(key: key);
 
   @override
@@ -311,13 +317,21 @@ class _SeatingPlanHubScreenState extends State<SeatingPlanHubScreen>
               return const Center(child: CircularProgressIndicator());
             }
 
-            final classes = classesSnap.data!.docs.map((d) {
+            var classes = classesSnap.data!.docs.map((d) {
               return ClassModel.fromMap(d.data() as Map<String, dynamic>, d.id);
             }).toList();
 
-            final plans = plansSnap.data!.docs.map((d) {
+            var plans = plansSnap.data!.docs.map((d) {
               return SeatingPlan.fromMap(d.data() as Map<String, dynamic>, d.id);
             }).toList();
+
+            if (widget.allowedClassIds != null) {
+              classes = classes.where((c) => widget.allowedClassIds!.contains(c.id)).toList();
+              final allowedNames = classes.map((c) => c.className).toSet();
+              plans = plans.where((p) =>
+                  widget.allowedClassIds!.contains(p.classId) ||
+                  allowedNames.contains(p.className)).toList();
+            }
 
             // Sınıflara göre planları eşle
             final Map<String, List<SeatingPlan>> plansByClassId = {};
@@ -349,6 +363,9 @@ class _SeatingPlanHubScreenState extends State<SeatingPlanHubScreen>
             final seenClassNames = classes.map((c) => c.className).toSet();
             final seenClassIds = classes.map((c) => c.id).toSet();
             for (var p in plans) {
+              if (widget.allowedClassIds != null && !widget.allowedClassIds!.contains(p.classId)) {
+                continue;
+              }
               if (!seenClassIds.contains(p.classId) && !seenClassNames.contains(p.className)) {
                 seenClassNames.add(p.className);
                 final lvl = _determineLevelFromName(p.className);
@@ -1083,6 +1100,7 @@ class _SeatingPlanHubScreenState extends State<SeatingPlanHubScreen>
           schoolTypeId: widget.schoolTypeId,
           schoolTypeName: widget.schoolTypeName,
           initialClassId: initialClassId,
+          allowedClassIds: widget.allowedClassIds,
         ),
       ),
     );
@@ -1097,6 +1115,7 @@ class _SeatingPlanHubScreenState extends State<SeatingPlanHubScreen>
           schoolTypeId: widget.schoolTypeId,
           schoolTypeName: widget.schoolTypeName,
           existingPlan: plan,
+          allowedClassIds: widget.allowedClassIds,
         ),
       ),
     );
@@ -1137,6 +1156,7 @@ class _SeatingPlanHubScreenState extends State<SeatingPlanHubScreen>
           institutionId: widget.institutionId,
           schoolTypeId: widget.schoolTypeId,
           schoolTypeName: widget.schoolTypeName,
+          allowedClassIds: widget.allowedClassIds,
         ),
       ),
     );

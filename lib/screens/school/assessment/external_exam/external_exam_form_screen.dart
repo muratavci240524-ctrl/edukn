@@ -1,4 +1,4 @@
-﻿import 'dart:ui';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -1784,8 +1784,8 @@ class _ExternalExamFormScreenState extends State<ExternalExamFormScreen> {
     setState(() => _isSaving = true);
 
     try {
-      // Aktif dönem ID'sini al
-      final activeTermId = await TermService().getActiveTermId();
+      // Aktif / seçili dönem ID'sini al veya mevcut sınavın termId'sini koru
+      final activeTermId = widget.existingExam?.termId ?? await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
 
       final exam = ExternalExam(
         id: widget.existingExam?.id,

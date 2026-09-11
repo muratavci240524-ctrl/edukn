@@ -254,7 +254,8 @@ class _ScheduleSettingsPanelState extends State<ScheduleSettingsPanel>
       final usersFuture = FirebaseFirestore.instance
           .collection('users')
           .where('institutionId', isEqualTo: widget.institutionId)
-          .where('title', isEqualTo: 'ogretmen')
+          .where('type', isEqualTo: 'staff')
+          .where('isActive', isEqualTo: true)
           .get();
 
       // Paralel çalıştır
@@ -384,24 +385,26 @@ class _ScheduleSettingsPanelState extends State<ScheduleSettingsPanel>
         }
       }
 
-      // lessonAssignments'dan da öğretmenleri tamamla (fallback)
-      for (var doc in assignSnap.docs) {
-        final data = doc.data() as Map<String, dynamic>;
-        if (data['teacherIds'] != null && (data['teacherIds'] as List).isNotEmpty) {
-          final ids = (data['teacherIds'] as List).map((e) => e.toString()).toList();
-          final names = (data['teacherNames'] as List?)?.map((e) => e.toString()).toList() ?? [];
-          for (int i = 0; i < ids.length; i++) {
-            final id = ids[i];
-            final name = i < names.length ? names[i] : 'Öğretmen';
+      // lessonAssignments'dan da öğretmenleri tamamla (sadece users boş geldiyse fallback)
+      if (teacherMap.isEmpty) {
+        for (var doc in assignSnap.docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          if (data['teacherIds'] != null && (data['teacherIds'] as List).isNotEmpty) {
+            final ids = (data['teacherIds'] as List).map((e) => e.toString()).toList();
+            final names = (data['teacherNames'] as List?)?.map((e) => e.toString()).toList() ?? [];
+            for (int i = 0; i < ids.length; i++) {
+              final id = ids[i];
+              final name = i < names.length ? names[i] : 'Öğretmen';
+              if (!teacherMap.containsKey(id) && id.isNotEmpty) {
+                teacherMap[id] = {'id': id, 'firstName': name, 'lastName': '', 'name': name};
+              }
+            }
+          } else if (data['teacherId'] != null) {
+            final id = data['teacherId'].toString();
+            final name = (data['teacherName'] ?? 'Öğretmen').toString();
             if (!teacherMap.containsKey(id) && id.isNotEmpty) {
               teacherMap[id] = {'id': id, 'firstName': name, 'lastName': '', 'name': name};
             }
-          }
-        } else if (data['teacherId'] != null) {
-          final id = data['teacherId'].toString();
-          final name = (data['teacherName'] ?? 'Öğretmen').toString();
-          if (!teacherMap.containsKey(id) && id.isNotEmpty) {
-            teacherMap[id] = {'id': id, 'firstName': name, 'lastName': '', 'name': name};
           }
         }
       }

@@ -26,6 +26,7 @@ class ActivityObservation {
   final ActivityStatus status;
   final DateTime createdAt;
   final List<String> participatedStudentIds; // IDs of students who participated
+  final String? termId;
 
   ActivityObservation({
     required this.id,
@@ -44,6 +45,7 @@ class ActivityObservation {
     this.status = ActivityStatus.planned,
     required this.createdAt,
     this.participatedStudentIds = const [],
+    this.termId,
   });
 
   factory ActivityObservation.fromMap(Map<String, dynamic> map, String id) {
@@ -75,6 +77,7 @@ class ActivityObservation {
       participatedStudentIds: List<String>.from(
         map['participatedStudentIds'] ?? [],
       ),
+      termId: map['termId']?.toString(),
     );
   }
 
@@ -95,6 +98,7 @@ class ActivityObservation {
       'status': status.name,
       'createdAt': Timestamp.fromDate(createdAt),
       'participatedStudentIds': participatedStudentIds,
+      if (termId != null && termId!.isNotEmpty) 'termId': termId,
     };
   }
 }

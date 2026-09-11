@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -7,9 +7,8 @@ import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/user_permission_service.dart';
 import '../../services/announcement_service.dart';
-import '../announcements/announcement_detail_screen.dart';
+import '../../services/term_service.dart';
 import 'teacher_social_media_screen.dart';
-import 'teacher_announcements_screen.dart';
 import '../../models/school/homework_model.dart';
 import '../school/homework/homework_detail_screen.dart';
 import '../school/attendance_operations_screen.dart';
@@ -133,12 +132,35 @@ class _NotificationSectionState extends State<_NotificationSection> {
   String? _schoolTypeName;
   final _streams = <String, StreamSubscription>{};
   final _snaps = <String, QuerySnapshot>{};
+  final _subStreamSnaps = <String, Map<String, QuerySnapshot>>{};
+  final _typeDocs = <String, List<QueryDocumentSnapshot>>{};
   bool _isLoading = true;
   List<Map<String, dynamic>> _allNotifications = [];
   Timer? _timer;
   Map<String, String> _classNamesMap = {};
- 
+  bool _notifyTeacherMissingAttendance = true;
+  String? _activeTermId;
+  final Map<String, Map<String, dynamic>> _dutyLocationsMap = {};
+  Set<String> _validPeriodIds = {};
+  Set<String> _shownDutyBanners = {};
+
   Set<String> _dismissedIds = {};
+
+  List<QueryDocumentSnapshot> _getDocs(String type) {
+    if (_typeDocs.containsKey(type)) {
+      return _typeDocs[type]!;
+    }
+    return _snaps[type]?.docs ?? [];
+  }
+
+  @override
+  void dispose() {
+    for (final s in _streams.values) {
+      s.cancel();
+    }
+    _timer?.cancel();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -152,14 +174,68 @@ class _NotificationSectionState extends State<_NotificationSection> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final list = prefs.getStringList('dismissed_notification_ids') ?? [];
+      final bannerList = prefs.getStringList('shown_duty_banner_keys') ?? [];
       if (mounted) {
         setState(() {
           _dismissedIds = list.toSet();
+          _shownDutyBanners = bannerList.toSet();
         });
       }
     } catch (e) {
       debugPrint('Error loading dismissed ids: $e');
     }
+  }
+
+  void _triggerDutyBanner(String location, String startTimeStr, String bannerKey) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _shownDutyBanners.add(bannerKey);
+      await prefs.setStringList('shown_duty_banner_keys', _shownDutyBanners.toList());
+    } catch (_) {}
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: const Color(0xFF1E293B),
+          elevation: 6,
+          margin: const EdgeInsets.only(top: 16, left: 16, right: 16),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          duration: const Duration(seconds: 8),
+          content: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade500.withOpacity(0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.shield_rounded, color: Colors.amber, size: 26),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Bugün Nöbetçisiniz!',
+                      style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 15),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      'Yer: $location • Başlama: $startTimeStr',
+                      style: const TextStyle(color: Colors.white70, fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    });
   }
 
   Future<void> _dismissNotification(String notifId) async {
@@ -175,14 +251,7 @@ class _NotificationSectionState extends State<_NotificationSection> {
     }
   }
  
-  @override
-  void dispose() {
-    _timer?.cancel();
-    for (var s in _streams.values) {
-      s.cancel();
-    }
-    super.dispose();
-  }
+
 
   DateTime? _parseDateTime(dynamic val) {
     if (val == null) return null;
@@ -225,10 +294,16 @@ class _NotificationSectionState extends State<_NotificationSection> {
         _schoolTypeName = _userData!['schoolTypeName'];
       }
 
-      final instId = widget.institutionId.toUpperCase();
+      try {
+        _activeTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
+      } catch (e) {
+        debugPrint('Error getting active term: $e');
+      }
+
+      final instIds = [widget.institutionId, widget.institutionId.toUpperCase(), widget.institutionId.toLowerCase()];
+
       if (_schoolId == null || _schoolId!.isEmpty) {
         try {
-          final instIds = [widget.institutionId, widget.institutionId.toUpperCase(), widget.institutionId.toLowerCase()];
           final schoolSnap = await FirebaseFirestore.instance
               .collection('schools')
               .where('institutionId', whereIn: instIds)
@@ -240,8 +315,46 @@ class _NotificationSectionState extends State<_NotificationSection> {
         } catch (_) {}
       }
 
+      if (_schoolId != null && _schoolId!.isNotEmpty) {
+        try {
+          final sDoc = await FirebaseFirestore.instance.collection('schools').doc(_schoolId).get();
+          if (sDoc.exists) {
+            final appSettings = sDoc.data()?['appSettings'] as Map<String, dynamic>?;
+            if (appSettings != null && appSettings.containsKey('notifyTeacherMissingAttendance')) {
+              _notifyTeacherMissingAttendance = appSettings['notifyTeacherMissingAttendance'] == true;
+            }
+          }
+        } catch (e) {
+          debugPrint('Error loading appSettings: $e');
+        }
+      }
+
       try {
-        final instIds = [widget.institutionId, widget.institutionId.toUpperCase(), widget.institutionId.toLowerCase()];
+        final dlSnap = await FirebaseFirestore.instance
+            .collection('dutyLocations')
+            .where('institutionId', whereIn: instIds)
+            .get();
+        for (var doc in dlSnap.docs) {
+          _dutyLocationsMap[doc.id] = doc.data();
+        }
+      } catch (e) {
+        debugPrint('Error loading dutyLocations: $e');
+      }
+
+      if (_activeTermId != null && _activeTermId!.isNotEmpty) {
+        try {
+          final wpSnap = await FirebaseFirestore.instance
+              .collection('workPeriods')
+              .where('institutionId', whereIn: instIds)
+              .where('termId', isEqualTo: _activeTermId)
+              .get();
+          _validPeriodIds = wpSnap.docs.map((d) => d.id).toSet();
+        } catch (e) {
+          debugPrint('Error loading workPeriods: $e');
+        }
+      }
+
+      try {
         final classesSnap = await FirebaseFirestore.instance
             .collection('classes')
             .where('institutionId', whereIn: instIds)
@@ -267,14 +380,35 @@ class _NotificationSectionState extends State<_NotificationSection> {
       if (mounted) setState(() => _isLoading = false);
     }
   }
- 
+
   void _startListening() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
- 
-    final currentUserId = user.uid;
-    final List<String> instIds = [widget.institutionId, widget.institutionId.toUpperCase(), widget.institutionId.toLowerCase()];
- 
+
+    final authUid = user.uid;
+    final docId = _userData?['id']?.toString();
+    final authUserId = _userData?['authUserId']?.toString();
+    final tId = _userData?['teacherId']?.toString();
+    final staffId = _userData?['staffId']?.toString();
+    final username = _userData?['username']?.toString();
+    final teacherName = (_userData?['fullName'] ?? _userData?['name'] ?? '').toString().trim();
+
+    final validTeacherIds = <String>{
+      authUid,
+      if (docId != null && docId.isNotEmpty) docId,
+      if (authUserId != null && authUserId.isNotEmpty) authUserId,
+      if (tId != null && tId.isNotEmpty) tId,
+      if (staffId != null && staffId.isNotEmpty) staffId,
+      if (username != null && username.isNotEmpty) username,
+    }.toList();
+
+    final List<String> instIds = [
+      widget.institutionId,
+      widget.institutionId.toUpperCase(),
+      widget.institutionId.toLowerCase(),
+    ].toSet().toList();
+
+    // 1. Duyurular
     if (_schoolId != null && _schoolId!.isNotEmpty) {
       _listenTo('announcements', FirebaseFirestore.instance
           .collection('schools')
@@ -288,57 +422,135 @@ class _NotificationSectionState extends State<_NotificationSection> {
           .where('status', isEqualTo: 'published')
           .snapshots());
     }
- 
+
+    // 2. Sosyal Medya
     _listenTo('social', FirebaseFirestore.instance
         .collection('social_media_posts')
         .where('institutionId', whereIn: instIds)
         .snapshots());
- 
-    _listenTo('assignments', FirebaseFirestore.instance
+
+    // 3. Ders Atamaları (Array teacherIds ve single teacherId)
+    _listenToMultiTeacher('assignments', (tId) => FirebaseFirestore.instance
         .collection('lessonAssignments')
         .where('institutionId', whereIn: instIds)
-        .where('teacherIds', arrayContains: currentUserId)
+        .where('teacherIds', arrayContains: tId)
         .where('isActive', isEqualTo: true)
-        .snapshots());
- 
-    _listenTo('duty', FirebaseFirestore.instance
+        .snapshots(), validTeacherIds);
+
+    _listenToMultiTeacher('assignments_single', (tId) => FirebaseFirestore.instance
+        .collection('lessonAssignments')
+        .where('institutionId', whereIn: instIds)
+        .where('teacherId', isEqualTo: tId)
+        .where('isActive', isEqualTo: true)
+        .snapshots(), validTeacherIds);
+
+    if (teacherName.isNotEmpty) {
+      _listenTo('assignments_name', FirebaseFirestore.instance
+          .collection('lessonAssignments')
+          .where('institutionId', whereIn: instIds)
+          .where('teacherNames', arrayContains: teacherName)
+          .where('isActive', isEqualTo: true)
+          .snapshots());
+    }
+
+    // 4. Nöbetler (DocID, Auth UID, StaffId ve İsim desteği)
+    _listenToMultiTeacher('duty', (tId) => FirebaseFirestore.instance
         .collection('dutyScheduleItems')
         .where('institutionId', whereIn: instIds)
-        .where('teacherId', isEqualTo: currentUserId)
-        .snapshots());
- 
-    _listenTo('schedules', FirebaseFirestore.instance
+        .where('teacherId', isEqualTo: tId)
+        .snapshots(), validTeacherIds);
+
+    if (teacherName.isNotEmpty) {
+      _listenTo('duty_name', FirebaseFirestore.instance
+          .collection('dutyScheduleItems')
+          .where('institutionId', whereIn: instIds)
+          .where('teacherName', isEqualTo: teacherName)
+          .snapshots());
+    }
+
+    // 5. Ders Programı (Array teacherIds ve single teacherId)
+    _listenToMultiTeacher('schedules', (tId) => FirebaseFirestore.instance
         .collection('classSchedules')
         .where('institutionId', whereIn: instIds)
-        .where('teacherIds', arrayContains: currentUserId)
+        .where('teacherIds', arrayContains: tId)
         .where('isActive', isEqualTo: true)
-        .snapshots());
- 
+        .snapshots(), validTeacherIds);
+
+    _listenToMultiTeacher('schedules_single', (tId) => FirebaseFirestore.instance
+        .collection('classSchedules')
+        .where('institutionId', whereIn: instIds)
+        .where('teacherId', isEqualTo: tId)
+        .where('isActive', isEqualTo: true)
+        .snapshots(), validTeacherIds);
+
+    if (teacherName.isNotEmpty) {
+      _listenTo('schedules_name', FirebaseFirestore.instance
+          .collection('classSchedules')
+          .where('institutionId', whereIn: instIds)
+          .where('teacherName', isEqualTo: teacherName)
+          .where('isActive', isEqualTo: true)
+          .snapshots());
+    }
+
+    // 6. Yoklama
     final todayDateStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
     _listenTo('attendance', FirebaseFirestore.instance
         .collection('lessonAttendance')
         .where('institutionId', whereIn: instIds)
         .where('date', isEqualTo: todayDateStr)
         .snapshots());
- 
-    _listenTo('homeworks', FirebaseFirestore.instance
+
+    // 7. Ödevler (Çift Kimlik - DocID & Auth UID)
+    _listenToMultiTeacher('homeworks', (tId) => FirebaseFirestore.instance
         .collection('homeworks')
         .where('institutionId', whereIn: instIds)
-        .where('teacherId', isEqualTo: currentUserId)
-        .snapshots());
+        .where('teacherId', isEqualTo: tId)
+        .snapshots(), validTeacherIds);
 
-    _listenTo('etuts', FirebaseFirestore.instance
+    // 8. Etütler (Çift Kimlik - DocID & Auth UID)
+    _listenToMultiTeacher('etuts', (tId) => FirebaseFirestore.instance
         .collection('etut_requests')
         .where('institutionId', whereIn: instIds)
-        .where('teacherId', isEqualTo: currentUserId)
-        .snapshots());
+        .where('teacherId', isEqualTo: tId)
+        .snapshots(), validTeacherIds);
 
-    _listenTo('chats', FirebaseFirestore.instance
+    // 9. Sohbetler (Çift Kimlik - DocID & Auth UID)
+    _listenToMultiTeacher('chats', (tId) => FirebaseFirestore.instance
         .collection('conversations')
-        .where('participantIds', arrayContains: currentUserId)
-        .snapshots());
+        .where('participantIds', arrayContains: tId)
+        .snapshots(), validTeacherIds);
   }
- 
+
+  void _listenToMultiTeacher(
+    String type,
+    Stream<QuerySnapshot> Function(String tId) streamBuilder,
+    List<String> teacherIds,
+  ) {
+    for (final tId in teacherIds) {
+      final subKey = '${type}_$tId';
+      try {
+        final sub = streamBuilder(tId).listen((snap) {
+          if (!mounted) return;
+          _subStreamSnaps.putIfAbsent(type, () => {})[tId] = snap;
+
+          final combinedDocs = <String, QueryDocumentSnapshot>{};
+          for (final s in _subStreamSnaps[type]!.values) {
+            for (final d in s.docs) {
+              combinedDocs[d.id] = d;
+            }
+          }
+          _typeDocs[type] = combinedDocs.values.toList();
+          _updateNotifications();
+        }, onError: (e) {
+          debugPrint('--- Stream error ($subKey) ---: $e');
+        });
+        _streams[subKey] = sub;
+      } catch (e) {
+        debugPrint('Error setting up listener for $subKey: $e');
+      }
+    }
+  }
+
   void _listenTo(String type, Stream<QuerySnapshot> stream) {
     try {
       final sub = stream.listen((snap) {
@@ -358,89 +570,104 @@ class _NotificationSectionState extends State<_NotificationSection> {
       debugPrint('Error setting up listener for $type: $e');
     }
   }
- 
+
   void _updateNotifications() {
     if (!mounted) return;
- 
-    final annSnap = _snaps['announcements'];
-    final socSnap = _snaps['social'];
-    final assignSnap = _snaps['assignments'];
-    final dutySnap = _snaps['duty'];
-    final scheduleSnap = _snaps['schedules'];
-    final attSnap = _snaps['attendance'];
-    final hwSnap = _snaps['homeworks'];
-    final etutSnap = _snaps['etuts'];
-    final chatSnap = _snaps['chats'];
- 
+
+    final annDocs = _getDocs('announcements');
+    final socDocs = _getDocs('social');
+    final assignDocs = _getDocs('assignments');
+    final dutyDocs = _getDocs('duty');
+    final scheduleDocs = _getDocs('schedules');
+    final attDocs = _getDocs('attendance');
+    final hwDocs = _getDocs('homeworks');
+    final etutDocs = _getDocs('etuts');
+    final chatDocs = _getDocs('chats');
+
     final List<Map<String, dynamic>> result = [];
     final user = FirebaseAuth.instance.currentUser;
     final currentUserId = user?.uid;
+    final docTeacherId = _userData?['id']?.toString();
     final currentUserEmail = user?.email;
     final schoolTypes = _userData?['schoolTypes'] as List<dynamic>? ?? [];
     final userSchoolTypeSet = schoolTypes.map((e) => e.toString()).toSet();
-    
+
     final now = DateTime.now();
     final todayAt08 = DateTime(now.year, now.month, now.day, 8, 0);
     final currentDayName = _dayNameTr(now);
- 
-    final assignedClassIds = assignSnap?.docs
-            .map((doc) => doc.data() as Map<String, dynamic>)
-            .map((data) => data['classId']?.toString())
-            .where((id) => id != null)
-            .cast<String>()
-            .toSet() ?? {};
-            
-    if (scheduleSnap != null) {
-      for (var doc in scheduleSnap.docs) {
-        final data = doc.data() as Map<String, dynamic>;
-        final cid = data['classId']?.toString();
-        if (cid != null && cid.isNotEmpty) {
-          assignedClassIds.add(cid);
-        }
+
+    final assignedClassIds = assignDocs
+        .map((doc) => doc.data() as Map<String, dynamic>)
+        .map((data) => data['classId']?.toString())
+        .where((id) => id != null)
+        .cast<String>()
+        .toSet();
+
+    for (var doc in scheduleDocs) {
+      final data = doc.data() as Map<String, dynamic>;
+      final cid = data['classId']?.toString();
+      if (cid != null && cid.isNotEmpty) {
+        assignedClassIds.add(cid);
       }
     }
-    
+
     final userAssignedIds = _userData?['assignedClassIds'];
     if (userAssignedIds is List) {
       for (final id in userAssignedIds) {
         if (id != null) assignedClassIds.add(id.toString());
       }
     }
- 
+
     // 1. DUYURULAR
-    if (annSnap != null) {
-      for (var doc in annSnap.docs) {
+    if (annDocs.isNotEmpty) {
+      for (var doc in annDocs) {
         final data = doc.data() as Map<String, dynamic>;
         final readBy = List<dynamic>.from(data['readBy'] ?? []);
-        if ((currentUserEmail != null && readBy.contains(currentUserEmail)) || 
-            (currentUserId != null && readBy.contains(currentUserId))) {
+        if ((currentUserEmail != null && readBy.contains(currentUserEmail)) ||
+            (currentUserId != null && readBy.contains(currentUserId)) ||
+            (docTeacherId != null && readBy.contains(docTeacherId))) {
           continue;
         }
- 
+
         final schoolTypeId = data['schoolTypeId']?.toString();
         final recipients = List<String>.from(data['recipients'] ?? []);
         final publishDate = _parseDateTime(data['publishDate']);
- 
+
         if (publishDate != null && publishDate.isAfter(now)) continue;
- 
-        bool isRecipient = (recipients.contains('ALL') || recipients.contains('TEACHER') || recipients.contains('unit:ogretmen'));
-        if (!isRecipient && currentUserId != null) {
-          if (recipients.contains('user:$currentUserId') || recipients.contains(currentUserId) || (currentUserEmail != null && recipients.contains(currentUserEmail))) {
+
+        bool isRecipient = (recipients.contains('ALL') ||
+            recipients.contains('TEACHER') ||
+            recipients.contains('unit:ogretmen'));
+        if (!isRecipient) {
+          final validRecipIds = <String>{
+            if (currentUserId != null) currentUserId,
+            if (docTeacherId != null && docTeacherId.isNotEmpty) docTeacherId,
+          };
+          for (final rId in validRecipIds) {
+            if (recipients.contains('user:$rId') || recipients.contains(rId)) {
+              isRecipient = true;
+              break;
+            }
+          }
+          if (!isRecipient && currentUserEmail != null && recipients.contains(currentUserEmail)) {
             isRecipient = true;
-          } else {
+          }
+          if (!isRecipient) {
             for (var cid in assignedClassIds) {
-              if (recipients.contains('class:$cid') || recipients.contains('branch:$cid:Öğretmenler')) {
+              if (recipients.contains('class:$cid') ||
+                  recipients.contains(cid) ||
+                  recipients.contains('branch:$cid:Öğretmenler')) {
                 isRecipient = true;
                 break;
               }
             }
           }
         }
- 
+
         if (isRecipient && schoolTypeId != null && !userSchoolTypeSet.contains(schoolTypeId)) {
           if (!recipients.contains('ALL') && !recipients.contains('TEACHER')) isRecipient = false;
         }
- 
+
         if (isRecipient) {
           result.add({
             'id': doc.id,
@@ -453,49 +680,98 @@ class _NotificationSectionState extends State<_NotificationSection> {
         }
       }
     }
- 
+
     // 2. NÖBET (Anlık ve Günlük)
-    if (dutySnap != null) {
+    if (dutyDocs.isNotEmpty) {
       final monday = now.subtract(Duration(days: now.weekday - 1));
       final weekStart = DateTime(monday.year, monday.month, monday.day);
-      for (var doc in dutySnap.docs) {
+      for (var doc in dutyDocs) {
         final data = doc.data() as Map<String, dynamic>;
+
+        // Term filter
+        final itemTermId = data['termId']?.toString().trim();
+        final itemPeriodId = data['periodId']?.toString().trim() ?? '';
+        bool termMatches = false;
+        if (_activeTermId == null || _activeTermId!.isEmpty) {
+          termMatches = true;
+        } else if (itemTermId != null && itemTermId.isNotEmpty) {
+          termMatches = (itemTermId == _activeTermId);
+        } else if (itemPeriodId == _activeTermId || _validPeriodIds.contains(itemPeriodId)) {
+          termMatches = true;
+        }
+        if (!termMatches) continue;
+
         final dDayOfWeek = data['dayOfWeek'] as int?;
         final dWeekStart = _parseDateTime(data['weekStart']);
         final createdAt = _parseDateTime(data['createdAt']);
         final location = data['locationName'] ?? data['dutyLocation'] ?? 'Nöbet Yeri';
+        final locationId = data['locationId']?.toString();
+        final locData = locationId != null ? _dutyLocationsMap[locationId] : null;
+        final startTimeStr = locData?['startTime']?.toString() ?? data['startTime']?.toString() ?? '08:00';
 
-        // A. Anlık Bildirim (Yazıldığı an - son 3 günde oluşturulmuşsa)
-        if (createdAt != null && now.difference(createdAt).inDays < 3) {
+        int startHour = 8;
+        int startMinute = 0;
+        if (startTimeStr.contains(':')) {
+          final parts = startTimeStr.split(':');
+          startHour = int.tryParse(parts[0]) ?? 8;
+          startMinute = int.tryParse(parts[1]) ?? 0;
+        }
+        final dutyStartTime = DateTime(now.year, now.month, now.day, startHour, startMinute);
+
+        // A. Anlık Bildirim (Yönetici 'Bildirim Gönder' demişse ve son 3 günde bildirilmişse)
+        final isNotificationSent = data['notificationSent'] == true;
+        final notifTime = _parseDateTime(data['notificationRequestedAt']) ?? createdAt;
+        if (isNotificationSent && notifTime != null && now.difference(notifTime).inDays < 3) {
           result.add({
             'id': 'duty_scheduled_${doc.id}',
             'title': 'Yeni Nöbet Yazıldı!',
             'subtitle': '${_weekdayNameTr(dDayOfWeek)} günü nöbetiniz bulunmaktadır. Yer: $location',
-            'time': createdAt,
+            'time': notifTime,
             'type': 'duty_scheduled',
             'data': data,
           });
         }
 
-        // B. Günlük Hatırlatıcı (Nöbet Günü - Sabah 08:00'de)
-        if (now.isAfter(todayAt08) && dDayOfWeek == now.weekday && dWeekStart != null) {
-          if (dWeekStart.year == weekStart.year && dWeekStart.month == weekStart.month && dWeekStart.day == weekStart.day) {
-            result.add({
-              'id': 'duty_today_${doc.id}',
-              'title': 'Bugün Nöbetçisiniz!',
-              'subtitle': 'Bugün nöbet yeriniz: $location. Lütfen kontrol edin.',
-              'time': todayAt08,
-              'type': 'duty_today',
-              'data': data,
-            });
+        // B. Günlük Hatırlatıcı (Nöbet Günü - Nöbet Başlama Saatinde)
+        DateTime? dutyDate;
+        if (data['dutyDate'] != null) {
+          dutyDate = _parseDateTime(data['dutyDate']);
+        }
+        if (dutyDate == null && dDayOfWeek != null && dWeekStart != null) {
+          dutyDate = dWeekStart.add(Duration(days: dDayOfWeek - 1));
+        }
+
+        bool isDutyToday = false;
+        if (dutyDate != null) {
+          isDutyToday = (dutyDate.year == now.year && dutyDate.month == now.month && dutyDate.day == now.day);
+        } else if (dDayOfWeek == now.weekday && dWeekStart != null) {
+          isDutyToday = (dWeekStart.year == weekStart.year && dWeekStart.month == weekStart.month && dWeekStart.day == weekStart.day);
+        }
+
+        if (isDutyToday && now.isAfter(dutyStartTime)) {
+          final notifId = 'duty_today_${doc.id}';
+          result.add({
+            'id': notifId,
+            'title': 'Bugün Nöbetçisiniz!',
+            'subtitle': 'Bugün nöbet yeriniz: $location (Başlama: $startTimeStr). Lütfen kontrol edin.',
+            'time': dutyStartTime,
+            'type': 'duty_today',
+            'data': data,
+          });
+
+          // Kayan bildirim (In-app sliding banner / SnackBar)
+          final todayDateKey = DateFormat('yyyy-MM-dd').format(now);
+          final bannerKey = '${todayDateKey}_$notifId';
+          if (!_shownDutyBanners.contains(bannerKey)) {
+            _triggerDutyBanner(location, startTimeStr, bannerKey);
           }
         }
       }
     }
 
     // 3. ETÜT (Anlık ve Günlük)
-    if (etutSnap != null) {
-      for (var doc in etutSnap.docs) {
+    if (etutDocs.isNotEmpty) {
+      for (var doc in etutDocs) {
         final data = doc.data() as Map<String, dynamic>;
         final attendanceTaken = data['attendanceTaken'] ?? false;
         if (attendanceTaken) continue;
@@ -535,10 +811,10 @@ class _NotificationSectionState extends State<_NotificationSection> {
  
     // 4. YOKLAMA UYARISI (Dersler & Etütler)
     // A. Ders Yoklama Uyarısı (Başlangıçtan 5 dakika geçince)
-    if (scheduleSnap != null && attSnap != null) {
+    if (_notifyTeacherMissingAttendance && scheduleDocs.isNotEmpty && attDocs.isNotEmpty) {
       try {
         final takenKeys = <String>{};
-        for (var doc in attSnap.docs) {
+        for (var doc in attDocs) {
           final d = doc.data() as Map<String, dynamic>;
           final cId = d['classId']?.toString() ?? '';
           final lH = d['lessonHour']?.toString() ?? '';
@@ -547,12 +823,25 @@ class _NotificationSectionState extends State<_NotificationSection> {
           }
         }
  
-        for (var doc in scheduleSnap.docs) {
+        for (var doc in scheduleDocs) {
           final data = doc.data() as Map<String, dynamic>;
+
+          // Term filtering for classSchedules
+          final itemTermId = data['termId']?.toString().trim();
+          final itemPeriodId = data['periodId']?.toString().trim() ?? '';
+          bool termMatches = false;
+          if (_activeTermId == null || _activeTermId!.isEmpty) {
+            termMatches = true;
+          } else if (itemTermId != null && itemTermId.isNotEmpty) {
+            termMatches = (itemTermId == _activeTermId);
+          } else if (itemPeriodId == _activeTermId || _validPeriodIds.contains(itemPeriodId)) {
+            termMatches = true;
+          }
+          if (!termMatches) continue;
+
           final sDay = data['day']?.toString() ?? '';
           if (_isSameDay(sDay, currentDayName)) {
             final classId = data['classId']?.toString() ?? '';
-            final className = data['className']?.toString() ?? 'Sınıf';
             final hourIdx = data['hourIndex'] as int? ?? 0;
             final lessonHour = hourIdx + 1;
             final subject = data['subjectName'] ?? data['lessonName'] ?? 'Ders';
@@ -587,8 +876,8 @@ class _NotificationSectionState extends State<_NotificationSection> {
     }
 
     // B. Etüt Yoklama Uyarısı (Başlangıçtan 5 dakika geçince)
-    if (etutSnap != null) {
-      for (var doc in etutSnap.docs) {
+    if (etutDocs.isNotEmpty) {
+      for (var doc in etutDocs) {
         final data = doc.data() as Map<String, dynamic>;
         final etutDate = _parseDateTime(data['startTime'] ?? data['date']);
         if (etutDate != null && 
@@ -614,9 +903,9 @@ class _NotificationSectionState extends State<_NotificationSection> {
     }
  
     // 5. SOSYAL
-    if (socSnap != null) {
+    if (socDocs.isNotEmpty) {
       final threeDaysAgo = now.subtract(const Duration(days: 3));
-      for (var doc in socSnap.docs) {
+      for (var doc in socDocs) {
         final data = doc.data() as Map<String, dynamic>;
         final readBy = List<dynamic>.from(data['readBy'] ?? []);
         final createdAt = _parseDateTime(data['createdAt']);
@@ -626,10 +915,22 @@ class _NotificationSectionState extends State<_NotificationSection> {
         final recipients = List<String>.from(data['recipients'] ?? []);
         bool isRecipient = (recipients.isEmpty || recipients.contains('ALL') || recipients.contains('TEACHER'));
         if (!isRecipient && currentUserId != null) {
-          if (recipients.contains('user:$currentUserId')) isRecipient = true;
-          else {
+          final validRecipIds = <String>{
+            currentUserId,
+            if (docTeacherId != null && docTeacherId.isNotEmpty) docTeacherId,
+          };
+          for (final rId in validRecipIds) {
+            if (recipients.contains('user:$rId') || recipients.contains(rId)) {
+              isRecipient = true;
+              break;
+            }
+          }
+          if (!isRecipient) {
             for (var cid in assignedClassIds) {
-              if (recipients.contains('class:$cid')) { isRecipient = true; break; }
+              if (recipients.contains('class:$cid') || recipients.contains(cid)) {
+                isRecipient = true;
+                break;
+              }
             }
           }
         }
@@ -648,8 +949,8 @@ class _NotificationSectionState extends State<_NotificationSection> {
     }
  
     // 6. ÖDEV KONTROLÜ (Sabah 08:00'de)
-    if (hwSnap != null) {
-      for (var doc in hwSnap.docs) {
+    if (hwDocs.isNotEmpty) {
+      for (var doc in hwDocs) {
         final data = doc.data() as Map<String, dynamic>;
         final dueDate = _parseDateTime(data['dueDate']);
         if (dueDate != null) {
@@ -678,15 +979,20 @@ class _NotificationSectionState extends State<_NotificationSection> {
     }
  
     // 7. CHATS & MISSED CALLS
-    if (chatSnap != null) {
+    if (chatDocs.isNotEmpty) {
       int unreadMessagesCount = 0;
       int missedCallsCount = 0;
       DateTime? latestMessageTime;
 
-      for (var doc in chatSnap.docs) {
+      for (var doc in chatDocs) {
         final data = doc.data() as Map<String, dynamic>;
         final unreadCounts = data['unreadCounts'] as Map<String, dynamic>? ?? {};
-        final count = (unreadCounts[currentUserId] as num?)?.toInt() ?? 0;
+        int count = 0;
+        if (currentUserId != null && unreadCounts.containsKey(currentUserId)) {
+          count = (unreadCounts[currentUserId] as num?)?.toInt() ?? 0;
+        } else if (docTeacherId != null && unreadCounts.containsKey(docTeacherId)) {
+          count = (unreadCounts[docTeacherId] as num?)?.toInt() ?? 0;
+        }
 
         if (count > 0) {
           final lastMsg = data['lastMessage'] as Map<String, dynamic>?;
@@ -696,7 +1002,7 @@ class _NotificationSectionState extends State<_NotificationSection> {
             final senderId = lastMsg['senderId'] as String?;
             
             final msgTime = _parseDateTime(lastMsg['timestamp']);
-            if (msgTime != null && (latestMessageTime == null || msgTime.isAfter(latestMessageTime!))) {
+            if (msgTime != null && (latestMessageTime == null || msgTime.isAfter(latestMessageTime))) {
               latestMessageTime = msgTime;
             }
 

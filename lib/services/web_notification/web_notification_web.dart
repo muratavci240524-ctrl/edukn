@@ -74,3 +74,32 @@ void showWebNotification(String title, String body) {
     js.context['console'].callMethod('log', ['❌ Web Notification hatası: $e']);
   }
 }
+
+Future<String?> requestWebNotificationPermission() async {
+  try {
+    if (js.context.hasProperty('Notification')) {
+      final perm = js.context['Notification']?['permission'];
+      js.context['console'].callMethod('log', ['🌐 Web Bildirim İzni Kontrolü: $perm']);
+      if (perm == 'granted' || perm == 'denied') {
+        return perm?.toString();
+      }
+
+      // Kullanıcı bir butona bastığı için tarayıcı izin penceresini hemen gösterir
+      js.context.callMethod('eval', [
+        '''
+        (function() {
+          if (window.Notification) {
+            Notification.requestPermission().then(function(p) {
+              console.log("🌐 Tarayıcı bildirim izni sonucu:", p);
+            });
+          }
+        })();
+        '''
+      ]);
+      return perm?.toString();
+    }
+  } catch (e) {
+    js.context['console']?.callMethod('log', ['❌ requestWebNotificationPermission hatası: $e']);
+  }
+  return null;
+}

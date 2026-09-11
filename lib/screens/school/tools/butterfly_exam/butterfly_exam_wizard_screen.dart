@@ -6,6 +6,7 @@ import '../../../../models/school/butterfly_exam_model.dart';
 import '../../../../models/school/seating_plan_model.dart';
 import '../../../../models/assessment/trial_exam_model.dart';
 import '../../../../services/butterfly_distribution_service.dart';
+import '../../../../services/term_service.dart';
 import '../../../../widgets/edukn_app_bar.dart';
 import '../../../../widgets/custom_date_range_picker.dart';
 import '../../../../widgets/custom_time_picker.dart';
@@ -95,12 +96,17 @@ class _ButterflyExamWizardScreenState extends State<ButterflyExamWizardScreen> {
   /// 1. Tanımlanmış Deneme Sınavlarını Yükle
   Future<void> _loadTrialExams() async {
     try {
+      final activeTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
       final snap = await FirebaseFirestore.instance
           .collection('trial_exams')
           .where('institutionId', isEqualTo: widget.institutionId)
+          .where('isActive', isEqualTo: true)
           .get();
 
-      final list = snap.docs.map((d) => TrialExam.fromMap(d.data(), d.id)).toList();
+      final list = snap.docs
+          .map((d) => TrialExam.fromMap(d.data(), d.id))
+          .where((e) => activeTermId == null || activeTermId.isEmpty || e.termId == activeTermId)
+          .toList();
       list.sort((a, b) => b.date.compareTo(a.date));
 
       if (mounted) {

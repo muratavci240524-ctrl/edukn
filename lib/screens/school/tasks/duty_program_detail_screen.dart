@@ -4,6 +4,7 @@ import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
+import 'package:pdf/pdf.dart';
 import '../../../services/pdf_service.dart';
 import '../../../models/school/duty_model.dart';
 import '../../../services/term_service.dart';
@@ -720,6 +721,9 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
       _selectedWeekStart.add(const Duration(days: 6)),
     );
 
+    // Okul türüne atalı müdürün adını otomatik çek
+    final principalName = await _resolveSchoolPrincipalName();
+
     // Determine active days
     Set<int> activeDayIndices = {};
     for (var loc in _locations) {
@@ -750,12 +754,98 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
       weekRange: '$weekStartStr - $weekEndStr',
       days: headers,
       rows: rows,
+      schoolName: widget.schoolTypeName,
+      principalName: principalName,
     );
 
     await Printing.layoutPdf(
       onLayout: (format) async => pdfData,
       name: 'Nobet_Cizelgesi_$weekStartStr',
+      format: PdfPageFormat.a4,
     );
+  }
+
+  Future<String?> _resolveSchoolPrincipalName() async {
+    try {
+      // 1. schoolTypes dokümanında atanmış müdür adı var mı kontrol et
+      if (widget.schoolTypeId != null && widget.schoolTypeId!.isNotEmpty) {
+        final stDoc = await FirebaseFirestore.instance
+            .collection('schoolTypes')
+            .doc(widget.schoolTypeId)
+            .get();
+        if (stDoc.exists) {
+          final stData = stDoc.data();
+          final pName = stData?['principalName'] ??
+              stData?['managerName'] ??
+              stData?['mudurName'] ??
+              stData?['mudur'] ??
+              stData?['directorName'];
+          if (pName != null && pName.toString().trim().isNotEmpty) {
+            return pName.toString().trim();
+          }
+        }
+      }
+
+      // 2. users koleksiyonundan bu kuruma ve bu okul türüne ait müdürü bul
+      final usersSnap = await FirebaseFirestore.instance
+          .collection('users')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .where('isActive', isEqualTo: true)
+          .get();
+
+      final schoolPrincipals = <Map<String, dynamic>>[];
+      final generalPrincipals = <Map<String, dynamic>>[];
+
+      for (var doc in usersSnap.docs) {
+        final data = doc.data();
+        if (_isPrincipalOrManager(data)) {
+          final fullName =
+              (data['fullName'] ?? data['name'] ?? '').toString().trim();
+          if (fullName.isEmpty) continue;
+
+          if (_isUserInSchoolType(
+            data,
+            widget.schoolTypeId,
+            targetSchoolTypeName: widget.schoolTypeName,
+          )) {
+            schoolPrincipals.add(data);
+          } else {
+            generalPrincipals.add(data);
+          }
+        }
+      }
+
+      if (schoolPrincipals.isNotEmpty) {
+        final exactMudur = schoolPrincipals.firstWhere(
+          (u) {
+            final role = (u['role'] ?? '').toString().toLowerCase();
+            return role == 'mudur' || role == 'okul_muduru';
+          },
+          orElse: () => schoolPrincipals.first,
+        );
+        return (exactMudur['fullName'] ?? exactMudur['name'] ?? '')
+            .toString()
+            .trim();
+      }
+
+      if (generalPrincipals.isNotEmpty) {
+        final exactMudur = generalPrincipals.firstWhere(
+          (u) {
+            final role = (u['role'] ?? '').toString().toLowerCase();
+            return role == 'mudur' ||
+                role == 'genel_mudur' ||
+                role == 'okul_muduru';
+          },
+          orElse: () => generalPrincipals.first,
+        );
+        return (exactMudur['fullName'] ?? exactMudur['name'] ?? '')
+            .toString()
+            .trim();
+      }
+    } catch (e) {
+      debugPrint('Error resolving school principal: $e');
+    }
+    return null;
   }
 
   Future<void> _printStatsReport() async {
@@ -2282,15 +2372,54 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
     };
 
     try {
-      if (current != null && !current.id.startsWith('temp_')) {
+      String realDocId = (current != null && !current.id.startsWith('temp_')) ? current.id : '';
+      if (realDocId.isEmpty) {
+        final querySnap = await FirebaseFirestore.instance
+            .collection('dutyScheduleItems')
+            .where('periodId', isEqualTo: widget.periodId)
+            .where('locationId', isEqualTo: locId)
+            .where('dayOfWeek', isEqualTo: day)
+            .where('weekStart', isEqualTo: weekStr)
+            .limit(1)
+            .get();
+        if (querySnap.docs.isNotEmpty) {
+          realDocId = querySnap.docs.first.id;
+        }
+      }
+
+      if (realDocId.isNotEmpty) {
         await FirebaseFirestore.instance
             .collection('dutyScheduleItems')
-            .doc(current.id)
+            .doc(realDocId)
             .update(data);
+        if (mounted) {
+          setState(() {
+            final updatedItem = optimisticItem.copyWith(id: realDocId);
+            _matrix[key] = updatedItem;
+            final idx = _allPeriodDutyItems.indexWhere((it) => it.id == optimisticItem.id || it.id == realDocId);
+            if (idx != -1) {
+              _allPeriodDutyItems[idx] = updatedItem;
+            } else {
+              _allPeriodDutyItems.add(updatedItem);
+            }
+          });
+        }
       } else {
-        await FirebaseFirestore.instance
+        final docRef = await FirebaseFirestore.instance
             .collection('dutyScheduleItems')
             .add(data);
+        if (mounted) {
+          setState(() {
+            final realItem = optimisticItem.copyWith(id: docRef.id);
+            _matrix[key] = realItem;
+            final idx = _allPeriodDutyItems.indexWhere((it) => it.id == optimisticItem.id);
+            if (idx != -1) {
+              _allPeriodDutyItems[idx] = realItem;
+            } else {
+              _allPeriodDutyItems.add(realItem);
+            }
+          });
+        }
       }
     } catch (e) {
       debugPrint('Error saving duty item: $e');
@@ -2321,6 +2450,19 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
             .collection('dutyScheduleItems')
             .doc(current.id)
             .delete();
+      } else {
+        final dateFormat = DateFormat('yyyy-MM-dd');
+        final weekStr = dateFormat.format(_selectedWeekStart);
+        final snap = await FirebaseFirestore.instance
+            .collection('dutyScheduleItems')
+            .where('periodId', isEqualTo: widget.periodId)
+            .where('locationId', isEqualTo: locId)
+            .where('dayOfWeek', isEqualTo: day)
+            .where('weekStart', isEqualTo: weekStr)
+            .get();
+        for (var doc in snap.docs) {
+          await doc.reference.delete();
+        }
       }
     } catch (e) {
       debugPrint('Error deleting duty item: $e');
@@ -2448,8 +2590,8 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
                 ),
               ],
             ),
-            content: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 480, maxHeight: 420),
+            content: SizedBox(
+              width: 460,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -2484,50 +2626,56 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
                       style: TextStyle(fontSize: 13, color: Colors.grey.shade800, fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(height: 8),
-                    Flexible(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          border: Border.all(color: Colors.grey.shade200),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: ListView.separated(
-                          shrinkWrap: true,
-                          itemCount: itemsToPreview.length,
-                          separatorBuilder: (_, __) => const Divider(height: 1),
-                          itemBuilder: (c, idx) {
-                            final it = itemsToPreview[idx];
-                            final locName = _locations.firstWhere(
-                              (l) => l.id == it.locationId,
-                              orElse: () => DutyLocation(id: '', institutionId: '', name: 'Nöbet Yeri', activeDays: []),
-                            ).name;
-                            final dayName = (it.dayOfWeek >= 1 && it.dayOfWeek <= 7) ? _getDayName(it.dayOfWeek) : '';
-                            return ListTile(
-                              dense: true,
-                              leading: CircleAvatar(
-                                radius: 14,
-                                backgroundColor: const Color(0xFF4F46E5).withOpacity(0.12),
-                                child: Text(
-                                  it.teacherName.isNotEmpty ? it.teacherName.substring(0, 1).toUpperCase() : '?',
-                                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF4F46E5)),
-                                ),
-                              ),
-                              title: Text(it.teacherName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                              subtitle: Text('$dayName · $locName', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
-                              trailing: (it.notificationSent == true && it.notifiedTeacherId == it.teacherId)
-                                  ? const Icon(Icons.done_all, size: 16, color: Colors.green)
-                                  : Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: Colors.amber.shade100,
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
+                    Container(
+                      constraints: const BoxConstraints(maxHeight: 260),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey.shade200),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: SingleChildScrollView(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            for (int idx = 0; idx < itemsToPreview.length; idx++) ...[
+                              if (idx > 0) const Divider(height: 1),
+                              Builder(
+                                builder: (_) {
+                                  final it = itemsToPreview[idx];
+                                  final locName = _locations.firstWhere(
+                                    (l) => l.id == it.locationId,
+                                    orElse: () => DutyLocation(id: '', institutionId: '', name: 'Nöbet Yeri', activeDays: []),
+                                  ).name;
+                                  final dayName = (it.dayOfWeek >= 1 && it.dayOfWeek <= 7) ? _getDayName(it.dayOfWeek) : '';
+                                  return ListTile(
+                                    dense: true,
+                                    leading: CircleAvatar(
+                                      radius: 14,
+                                      backgroundColor: const Color(0xFF4F46E5).withValues(alpha: 0.12),
                                       child: Text(
-                                        'Yeni / Değişen',
-                                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.amber.shade900),
+                                        it.teacherName.isNotEmpty ? it.teacherName.substring(0, 1).toUpperCase() : '?',
+                                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF4F46E5)),
                                       ),
                                     ),
-                            );
-                          },
+                                    title: Text(it.teacherName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                                    subtitle: Text('$dayName · $locName', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                                    trailing: (it.notificationSent == true && it.notifiedTeacherId == it.teacherId)
+                                        ? const Icon(Icons.done_all, size: 16, color: Colors.green)
+                                        : Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: Colors.amber.shade100,
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            child: Text(
+                                              'Yeni / Değişen',
+                                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.amber.shade900),
+                                            ),
+                                          ),
+                                  );
+                                },
+                              ),
+                            ],
+                          ],
                         ),
                       ),
                     ),
@@ -2578,31 +2726,124 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
     final targetItems = forceSendAll ? allAssigned : pending;
     if (targetItems.isEmpty) return;
 
-    setState(() => _isLoading = true);
+    // Donma ve tablonun kaybolmasını önlemek için _isLoading yerine SnackBar ile bilgilendirme
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+              ),
+              SizedBox(width: 12),
+              Text('Bildirimler iletiliyor...'),
+            ],
+          ),
+          duration: Duration(seconds: 4),
+        ),
+      );
+    }
+
     try {
-      final batch = FirebaseFirestore.instance.batch();
+      final dateFormat = DateFormat('yyyy-MM-dd');
+      final weekStr = dateFormat.format(_selectedWeekStart);
+
+      // 1. Henüz temp_ id'de kalmış olan kayıtların gerçek Firestore id'lerini çöz
+      final resolvedItems = <DutyScheduleItem>[];
       for (var it in targetItems) {
-        final docRef = FirebaseFirestore.instance.collection('dutyScheduleItems').doc(it.id);
-        batch.update(docRef, {
-          'sendNotification': true,
-          'notificationSent': true,
-          'notifiedTeacherId': it.teacherId,
-          'notificationRequestedAt': FieldValue.serverTimestamp(),
-        });
+        if (it.id.isNotEmpty && !it.id.startsWith('temp_')) {
+          resolvedItems.add(it);
+        } else {
+          try {
+            final q = await FirebaseFirestore.instance
+                .collection('dutyScheduleItems')
+                .where('periodId', isEqualTo: widget.periodId)
+                .where('locationId', isEqualTo: it.locationId)
+                .where('dayOfWeek', isEqualTo: it.dayOfWeek)
+                .where('weekStart', isEqualTo: weekStr)
+                .limit(1)
+                .get();
+
+            if (q.docs.isNotEmpty) {
+              final realId = q.docs.first.id;
+              final updatedItem = it.copyWith(id: realId);
+              resolvedItems.add(updatedItem);
+              final key = '${it.locationId}_${it.dayOfWeek}';
+              _matrix[key] = updatedItem;
+            } else {
+              final docRef = await FirebaseFirestore.instance.collection('dutyScheduleItems').add({
+                'institutionId': widget.institutionId,
+                'periodId': widget.periodId,
+                'termId': _termId,
+                'scopeType': widget.scopeType,
+                'locationId': it.locationId,
+                'locationName': it.locationName,
+                'dayOfWeek': it.dayOfWeek,
+                'teacherId': it.teacherId,
+                'teacherName': it.teacherName,
+                'weekStart': weekStr,
+                'dutyDate': it.dutyDate,
+                'sendNotification': false,
+                'notificationSent': false,
+                'notifiedTeacherId': null,
+              });
+              final updatedItem = it.copyWith(id: docRef.id);
+              resolvedItems.add(updatedItem);
+              final key = '${it.locationId}_${it.dayOfWeek}';
+              _matrix[key] = updatedItem;
+            }
+          } catch (e) {
+            debugPrint('Doc ID resolve hatası: $e');
+            resolvedItems.add(it);
+          }
+        }
+      }
+
+      // 2. Firestore güncellemesi (dutyScheduleItems üzerinden tekil, garantili bildirim tetikleyici)
+      final batch = FirebaseFirestore.instance.batch();
+
+      for (var it in resolvedItems) {
+        if (it.id.isNotEmpty && !it.id.startsWith('temp_')) {
+          final docRef = FirebaseFirestore.instance.collection('dutyScheduleItems').doc(it.id);
+          batch.update(docRef, {
+            'sendNotification': true,
+            'notificationSent': true,
+            'notifiedTeacherId': it.teacherId,
+            'notificationRequestedAt': FieldValue.serverTimestamp(),
+          });
+        }
+
         final key = '${it.locationId}_${it.dayOfWeek}';
         if (_matrix.containsKey(key)) {
           _matrix[key] = _matrix[key]!.copyWith(
+            id: it.id,
+            notificationSent: true,
+            notifiedTeacherId: it.teacherId,
+          );
+        }
+        final allIdx = _allPeriodDutyItems.indexWhere((x) =>
+            x.id == it.id ||
+            (x.locationId == it.locationId && x.dayOfWeek == it.dayOfWeek && x.weekStart == it.weekStart));
+        if (allIdx != -1) {
+          _allPeriodDutyItems[allIdx] = _allPeriodDutyItems[allIdx].copyWith(
+            id: it.id,
             notificationSent: true,
             notifiedTeacherId: it.teacherId,
           );
         }
       }
+
+      // Nöbet dokümanlarını güncelle — Bu işlem sunucu tarafındaki onDutyAssigned tetikleyicisini TEK BİR KEZ çalıştırır
       await batch.commit();
 
       if (mounted) {
+        setState(() {}); // FAB rozetini ve durumları anında güncelle
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('${targetItems.length} öğretmene nöbet bildirimi başarıyla gönderildi.'),
+            content: Text('${resolvedItems.length} öğretmene nöbet bildirimi başarıyla gönderildi.'),
             backgroundColor: const Color(0xFF10B981),
             duration: const Duration(seconds: 4),
           ),
@@ -2610,12 +2851,11 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
       }
     } catch (e) {
       if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Bildirim gönderilirken hata oluştu: $e'), backgroundColor: Colors.red),
         );
       }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
     }
   }
 

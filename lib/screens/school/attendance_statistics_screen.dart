@@ -1,4 +1,4 @@
-﻿import 'dart:math' as math;
+import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -124,28 +124,37 @@ class _AttendanceStatisticsScreenState extends State<AttendanceStatisticsScreen>
   }
 
   Future<void> _loadActivePeriodAndTerm() async {
-    final periodSnap = await FirebaseFirestore.instance
+    final instIds = [widget.institutionId.toUpperCase(), widget.institutionId.toLowerCase()].toSet().toList();
+    var periodSnap = await FirebaseFirestore.instance
         .collection('workPeriods')
-        .where('institutionId', isEqualTo: widget.institutionId)
+        .where('institutionId', whereIn: instIds)
         .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
         .where('isActive', isEqualTo: true)
         .limit(1)
         .get();
 
     if (periodSnap.docs.isEmpty) {
-      throw Exception('Aktif dönem (workPeriod) bulunamadı');
+      periodSnap = await FirebaseFirestore.instance
+          .collection('workPeriods')
+          .where('institutionId', whereIn: instIds)
+          .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+          .limit(1)
+          .get();
     }
 
-    _activeWorkPeriodId = periodSnap.docs.first.id;
+    if (periodSnap.docs.isNotEmpty) {
+      _activeWorkPeriodId = periodSnap.docs.first.id;
+    }
     await TermService().getActiveTermId();
   }
 
   Future<void> _loadClasses() async {
     final termId = await TermService().getActiveTermId();
+    final instIds = [widget.institutionId.toUpperCase(), widget.institutionId.toLowerCase()].toSet().toList();
 
     final snap = await FirebaseFirestore.instance
         .collection('classes')
-        .where('institutionId', isEqualTo: widget.institutionId)
+        .where('institutionId', whereIn: instIds)
         .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
         .where('isActive', isEqualTo: true)
         .get();
@@ -167,9 +176,10 @@ class _AttendanceStatisticsScreenState extends State<AttendanceStatisticsScreen>
   }
 
   Future<void> _loadStudentsIndex() async {
+    final instIds = [widget.institutionId.toUpperCase(), widget.institutionId.toLowerCase()].toSet().toList();
     final snap = await FirebaseFirestore.instance
         .collection('students')
-        .where('institutionId', isEqualTo: widget.institutionId)
+        .where('institutionId', whereIn: instIds)
         .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
         .where('isActive', isEqualTo: true)
         .get();
@@ -319,11 +329,31 @@ class _AttendanceStatisticsScreenState extends State<AttendanceStatisticsScreen>
     final fromStr = _formatDateYmd(from);
     final toStr = _formatDateYmd(to);
 
-    Query<Map<String, dynamic>> q = FirebaseFirestore.instance
+    final instIds = [widget.institutionId.toUpperCase(), widget.institutionId.toLowerCase()].toSet().toList();
+
+    final baseQuery = FirebaseFirestore.instance
         .collection('lessonAttendance')
-        .where('date', isGreaterThanOrEqualTo: fromStr)
-        .where('date', isLessThanOrEqualTo: toStr);
-    final snap = await q.get();
+        .where('institutionId', whereIn: instIds);
+
+    QuerySnapshot<Map<String, dynamic>> snap;
+    if (fromStr == toStr) {
+      // Tek gün ("Gün" sekmesi): Eşitlik filtresi bileşik indeks gerektirmez
+      snap = await baseQuery.where('date', isEqualTo: fromStr).get();
+    } else {
+      try {
+        snap = await baseQuery
+            .where('date', isGreaterThanOrEqualTo: fromStr)
+            .where('date', isLessThanOrEqualTo: toStr)
+            .get();
+      } on FirebaseException catch (e) {
+        if (e.code == 'failed-precondition' || (e.message != null && e.message!.contains('index'))) {
+          // İndeks oluşturulurken veya eksikken kurum bazlı çekip hafızada filtrele
+          snap = await baseQuery.get();
+        } else {
+          rethrow;
+        }
+      }
+    }
 
     int present = 0;
     int absent = 0;
@@ -338,8 +368,13 @@ class _AttendanceStatisticsScreenState extends State<AttendanceStatisticsScreen>
     final reportedByStudent = <String, int>{};
 
     bool matchesHeaderFilters(Map<String, dynamic> data) {
-      if ((data['periodId'] ?? '').toString() != (_activeWorkPeriodId ?? '')) return false;
-      if ((data['institutionId'] ?? '').toString() != widget.institutionId) return false;
+      final docDate = (data['date'] ?? '').toString();
+      if (docDate.compareTo(fromStr) < 0 || docDate.compareTo(toStr) > 0) return false;
+      if ((_activeWorkPeriodId ?? '').isNotEmpty && (data['periodId'] ?? '').toString().isNotEmpty) {
+        if ((data['periodId'] ?? '').toString() != _activeWorkPeriodId) return false;
+      }
+      final docInst = (data['institutionId'] ?? '').toString().toUpperCase();
+      if (docInst != widget.institutionId.toUpperCase()) return false;
       if ((data['schoolTypeId'] ?? '').toString() != widget.schoolTypeId) return false;
       if ((_selectedClassId ?? '').isNotEmpty && (data['classId'] ?? '').toString() != _selectedClassId) return false;
       if (_selectedLessonHour != null) {
@@ -402,6 +437,7 @@ class _AttendanceStatisticsScreenState extends State<AttendanceStatisticsScreen>
 
     Query<Map<String, dynamic>> qt = FirebaseFirestore.instance
         .collection('lessonAttendance')
+        .where('institutionId', isEqualTo: widget.institutionId)
         .where('date', isEqualTo: todayStr);
     final todaySnap = await qt.get();
 
@@ -421,6 +457,7 @@ class _AttendanceStatisticsScreenState extends State<AttendanceStatisticsScreen>
 
     Query<Map<String, dynamic>> q3 = FirebaseFirestore.instance
         .collection('lessonAttendance')
+        .where('institutionId', isEqualTo: widget.institutionId)
         .where('date', whereIn: last3Strs);
     final last3Snap = await q3.get();
 
@@ -665,7 +702,6 @@ class _AttendanceStatisticsScreenState extends State<AttendanceStatisticsScreen>
     return Scaffold(
       appBar: EduknAppBar(
         title: 'Yoklama İstatistikleri',
-        subtitle: widget.schoolTypeName,
       ),
       body: _loading
           ? Center(child: CircularProgressIndicator())

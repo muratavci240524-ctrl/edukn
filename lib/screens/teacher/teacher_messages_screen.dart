@@ -107,11 +107,19 @@ class _TeacherMessagesScreenState extends State<TeacherMessagesScreen>
 
     try {
       final user = FirebaseAuth.instance.currentUser;
-      final teacherId = userData?['id'] ?? user?.uid;
+      final currentUid = user?.uid;
+      final docId = userData?['id']?.toString();
+      final tId = userData?['teacherId']?.toString();
+      final Set<String> validTeacherIds = {};
+      if (currentUid != null && currentUid.isNotEmpty) validTeacherIds.add(currentUid);
+      if (docId != null && docId.isNotEmpty) validTeacherIds.add(docId);
+      if (tId != null && tId.isNotEmpty) validTeacherIds.add(tId);
+
       final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
+      final instIds = [instId, instId.toLowerCase()].toSet().toList();
       final teacherSchoolTypes = List<String>.from(userData?['schoolTypes'] ?? []);
 
-      if (teacherId == null || instId.isEmpty) {
+      if (validTeacherIds.isEmpty || instId.isEmpty) {
         if (mounted) setState(() => _isLoadingContacts = false);
         return;
       }
@@ -124,12 +132,12 @@ class _TeacherMessagesScreenState extends State<TeacherMessagesScreen>
 
       final managersSnap = await FirebaseFirestore.instance
           .collection('users')
-          .where('institutionId', isEqualTo: instId)
+          .where('institutionId', whereIn: instIds)
           .where('role', whereIn: managerRoles)
           .get();
 
       for (var doc in managersSnap.docs) {
-        if (doc.id == teacherId) continue;
+        if (validTeacherIds.contains(doc.id)) continue;
         final data = doc.data();
         final managerSchoolTypes = List<String>.from(data['schoolTypes'] ?? []);
         
@@ -159,18 +167,22 @@ class _TeacherMessagesScreenState extends State<TeacherMessagesScreen>
         }
       }
 
-      // 2. Sınıf Atamaları ve Öğrenciler
-      final assignSnap = await FirebaseFirestore.instance
-          .collection('lessonAssignments')
-          .where('institutionId', isEqualTo: instId)
-          .where('teacherIds', arrayContains: teacherId)
-          .where('isActive', isEqualTo: true)
-          .get();
+      // 2. Sınıf Atamaları ve Öğrenciler (Tüm olası öğretmen ID'leri üzerinden)
+      final List<QuerySnapshot> assignSnaps = await Future.wait(
+        validTeacherIds.map((tid) => FirebaseFirestore.instance
+            .collection('lessonAssignments')
+            .where('institutionId', whereIn: instIds)
+            .where('teacherIds', arrayContains: tid)
+            .where('isActive', isEqualTo: true)
+            .get()),
+      );
 
       final Set<String> classIds = {};
-      for (var doc in assignSnap.docs) {
-        final cid = doc.data()['classId']?.toString();
-        if (cid != null) classIds.add(cid);
+      for (var snap in assignSnaps) {
+        for (var doc in snap.docs) {
+          final cid = (doc.data() as Map<String, dynamic>)['classId']?.toString();
+          if (cid != null && cid.isNotEmpty) classIds.add(cid);
+        }
       }
 
       if (classIds.isNotEmpty) {
@@ -182,7 +194,7 @@ class _TeacherMessagesScreenState extends State<TeacherMessagesScreen>
           final chunk = classIdList.skip(i).take(10).toList();
           final studentsSnap = await FirebaseFirestore.instance
               .collection('students')
-              .where('institutionId', isEqualTo: instId) // Safe instId filter
+              .where('institutionId', whereIn: instIds) // Safe instId filter
               .where('classId', whereIn: chunk)
               .get();
 

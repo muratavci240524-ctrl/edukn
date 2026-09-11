@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'assessment_definitions_screen.dart';
@@ -11,6 +11,8 @@ import '../../../models/assessment/outcome_list_model.dart';
 import 'error_booklet/error_booklet_dashboard_screen.dart';
 import 'question_pool/question_pool_screen.dart';
 import 'external_exam/external_exam_list_screen.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../../services/term_service.dart';
 import 'package:edukn/widgets/safe_stream_builder.dart';
 
 class AssessmentDashboardScreen extends StatefulWidget {
@@ -31,12 +33,44 @@ class AssessmentDashboardScreen extends StatefulWidget {
 
 class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
   final AssessmentService _assessmentService = AssessmentService();
+  String? _activeTermId;
+  String? _termName;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTerm();
+  }
+
+  Future<void> _loadTerm() async {
+    try {
+      final termId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
+      String? name = await TermService().getSelectedTermName();
+      if (name == null && termId != null) {
+        final doc = await FirebaseFirestore.instance.collection('terms').doc(termId).get();
+        if (doc.exists) {
+          name = doc.data()?['name']?.toString();
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _activeTermId = termId;
+          _termName = name;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading term in AssessmentDashboard: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: EduknAppBar(title: 'Ölçme Değerlendirme'),
+      appBar: EduknAppBar(
+        title: 'Ölçme Değerlendirme',
+        subtitle: _termName,
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
         child: Center(
@@ -380,7 +414,7 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
               ),
             if (isActive)
               SafeStreamBuilder<List<TrialExam>>(
-                stream: _assessmentService.getTrialExams(widget.institutionId),
+                stream: _assessmentService.getTrialExams(widget.institutionId, termId: _activeTermId),
                 builder: (context, snapshot) {
                   final activeCount = snapshot.data?.where((e) => e.isPublished).length ?? 0;
                   final launchedCount = snapshot.data?.where((e) => e.isLaunched).length ?? 0;

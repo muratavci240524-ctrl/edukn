@@ -576,20 +576,50 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       final uid = userCredential?.user?.uid;
       if (uid == null) throw 'Kullanıcı kimliği alınamadı.';
 
-      // Temp şifre kullanıldıysa temizle
-      if (foundUserData != null && tempPass != null) {
+      // Temp şifre kullanıldıysa temizle ve authUserId'yi orijinal dokümana bağla
+      if (foundUserData != null) {
+        // 1. Orijinal dokümanda authUserId, googleUid ve şifre temizliğini yap (Tekil Asıl Doküman)
         try {
-          await FirebaseFirestore.instance
-              .collection('users')
-              .doc(foundUserData['id'])
-              .update({'_tempPassword': FieldValue.delete()});
-        } catch (_) {}
+          final updates = <String, dynamic>{};
+          if (tempPass != null) updates['_tempPassword'] = FieldValue.delete();
+          if (foundUserData['authUserId'] != uid) {
+            updates['authUserId'] = uid;
+            foundUserData['authUserId'] = uid;
+          }
+          if (foundUserData['googleUid'] != uid) {
+            updates['googleUid'] = uid;
+            foundUserData['googleUid'] = uid;
+          }
+          if (updates.isNotEmpty) {
+            await FirebaseFirestore.instance
+                .collection('users')
+                .doc(foundUserData['id'])
+                .set(updates, SetOptions(merge: true));
+            print('✅ Orijinal kullanıcı dokümanı authUserId ile bağlandı: ${foundUserData['id']}');
+          }
+        } catch (e) {
+          print('⚠️ Orijinal doküman güncelleme hatası: $e');
+        }
+
+        // 2. Eğer daha önce oluşturulmuş bir klon / mükerrer /users/{uid} varsa temizle (Asla mükerrer hesap olmasın!)
+        if (foundUserData['id'] != uid) {
+          try {
+            final oldMirror = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+            if (oldMirror.exists) {
+              await oldMirror.reference.delete();
+              print('🧹 Mükerrer /users/$uid dokümanı temizlendi.');
+            }
+          } catch (_) {}
+        }
       }
 
-      // 🔔 FCM Token kaydet
-      NotificationService().initialize(uid: uid).catchError((e) {
-        print('⚠️ FCM init hatası (kritik değil): $e');
-      });
+      // 🔔 FCM Token kaydet ve Bildirim İznini İste (Standart - iOS & Android)
+      try {
+        await NotificationService().initialize(uid: uid, forcePermissionPrompt: true)
+            .timeout(const Duration(seconds: 4));
+      } catch (e) {
+        debugPrint('⚠️ FCM init hatası (kritik değil): $e');
+      }
 
       // ── ADIM 5: Kullanıcı dokümanını bul ve doğrula ──
       Map<String, dynamic>? userData;
@@ -1508,26 +1538,22 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
 
         final instId = (docData['institutionId'] ?? _institutionController.text.trim()).toString();
 
-        // 1. Orijinal users/students/parents dokümanını güncelle
+        // 1. Orijinal users/students/parents dokümanını güncelle (ASLA YENİ KLON DOKÜMAN OLUŞTURMA!)
         try {
-          await matchedDoc.reference.update({
+          await matchedDoc.reference.set({
             'authUserId': user.uid,
             'googleUid': user.uid,
             'personalEmail': googleEmail,
             'updatedAt': FieldValue.serverTimestamp(),
-          });
-        } catch (_) {}
-
-        // 2. Eğer doküman ID'si Google UID'den farklıysa, tüm yetkileri ve verileri users.doc(user.uid) üzerine kopyala
-        if (matchedDoc.id != user.uid) {
-          final fullUserClone = Map<String, dynamic>.from(docData);
-          fullUserClone['uid'] = user.uid;
-          fullUserClone['authUserId'] = user.uid;
-          fullUserClone['googleUid'] = user.uid;
-          fullUserClone['personalEmail'] = googleEmail;
-          fullUserClone['updatedAt'] = FieldValue.serverTimestamp();
-          await FirebaseFirestore.instance.collection('users').doc(user.uid).set(fullUserClone, SetOptions(merge: true));
+          }, SetOptions(merge: true));
+        } catch (e) {
+          debugPrint('⚠️ Orijinal doküman güncellenirken hata: $e');
         }
+
+        // Bellekteki veriye de auth kimliklerini ekle
+        docData['authUserId'] = user.uid;
+        docData['googleUid'] = user.uid;
+        docData['personalEmail'] = googleEmail;
 
         if (mounted) {
           // Rol şablonunu yükle (Google giriş için de)

@@ -5,17 +5,20 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import '../../../../models/field_trip_model.dart';
 import '../../../../services/field_trip_service.dart';
+import '../../../../services/term_service.dart';
 
 class FieldTripFormScreen extends StatefulWidget {
   final String institutionId;
   final String schoolTypeId;
   final String schoolTypeName;
+  final FieldTrip? initialTrip;
 
   const FieldTripFormScreen({
     Key? key,
     required this.institutionId,
     required this.schoolTypeId,
     required this.schoolTypeName,
+    this.initialTrip,
   }) : super(key: key);
 
   @override
@@ -57,19 +60,74 @@ class _FieldTripFormScreenState extends State<FieldTripFormScreen> {
   TimeOfDay? _surveyPublishTime;
   bool _isPaid = false;
   final _amountController = TextEditingController();
+  String? _activeTermId;
 
   @override
   void initState() {
     super.initState();
     _loadBranches();
+    _loadActiveTerm();
 
-    _departureDate = DateTime.now().add(const Duration(days: 7));
-    _departureTime = const TimeOfDay(hour: 09, minute: 00);
-    _returnDate = DateTime.now().add(const Duration(days: 7));
-    _returnTime = const TimeOfDay(hour: 16, minute: 00);
+    final trip = widget.initialTrip;
+    if (trip != null) {
+      _nameController.text = trip.name;
+      _purposeController.text = trip.purpose;
+      _departureDate = trip.departureTime;
+      _departureTime = TimeOfDay.fromDateTime(trip.departureTime);
+      _returnDate = trip.returnTime;
+      _returnTime = TimeOfDay.fromDateTime(trip.returnTime);
+      _selectedClassLevels =
+          trip.classLevel.split(',').where((s) => s.isNotEmpty).toSet();
+      _selectedBranchIds = List.from(trip.targetBranchIds);
+      _selectedStudentIds = List.from(trip.targetStudentIds);
+      _isPaid = trip.isPaid;
+      _amountController.text = trip.amount > 0 ? trip.amount.toString() : '';
+      _createSurvey = false;
+      _loadStudentsForTrip(trip.targetStudentIds);
+    } else {
+      _departureDate = DateTime.now().add(const Duration(days: 7));
+      _departureTime = const TimeOfDay(hour: 09, minute: 00);
+      _returnDate = DateTime.now().add(const Duration(days: 7));
+      _returnTime = const TimeOfDay(hour: 16, minute: 00);
 
-    _surveyPublishDate = DateTime.now();
-    _surveyPublishTime = TimeOfDay.now();
+      _surveyPublishDate = DateTime.now();
+      _surveyPublishTime = TimeOfDay.now();
+    }
+  }
+
+  Future<void> _loadActiveTerm() async {
+    final termId = await TermService().getSelectedTermId() ??
+        await TermService().getActiveTermId();
+    if (mounted) {
+      setState(() {
+        _activeTermId = termId;
+      });
+    }
+  }
+
+  Future<void> _loadStudentsForTrip(List<String> studentIds) async {
+    if (studentIds.isEmpty) return;
+    try {
+      for (var i = 0; i < studentIds.length; i += 10) {
+        final chunk = studentIds.sublist(
+          i,
+          i + 10 > studentIds.length ? studentIds.length : i + 10,
+        );
+        final snap = await FirebaseFirestore.instance
+            .collection('students')
+            .where(FieldPath.documentId, whereIn: chunk)
+            .get();
+        for (var doc in snap.docs) {
+          final data = doc.data();
+          _selectedStudentMap[doc.id] = {
+            'id': doc.id,
+            'fullName': data['fullName'] ?? data['name'] ?? 'İsimsiz',
+            'className': data['className'] ?? '',
+          };
+        }
+      }
+      if (mounted) setState(() {});
+    } catch (_) {}
   }
 
   Future<void> _loadBranches() async {
@@ -240,17 +298,20 @@ class _FieldTripFormScreenState extends State<FieldTripFormScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isEditing = widget.initialTrip != null;
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: EduknAppBar(
-        title: 'Gezi Planla (${_currentStep}/$_totalSteps)',
+        title: isEditing
+            ? 'Geziyi Düzenle (${_currentStep}/$_totalSteps)'
+            : 'Gezi Planla (${_currentStep}/$_totalSteps)',
         subtitle: widget.schoolTypeName,
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(4),
           child: LinearProgressIndicator(
             value: _currentStep / _totalSteps,
             backgroundColor: Colors.grey[100],
-            valueColor: AlwaysStoppedAnimation<Color>(Colors.indigo),
+            valueColor: const AlwaysStoppedAnimation<Color>(Colors.indigo),
           ),
         ),
       ),
@@ -893,24 +954,41 @@ class _FieldTripFormScreenState extends State<FieldTripFormScreen> {
           )
         : null;
 
+    final isEditing = widget.initialTrip != null;
+
     final trip = FieldTrip(
-      id: '',
+      id: isEditing ? widget.initialTrip!.id : '',
       institutionId: widget.institutionId,
       schoolTypeId: widget.schoolTypeId,
       schoolTypeName: widget.schoolTypeName,
-      name: _nameController.text,
-      purpose: _purposeController.text,
+      name: _nameController.text.trim(),
+      purpose: _purposeController.text.trim(),
       departureTime: departure,
       returnTime: ret,
-      classLevel: _selectedClassLevels.join(','), // Join selected levels
+      classLevel: _selectedClassLevels.join(','),
       targetBranchIds: _selectedBranchIds,
       targetStudentIds: _selectedStudentIds,
       totalStudents: _selectedStudentIds.length,
       isPaid: _isPaid,
       amount: _isPaid ? (double.tryParse(_amountController.text) ?? 0) : 0,
-      paymentStatus: {},
-      authorId: FirebaseAuth.instance.currentUser?.uid ?? '',
-      createdAt: DateTime.now(),
+      paymentStatus: isEditing ? widget.initialTrip!.paymentStatus : {},
+      participationSurveyId:
+          isEditing ? widget.initialTrip!.participationSurveyId : null,
+      surveyPublishDate:
+          isEditing ? widget.initialTrip!.surveyPublishDate : null,
+      manualParticipationStatus:
+          isEditing ? widget.initialTrip!.manualParticipationStatus : {},
+      feedbackSurveyId:
+          isEditing ? widget.initialTrip!.feedbackSurveyId : null,
+      groups: isEditing ? widget.initialTrip!.groups : [],
+      authorId: isEditing
+          ? widget.initialTrip!.authorId
+          : (FirebaseAuth.instance.currentUser?.uid ?? ''),
+      createdAt: isEditing ? widget.initialTrip!.createdAt : DateTime.now(),
+      status: isEditing ? widget.initialTrip!.status : 'planned',
+      termId: isEditing
+          ? (widget.initialTrip!.termId ?? _activeTermId)
+          : _activeTermId,
     );
 
     try {
@@ -920,23 +998,34 @@ class _FieldTripFormScreenState extends State<FieldTripFormScreen> {
         builder: (c) => const Center(child: CircularProgressIndicator()),
       );
 
-      final tripId = await _service.createFieldTrip(trip);
+      if (isEditing) {
+        await _service.updateFieldTrip(trip);
+      } else {
+        final tripId = await _service.createFieldTrip(trip);
 
-      if (_createSurvey && surveyPublish != null) {
-        final tripWithId = FieldTrip.fromMap(trip.toMap(), tripId);
-        await _service.createParticipationSurvey(tripWithId, surveyPublish);
+        if (_createSurvey && surveyPublish != null) {
+          final tripWithId = FieldTrip.fromMap(trip.toMap(), tripId);
+          await _service.createParticipationSurvey(tripWithId, surveyPublish);
+        }
       }
 
       Navigator.pop(context); // Close dialog
-      Navigator.pop(context); // Close form
+      Navigator.pop(context, true); // Close form with success result
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Gezi planı başarıyla oluşturuldu!')),
+        SnackBar(
+          content: Text(
+            isEditing
+                ? 'Gezi planı başarıyla güncellendi!'
+                : 'Gezi planı başarıyla oluşturuldu!',
+          ),
+          backgroundColor: Colors.green,
+        ),
       );
     } catch (e) {
       Navigator.pop(context);
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Hata: $e')));
+      ).showSnackBar(SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red));
     }
   }
 }
