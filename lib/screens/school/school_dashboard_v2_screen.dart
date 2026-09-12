@@ -1275,14 +1275,12 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
       {'label': 'Finans', 'icon': Icons.account_balance_wallet_rounded, 'color': Colors.indigo},
       {'label': 'Operasyon', 'icon': Icons.support_agent_rounded, 'color': Colors.indigo},
       {'label': 'Sistem', 'icon': Icons.settings_suggest_rounded, 'color': Colors.indigo},
-      {'label': 'Kişisel', 'icon': Icons.person, 'color': Colors.indigo},
     ];
 
     // Yetkisi olan kategorileri filtrele (Sadece içeriği dolu olanları göster)
     final categories = allCategories.where((cat) {
       final label = cat['label'] as String;
       if (label == 'Tümü') return true;
-      if (label == 'Kişisel') return true; // Kişisel her zaman görünür (notlar vb.)
       
       // Bu kategorideki modülleri bul ve en az birinin items listesi dolu mu bak
       // Not: Bu kontrolü basitleştirmek için mevcut modül tanımlarını kullanıyoruz
@@ -1518,21 +1516,6 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
           ],
           onTap: () => setState(() => _selectedCategory = 'Sistem'),
           buttonLabel: 'DÜZENLE',
-        ),
-      if (_hasModuleAccess('kisisel_islemler'))
-        _ModuleCardWidget(
-          title: 'KİŞİSEL İŞLEMLER',
-          badge: 'Kişisel',
-          icon: Icons.person_outline,
-          color: Colors.pink,
-          cardWidth: cardWidth,
-          isMobile: isMobile,
-          category: 'Kişisel',
-          showAllItems: isFiltered,
-          items: [
-            if (_hasSubModuleAccess('kisisel_islemler', 'notlarim')) {'title': 'Notlarım', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PersonalNotesScreen()))},
-          ],
-          onTap: () => setState(() => _selectedCategory = 'Kişisel'),
         ),
       if (_hasLingoknAccess())
         _ModuleCardWidget(

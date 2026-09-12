@@ -155,7 +155,7 @@ class _TeacherStudentListScreenState extends State<TeacherStudentListScreen> {
       ),
       body: Column(
         children: [
-          _buildSearchAndFilters(),
+          _buildSearchAndFilters(filteredStudents.length),
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
@@ -186,7 +186,7 @@ class _TeacherStudentListScreenState extends State<TeacherStudentListScreen> {
     );
   }
 
-  Widget _buildSearchAndFilters() {
+  Widget _buildSearchAndFilters(int studentCount) {
     final levels = _availableLevels;
     final branches = _availableBranches;
 
@@ -195,21 +195,51 @@ class _TeacherStudentListScreenState extends State<TeacherStudentListScreen> {
       color: Colors.indigo,
       child: Column(
         children: [
-          TextField(
-            onChanged: (val) => setState(() => _searchQuery = val),
-            style: const TextStyle(color: Colors.white),
-            decoration: InputDecoration(
-              hintText: 'Öğrenci ara...',
-              hintStyle: TextStyle(color: Colors.white.withOpacity(0.6)),
-              prefixIcon: const Icon(Icons.search, color: Colors.white),
-              filled: true,
-              fillColor: Colors.white.withOpacity(0.1),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  onChanged: (val) => setState(() => _searchQuery = val),
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    hintText: 'Öğrenci ara...',
+                    hintStyle: TextStyle(color: Colors.white.withOpacity(0.6)),
+                    prefixIcon: const Icon(Icons.search, color: Colors.white),
+                    filled: true,
+                    fillColor: Colors.white.withOpacity(0.1),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
               ),
-              contentPadding: const EdgeInsets.symmetric(vertical: 12),
-            ),
+              const SizedBox(width: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.18),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: Colors.white.withOpacity(0.35), width: 1),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.people_alt_rounded, color: Colors.white, size: 16),
+                    const SizedBox(width: 6),
+                    Text(
+                      '$studentCount',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
           if (levels.isNotEmpty || branches.isNotEmpty) ...[
             const SizedBox(height: 12),

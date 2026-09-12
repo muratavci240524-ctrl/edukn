@@ -125,20 +125,7 @@ class AppModules {
       },
     ),
 
-    // 8. KİŞİSEL İŞLEMLER
-    'kisisel_islemler': ModuleInfo(
-      key: 'kisisel_islemler',
-      name: 'Kişisel İşlemler',
-      icon: Icons.person_outline,
-      color: Colors.pink,
-      category: 'Kişisel',
-      description: 'Kişisel notlar ve ayarlar',
-      subModules: {
-        'notlarim': 'Notlarım',
-      },
-    ),
-
-    // 9. HABERLEŞME
+    // 8. HABERLEŞME
     'haberlesme': ModuleInfo(
       key: 'haberlesme',
       name: 'Haberleşme Merkezi',

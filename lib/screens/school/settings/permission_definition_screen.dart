@@ -473,6 +473,7 @@ class _PermissionDefinitionScreenState
             );
           }
 
+          final Map<String, bool> expandedModules = {};
           final Map<String, bool> collapsedSubGroups = {
             'sinav_raporlari': false,
             'ogrenci_portfolyolari': false,
@@ -491,7 +492,7 @@ class _PermissionDefinitionScreenState
             return null;
           }
 
-          Widget subModuleTile(String modKey, String subKey, String subName, Map<String, dynamic> subPerms, Color modColor) {
+          Widget subModuleTile(String modKey, String subKey, String subName, Map<String, dynamic> subPerms, Color modColor, Map<String, dynamic> perms) {
             final parentKey = getParentGroupKey(subKey);
             final isNestedChild = parentKey != null;
             final isParent = isGroupParent(subKey);
@@ -513,6 +514,19 @@ class _PermissionDefinitionScreenState
                   'enabled': newVal,
                   'level': level,
                 };
+
+                // Alt başlık açıldığında ana başlık da otomatik aktif olsun
+                if (newVal == true) {
+                  perms[modKey]['enabled'] = true;
+                } else {
+                  // Eğer bu modüldeki hiçbir alt başlık kalmadıysa ana başlığı kapat
+                  final hasAnyActive = subPerms.entries.any(
+                    (e) => e.key != subKey && e.value is Map && e.value['enabled'] == true,
+                  );
+                  if (!hasAnyActive) {
+                    perms[modKey]['enabled'] = false;
+                  }
+                }
 
                 if (isParent) {
                   if (newVal) collapsedSubGroups[subKey] = false;
@@ -670,6 +684,7 @@ class _PermissionDefinitionScreenState
             final isEnabled = (p is Map && p['enabled'] == true);
             final level = (p is Map ? p['level'] : 'viewer') ?? 'viewer';
             final hasSubModules = mod.subModules.isNotEmpty;
+            final isExpanded = expandedModules[key] ?? isEnabled;
             final isMobile = MediaQuery.of(ctx).size.width < 600;
 
             return Column(
@@ -694,6 +709,9 @@ class _PermissionDefinitionScreenState
                               final currentVal = isEnabled;
                               final newVal = !currentVal;
                               perms[key]['enabled'] = newVal;
+                              if (newVal) {
+                                expandedModules[key] = true;
+                              }
                               
                               // Ana başlık değişince tüm alt başlıklara yay (Cascading)
                               if (hasSubModules) {
@@ -725,26 +743,34 @@ class _PermissionDefinitionScreenState
                           child: InkWell(
                             onTap: () {
                               setModalState(() {
-                                final newVal = !isEnabled;
-                                perms[key]['enabled'] = newVal;
-                                if (hasSubModules) {
-                                  mod.subModules.forEach((sk, _) {
-                                    final curLvl = (subPerms[sk] is Map ? subPerms[sk]['level'] : level) ?? level;
-                                    subPerms[sk] = {'enabled': newVal, 'level': curLvl};
-                                  });
-                                }
+                                expandedModules[key] = !isExpanded;
                               });
                             },
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  mod.name,
-                                  style: GoogleFonts.inter(
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 14,
-                                    color: isEnabled ? Colors.indigo.shade900 : Colors.grey.shade500,
-                                  ),
+                                Row(
+                                  children: [
+                                    Text(
+                                      mod.name,
+                                      style: GoogleFonts.inter(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 14,
+                                        color: isEnabled ? Colors.indigo.shade900 : Colors.grey.shade600,
+                                      ),
+                                    ),
+                                    if (hasSubModules) ...[
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        '(${mod.subModules.length})',
+                                        style: TextStyle(
+                                          color: Colors.grey.shade400,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.normal,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
                                 ),
                                 if (mod.description.isNotEmpty)
                                   Text(
@@ -801,12 +827,26 @@ class _PermissionDefinitionScreenState
                               ),
                             ),
                           ),
+                        if (hasSubModules)
+                          IconButton(
+                            icon: Icon(
+                              isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                              color: isEnabled ? mod.color : Colors.grey.shade400,
+                              size: 24,
+                            ),
+                            tooltip: isExpanded ? 'Alt Başlıkları Gizle' : 'Alt Başlıkları Göster',
+                            onPressed: () {
+                              setModalState(() {
+                                expandedModules[key] = !isExpanded;
+                              });
+                            },
+                          ),
                       ],
                     ),
                   ),
                 ),
-                if (hasSubModules && isEnabled)
-                  ...mod.subModules.entries.map((e) => subModuleTile(key, e.key, e.value, subPerms, mod.color)).toList(),
+                if (hasSubModules && isExpanded)
+                  ...mod.subModules.entries.map((e) => subModuleTile(key, e.key, e.value, subPerms, mod.color, perms)).toList(),
                 const SizedBox(height: 8),
               ],
             );

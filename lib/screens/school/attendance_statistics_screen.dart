@@ -110,9 +110,11 @@ class _AttendanceStatisticsScreenState extends State<AttendanceStatisticsScreen>
   Future<void> _init() async {
     setState(() => _loading = true);
     try {
-      await _loadActivePeriodAndTerm();
-      await _loadClasses();
-      await _loadStudentsIndex();
+      await Future.wait([
+        _loadActivePeriodAndTerm(),
+        _loadClasses(),
+        _loadStudentsIndex(),
+      ]);
       await _loadStats();
     } catch (e) {
       if (!mounted) return;

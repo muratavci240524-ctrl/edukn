@@ -126,7 +126,23 @@ class EduknAppBar extends StatelessWidget implements PreferredSizeWidget {
       children: [
         if (showLogo) ...[
           const EduKnLogo(iconSize: 24, type: EduKnLogoType.iconOnly),
-          SizedBox(width: isMobile ? 8 : 12),
+          const SizedBox(width: 8),
+          if (!isMobile) ...[
+            Text(
+              'eduKN',
+              style: TextStyle(
+                color: foregroundColor ?? Colors.indigo.shade900,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.5,
+                fontSize: 18,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Container(width: 1, height: 20, color: Colors.indigo.withValues(alpha: 0.1)),
+            const SizedBox(width: 12),
+          ] else ...[
+            const SizedBox(width: 4),
+          ],
         ],
         Expanded(
           child: Column(

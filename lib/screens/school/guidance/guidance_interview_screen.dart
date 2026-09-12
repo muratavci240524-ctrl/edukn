@@ -15,6 +15,7 @@ import 'dart:typed_data';
 import 'package:intl/intl.dart';
 import 'package:edukn/screens/school/guidance/guidance_statistics_screen.dart';
 import '../../../services/crypto_service.dart';
+import '../../../services/user_permission_service.dart';
 
 class GuidanceInterviewScreen extends StatefulWidget {
   final String institutionId;
@@ -112,6 +113,98 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
     super.dispose();
   }
 
+  Set<String>? _cachedTeacherClassIds;
+
+  Future<Set<String>> _resolveTeacherClassIds() async {
+    if (_cachedTeacherClassIds != null && _cachedTeacherClassIds!.isNotEmpty) {
+      return _cachedTeacherClassIds!;
+    }
+
+    final user = FirebaseAuth.instance.currentUser;
+    final teacherId = widget.teacherId ?? user?.uid ?? '';
+    final instId = widget.institutionId.trim().toUpperCase();
+    final instIds = [instId, instId.toLowerCase(), instId.toUpperCase()].toSet().toList();
+
+    final Set<String> classIds = {};
+    if (teacherId.isEmpty) return classIds;
+
+    try {
+      final userData = await UserPermissionService.loadUserData();
+      final Set<String> validTeacherIds = {teacherId};
+      if (user != null) validTeacherIds.add(user.uid);
+      final docId = userData?['id']?.toString();
+      if (docId != null && docId.isNotEmpty) validTeacherIds.add(docId);
+      final tId = userData?['teacherId']?.toString();
+      if (tId != null && tId.isNotEmpty) validTeacherIds.add(tId);
+
+      // 1. Sınıf Öğretmenliği / Şube Rehberliği (classes koleksiyonu: classTeacherId & guidanceCounselorId)
+      for (final tid in validTeacherIds) {
+        final homeroomSnaps = await Future.wait([
+          FirebaseFirestore.instance
+              .collection('classes')
+              .where('institutionId', whereIn: instIds)
+              .where('classTeacherId', isEqualTo: tid)
+              .where('isActive', isEqualTo: true)
+              .get(),
+          FirebaseFirestore.instance
+              .collection('classes')
+              .where('institutionId', whereIn: instIds)
+              .where('guidanceCounselorId', isEqualTo: tid)
+              .where('isActive', isEqualTo: true)
+              .get(),
+        ]);
+        for (var snap in homeroomSnaps) {
+          for (var doc in snap.docs) {
+            classIds.add(doc.id);
+          }
+        }
+      }
+
+      // 2. Dersine girdiği sınıflar (lessonAssignments & classSchedules)
+      final queries = <Future<QuerySnapshot>>[];
+      for (final tid in validTeacherIds) {
+        queries.add(
+          FirebaseFirestore.instance
+              .collection('lessonAssignments')
+              .where('institutionId', whereIn: instIds)
+              .where('teacherIds', arrayContains: tid)
+              .where('isActive', isEqualTo: true)
+              .get(),
+        );
+        queries.add(
+          FirebaseFirestore.instance
+              .collection('lessonAssignments')
+              .where('institutionId', whereIn: instIds)
+              .where('teacherId', isEqualTo: tid)
+              .where('isActive', isEqualTo: true)
+              .get(),
+        );
+        queries.add(
+          FirebaseFirestore.instance
+              .collection('classSchedules')
+              .where('institutionId', whereIn: instIds)
+              .where('teacherId', isEqualTo: tid)
+              .get(),
+        );
+      }
+
+      final results = await Future.wait(queries);
+      for (var snap in results) {
+        for (var doc in snap.docs) {
+          final cid = (doc.data() as Map<String, dynamic>?)?['classId']?.toString();
+          if (cid != null && cid.isNotEmpty) {
+            classIds.add(cid);
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Öğretmen şube çözümleme hatası: $e');
+    }
+
+    _cachedTeacherClassIds = classIds;
+    return classIds;
+  }
+
   // Veri Çekme
   Future<void> _loadData() async {
     setState(() {
@@ -161,67 +254,107 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
             'type': 'personel',
           };
         }).toList();
-      } else if (_selectedTab == 'ogrenci') {
-        // Öğrenci verilerini çek
-        final query = await FirebaseFirestore.instance
-            .collection('students')
-            .where('institutionId', isEqualTo: widget.institutionId)
-            .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
-            .where('isActive', isEqualTo: true)
-            .get();
+      } else if (_selectedTab == 'ogrenci' || _selectedTab == 'veli') {
+        List<Map<String, dynamic>> studentsData = [];
 
-        rawData = query.docs.map((doc) {
-          final data = doc.data();
-          final name =
-              data['fullName'] ??
-              '${data['name'] ?? ''} ${data['surname'] ?? ''}'.trim();
-          return {
-            'id': doc.id,
-            'name': name.isEmpty ? 'İsimsiz Öğrenci' : name,
-            'sub':
-                '${data['className'] ?? 'Sınıfsız'} - ${data['studentNo'] ?? ''}',
-            'tag': 'Ö',
-            'color': Colors.blue,
-            'type': 'ogrenci',
-          };
-        }).toList();
-      } else if (_selectedTab == 'veli') {
-        // Veli verilerini çek
-        final query = await FirebaseFirestore.instance
-            .collection('students')
-            .where('institutionId', isEqualTo: widget.institutionId)
-            .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
-            .where('isActive', isEqualTo: true)
-            .get();
+        if (widget.isTeacher) {
+          final teacherClassIds = await _resolveTeacherClassIds();
 
-        rawData = [];
-        for (var doc in query.docs) {
-          final data = doc.data();
-          final studentName =
-              data['fullName'] ??
-              '${data['name'] ?? ''} ${data['surname'] ?? ''}'.trim();
-          final parents = data['parents'] as List<dynamic>? ?? [];
+          if (teacherClassIds.isNotEmpty) {
+            final classList = teacherClassIds.toList();
+            final List<Future<QuerySnapshot<Map<String, dynamic>>>> studentQueries = [];
 
-          for (var p in parents) {
-            final String parentId = 'P_${doc.id}_${p['tcNo'] ?? p['name']}';
-            final parentName = p['name'] ?? 'İsimsiz Veli';
-            final relation = p['relation'] ?? 'Veli';
+            for (var i = 0; i < classList.length; i += 10) {
+              final chunk = classList.skip(i).take(10).toList();
+              Query<Map<String, dynamic>> q = FirebaseFirestore.instance
+                  .collection('students')
+                  .where('institutionId', isEqualTo: widget.institutionId)
+                  .where('classId', whereIn: chunk)
+                  .where('isActive', isEqualTo: true);
+              studentQueries.add(q.get());
+            }
 
-            // KULLANICl İSTEĞİ: Öğrenci adı ana başlık, veli adı alt başlık
-            rawData.add({
-              'id': parentId,
-              'realId': parentId,
-              'name': studentName, // Listede görünen ana isim (Öğrenci)
-              'sub':
-                  '$parentName (Veli) - $relation', // Alt bilgi (Kimle görüşülüyor)
-              'tag': 'V',
-              'color': Colors.purple,
-              'type': 'veli',
-              'studentId': doc.id,
-              'phone': p['phone'],
-              'actualParticipantName':
-                  parentName, // Kaydederken kullanılacak asıl kişi ismi
-            });
+            final results = await Future.wait(studentQueries);
+            for (var snap in results) {
+              for (var doc in snap.docs) {
+                final d = doc.data();
+                d['id'] = doc.id;
+                studentsData.add(CryptoService.decryptMap(d, institutionId: widget.institutionId));
+              }
+            }
+          } else {
+            // Fallback: Rehber öğretmen veya şube bulunamadıysa genel okul türü sorgusu
+            Query<Map<String, dynamic>> q = FirebaseFirestore.instance
+                .collection('students')
+                .where('institutionId', isEqualTo: widget.institutionId)
+                .where('isActive', isEqualTo: true);
+            if (widget.schoolTypeId.isNotEmpty) {
+              q = q.where('schoolTypeId', isEqualTo: widget.schoolTypeId);
+            }
+            final snap = await q.get();
+            studentsData = snap.docs.map((doc) {
+              final d = doc.data();
+              d['id'] = doc.id;
+              return CryptoService.decryptMap(d, institutionId: widget.institutionId);
+            }).toList();
+          }
+        } else {
+          // Yönetici modu: Okul türündeki tüm öğrenciler
+          Query<Map<String, dynamic>> q = FirebaseFirestore.instance
+              .collection('students')
+              .where('institutionId', isEqualTo: widget.institutionId)
+              .where('isActive', isEqualTo: true);
+          if (widget.schoolTypeId.isNotEmpty) {
+            q = q.where('schoolTypeId', isEqualTo: widget.schoolTypeId);
+          }
+          final snap = await q.get();
+          studentsData = snap.docs.map((doc) {
+            final d = doc.data();
+            d['id'] = doc.id;
+            return CryptoService.decryptMap(d, institutionId: widget.institutionId);
+          }).toList();
+        }
+
+        // Tekrar edenleri engelle
+        final seenStudentIds = <String>{};
+        studentsData = studentsData.where((s) => seenStudentIds.add(s['id'].toString())).toList();
+
+        if (_selectedTab == 'ogrenci') {
+          rawData = studentsData.map((data) {
+            final name = data['fullName'] ?? '${data['name'] ?? ''} ${data['surname'] ?? ''}'.trim();
+            return {
+              'id': data['id'],
+              'name': name.isEmpty ? 'İsimsiz Öğrenci' : name,
+              'sub': '${data['className'] ?? 'Sınıfsız'} - ${data['studentNumber'] ?? data['studentNo'] ?? ''}',
+              'tag': 'Ö',
+              'color': Colors.blue,
+              'type': 'ogrenci',
+            };
+          }).toList();
+        } else if (_selectedTab == 'veli') {
+          rawData = [];
+          for (var data in studentsData) {
+            final studentName = data['fullName'] ?? '${data['name'] ?? ''} ${data['surname'] ?? ''}'.trim();
+            final parents = data['parents'] as List<dynamic>? ?? [];
+
+            for (var p in parents) {
+              final String parentId = 'P_${data['id']}_${p['tcNo'] ?? p['name']}';
+              final parentName = p['name'] ?? 'İsimsiz Veli';
+              final relation = p['relation'] ?? 'Veli';
+
+              rawData.add({
+                'id': parentId,
+                'realId': parentId,
+                'name': studentName,
+                'sub': '$parentName (Veli) - $relation',
+                'tag': 'V',
+                'color': Colors.purple,
+                'type': 'veli',
+                'studentId': data['id'],
+                'phone': p['phone'],
+                'actualParticipantName': parentName,
+              });
+            }
           }
         }
       } else if (_selectedTab == 'gecmis') {
@@ -517,8 +650,8 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
           final interviewData = {
             'institutionId': widget.institutionId,
             'schoolTypeId': widget.schoolTypeId,
-            'interviewerId': currentUser?.uid,
-            'interviewerEmail': currentUser?.email,
+            'interviewerId': currentUser.uid,
+            'interviewerEmail': currentUser.email,
 
             'participants': [id], // Tek kişi
             'participantNames': [
@@ -555,8 +688,8 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
         final interviewData = {
           'institutionId': widget.institutionId,
           'schoolTypeId': widget.schoolTypeId,
-          'interviewerId': currentUser?.uid,
-          'interviewerEmail': currentUser?.email,
+          'interviewerId': currentUser.uid,
+          'interviewerEmail': currentUser.email,
           'participants': _selectedIds.toList(),
           'participantNames': _selectedIds.map((id) {
             final person = _dataList.firstWhere(

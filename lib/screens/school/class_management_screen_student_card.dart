@@ -41,7 +41,7 @@ class _StudentListCardState extends State<StudentListCard> {
       print('   classId: ${widget.classId}');
       print('   className: ${widget.className}');
       
-      // Sadece classId ile sorgula (isActive filtresini kaldırdık)
+      // Sadece bu şubeye ait (classId) öğrencileri sorgula
       final snapshotById = await FirebaseFirestore.instance
           .collection('students')
           .where('classId', isEqualTo: widget.classId)
@@ -49,23 +49,25 @@ class _StudentListCardState extends State<StudentListCard> {
 
       print('   classId ile bulunan: ${snapshotById.docs.length}');
 
+      final allIds = <String>{...snapshotById.docs.map((d) => d.id)};
+
+      // Sadece classId'si henüz atanmamış legacy öğrenciler için aynı okul türü ve kurumda className kontrolü
       final snapshotByName = await FirebaseFirestore.instance
           .collection('students')
           .where('className', isEqualTo: widget.className)
+          .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+          .where('institutionId', isEqualTo: widget.institutionId)
           .get();
       
-      print('   className ile bulunan: ${snapshotByName.docs.length}');
-
-      // İki sonucu birleştir ve tekrarları kaldır
-      final allIds = <String>{};
-      
-      for (var doc in snapshotById.docs) {
-        allIds.add(doc.id);
-      }
-      
       for (var doc in snapshotByName.docs) {
-        allIds.add(doc.id);
+        final data = doc.data();
+        final cId = data['classId'] as String?;
+        if (cId == null || cId == widget.classId) {
+          allIds.add(doc.id);
+        }
       }
+
+      print('   className filtresi sonrası tekrarsız toplam: ${allIds.length}');
 
       final count = allIds.length;
       print('✅ Toplam öğrenci sayısı: $count (tekrarsız)');
@@ -247,9 +249,10 @@ class _StudentListDialogState extends State<StudentListDialog> {
           .collection('students')
           .where('className', isEqualTo: widget.className)
           .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+          .where('institutionId', isEqualTo: widget.institutionId)
           .get();
       
-      print('   className + schoolTypeId ile bulunan: ${snapshotByName.docs.length}');
+      print('   className + schoolTypeId + institutionId ile bulunan: ${snapshotByName.docs.length}');
 
       // İki sonucu birleştir ve tekrarları kaldır
       final allDocs = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
@@ -259,7 +262,11 @@ class _StudentListDialogState extends State<StudentListDialog> {
       }
       
       for (var doc in snapshotByName.docs) {
-        allDocs[doc.id] = doc;
+        final data = doc.data();
+        final cId = data['classId'] as String?;
+        if (cId == null || cId == widget.classId) {
+          allDocs[doc.id] = doc;
+        }
       }
 
       if (mounted) {
@@ -528,8 +535,6 @@ class _StudentListDialogState extends State<StudentListDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final isMobile = MediaQuery.of(context).size.width < 768;
-    
     return Column(
       children: [
         // HEADER

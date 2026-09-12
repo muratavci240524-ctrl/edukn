@@ -1705,13 +1705,13 @@ class _OperationsTabState extends State<_OperationsTab> {
       ),
       _ModuleCardWidget(
         key: const ValueKey('t_idari'),
-        title: 'İDARİ VE KİŞİSEL',
-        badge: 'Kişisel',
+        title: 'İDARİ VE GÖREVLER',
+        badge: 'Görev',
         icon: Icons.assignment_ind_outlined,
         color: Colors.teal,
         cardWidth: currentCardWidth,
         isMobile: isMobile,
-        category: 'Kişisel',
+        category: 'Görev',
         showAllItems: isFiltered,
         items: [
           {'title': 'İzin Taleplerim', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => SchoolTypeLeaveManagementScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
@@ -1720,7 +1720,7 @@ class _OperationsTabState extends State<_OperationsTab> {
           {'title': 'To-Do List', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ToDoListScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
           {'title': 'Profil Bilgilerim', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (ctx) => const UserProfileScreen()))},
         ],
-        onTap: () => setState(() => _selectedCategory = 'Kişisel'),
+        onTap: () => setState(() => _selectedCategory = 'Görev'),
       ),
       _ModuleCardWidget(
         key: const ValueKey('t_araclar'),
@@ -1762,7 +1762,6 @@ class _OperationsTabState extends State<_OperationsTab> {
       {'label': 'Destek', 'icon': Icons.support_agent},
       {'label': 'Raporlar', 'icon': Icons.analytics_outlined},
       {'label': 'Ayarlar', 'icon': Icons.settings},
-      {'label': 'Kişisel', 'icon': Icons.person},
     ];
 
     final screenWidth = MediaQuery.of(context).size.width;
@@ -2681,7 +2680,7 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
               .where('institutionId', whereIn: instIds)
               .get()
               .then((snap) => [snap])
-              .catchError((_) => <QuerySnapshot>[]);
+              .catchError((_) => <QuerySnapshot<Map<String, dynamic>>>[]);
 
       final geziFuture = FirebaseFirestore.instance
           .collection('field_trips')
@@ -3186,7 +3185,7 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
             .get();
 
         for (var doc in trialExamsSnapshot.docs) {
-          final data = doc.data() as Map<String, dynamic>;
+          final data = doc.data();
           final itemTermId = data['termId']?.toString().trim();
           if (activeTermId != null && activeTermId.isNotEmpty && itemTermId != null && itemTermId.isNotEmpty) {
             if (itemTermId != activeTermId) continue;

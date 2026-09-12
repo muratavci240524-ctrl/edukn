@@ -12,7 +12,7 @@ import '../school/guidance/saved_study_programs_screen.dart';
 import '../guidance/guidance_test_catalog_screen.dart';
 import '../guidance/reports/development_report_management_screen.dart';
 import '../school/tasks/todo_list_screen.dart';
-import '../portfolio/portfolio_screen.dart';
+import 'teacher_portfolio_screen.dart';
 import '../../widgets/edukn_logo.dart';
 import '../school/work_calendar_screen.dart';
 import '../school/attendance_statistics_screen.dart';
@@ -48,12 +48,89 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
   String _selectedCategory = 'Tümü';
   bool _isNavigating = false;
 
+  static List<Map<String, String>>? _cachedTeacherSchoolTypes;
+
+  @override
+  void initState() {
+    super.initState();
+    _preloadTeacherSchoolTypes();
+  }
+
+  void _preloadTeacherSchoolTypes() async {
+    try {
+      await _getTeacherSchoolTypesWithNames();
+    } catch (_) {}
+  }
+
+  Future<List<Map<String, String>>> _getTeacherSchoolTypesWithNames() async {
+    if (_cachedTeacherSchoolTypes != null && _cachedTeacherSchoolTypes!.isNotEmpty) {
+      return _cachedTeacherSchoolTypes!;
+    }
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return [];
+    final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
+    final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
+
+    // 1. Direct from userData
+    List<String> userSTIds = List<String>.from(userData?['schoolTypes'] ?? []);
+    final singleSTId = (userData?['schoolTypeId'] ?? userData?['schoolType'] ?? userData?['activeSchoolTypeId'])?.toString();
+    if (singleSTId != null && singleSTId.isNotEmpty && !userSTIds.contains(singleSTId)) {
+      userSTIds.add(singleSTId);
+    }
+
+    // 2. If still empty, resolve quickly
+    if (userSTIds.isEmpty) {
+      userSTIds = await _resolveTeacherSchoolTypes(instId, userData, user);
+    }
+
+    // 3. Batch load school type names
+    final List<Map<String, String>> result = [];
+    if (userSTIds.isNotEmpty) {
+      try {
+        final instIds = [instId, instId.toLowerCase(), instId.toUpperCase()].toSet().toList();
+        final typesSnap = await FirebaseFirestore.instance
+            .collection('school_types')
+            .where('institutionId', whereIn: instIds)
+            .get();
+
+        final nameMap = <String, String>{};
+        for (final doc in typesSnap.docs) {
+          nameMap[doc.id] = (doc.data()['name'] ?? 'Okul').toString();
+        }
+
+        for (final id in userSTIds) {
+          result.add({
+            'id': id,
+            'name': nameMap[id] ?? 'Okul',
+          });
+        }
+      } catch (_) {
+        for (final id in userSTIds) {
+          result.add({
+            'id': id,
+            'name': 'Okul',
+          });
+        }
+      }
+    }
+
+    if (result.isNotEmpty) {
+      _cachedTeacherSchoolTypes = result;
+    }
+    return result;
+  }
+
   Future<List<String>> _resolveTeacherSchoolTypes(
     String instId,
     Map<String, dynamic>? userData,
     User user,
   ) async {
     List<String> userSTIds = List<String>.from(userData?['schoolTypes'] ?? []);
+    final singleSTId = (userData?['schoolTypeId'] ?? userData?['schoolType'] ?? userData?['activeSchoolTypeId'])?.toString();
+    if (singleSTId != null && singleSTId.isNotEmpty && !userSTIds.contains(singleSTId)) {
+      userSTIds.add(singleSTId);
+    }
     if (userSTIds.isNotEmpty) return userSTIds;
 
     final Set<String> validTeacherIds = {user.uid};
@@ -72,62 +149,75 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     final instIds = [instId, instId.toLowerCase(), instId.toUpperCase()].toSet().toList();
     final Set<String> foundTypes = {};
 
-    for (final tid in validTeacherIds) {
-      final assignmentsSnap = await FirebaseFirestore.instance
-          .collection('lessonAssignments')
-          .where('institutionId', whereIn: instIds)
-          .where('teacherIds', arrayContains: tid)
-          .where('isActive', isEqualTo: true)
-          .get();
-
-      for (var doc in assignmentsSnap.docs) {
-        final stId = doc.data()['schoolTypeId']?.toString();
-        if (stId != null && stId.isNotEmpty) foundTypes.add(stId);
+    try {
+      final List<Future<QuerySnapshot>> queries = [];
+      for (final tid in validTeacherIds) {
+        queries.add(FirebaseFirestore.instance
+            .collection('lessonAssignments')
+            .where('institutionId', whereIn: instIds)
+            .where('teacherIds', arrayContains: tid)
+            .where('isActive', isEqualTo: true)
+            .limit(10)
+            .get());
       }
-    }
+      final snaps = await Future.wait(queries);
+      for (var snap in snaps) {
+        for (var doc in snap.docs) {
+          final stId = (doc.data() as Map<String, dynamic>)['schoolTypeId']?.toString();
+          if (stId != null && stId.isNotEmpty) foundTypes.add(stId);
+        }
+      }
+    } catch (_) {}
 
     // İsim bazlı arama (Failsafe)
     if (foundTypes.isEmpty && fullName.isNotEmpty) {
-      for (final inst in instIds) {
-        final nameSnap = await FirebaseFirestore.instance
+      try {
+        final nameSnaps = await Future.wait(instIds.map((inst) => FirebaseFirestore.instance
             .collection('lessonAssignments')
             .where('institutionId', isEqualTo: inst)
             .where('teacherNames', arrayContains: fullName)
             .where('isActive', isEqualTo: true)
-            .get();
-        for (var doc in nameSnap.docs) {
-          final stId = doc.data()['schoolTypeId']?.toString();
-          if (stId != null && stId.isNotEmpty) foundTypes.add(stId);
+            .limit(10)
+            .get()));
+        for (var snap in nameSnaps) {
+          for (var doc in snap.docs) {
+            final stId = (doc.data() as Map<String, dynamic>)['schoolTypeId']?.toString();
+            if (stId != null && stId.isNotEmpty) foundTypes.add(stId);
+          }
         }
-      }
+      } catch (_) {}
     }
 
     // classSchedules üzerinden okul türü tespiti
     if (foundTypes.isEmpty) {
-      for (final inst in instIds) {
-        for (final tid in validTeacherIds) {
-          final csSnap = await FirebaseFirestore.instance
-              .collection('classSchedules')
-              .where('institutionId', isEqualTo: inst)
-              .where('teacherId', isEqualTo: tid)
-              .get();
-          for (var doc in csSnap.docs) {
-            final stId = doc.data()['schoolTypeId']?.toString();
+      try {
+        final csQueries = validTeacherIds.map((tid) => FirebaseFirestore.instance
+            .collection('classSchedules')
+            .where('institutionId', whereIn: instIds)
+            .where('teacherId', isEqualTo: tid)
+            .limit(10)
+            .get());
+        final csSnaps = await Future.wait(csQueries);
+        for (var snap in csSnaps) {
+          for (var doc in snap.docs) {
+            final stId = (doc.data() as Map<String, dynamic>)['schoolTypeId']?.toString();
             if (stId != null && stId.isNotEmpty) foundTypes.add(stId);
           }
         }
-      }
+      } catch (_) {}
     }
 
     // Kurumun okul türleri genel fallback
     if (foundTypes.isEmpty) {
-      final stSnap = await FirebaseFirestore.instance
-          .collection('school_types')
-          .where('institutionId', whereIn: instIds)
-          .get();
-      for (var doc in stSnap.docs) {
-        foundTypes.add(doc.id);
-      }
+      try {
+        final stSnap = await FirebaseFirestore.instance
+            .collection('school_types')
+            .where('institutionId', whereIn: instIds)
+            .get();
+        for (var doc in stSnap.docs) {
+          foundTypes.add(doc.id);
+        }
+      } catch (_) {}
     }
 
     return foundTypes.toList();
@@ -282,16 +372,15 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
   }
 
   Future<void> _navigateToAssessmentReports() async {
-    setState(() => _isNavigating = true);
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final userData = await UserPermissionService.loadUserData();
+      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
       final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
 
-      List<String> userSTIds = await _resolveTeacherSchoolTypes(instId, userData, user);
+      final types = await _getTeacherSchoolTypesWithNames();
 
-      if (userSTIds.isEmpty) {
+      if (types.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')),
@@ -300,40 +389,30 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
         return;
       }
 
-      if (userSTIds.length == 1) {
-        final stId = userSTIds.first;
+      if (types.length == 1) {
+        final st = types.first;
         if (mounted) {
           Navigator.push(
             context,
             MaterialPageRoute(
               builder: (ctx) => AssessmentReportsScreen(
                 institutionId: instId,
-                schoolTypeId: stId,
+                schoolTypeId: st['id']!,
                 isTeacher: true,
               ),
             ),
           );
         }
       } else {
-        final List<Map<String, String>> schoolTypesWithNames = [];
-        for (var stId in userSTIds) {
-          final stDoc = await FirebaseFirestore.instance.collection('school_types').doc(stId).get();
-          if (stDoc.exists) {
-            schoolTypesWithNames.add({
-              'id': stId,
-              'name': stDoc.data()?['name'] ?? 'Okul',
-            });
-          }
-        }
-
         if (mounted) {
           showDialog(
             context: context,
             builder: (ctx) => AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               title: const Text('Okul Türü Seçin'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
-                children: schoolTypesWithNames.map((st) => ListTile(
+                children: types.map((st) => ListTile(
                   title: Text(st['name']!),
                   leading: const Icon(Icons.school, color: Colors.orange),
                   onTap: () {
@@ -357,18 +436,21 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       }
     } catch (e) {
       debugPrint('Error navigating to assessment reports: $e');
-    } finally {
-      if (mounted) setState(() => _isNavigating = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final bool isMobile = MediaQuery.of(context).size.width < 1100;
+
     return Scaffold(
       appBar: AppBar(
         elevation: 0,
+        scrolledUnderElevation: 0,
         backgroundColor: Colors.white.withOpacity(0.95),
+        surfaceTintColor: Colors.transparent,
         automaticallyImplyLeading: false,
+        shape: Border(bottom: BorderSide(color: Colors.indigo.withOpacity(0.05))),
         flexibleSpace: Stack(
           children: [
             Positioned(
@@ -377,18 +459,25 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
               bottom: 0,
               child: Row(
                 children: [
+                  const SizedBox(width: 8),
                   const EduKnLogo(iconSize: 28, type: EduKnLogoType.iconOnly),
-                  const SizedBox(width: 12),
-                  Text(
-                    'eduKN',
-                    style: TextStyle(
-                      color: Colors.indigo.shade900,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: -0.5,
-                      fontSize: 20,
+                  const SizedBox(width: 8),
+                  if (!isMobile) ...[
+                    Text(
+                      'eduKN',
+                      style: TextStyle(
+                        color: Colors.indigo.shade900,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.5,
+                        fontSize: 20,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 16),
+                    const SizedBox(width: 16),
+                    Container(width: 1, height: 24, color: Colors.indigo.withOpacity(0.1)),
+                    const SizedBox(width: 16),
+                  ] else ...[
+                    const SizedBox(width: 4),
+                  ],
                   Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -397,15 +486,18 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
                         'Öğretmen İşlemleri',
                         style: TextStyle(
                           color: Colors.indigo.shade900,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
+                          fontSize: isMobile ? 15 : 16,
+                          fontWeight: FontWeight.w900,
                         ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                       Text(
                         'Size Tanımlı Modüller',
                         style: TextStyle(
                           color: Colors.indigo.shade400,
-                          fontSize: 11,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ],
@@ -529,17 +621,16 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
   }
 
   Future<void> _navigateToSurvey() async {
-    setState(() => _isNavigating = true);
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final userData = await UserPermissionService.loadUserData();
+      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
       final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
       final teacherId = userData?['id'] ?? user.uid;
 
-      List<String> userSTIds = await _resolveTeacherSchoolTypes(instId, userData, user);
+      final types = await _getTeacherSchoolTypesWithNames();
 
-      if (userSTIds.isEmpty) {
+      if (types.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')),
@@ -548,19 +639,16 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
         return;
       }
 
-      if (userSTIds.length == 1) {
-        final stId = userSTIds.first;
-        final stDoc = await FirebaseFirestore.instance.collection('school_types').doc(stId).get();
-        final stName = stDoc.exists ? (stDoc.data()?['name'] ?? 'Okul') : 'Okul';
-
+      if (types.length == 1) {
+        final st = types.first;
         if (mounted) {
           Navigator.push(
             context,
             MaterialPageRoute(
               builder: (ctx) => SurveyListScreen(
                 institutionId: instId,
-                schoolTypeId: stId,
-                schoolTypeName: stName,
+                schoolTypeId: st['id']!,
+                schoolTypeName: st['name']!,
                 isTeacher: true,
                 teacherId: teacherId,
               ),
@@ -568,26 +656,15 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
           );
         }
       } else {
-        // Multiple school types dialog
-        final List<Map<String, String>> schoolTypesWithNames = [];
-        for (var stId in userSTIds) {
-          final stDoc = await FirebaseFirestore.instance.collection('school_types').doc(stId).get();
-          if (stDoc.exists) {
-            schoolTypesWithNames.add({
-              'id': stId,
-              'name': stDoc.data()?['name'] ?? 'Okul',
-            });
-          }
-        }
-
         if (mounted) {
           showDialog(
             context: context,
             builder: (ctx) => AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               title: const Text('Okul Türü Seçin'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
-                children: schoolTypesWithNames.map((st) => ListTile(
+                children: types.map((st) => ListTile(
                   title: Text(st['name']!),
                   leading: const Icon(Icons.school, color: Colors.orange),
                   onTap: () {
@@ -613,23 +690,20 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       }
     } catch (e) {
       debugPrint('Error navigating to survey: $e');
-    } finally {
-      if (mounted) setState(() => _isNavigating = false);
     }
   }
 
   Future<void> _navigateToEtutProcess() async {
-    setState(() => _isNavigating = true);
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final userData = await UserPermissionService.loadUserData();
+      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
       final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
       final teacherId = userData?['id'] ?? user.uid;
 
-      List<String> userSTIds = await _resolveTeacherSchoolTypes(instId, userData, user);
+      final types = await _getTeacherSchoolTypesWithNames();
 
-      if (userSTIds.isEmpty) {
+      if (types.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')),
@@ -638,19 +712,16 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
         return;
       }
 
-      if (userSTIds.length == 1) {
-        final stId = userSTIds.first;
-        final stDoc = await FirebaseFirestore.instance.collection('school_types').doc(stId).get();
-        final stName = stDoc.exists ? (stDoc.data()?['name'] ?? 'Okul') : 'Okul';
-
+      if (types.length == 1) {
+        final st = types.first;
         if (mounted) {
           Navigator.push(
             context,
             MaterialPageRoute(
               builder: (ctx) => EtutProcessScreen(
                 institutionId: instId,
-                schoolTypeId: stId,
-                schoolTypeName: stName,
+                schoolTypeId: st['id']!,
+                schoolTypeName: st['name']!,
                 isTeacher: true,
                 teacherId: teacherId,
               ),
@@ -658,26 +729,15 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
           );
         }
       } else {
-        // Multiple school types dialog
-        final List<Map<String, String>> schoolTypesWithNames = [];
-        for (var stId in userSTIds) {
-          final stDoc = await FirebaseFirestore.instance.collection('school_types').doc(stId).get();
-          if (stDoc.exists) {
-            schoolTypesWithNames.add({
-              'id': stId,
-              'name': stDoc.data()?['name'] ?? 'Okul',
-            });
-          }
-        }
-
         if (mounted) {
           showDialog(
             context: context,
             builder: (ctx) => AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               title: const Text('Okul Türü Seçin'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
-                children: schoolTypesWithNames.map((st) => ListTile(
+                children: types.map((st) => ListTile(
                   title: Text(st['name']!),
                   leading: const Icon(Icons.school, color: Colors.orange),
                   onTap: () {
@@ -703,22 +763,19 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       }
     } catch (e) {
       debugPrint('Error navigating to etut process: $e');
-    } finally {
-      if (mounted) setState(() => _isNavigating = false);
     }
   }
 
   Future<void> _navigateToHomeworkStats() async {
-    setState(() => _isNavigating = true);
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final userData = await UserPermissionService.loadUserData();
+      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
       final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
 
-      List<String> userSTIds = await _resolveTeacherSchoolTypes(instId, userData, user);
+      final types = await _getTeacherSchoolTypesWithNames();
 
-      if (userSTIds.isEmpty) {
+      if (types.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')),
@@ -727,41 +784,30 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
         return;
       }
 
-      if (userSTIds.length == 1) {
-        final stId = userSTIds.first;
+      if (types.length == 1) {
+        final st = types.first;
         if (mounted) {
           Navigator.push(
             context,
             MaterialPageRoute(
               builder: (ctx) => HomeworkOperationsScreen(
                 institutionId: instId,
-                schoolTypeId: stId,
+                schoolTypeId: st['id']!,
                 isTeacher: true,
               ),
             ),
           );
         }
       } else {
-        // Multiple school types dialog
-        final List<Map<String, String>> schoolTypesWithNames = [];
-        for (var stId in userSTIds) {
-          final stDoc = await FirebaseFirestore.instance.collection('school_types').doc(stId).get();
-          if (stDoc.exists) {
-            schoolTypesWithNames.add({
-              'id': stId,
-              'name': stDoc.data()?['name'] ?? 'Okul',
-            });
-          }
-        }
-
         if (mounted) {
           showDialog(
             context: context,
             builder: (ctx) => AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               title: const Text('Okul Türü Seçin'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
-                children: schoolTypesWithNames.map((st) => ListTile(
+                children: types.map((st) => ListTile(
                   title: Text(st['name']!),
                   leading: const Icon(Icons.school, color: Colors.orange),
                   onTap: () {
@@ -785,22 +831,19 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       }
     } catch (e) {
       debugPrint('Error navigating to homework stats: $e');
-    } finally {
-      if (mounted) setState(() => _isNavigating = false);
     }
   }
 
   Future<void> _navigateToAttendanceStats() async {
-    setState(() => _isNavigating = true);
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final userData = await UserPermissionService.loadUserData();
+      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
       final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
 
-      List<String> userSTIds = await _resolveTeacherSchoolTypes(instId, userData, user);
+      final types = await _getTeacherSchoolTypesWithNames();
 
-      if (userSTIds.isEmpty) {
+      if (types.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')),
@@ -809,44 +852,30 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
         return;
       }
 
-      if (userSTIds.length == 1) {
-        final stId = userSTIds.first;
-        final stDoc = await FirebaseFirestore.instance.collection('school_types').doc(stId).get();
-        final stName = stDoc.exists ? (stDoc.data()?['name'] ?? 'Okul') : 'Okul';
-
+      if (types.length == 1) {
+        final st = types.first;
         if (mounted) {
           Navigator.push(
             context,
             MaterialPageRoute(
               builder: (ctx) => AttendanceStatisticsScreen(
                 institutionId: instId,
-                schoolTypeId: stId,
-                schoolTypeName: stName,
+                schoolTypeId: st['id']!,
+                schoolTypeName: st['name']!,
               ),
             ),
           );
         }
       } else {
-        // Multiple school types dialog
-        final List<Map<String, String>> schoolTypesWithNames = [];
-        for (var stId in userSTIds) {
-          final stDoc = await FirebaseFirestore.instance.collection('school_types').doc(stId).get();
-          if (stDoc.exists) {
-            schoolTypesWithNames.add({
-              'id': stId,
-              'name': stDoc.data()?['name'] ?? 'Okul',
-            });
-          }
-        }
-
         if (mounted) {
           showDialog(
             context: context,
             builder: (ctx) => AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               title: const Text('Okul Türü Seçin'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
-                children: schoolTypesWithNames.map((st) => ListTile(
+                children: types.map((st) => ListTile(
                   title: Text(st['name']!),
                   leading: const Icon(Icons.school, color: Colors.orange),
                   onTap: () {
@@ -870,22 +899,19 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       }
     } catch (e) {
       debugPrint('Error navigating to attendance stats: $e');
-    } finally {
-      if (mounted) setState(() => _isNavigating = false);
     }
   }
 
   Future<void> _navigateToWorkCalendar() async {
-    setState(() => _isNavigating = true);
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final userData = await UserPermissionService.loadUserData();
+      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
       final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
 
-      List<String> userSTIds = await _resolveTeacherSchoolTypes(instId, userData, user);
+      final types = await _getTeacherSchoolTypesWithNames();
 
-      if (userSTIds.isEmpty) {
+      if (types.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')),
@@ -894,47 +920,33 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
         return;
       }
 
-      if (userSTIds.length == 1) {
-        final stId = userSTIds.first;
-        final stDoc = await FirebaseFirestore.instance.collection('school_types').doc(stId).get();
-        final stName = stDoc.exists ? (stDoc.data()?['name'] ?? 'Okul') : 'Okul';
-
+      if (types.length == 1) {
+        final st = types.first;
         if (mounted) {
           Navigator.push(
             context,
             MaterialPageRoute(
               builder: (ctx) => WorkCalendarScreen(
                 institutionId: instId,
-                schoolTypeId: stId,
-                schoolTypeName: stName,
+                schoolTypeId: st['id']!,
+                schoolTypeName: st['name']!,
                 isTeacher: true,
               ),
             ),
           );
         }
       } else {
-        // Dialog selection
-        final List<Map<String, String>> schoolTypesWithNames = [];
-        for (var stId in userSTIds) {
-          final stDoc = await FirebaseFirestore.instance.collection('school_types').doc(stId).get();
-          if (stDoc.exists) {
-            schoolTypesWithNames.add({
-              'id': stId,
-              'name': stDoc.data()?['name'] ?? 'Okul',
-            });
-          }
-        }
-
         if (mounted) {
           showDialog(
             context: context,
             builder: (ctx) => AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               title: const Text('Okul Türü Seçin'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
-                children: schoolTypesWithNames.map((st) => ListTile(
+                children: types.map((st) => ListTile(
                   title: Text(st['name']!),
-                  leading: const Icon(Icons.school, color: Colors.orange),
+                  leading: const Icon(Icons.school, color: Colors.indigo),
                   onTap: () {
                     Navigator.pop(ctx);
                     Navigator.push(
@@ -957,136 +969,87 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       }
     } catch (e) {
       debugPrint('Error navigating to work calendar: $e');
-    } finally {
-      if (mounted) setState(() => _isNavigating = false);
     }
   }
 
-  Future<void> _navigateToPortfolio() async {
-    setState(() => _isNavigating = true);
+  void _navigateToPortfolio() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (ctx) => TeacherPortfolioScreen(
+          institutionId: widget.institutionId,
+        ),
+      ),
+    );
+  }
+
+  void _navigateToGuidanceInterview() {
+    final user = FirebaseAuth.instance.currentUser;
+    final userData = UserPermissionService.getCachedUserData();
+    final teacherId = userData?['id']?.toString() ?? user?.uid ?? '';
+    final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (ctx) => GuidanceInterviewScreen(
+          institutionId: instId,
+          schoolTypeId: '',
+          schoolTypeName: 'Görüşmeler',
+          isTeacher: true,
+          teacherId: teacherId,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _navigateToGuidanceActivity() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final userData = await UserPermissionService.loadUserData();
+      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
       final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
-      final activeTermId = await TermService().getActiveTermId();
 
-      // Get assigned classes (Filtered by active term)
-      final classIds = await _resolveTeacherAssignedClassIds(
-        instId,
-        userData,
-        user,
-        termId: activeTermId,
-      );
+      final types = await _getTeacherSchoolTypesWithNames();
 
-      final effectiveClassIds = classIds.isNotEmpty ? classIds : null;
-
-      // Resolve teacher school types
-      List<String> userSTIds = await _resolveTeacherSchoolTypes(instId, userData, user);
-      
-      String targetSTId = userSTIds.isNotEmpty ? userSTIds.first.toString() : '';
-      String targetSTName = 'Öğrenci Portfolyosu';
-      if (targetSTId.isNotEmpty) {
-        try {
-          final stDoc = await FirebaseFirestore.instance.collection('school_types').doc(targetSTId).get();
-          if (stDoc.exists) {
-            targetSTName = stDoc.data()?['name'] ?? stDoc.data()?['schoolTypeName'] ?? 'Okul';
-          }
-        } catch (_) {}
+      if (types.isEmpty) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')));
+        return;
       }
 
+      final st = types.first;
       if (mounted) {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (ctx) => PortfolioScreen(
+            builder: (ctx) => ActivityListScreen(
               institutionId: instId,
-              schoolTypeId: targetSTId,
-              schoolTypeName: targetSTName,
-              allowedClassIds: effectiveClassIds,
-              showAllSchoolTypes: userSTIds.length != 1,
+              schoolTypeId: st['id']!,
+              schoolTypeName: st['name']!,
             ),
           ),
         );
       }
     } catch (e) {
-      debugPrint('Error navigating to portfolio: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Bir hata oluştu: $e')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isNavigating = false);
-    }
-  }
-
-  Future<void> _navigateToGuidanceInterview() async {
-    setState(() => _isNavigating = true);
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-      final userData = await UserPermissionService.loadUserData();
-      final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
-      final teacherId = userData?['id'] ?? user.uid;
-
-      List<String> userSTIds = await _resolveTeacherSchoolTypes(instId, userData, user);
-
-      if (userSTIds.isEmpty) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')));
-        return;
-      }
-
-      final stId = userSTIds.first;
-      final stDoc = await FirebaseFirestore.instance.collection('school_types').doc(stId).get();
-      final stName = stDoc.exists ? (stDoc.data()?['name'] ?? 'Okul') : 'Okul';
-
-      if (mounted) {
-        Navigator.push(context, MaterialPageRoute(builder: (ctx) => GuidanceInterviewScreen(institutionId: instId, schoolTypeId: stId, schoolTypeName: stName, isTeacher: true, teacherId: teacherId)));
-      }
-    } catch (e) {
       debugPrint('Hata: $e');
-    } finally {
-      if (mounted) setState(() => _isNavigating = false);
-    }
-  }
-
-  Future<void> _navigateToGuidanceActivity() async {
-    setState(() => _isNavigating = true);
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-      final userData = await UserPermissionService.loadUserData();
-      final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
-
-      List<String> userSTIds = await _resolveTeacherSchoolTypes(instId, userData, user);
-
-      if (userSTIds.isEmpty) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')));
-        return;
-      }
-
-      final stId = userSTIds.first;
-      final stDoc = await FirebaseFirestore.instance.collection('school_types').doc(stId).get();
-      final stName = stDoc.exists ? (stDoc.data()?['name'] ?? 'Okul') : 'Okul';
-
-      if (mounted) {
-        Navigator.push(context, MaterialPageRoute(builder: (ctx) => ActivityListScreen(institutionId: instId, schoolTypeId: stId, schoolTypeName: stName)));
-      }
-    } catch (e) {
-      debugPrint('Hata: $e');
-    } finally {
-      if (mounted) setState(() => _isNavigating = false);
     }
   }
 
   Future<void> _navigateToSavedStudyPrograms() async {
-    setState(() => _isNavigating = true);
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final userData = await UserPermissionService.loadUserData();
+      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
       final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
+
+      final types = await _getTeacherSchoolTypesWithNames();
+
+      if (types.isEmpty) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')));
+        return;
+      }
+
+      final stId = types.first['id']!;
 
       final classIds = await _resolveTeacherAssignedClassIds(instId, userData, user);
 
@@ -1107,14 +1070,6 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
         }
       }
 
-      List<String> userSTIds = await _resolveTeacherSchoolTypes(instId, userData, user);
-
-      if (userSTIds.isEmpty) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')));
-        return;
-      }
-
-      final stId = userSTIds.first;
       if (mounted) {
         Navigator.push(context, MaterialPageRoute(builder: (ctx) => SavedStudyProgramsScreen(
           institutionId: instId, 
@@ -1126,43 +1081,37 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       }
     } catch (e) {
       debugPrint('Hata: $e');
-    } finally {
-      if (mounted) setState(() => _isNavigating = false);
     }
   }
 
   Future<void> _navigateToGuidanceTestCatalog() async {
-    setState(() => _isNavigating = true);
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final userData = await UserPermissionService.loadUserData();
+      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
       final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
       
-      List<String> userSTIds = await _resolveTeacherSchoolTypes(instId, userData, user);
+      final types = await _getTeacherSchoolTypesWithNames();
 
-      if (userSTIds.isEmpty) {
+      if (types.isEmpty) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')));
         return;
       }
 
-      final stId = userSTIds.first;
+      final stId = types.first['id']!;
       if (mounted) {
         Navigator.push(context, MaterialPageRoute(builder: (ctx) => GuidanceTestCatalogScreen(institutionId: instId, schoolTypeId: stId)));
       }
     } catch (e) {
       debugPrint('Hata: $e');
-    } finally {
-      if (mounted) setState(() => _isNavigating = false);
     }
   }
 
   Future<void> _navigateToDevelopmentReports() async {
-    setState(() => _isNavigating = true);
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final userData = await UserPermissionService.loadUserData();
+      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
       final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
       final teacherId = userData?['id'] ?? user.uid;
 
@@ -1171,8 +1120,6 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       }
     } catch (e) {
       debugPrint('Hata: $e');
-    } finally {
-      if (mounted) setState(() => _isNavigating = false);
     }
   }
 
@@ -1181,37 +1128,33 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
   }
 
   Future<void> _navigateToTodoList() async {
-    setState(() => _isNavigating = true);
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final userData = await UserPermissionService.loadUserData();
+      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
       final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
 
-      List<String> userSTIds = await _resolveTeacherSchoolTypes(instId, userData, user);
+      final types = await _getTeacherSchoolTypesWithNames();
 
-      if (userSTIds.isEmpty) {
+      if (types.isEmpty) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')));
         return;
       }
 
-      final stId = userSTIds.first;
+      final stId = types.first['id']!;
       if (mounted) {
         Navigator.push(context, MaterialPageRoute(builder: (ctx) => ToDoListScreen(institutionId: instId, schoolTypeId: stId)));
       }
     } catch (e) {
       debugPrint('Hata: $e');
-    } finally {
-      if (mounted) setState(() => _isNavigating = false);
     }
   }
 
   Future<void> _navigateToTeacherDuty() async {
-    setState(() => _isNavigating = true);
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final userData = await UserPermissionService.loadUserData();
+      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
       final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
 
       if (mounted) {
@@ -1226,17 +1169,14 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       }
     } catch (e) {
       debugPrint('Error navigating to teacher duty: $e');
-    } finally {
-      if (mounted) setState(() => _isNavigating = false);
     }
   }
 
   Future<void> _navigateToLeaveManagement() async {
-    setState(() => _isNavigating = true);
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final userData = await UserPermissionService.loadUserData();
+      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
       final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
       final teacherId = userData?['id'] ?? user.uid;
 
@@ -1254,132 +1194,58 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       }
     } catch (e) {
       debugPrint('Error navigating to leave management: $e');
-    } finally {
-      if (mounted) setState(() => _isNavigating = false);
     }
   }
 
   Future<void> _navigateToFieldTrip() async {
-    setState(() => _isNavigating = true);
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final userData = await UserPermissionService.loadUserData();
+      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
       final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
 
-      List<String> userSTIds = await _resolveTeacherSchoolTypes(instId, userData, user);
+      final types = await _getTeacherSchoolTypesWithNames();
 
-      if (userSTIds.isEmpty) {
+      if (types.isEmpty) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')));
         return;
       }
 
-      final stId = userSTIds.first;
-      final stDoc = await FirebaseFirestore.instance.collection('school_types').doc(stId).get();
-      final stName = stDoc.exists ? (stDoc.data()?['name'] ?? 'Okul') : 'Okul';
-
+      final st = types.first;
       if (mounted) {
         Navigator.push(
           context,
           MaterialPageRoute(
             builder: (ctx) => FieldTripListScreen(
               institutionId: instId,
-              schoolTypeId: stId,
-              schoolTypeName: stName,
+              schoolTypeId: st['id']!,
+              schoolTypeName: st['name']!,
             ),
           ),
         );
       }
     } catch (e) {
       debugPrint('Error navigating to field trip: $e');
-    } finally {
-      if (mounted) setState(() => _isNavigating = false);
     }
   }
 
-  Future<void> _navigateToTools(int initialCategoryIndex) async {
-    setState(() => _isNavigating = true);
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-      final userData = await UserPermissionService.loadUserData();
-      final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
-      final teacherId = userData?['id'] ?? user.uid;
-
-      // 1. Öğretmenin dersine girdiği sınıfları bul (Tüm olası ID'ler ile)
-      final classIds = await _resolveTeacherAssignedClassIds(instId, userData, user);
-
-      // 2. Okul türlerini belirle
-      List<String> userSTIds = await _resolveTeacherSchoolTypes(instId, userData, user);
-
-      if (userSTIds.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Bağlı olduğunuz bir okul türü bulunamadı.')),
-          );
-        }
-        return;
-      }
-
-      void openTools(String stId, String stName) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (ctx) => ToolsHubScreen(
-              institutionId: instId,
-              schoolTypeId: stId,
-              schoolTypeName: stName,
-              initialCategoryIndex: initialCategoryIndex,
-              isTeacher: true,
-              teacherId: teacherId,
-              allowedClassIds: classIds,
-            ),
-          ),
-        );
-      }
-
-      if (userSTIds.length == 1) {
-        final stId = userSTIds.first;
-        final stDoc = await FirebaseFirestore.instance.collection('school_types').doc(stId).get();
-        final stName = stDoc.exists ? (stDoc.data()?['name'] ?? 'Okul') : 'Okul';
-        if (mounted) openTools(stId, stName);
-      } else {
-        final List<Map<String, String>> schoolTypesWithNames = [];
-        for (var stId in userSTIds) {
-          final stDoc = await FirebaseFirestore.instance.collection('school_types').doc(stId).get();
-          if (stDoc.exists) {
-            schoolTypesWithNames.add({
-              'id': stId,
-              'name': stDoc.data()?['name'] ?? 'Okul',
-            });
-          }
-        }
-
-        if (mounted) {
-          showDialog(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              title: const Text('Okul Türü Seçin'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: schoolTypesWithNames.map((st) => ListTile(
-                  title: Text(st['name']!),
-                  leading: const Icon(Icons.school, color: Colors.orange),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    openTools(st['id']!, st['name']!);
-                  },
-                )).toList(),
-              ),
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      debugPrint('Error navigating to tools: $e');
-    } finally {
-      if (mounted) setState(() => _isNavigating = false);
-    }
+  void _navigateToTools(int initialCategoryIndex) {
+    final user = FirebaseAuth.instance.currentUser;
+    final instId = widget.institutionId.toUpperCase();
+    final teacherId = user?.uid ?? '';
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (ctx) => ToolsHubScreen(
+          institutionId: instId,
+          schoolTypeId: '',
+          schoolTypeName: 'Araçlar',
+          initialCategoryIndex: initialCategoryIndex,
+          isTeacher: true,
+          teacherId: teacherId,
+        ),
+      ),
+    );
   }
 
   Widget _buildCategorySelector() {
@@ -1540,8 +1406,6 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
         {'title': 'İzin İşlemleri', 'onTap': _navigateToLeaveManagement},
       if (UserPermissionService.hasTeacherModuleAccess('gorevlendirme_ve_izin', subModuleKey: 'yapilacaklar'))
         {'title': 'Yapılacaklar (To-Do)', 'onTap': _navigateToTodoList},
-      if (UserPermissionService.hasTeacherModuleAccess('gorevlendirme_ve_izin', subModuleKey: 'giris_cikis_qr'))
-        {'title': 'Giriş-Çıkış (QR)', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TeacherQrScanScreen()))},
       if (UserPermissionService.hasTeacherModuleAccess('gorevlendirme_ve_izin', subModuleKey: 'gezi_gorevlendirmeleri'))
         {'title': 'Gezi Görevlendirmeleri', 'onTap': _navigateToFieldTrip},
     ];

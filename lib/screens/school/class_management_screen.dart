@@ -3164,9 +3164,12 @@ class _ClassFormSheetState extends State<_ClassFormSheet> {
         final data = doc.data();
         return {
           'id': doc.id,
-          'fullName': data['fullName'] ?? '',
+          'fullName': (data['fullName'] ?? '').toString().trim(),
         };
       }).toList();
+
+      // Türkçe alfabetik sıralama (A-Z)
+      teachers.sort((a, b) => _turkishCompare(a['fullName'] ?? '', b['fullName'] ?? ''));
 
       setState(() {
         _teachers = teachers;
@@ -3175,6 +3178,26 @@ class _ClassFormSheetState extends State<_ClassFormSheet> {
     } catch (e) {
       setState(() => _isLoadingTeachers = false);
     }
+  }
+
+  static int _turkishCompare(String a, String b) {
+    const alphabet = ' abcçdefgğhıijklmnoöprsştuüvyz0123456789';
+    final aLower = a.toLowerCase().replaceAll('I', 'ı').replaceAll('İ', 'i');
+    final bLower = b.toLowerCase().replaceAll('I', 'ı').replaceAll('İ', 'i');
+    final minLen = aLower.length < bLower.length ? aLower.length : bLower.length;
+    for (int i = 0; i < minLen; i++) {
+      final charA = aLower[i];
+      final charB = bLower[i];
+      if (charA != charB) {
+        final idxA = alphabet.indexOf(charA);
+        final idxB = alphabet.indexOf(charB);
+        if (idxA != -1 && idxB != -1) {
+          return idxA.compareTo(idxB);
+        }
+        return charA.compareTo(charB);
+      }
+    }
+    return aLower.length.compareTo(bLower.length);
   }
 
   Future<void> _saveClass() async {
@@ -3349,14 +3372,10 @@ class _ClassFormSheetState extends State<_ClassFormSheet> {
                     const SizedBox(height: 12),
                     _isLoadingTeachers 
                       ? const LinearProgressIndicator()
-                      : _buildDropdown<String?>(
-                          value: safeTeacherId,
-                          label: 'Sınıf Öğretmeni (Opsiyonel)',
-                          items: [
-                            const DropdownMenuItem(value: null, child: Text('Seçilmedi')),
-                            ..._teachers.map((t) => DropdownMenuItem(value: t['id'] as String, child: Text(t['fullName'] as String))),
-                          ],
-                          onChanged: (v) => setState(() => _selectedTeacherId = v),
+                      : _buildTeacherSelector(
+                          selectedTeacherId: safeTeacherId,
+                          teachers: _teachers,
+                          onSelected: (v) => setState(() => _selectedTeacherId = v),
                         ),
                     const SizedBox(height: 12),
                     _buildInputField(
@@ -3455,6 +3474,307 @@ class _ClassFormSheetState extends State<_ClassFormSheet> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildTeacherSelector({
+    required String? selectedTeacherId,
+    required List<Map<String, dynamic>> teachers,
+    required ValueChanged<String?> onSelected,
+  }) {
+    final selectedTeacher = teachers.firstWhere(
+      (t) => t['id'] == selectedTeacherId,
+      orElse: () => {},
+    );
+    final String teacherName = (selectedTeacher['fullName'] ?? '').toString();
+    final bool hasSelection = selectedTeacherId != null && teacherName.isNotEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Sınıf Öğretmeni (Opsiyonel)',
+          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black87),
+        ),
+        const SizedBox(height: 8),
+        InkWell(
+          onTap: () {
+            _showTeacherSearchDialog(
+              context: context,
+              teachers: teachers,
+              selectedTeacherId: selectedTeacherId,
+              onSelected: onSelected,
+            );
+          },
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.shade200),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.person_outline_rounded,
+                  size: 20,
+                  color: hasSelection ? Colors.indigo : Colors.grey.shade500,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    hasSelection ? teacherName : 'Seçilmedi',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: hasSelection ? FontWeight.w600 : FontWeight.normal,
+                      color: hasSelection ? Colors.black87 : Colors.grey.shade600,
+                    ),
+                  ),
+                ),
+                if (hasSelection)
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded, size: 18, color: Colors.grey),
+                    splashRadius: 18,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    tooltip: 'Seçimi Kaldır',
+                    onPressed: () => onSelected(null),
+                  ),
+                const SizedBox(width: 8),
+                Icon(
+                  Icons.arrow_drop_down_rounded,
+                  color: Colors.grey.shade600,
+                  size: 24,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showTeacherSearchDialog({
+    required BuildContext context,
+    required List<Map<String, dynamic>> teachers,
+    required String? selectedTeacherId,
+    required ValueChanged<String?> onSelected,
+  }) {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        String searchQuery = '';
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            final q = searchQuery.trim().toLowerCase().replaceAll('I', 'ı').replaceAll('İ', 'i');
+            final filteredTeachers = teachers.where((t) {
+              if (q.isEmpty) return true;
+              final name = (t['fullName'] ?? '').toString().toLowerCase().replaceAll('I', 'ı').replaceAll('İ', 'i');
+              return name.contains(q);
+            }).toList();
+
+            return Dialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+              child: Container(
+                width: 440,
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(ctx).size.height * 0.65,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Başlık
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.indigo.shade50,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Icon(Icons.school_rounded, color: Colors.indigo.shade800, size: 20),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Sınıf Öğretmeni Seç',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF1E293B),
+                                  ),
+                                ),
+                                Text(
+                                  '${teachers.length} öğretmen (A-Z alfabetik)',
+                                  style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close_rounded),
+                            splashRadius: 20,
+                            onPressed: () => Navigator.pop(ctx),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Arama Kutusu (Üstte arama yeri)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      child: TextField(
+                        autofocus: true,
+                        decoration: InputDecoration(
+                          hintText: 'Öğretmen ara (İsim / Soyisim)...',
+                          hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+                          prefixIcon: const Icon(Icons.search_rounded, size: 20, color: Colors.indigo),
+                          suffixIcon: searchQuery.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear_rounded, size: 18),
+                                  splashRadius: 18,
+                                  onPressed: () => setDialogState(() => searchQuery = ''),
+                                )
+                              : null,
+                          filled: true,
+                          fillColor: Colors.grey.shade100,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        ),
+                        onChanged: (val) {
+                          setDialogState(() => searchQuery = val);
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Divider(height: 1),
+
+                    // Seçilmedi (Öğretmeni kaldır) seçeneği
+                    InkWell(
+                      onTap: () {
+                        onSelected(null);
+                        Navigator.pop(ctx);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: selectedTeacherId == null ? Colors.indigo.shade50 : null,
+                          border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 32,
+                              height: 32,
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade200,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(Icons.person_off_outlined, size: 16, color: Colors.grey.shade600),
+                            ),
+                            const SizedBox(width: 12),
+                            const Expanded(
+                              child: Text(
+                                'Seçilmedi (Atamayı Kaldır)',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                            ),
+                            if (selectedTeacherId == null)
+                              const Icon(Icons.check_circle_rounded, color: Colors.indigo, size: 18),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    // Öğretmen Listesi
+                    Flexible(
+                      child: filteredTeachers.isEmpty
+                          ? Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.search_off_rounded, size: 36, color: Colors.grey.shade300),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Aramanızla eşleşen öğretmen bulunamadı',
+                                    style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : ListView.separated(
+                              shrinkWrap: true,
+                              itemCount: filteredTeachers.length,
+                              separatorBuilder: (c, i) => Divider(height: 1, color: Colors.grey.shade100),
+                              itemBuilder: (c, i) {
+                                final teacher = filteredTeachers[i];
+                                final isSelected = selectedTeacherId == teacher['id'];
+                                final name = teacher['fullName'] ?? '';
+
+                                return InkWell(
+                                  onTap: () {
+                                    onSelected(teacher['id']);
+                                    Navigator.pop(ctx);
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                    color: isSelected ? Colors.indigo.shade50 : null,
+                                    child: Row(
+                                      children: [
+                                        CircleAvatar(
+                                          radius: 16,
+                                          backgroundColor: isSelected ? Colors.indigo : Colors.indigo.shade100,
+                                          child: Text(
+                                            name.isNotEmpty ? name[0].toUpperCase() : '?',
+                                            style: TextStyle(
+                                              color: isSelected ? Colors.white : Colors.indigo.shade900,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Text(
+                                            name,
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                              color: isSelected ? Colors.indigo.shade900 : Colors.black87,
+                                            ),
+                                          ),
+                                        ),
+                                        if (isSelected)
+                                          const Icon(Icons.check_circle_rounded, color: Colors.indigo, size: 20),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }

@@ -34,7 +34,26 @@ class TeacherScheduleViewScreen extends StatefulWidget {
       _TeacherScheduleViewScreenState();
 }
 
+class _TeacherScheduleWeekCache {
+  final Map<String, Map<String, dynamic>> scheduleData;
+  final List<Map<String, dynamic>> weeklyEtuts;
+  final List<Map<String, dynamic>> teacherAssignments;
+  final String? activePeriodId;
+  final DateTime timestamp;
+
+  _TeacherScheduleWeekCache({
+    required this.scheduleData,
+    required this.weeklyEtuts,
+    required this.teacherAssignments,
+    required this.activePeriodId,
+    required this.timestamp,
+  });
+}
+
 class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
+  static final Map<String, _TeacherScheduleWeekCache> _teacherWeekCache = {};
+  List<QueryDocumentSnapshot> _cachedPublishedPeriods = [];
+
   List<Map<String, dynamic>> _allTeachers = [];
   Map<String, dynamic>? _selectedTeacher;
   Map<String, Map<String, dynamic>> _scheduleData = {};
@@ -50,6 +69,38 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
   List<Map<String, dynamic>> _weeklyEtuts = [];
   List<Map<String, dynamic>> _teacherAssignments = [];
   String? _resolvedSchoolTypeName;
+
+  String _getWeekCacheKey(String teacherId, DateTime week) {
+    return '${widget.institutionId}_${widget.schoolTypeId}_${teacherId}_${week.year}_${week.month}_${week.day}';
+  }
+
+  void _changeWeek(int deltaDays) {
+    final newWeek = _weekStart.add(Duration(days: deltaDays));
+    setState(() {
+      _weekStart = newWeek;
+    });
+
+    final teacherId = _selectedTeacher?['id']?.toString() ?? '';
+    final cacheKey = _getWeekCacheKey(teacherId, newWeek);
+    final cached = _teacherWeekCache[cacheKey];
+
+    if (cached != null) {
+      // Önbellekten anında 0 ms ile göster
+      setState(() {
+        _scheduleData = Map.from(cached.scheduleData);
+        _weeklyEtuts = List.from(cached.weeklyEtuts);
+        _teacherAssignments = List.from(cached.teacherAssignments);
+        if (cached.activePeriodId != null) {
+          _activePeriodId = cached.activePeriodId;
+        }
+        _isScheduleLoading = false;
+      });
+      // Arka planda sessiz kontrol/güncelleme yap
+      _loadData(reloadSidebar: false, silent: true);
+    } else {
+      _loadData(reloadSidebar: false, silent: false);
+    }
+  }
 
   // Öğretmen ders sayıları
   Map<String, int> _teacherLessonCounts = {};
@@ -246,11 +297,11 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
     return '${start.day} ${_monthNameTr(start.month)} - ${end.day} ${_monthNameTr(end.month)} ${end.year}';
   }
 
-  Future<void> _loadData({bool reloadSidebar = true}) async {
+  Future<void> _loadData({bool reloadSidebar = true, bool silent = false}) async {
     if (reloadSidebar) {
-      setState(() => _isLoading = true);
+      if (!silent) setState(() => _isLoading = true);
     } else {
-      setState(() => _isScheduleLoading = true);
+      if (!silent) setState(() => _isScheduleLoading = true);
     }
     
     if (widget.initialEtutId != null) {
@@ -302,31 +353,41 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
 
     try {
       // 1. Yayınlanmış alt dönemleri bul (Case-insensitive institutionId)
-      final instIds = [instId, instId.toLowerCase()].toSet().toList();
-      var periodsSnapshot = await FirebaseFirestore.instance
-          .collection('workPeriods')
-          .where('schoolTypeId', isEqualTo: schoolTypeId)
-          .where('institutionId', whereIn: instIds)
-          .get();
+      List<QueryDocumentSnapshot> publishedPeriods;
+      if (reloadSidebar || _cachedPublishedPeriods.isEmpty) {
+        final instIds = [instId, instId.toLowerCase()].toSet().toList();
+        var periodsSnapshot = await FirebaseFirestore.instance
+            .collection('workPeriods')
+            .where('schoolTypeId', isEqualTo: schoolTypeId)
+            .where('institutionId', whereIn: instIds)
+            .get();
 
-      final publishedPeriods = periodsSnapshot.docs.where((doc) {
-        final data = doc.data() as Map<String, dynamic>;
-        final isPub = data['schedulePublished'] == true || data['isPublished'] == true;
-        final isAct = data['isActive'] != false;
-        return isPub && isAct;
-      }).toList();
+        publishedPeriods = periodsSnapshot.docs.where((doc) {
+          final data = doc.data();
+          final isPub = data['schedulePublished'] == true || data['isPublished'] == true;
+          final isAct = data['isActive'] != false;
+          return isPub && isAct;
+        }).toList();
 
-      publishedPeriods.sort((a, b) {
-        final aStart = ((a.data() as Map<String, dynamic>)['startDate'] as Timestamp?)?.toDate() ?? DateTime(2000);
-        final bStart = ((b.data() as Map<String, dynamic>)['startDate'] as Timestamp?)?.toDate() ?? DateTime(2000);
-        return aStart.compareTo(bStart);
-      });
+        publishedPeriods.sort((a, b) {
+          final aStart = ((a.data() as Map<String, dynamic>)['startDate'] as Timestamp?)?.toDate() ?? DateTime(2000);
+          final bStart = ((b.data() as Map<String, dynamic>)['startDate'] as Timestamp?)?.toDate() ?? DateTime(2000);
+          return aStart.compareTo(bStart);
+        });
+        _cachedPublishedPeriods = publishedPeriods;
+      } else {
+        publishedPeriods = _cachedPublishedPeriods;
+      }
 
-      _days = [];
-      _dailyLessonCounts = {};
-      _dayLessonTimes = {};
-      _activePeriodId = null;
-      _scheduleData = {};
+      if (!silent) {
+        _days = [];
+        _dailyLessonCounts = {};
+        _dayLessonTimes = {};
+        _activePeriodId = null;
+        if (_scheduleData.isEmpty) {
+          _scheduleData = {};
+        }
+      }
 
       if (publishedPeriods.isNotEmpty) {
         QueryDocumentSnapshot? activePeriodDoc;
@@ -478,12 +539,28 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
           _lessonClassMerges = [];
         }
       } else {
-        _activePeriodId = null;
-        _scheduleData = {};
-        _dayLessonTimes = {};
-        _days = [];
-        _lessonClassMerges = [];
+        if (!silent) {
+          _activePeriodId = null;
+          _scheduleData = {};
+          _dayLessonTimes = {};
+          _days = [];
+          _lessonClassMerges = [];
+        }
         debugPrint('❌ Aktif veya yayınlanmış dönem bulunamadı. Inst: $instId, Type: $schoolTypeId');
+      }
+
+      // Hafta değiştirildiğinde öğretmen listesini ve tüm okul sayımlarını tekrar çekme
+      if (!reloadSidebar && _allTeachers.isNotEmpty) {
+        if (_selectedTeacher != null && _selectedTeacher!['id'] != null) {
+          await _loadTeacherSchedule(_selectedTeacher!['id'], silent: silent);
+        }
+        if (mounted && !silent) {
+          setState(() {
+            _isLoading = false;
+            _isScheduleLoading = false;
+          });
+        }
+        return;
       }
 
       // 2. Öğretmenleri Yükle (Case-insensitive institutionId)
@@ -745,12 +822,25 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
     }
   }
 
-  Future<void> _loadTeacherSchedule(String teacherId) async {
-    if (_activePeriodId == null) {
+  Future<void> _loadTeacherSchedule(String teacherId, {bool silent = false}) async {
+    final cacheKey = _getWeekCacheKey(teacherId, _weekStart);
+    final cached = _teacherWeekCache[cacheKey];
+    if (cached != null && !silent) {
       setState(() {
-        _scheduleData = {};
-        _weeklyEtuts = [];
+        _scheduleData = Map.from(cached.scheduleData);
+        _weeklyEtuts = List.from(cached.weeklyEtuts);
+        _teacherAssignments = List.from(cached.teacherAssignments);
+        _isScheduleLoading = false;
       });
+    }
+
+    if (_activePeriodId == null) {
+      if (!silent) {
+        setState(() {
+          _scheduleData = {};
+          _weeklyEtuts = [];
+        });
+      }
       debugPrint('⚠️ Aktif dönem ID bulunamadı, ders programı sıfırlandı.');
       return;
     }
@@ -1502,6 +1592,14 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
             _weeklyEtuts = weeklyEtuts;
           });
 
+          _teacherWeekCache[cacheKey] = _TeacherScheduleWeekCache(
+            scheduleData: Map<String, Map<String, dynamic>>.from(updatedSchedule),
+            weeklyEtuts: List<Map<String, dynamic>>.from(weeklyEtuts),
+            teacherAssignments: List<Map<String, dynamic>>.from(_teacherAssignments),
+            activePeriodId: _activePeriodId,
+            timestamp: DateTime.now(),
+          );
+
           // Otomatik Yoklama Açma Mantığı (Bildirimden Yönlendirilince)
           if (widget.initialEtutId != null && !_hasAutoOpenedEtut) {
             try {
@@ -2135,12 +2233,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
             children: [
               IconButton(
                 visualDensity: VisualDensity.compact,
-                onPressed: () {
-                  setState(() {
-                    _weekStart = _weekStart.subtract(Duration(days: 7));
-                  });
-                  _loadData(reloadSidebar: false);
-                },
+                onPressed: () => _changeWeek(-7),
                 icon: Icon(Icons.arrow_back_ios_new, size: 14, color: Colors.blue.shade700),
                 style: IconButton.styleFrom(
                   backgroundColor: Colors.blue.shade50,
@@ -2175,12 +2268,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
               const SizedBox(width: 12),
               IconButton(
                 visualDensity: VisualDensity.compact,
-                onPressed: () {
-                  setState(() {
-                    _weekStart = _weekStart.add(Duration(days: 7));
-                  });
-                  _loadData(reloadSidebar: false);
-                },
+                onPressed: () => _changeWeek(7),
                 icon: Icon(Icons.arrow_forward_ios, size: 14, color: Colors.blue.shade700),
                 style: IconButton.styleFrom(
                   backgroundColor: Colors.blue.shade50,
@@ -4417,8 +4505,24 @@ class _TeacherScheduleDetailView extends StatefulWidget {
       _TeacherScheduleDetailViewState();
 }
 
+class _DetailScheduleWeekCache {
+  final Map<String, Map<String, dynamic>> scheduleData;
+  final List<Map<String, dynamic>> weeklyEtuts;
+  final List<Map<String, dynamic>> teacherAssignments;
+  final DateTime timestamp;
+
+  _DetailScheduleWeekCache({
+    required this.scheduleData,
+    required this.weeklyEtuts,
+    required this.teacherAssignments,
+    required this.timestamp,
+  });
+}
+
 class _TeacherScheduleDetailViewState
     extends State<_TeacherScheduleDetailView> {
+  static final Map<String, _DetailScheduleWeekCache> _detailWeekCache = {};
+
   Map<String, Map<String, dynamic>> _scheduleData = {};
   bool _showTableView = true;
   final ScrollController _horizontalScrollController = ScrollController();
@@ -4427,6 +4531,33 @@ class _TeacherScheduleDetailViewState
   List<Map<String, dynamic>> _weeklyEtuts = [];
   List<Map<String, dynamic>> _teacherAssignments = [];
   bool _isLoading = false;
+
+  String _getDetailWeekCacheKey(DateTime week) {
+    final teacherId = (widget.teacherData['id'] ?? '').toString();
+    return '${widget.institutionId}_${widget.activePeriodId}_${teacherId}_${week.year}_${week.month}_${week.day}';
+  }
+
+  void _changeWeek(int deltaDays) {
+    final newWeek = _weekStart.add(Duration(days: deltaDays));
+    setState(() {
+      _weekStart = newWeek;
+    });
+
+    final cacheKey = _getDetailWeekCacheKey(newWeek);
+    final cached = _detailWeekCache[cacheKey];
+
+    if (cached != null) {
+      setState(() {
+        _scheduleData = Map.from(cached.scheduleData);
+        _weeklyEtuts = List.from(cached.weeklyEtuts);
+        _teacherAssignments = List.from(cached.teacherAssignments);
+        _isLoading = false;
+      });
+      _loadSchedule(silent: true);
+    } else {
+      _loadSchedule(silent: false);
+    }
+  }
 
   MaterialColor _getColorFor(String text) {
     if (text.isEmpty) return Colors.blue;
@@ -4609,9 +4740,20 @@ class _TeacherScheduleDetailViewState
     );
   }
 
-  Future<void> _loadSchedule() async {
+  Future<void> _loadSchedule({bool silent = false}) async {
     if (widget.activePeriodId == null) return;
-    setState(() => _isLoading = true);
+    final cacheKey = _getDetailWeekCacheKey(_weekStart);
+    final cached = _detailWeekCache[cacheKey];
+    if (cached != null && !silent) {
+      setState(() {
+        _scheduleData = Map.from(cached.scheduleData);
+        _weeklyEtuts = List.from(cached.weeklyEtuts);
+        _teacherAssignments = List.from(cached.teacherAssignments);
+        _isLoading = false;
+      });
+    } else if (!silent) {
+      setState(() => _isLoading = true);
+    }
 
     try {
       final teacherId = (widget.teacherData['id'] ?? '').toString();
@@ -5009,12 +5151,21 @@ class _TeacherScheduleDetailViewState
           debugPrint('Error loading etut requests: $e');
         }
 
-        setState(() {
-          _scheduleData = scheduleData;
-          _weeklyEtuts = weeklyEtuts;
-          _teacherAssignments = teacherAssignments;
-          _isLoading = false;
-        });
+        _detailWeekCache[cacheKey] = _DetailScheduleWeekCache(
+          scheduleData: Map<String, Map<String, dynamic>>.from(scheduleData),
+          weeklyEtuts: List<Map<String, dynamic>>.from(weeklyEtuts),
+          teacherAssignments: List<Map<String, dynamic>>.from(teacherAssignments),
+          timestamp: DateTime.now(),
+        );
+
+        if (mounted) {
+          setState(() {
+            _scheduleData = scheduleData;
+            _weeklyEtuts = weeklyEtuts;
+            _teacherAssignments = teacherAssignments;
+            _isLoading = false;
+          });
+        }
       } catch (e) {
         print('Geçici atama yükleme hatası: $e');
         setState(() => _isLoading = false);
@@ -5597,12 +5748,7 @@ class _TeacherScheduleDetailViewState
         children: [
           IconButton(
             visualDensity: VisualDensity.compact,
-            onPressed: () {
-              setState(() {
-                _weekStart = _weekStart.subtract(Duration(days: 7));
-              });
-              _loadSchedule();
-            },
+            onPressed: () => _changeWeek(-7),
             icon: Icon(Icons.arrow_back_ios_new, size: 14, color: Colors.blue.shade700),
             style: IconButton.styleFrom(
               backgroundColor: Colors.blue.shade50,
@@ -5637,12 +5783,7 @@ class _TeacherScheduleDetailViewState
           const SizedBox(width: 16),
           IconButton(
             visualDensity: VisualDensity.compact,
-            onPressed: () {
-              setState(() {
-                _weekStart = _weekStart.add(Duration(days: 7));
-              });
-              _loadSchedule();
-            },
+            onPressed: () => _changeWeek(7),
             icon: Icon(Icons.arrow_forward_ios, size: 14, color: Colors.blue.shade700),
             style: IconButton.styleFrom(
               backgroundColor: Colors.blue.shade50,
