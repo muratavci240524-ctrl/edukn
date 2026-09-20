@@ -1,7 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/user_permission_service.dart';
 import '../../services/term_service.dart';
 import '../../services/crypto_service.dart';
@@ -18,6 +20,9 @@ class TeacherStudentListScreen extends StatefulWidget {
 }
 
 class _TeacherStudentListScreenState extends State<TeacherStudentListScreen> {
+  // ⚡ Cache-First RAM & Disk Önbelleği (Anında açılır, sıfır bekleme)
+  static List<Map<String, dynamic>>? _cachedStudents;
+
   bool _isLoading = true;
   List<Map<String, dynamic>> _students = [];
   String _searchQuery = '';
@@ -46,13 +51,55 @@ class _TeacherStudentListScreenState extends State<TeacherStudentListScreen> {
     return branches;
   }
 
+  static dynamic _makeJsonSafe(dynamic value) {
+    if (value is Timestamp) return value.toDate().toIso8601String();
+    if (value is DateTime) return value.toIso8601String();
+    if (value is Map) {
+      final res = <String, dynamic>{};
+      value.forEach((k, v) => res[k.toString()] = _makeJsonSafe(v));
+      return res;
+    }
+    if (value is List) return value.map((e) => _makeJsonSafe(e)).toList();
+    return value;
+  }
+
+  Future<void> _loadFromDiskCache() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      final prefs = await SharedPreferences.getInstance();
+      final key = 'edukn_teacher_assigned_students_${user.uid}_${widget.institutionId}';
+      final cachedStr = prefs.getString(key);
+      if (cachedStr != null && cachedStr.isNotEmpty && _students.isEmpty) {
+        final List dec = json.decode(cachedStr);
+        final list = dec.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        if (mounted && list.isNotEmpty) {
+          setState(() {
+            _students = list;
+            _isLoading = false;
+          });
+          _cachedStudents = list;
+        }
+      }
+    } catch (_) {}
+  }
+
   @override
   void initState() {
     super.initState();
-    _loadData();
+    if (_cachedStudents != null && _cachedStudents!.isNotEmpty) {
+      _students = List.from(_cachedStudents!);
+      _isLoading = false;
+    } else {
+      _loadFromDiskCache();
+    }
+    _loadData(isBackground: _cachedStudents != null && _cachedStudents!.isNotEmpty);
   }
 
-  Future<void> _loadData() async {
+  Future<void> _loadData({bool isBackground = false}) async {
+    if (!isBackground) {
+      setState(() => _isLoading = true);
+    }
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
@@ -98,18 +145,22 @@ class _TeacherStudentListScreenState extends State<TeacherStudentListScreen> {
         return;
       }
 
-      // 2. Bu sınıflardaki öğrencileri bul
+      // 2. Bu sınıflardaki öğrencileri paralel bul
       List<Map<String, dynamic>> allStudents = [];
       final classIdList = classIds.toList();
 
+      final List<Future<QuerySnapshot<Map<String, dynamic>>>> studentQueries = [];
       for (var i = 0; i < classIdList.length; i += 10) {
         final chunk = classIdList.skip(i).take(10).toList();
-        final studentSnap = await FirebaseFirestore.instance
+        studentQueries.add(FirebaseFirestore.instance
             .collection('students')
             .where('institutionId', whereIn: instIds)
             .where('classId', whereIn: chunk)
-            .get();
-        
+            .get());
+      }
+
+      final studentSnaps = await Future.wait(studentQueries);
+      for (final studentSnap in studentSnaps) {
         for (var doc in studentSnap.docs) {
           final rawData = doc.data();
           rawData['id'] = doc.id;
@@ -121,9 +172,30 @@ class _TeacherStudentListScreenState extends State<TeacherStudentListScreen> {
       // Ada göre sırala
       allStudents.sort((a, b) => (a['fullName'] ?? '').toString().compareTo((b['fullName'] ?? '').toString()));
 
+      bool hasChanged = _students.length != allStudents.length;
+      if (!hasChanged) {
+        for (int i = 0; i < allStudents.length; i++) {
+          if (allStudents[i]['id'] != _students[i]['id']) {
+            hasChanged = true;
+            break;
+          }
+        }
+      }
+
+      _cachedStudents = List.from(allStudents);
+
+      // 💾 Diske kalıcı kaydet (0 ms anında açılış)
+      SharedPreferences.getInstance().then((prefs) {
+        final key = 'edukn_teacher_assigned_students_${user.uid}_${widget.institutionId}';
+        final safe = _makeJsonSafe(allStudents);
+        prefs.setString(key, json.encode(safe));
+      }).catchError((_) {});
+
       if (mounted) {
         setState(() {
-          _students = allStudents;
+          if (hasChanged || _students.isEmpty) {
+            _students = allStudents;
+          }
           _isLoading = false;
         });
       }

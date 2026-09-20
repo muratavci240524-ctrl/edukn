@@ -18,6 +18,7 @@ import 'dart:async';
 import 'school_types/chat/call/call_service.dart';
 import 'school_types/chat/call/call_screen_dialog.dart';
 import 'school_types/chat/call/call_models.dart';
+import '../../widgets/notification_prompt_dialog.dart';
 
 class SchoolDashboardScreen extends StatefulWidget {
   const SchoolDashboardScreen({Key? key}) : super(key: key);
@@ -65,6 +66,14 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
     _loadSchoolData();
     _startAnnouncementCheck();
     _listenForIncomingCalls();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(const Duration(milliseconds: 1500), () {
+        if (mounted) {
+          NotificationPromptDialog.checkAndShow(context);
+        }
+      });
+    });
   }
 
   Future<void> _loadUserPermissions() async {

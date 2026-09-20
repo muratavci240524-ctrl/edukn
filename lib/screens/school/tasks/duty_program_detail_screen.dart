@@ -493,6 +493,12 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
           return a.name.compareTo(b.name);
         });
         _locations = allLocations;
+      } else {
+        _locations.sort((a, b) {
+          final cmp = a.order.compareTo(b.order);
+          if (cmp != 0) return cmp;
+          return a.name.compareTo(b.name);
+        });
       }
 
       // 3. Load Items for Selected Week
@@ -897,17 +903,18 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
 
     stats.sort((a, b) => (b['total'] as int).compareTo(a['total'] as int));
 
-    // Pdf Headers
-    List<String> headers = ['Öğretmen', 'Branş/Görev', 'Toplam'];
+    // Pdf Headers (Öğretmen branşı kaldırıldı)
+    List<String> headers = ['Öğretmen', 'Toplam'];
     for (var l in _locations) headers.add(l.name);
 
     // Pdf Rows
     List<List<String>> rows = [];
     for (var s in stats) {
-      List<String> row = [s['name'], s['branch'], s['total'].toString()];
+      List<String> row = [s['name'], s['total'].toString()];
       final locs = s['locCounts'] as Map<String, int>;
       for (var l in _locations) {
-        row.add((locs[l.id] ?? 0).toString());
+        final count = locs[l.id] ?? 0;
+        row.add(count > 0 ? count.toString() : '-');
       }
       rows.add(row);
     }
@@ -921,6 +928,7 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
 
     await Printing.layoutPdf(
       onLayout: (format) async => pdfData,
+      format: PdfPageFormat.a4.landscape,
       name: 'Nobet_Istatistikleri_$rangeStr',
     );
   }
@@ -3042,14 +3050,25 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
     try {
       // 1. Alt döneme özel sıra kaydı (dutyLocationConfigs.{locId}.order)
       if (widget.periodId.isNotEmpty) {
-        final Map<String, dynamic> updates = {};
-        for (int i = 0; i < _locations.length; i++) {
-          updates['dutyLocationConfigs.${_locations[i].id}.order'] = i;
-        }
-        await FirebaseFirestore.instance
+        final periodRef = FirebaseFirestore.instance
             .collection('workPeriods')
-            .doc(widget.periodId)
-            .update(updates);
+            .doc(widget.periodId);
+        final periodSnap = await periodRef.get();
+        final pData = periodSnap.data() ?? {};
+        final currentConfigs = Map<String, dynamic>.from(
+            pData['dutyLocationConfigs'] as Map? ?? {});
+
+        for (int i = 0; i < _locations.length; i++) {
+          final locId = _locations[i].id;
+          final locCfg = Map<String, dynamic>.from(
+              currentConfigs[locId] as Map? ?? {});
+          locCfg['order'] = i;
+          currentConfigs[locId] = locCfg;
+        }
+
+        await periodRef.set({
+          'dutyLocationConfigs': currentConfigs,
+        }, SetOptions(merge: true));
       }
 
       // 2. Genel dutyLocations koleksiyonundaki sıra numarasını da güncelle
@@ -3114,9 +3133,13 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
           .toList();
       if (teachers.isEmpty) throw 'Hiçbir aktif personel bulunamadı.';
 
-      // 2. Sort Locations Deterministically (For Consistent Rotation)
+      // 2. Nöbet yerlerinin kullanıcının belirlediği sıralamasını koru
       if (_locations.isEmpty) throw 'Hiçbir nöbet yeri yok.';
-      _locations.sort((a, b) => a.name.compareTo(b.name));
+      _locations.sort((a, b) {
+        final cmp = a.order.compareTo(b.order);
+        if (cmp != 0) return cmp;
+        return a.name.compareTo(b.name);
+      });
 
       // 3. Clear Existing for THIS Week
       final weekStr = _selectedWeekStart.toIso8601String();
@@ -3131,25 +3154,17 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
         batch.delete(d.reference);
       }
 
-      // 4. Load Previous Week Assignments (For Rotation)
-      final prevWeekStr = _selectedWeekStart
-          .subtract(const Duration(days: 7))
-          .toIso8601String();
-
-      final prevSnap = await FirebaseFirestore.instance
-          .collection('dutyScheduleItems')
-          .where('periodId', isEqualTo: widget.periodId)
-          .where('weekStart', isEqualTo: prevWeekStr)
-          .get();
-
-      // Map: TeacherID -> Map<Day(int), LocationID>
-      Map<String, Map<int, String>> prevTeacherLocs = {};
-      for (var d in prevSnap.docs) {
-        final tid = d['teacherId'];
-        final day = d['dayOfWeek'];
-        final locId = d['locationId'];
-        if (!prevTeacherLocs.containsKey(tid)) prevTeacherLocs[tid] = {};
-        prevTeacherLocs[tid]![day] = locId;
+      // 4. Calculate weekIndex for cyclical rotation
+      int weekIndex = 0;
+      if (_periodStartDate != null) {
+        final diffDays = _selectedWeekStart.difference(_periodStartDate!).inDays;
+        weekIndex = (diffDays ~/ 7);
+        if (weekIndex < 0) weekIndex = 0;
+      } else {
+        final diffDays = _selectedWeekStart
+            .difference(DateTime(_selectedWeekStart.year, 1, 1))
+            .inDays;
+        weekIndex = (diffDays ~/ 7);
       }
 
       // Load Trackers (Grup Bazlı ve Lokasyon Bazlı Tarihçe)
@@ -3158,57 +3173,97 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
           .where('periodId', isEqualTo: widget.periodId)
           .get();
 
+      // Mevcut haftanın eski kayıtlarını geçmiş sayımından hariç tut (temiz tarihçe)
+      final pastHistoryDocs = historySnap.docs.where((d) {
+        final ws = (d.data() as Map<String, dynamic>?)?['weekStart'];
+        return ws != weekStr;
+      }).toList();
+
+      // Lokasyonların grup haritası
+      Map<String, String> locToGroup = {
+        for (var l in _locations)
+          l.id: (l.group.trim().isNotEmpty ? l.group.trim() : '__loc_${l.id}'),
+      };
+
+      // Her gruba ait sıralı nöbet yerleri listesi (kullanıcının belirlediği sırada)
+      Map<String, List<DutyLocation>> groupLocationsMap = {};
+      for (var l in _locations) {
+        final g = locToGroup[l.id]!;
+        groupLocationsMap.putIfAbsent(g, () => []).add(l);
+      }
+
+      // Her öğretmenin grup bazında EN SON tuttuğu nöbet yeri
+      Map<String, Map<String, String>> teacherLastLocInGroup = {};
+
+      // Geçmişi tarihe göre sıralayarak en son tutulan yeri tespit et
+      final sortedHistoryDocs = List<QueryDocumentSnapshot>.from(pastHistoryDocs);
+      sortedHistoryDocs.sort((a, b) {
+        final dataA = a.data() as Map<String, dynamic>? ?? {};
+        final dataB = b.data() as Map<String, dynamic>? ?? {};
+        final dateA = dataA['dutyDate'] ?? dataA['weekStart'] ?? '';
+        final dateB = dataB['dutyDate'] ?? dataB['weekStart'] ?? '';
+        return dateA.toString().compareTo(dateB.toString());
+      });
+
       Map<String, int> totalLoad = {};
       Map<String, int> currentLoad = {};
       Map<String, Map<String, int>> locHistoryCounts = {};
       Map<String, Map<String, int>> groupTotalLoad = {};
       Map<String, Map<String, int>> groupWeeklyLoad = {};
 
-      // Lokasyonların grup haritası
-      Map<String, String> locToGroup = {
-        for (var l in _locations)
-          l.id: (l.group.isNotEmpty ? l.group : '__default__'),
-      };
-
-      for (var t in teachers) {
-        final tid = t['id'];
+      // Her öğretmenin taban indeksi (döngüsel rotasyon sırası için)
+      Map<String, int> teacherBaseIndex = {};
+      for (int i = 0; i < teachers.length; i++) {
+        final tid = teachers[i]['id']?.toString() ?? '';
+        teacherBaseIndex[tid] = i;
         totalLoad[tid] = 0;
         currentLoad[tid] = 0;
         locHistoryCounts[tid] = {};
         groupTotalLoad[tid] = {};
         groupWeeklyLoad[tid] = {};
+        teacherLastLocInGroup[tid] = {};
+
         for (var l in _locations) {
           locHistoryCounts[tid]![l.id] = 0;
-          final g = locToGroup[l.id] ?? '__default__';
+          final g = locToGroup[l.id]!;
           groupTotalLoad[tid]![g] = 0;
           groupWeeklyLoad[tid]![g] = 0;
         }
       }
 
-      for (var d in historySnap.docs) {
-        final tid = d['teacherId'];
-        final lid = d['locationId'];
+      for (var d in sortedHistoryDocs) {
+        final data = d.data() as Map<String, dynamic>? ?? {};
+        final tid = data['teacherId']?.toString();
+        final lid = data['locationId']?.toString();
+        if (tid == null || lid == null) continue;
+
         totalLoad[tid] = (totalLoad[tid] ?? 0) + 1;
-        if (locHistoryCounts.containsKey(tid) && locHistoryCounts[tid]!.containsKey(lid)) {
+        if (locHistoryCounts.containsKey(tid) &&
+            locHistoryCounts[tid]!.containsKey(lid)) {
           locHistoryCounts[tid]![lid] = (locHistoryCounts[tid]![lid] ?? 0) + 1;
         }
         final g = locToGroup[lid];
-        if (g != null && groupTotalLoad.containsKey(tid)) {
-          groupTotalLoad[tid]![g] = (groupTotalLoad[tid]![g] ?? 0) + 1;
+        if (g != null) {
+          if (groupTotalLoad.containsKey(tid)) {
+            groupTotalLoad[tid]![g] = (groupTotalLoad[tid]![g] ?? 0) + 1;
+          }
+          teacherLastLocInGroup[tid] ??= {};
+          teacherLastLocInGroup[tid]![g] = lid;
         }
       }
 
       int assignedCount = 0;
-      // 5. Algorithm: Grup Bazlı ve Lokasyon Eşitlikli Rotasyon
+      // 5. Algorithm: Grup Bazlı Döngüsel Rotasyon (Cyclical Shift)
       for (int day = 1; day <= 7; day++) {
         Set<String> assignedToday = {};
 
-        // Active locations for this day
+        // Bu gün aktif olan nöbet yerleri
         final activeLocs = _locations
             .where((l) => l.activeDays.contains(day))
             .toList();
+        if (activeLocs.isEmpty) continue;
 
-        // Helper: Get Effective Eligibility Pool
+        // Uygun öğretmen havuzunu getiren yardımcı
         List<String> getEffectiveIds(DutyLocation loc) {
           final specific = loc.eligibilities[day.toString()];
           if (specific != null && specific.isNotEmpty) {
@@ -3221,30 +3276,43 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
           return all;
         }
 
-        // Sort by scarcity (Hardest to fill first)
+        // Günün nöbet yerlerini akıllı sırala:
+        // 1. O yerde henüz hiç nöbet tutmamış uygun aday sayısı (fresh candidates) az olanlar EN ÖNCE atanır (darboğaz önleme).
+        // 2. Eşitlik durumunda, haftalık döngüsel ofset devreye girer: (index + weekIndex) % activeLocs.length
         activeLocs.sort((a, b) {
-          final countA = getEffectiveIds(a).length;
-          final countB = getEffectiveIds(b).length;
-          return countA.compareTo(countB);
+          final poolA = getEffectiveIds(a);
+          final poolB = getEffectiveIds(b);
+
+          int freshA = teachers
+              .where((t) =>
+                  poolA.contains(t['id']) &&
+                  (locHistoryCounts[t['id']]?[a.id] ?? 0) == 0)
+              .length;
+          int freshB = teachers
+              .where((t) =>
+                  poolB.contains(t['id']) &&
+                  (locHistoryCounts[t['id']]?[b.id] ?? 0) == 0)
+              .length;
+
+          if (freshA != freshB) return freshA.compareTo(freshB);
+          if (poolA.length != poolB.length) {
+            return poolA.length.compareTo(poolB.length);
+          }
+
+          final orderA = (a.order + weekIndex) % 1000;
+          final orderB = (b.order + weekIndex) % 1000;
+          return orderA.compareTo(orderB);
         });
-
-        if (activeLocs.isEmpty) continue;
-
-        // Helper to find next location index
-        String? getPrevLocId(int currentIndex) {
-          int prevIndex = (currentIndex - 1);
-          if (prevIndex < 0) prevIndex = activeLocs.length - 1;
-          return activeLocs[prevIndex].id;
-        }
 
         for (int i = 0; i < activeLocs.length; i++) {
           final loc = activeLocs[i];
           final eligibleIds = getEffectiveIds(loc);
-          final g = locToGroup[loc.id] ?? '__default__';
+          final g = locToGroup[loc.id] ?? '__loc_${loc.id}';
+          final groupLocs = groupLocationsMap[g] ?? [loc];
 
           if (eligibleIds.isEmpty) continue;
 
-          // 1. Filter Candidates (Eligible & Not assigned today)
+          // O gün atanmamış ve bu yer için uygun olan adaylar
           var candidates = teachers.where((t) {
             final tid = t['id'];
             return eligibleIds.contains(tid) && !assignedToday.contains(tid);
@@ -3252,8 +3320,7 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
 
           if (candidates.isEmpty) continue;
 
-          final targetPrevLocId = getPrevLocId(i);
-
+          // Adayları puanlayarak en uygun kişiyi seç
           candidates.sort((a, b) {
             final idA = a['id'];
             final idB = b['id'];
@@ -3261,53 +3328,102 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
             double scoreA = 0;
             double scoreB = 0;
 
-            // 1. HER NOKTADA EŞİT TUTMA (Location History - EN YÜKSEK ÖNCELİK)
-            // Kural: 7 nöbet yeri varsa, 7 hafta sonunda herkes her noktada 1'er kez tutmuş olacak.
-            // Bu nöbet yerinde daha önce kaç kez nöbet tuttuysa devasa ceza (100.000.000) alır.
-            // Bu noktada henüz 0 nöbeti olan öğretmen doğrudan en öne geçer!
-            final locLoadA = locHistoryCounts[idA]?[loc.id] ?? 0;
-            final locLoadB = locHistoryCounts[idB]?[loc.id] ?? 0;
-            scoreA += locLoadA * 100000000;
-            scoreB += locLoadB * 100000000;
+            // --- KURAL 1: GRUP İÇİ TÜM YERLERİ GEZMEDEN AYNI YERE DÜŞMEME (MUTLAK KURAL) ---
+            final locCountA = locHistoryCounts[idA]?[loc.id] ?? 0;
+            final locCountB = locHistoryCounts[idB]?[loc.id] ?? 0;
 
-            // 2. GRUP İÇİ HAFTALIK KOTA (Herkes 1'er kez tutmadan 2. nöbet verilmez)
-            // Kural: "Her noktaya 1'er nöbetçi ver, eğer yetmezse 2.ye geç ama tümüne vermeden birine 2.yi verme"
-            // Bu grupta bu hafta nöbet tuttuysa 5.000.000 ceza ile sıranın arkasına atılır.
+            // Öğretmenin bu grupta henüz hiç nöbet tutmadığı (0 olan) yer sayısı
+            int unvisitedA = 0;
+            int unvisitedB = 0;
+            for (var gl in groupLocs) {
+              if ((locHistoryCounts[idA]?[gl.id] ?? 0) == 0) unvisitedA++;
+              if ((locHistoryCounts[idB]?[gl.id] ?? 0) == 0) unvisitedB++;
+            }
+
+            // Eğer öğretmenin grupta henüz gitmediği yerler varken bu yere tekrar verilmek isteniyorsa devasa ceza
+            if (locCountA > 0 && unvisitedA > 0) {
+              scoreA += 1000000000.0 * locCountA;
+            } else {
+              scoreA += locCountA * 100000000.0;
+            }
+
+            if (locCountB > 0 && unvisitedB > 0) {
+              scoreB += 1000000000.0 * locCountB;
+            } else {
+              scoreB += locCountB * 100000000.0;
+            }
+
+            // --- KURAL 2: GRUP İÇİ HAFTALIK KOTA (Haftada 1'den fazla nöbet tutmama) ---
             final grpWeeklyA = groupWeeklyLoad[idA]?[g] ?? 0;
             final grpWeeklyB = groupWeeklyLoad[idB]?[g] ?? 0;
-            if (grpWeeklyA >= 1) scoreA += grpWeeklyA * 5000000;
-            if (grpWeeklyB >= 1) scoreB += grpWeeklyB * 5000000;
+            if (grpWeeklyA >= 1) scoreA += grpWeeklyA * 50000000.0;
+            if (grpWeeklyB >= 1) scoreB += grpWeeklyB * 50000000.0;
 
-            // 3. GRUP İÇİ TOPLAM İSTATİSTİK (Az olandan devam etme)
-            // Kural: "Diğer gruplar kendi içinde değerlendirilecek. İstatistiklere toplam bakılacak az olandan devam edecek."
+            // --- KURAL 3: GENEL HAFTALIK NÖBET KOTASI ---
+            final curLoadA = currentLoad[idA] ?? 0;
+            final curLoadB = currentLoad[idB] ?? 0;
+            if (curLoadA >= 1) scoreA += curLoadA * 10000000.0;
+            if (curLoadB >= 1) scoreB += curLoadB * 10000000.0;
+
+            // --- KURAL 4: GRUP İÇİ TOPLAM ADALET (Az nöbet tutan öncelikli) ---
             final grpTotalA = groupTotalLoad[idA]?[g] ?? 0;
             final grpTotalB = groupTotalLoad[idB]?[g] ?? 0;
-            scoreA += grpTotalA * 10000;
-            scoreB += grpTotalB * 10000;
+            scoreA += grpTotalA * 50000.0;
+            scoreB += grpTotalB * 50000.0;
 
-            // 4. GENEL HAFTALIK YÜK (Aşırı yüklenme önleme)
-            if ((currentLoad[idA] ?? 0) >= 2) scoreA += 50000;
-            if ((currentLoad[idB] ?? 0) >= 2) scoreB += 50000;
-
-            // 5. Genel Toplam Yük (Genel eşitlik için ince ayar)
-            scoreA += (totalLoad[idA] ?? 0) * 100;
-            scoreB += (totalLoad[idB] ?? 0) * 100;
-
-            // 6. Aynı Nöbet Yerinde Peş Peşe Tutma Cezası
-            if (prevTeacherLocs[idA]?.values.contains(loc.id) ?? false) {
-              scoreA += 500;
+            // --- KURAL 5: DÖNGÜSEL KAYDIRMA (CYCLICAL SHIFT) UYUMU ---
+            // Öğretmenin bu gruptaki bir önceki nöbet yerine göre sıradaki yer burası mı?
+            final lastLocA = teacherLastLocInGroup[idA]?[g];
+            if (lastLocA != null) {
+              final lastIdx = groupLocs.indexWhere((l) => l.id == lastLocA);
+              if (lastIdx != -1) {
+                final targetNextIdx = (lastIdx + 1) % groupLocs.length;
+                if (groupLocs[targetNextIdx].id == loc.id) {
+                  scoreA -= 5000.0; // Tam sıradaki yer! Büyük döngüsel avantaj
+                }
+              }
+            } else {
+              // İlk defa nöbete girecekse haftalık ve taban indeks ofseti
+              final baseIdxA = teacherBaseIndex[idA] ?? 0;
+              final idealIdxA = (baseIdxA + weekIndex) % groupLocs.length;
+              if (groupLocs[idealIdxA].id == loc.id) {
+                scoreA -= 2500.0;
+              }
             }
-            if (prevTeacherLocs[idB]?.values.contains(loc.id) ?? false) {
-              scoreB += 500;
+
+            final lastLocB = teacherLastLocInGroup[idB]?[g];
+            if (lastLocB != null) {
+              final lastIdx = groupLocs.indexWhere((l) => l.id == lastLocB);
+              if (lastIdx != -1) {
+                final targetNextIdx = (lastIdx + 1) % groupLocs.length;
+                if (groupLocs[targetNextIdx].id == loc.id) {
+                  scoreB -= 5000.0;
+                }
+              }
+            } else {
+              final baseIdxB = teacherBaseIndex[idB] ?? 0;
+              final idealIdxB = (baseIdxB + weekIndex) % groupLocs.length;
+              if (groupLocs[idealIdxB].id == loc.id) {
+                scoreB -= 2500.0;
+              }
             }
 
-            // 7. Doğal Döngüsel Rotasyon Bonusu
-            final prevLocA = prevTeacherLocs[idA]?[day];
-            if (prevLocA == targetPrevLocId) scoreA -= 250;
-            final prevLocB = prevTeacherLocs[idB]?[day];
-            if (prevLocB == targetPrevLocId) scoreB -= 250;
+            // --- KURAL 6: GENEL TOPLAM YÜK ---
+            scoreA += (totalLoad[idA] ?? 0) * 100.0;
+            scoreB += (totalLoad[idB] ?? 0) * 100.0;
 
-            return scoreA.compareTo(scoreB);
+            if (scoreA != scoreB) {
+              return scoreA.compareTo(scoreB);
+            }
+
+            // --- KURAL 7: EŞİTLİK DURUMUNDA DÖNGÜSEL TİE-BREAKER (HAFTALIK OFSET) ---
+            final rotRankA =
+                ((teacherBaseIndex[idA] ?? 0) + weekIndex + day) %
+                    teachers.length;
+            final rotRankB =
+                ((teacherBaseIndex[idB] ?? 0) + weekIndex + day) %
+                    teachers.length;
+            return rotRankA.compareTo(rotRankB);
           });
 
           final selectedTeacher = candidates.first;
@@ -3320,6 +3436,8 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
           currentLoad[tId] = (currentLoad[tId] ?? 0) + 1;
           groupTotalLoad[tId]?[g] = (groupTotalLoad[tId]?[g] ?? 0) + 1;
           groupWeeklyLoad[tId]?[g] = (groupWeeklyLoad[tId]?[g] ?? 0) + 1;
+          teacherLastLocInGroup[tId] ??= {};
+          teacherLastLocInGroup[tId]![g] = loc.id;
           assignedCount++;
 
           if (locHistoryCounts.containsKey(tId)) {
@@ -3341,7 +3459,9 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
             'teacherId': tId,
             'teacherName': tName,
             'weekStart': weekStr,
-            'dutyDate': _selectedWeekStart.add(Duration(days: day - 1)).toIso8601String(),
+            'dutyDate': _selectedWeekStart
+                .add(Duration(days: day - 1))
+                .toIso8601String(),
             'sendNotification': false,
             'notificationSent': false,
             'notifiedTeacherId': null,

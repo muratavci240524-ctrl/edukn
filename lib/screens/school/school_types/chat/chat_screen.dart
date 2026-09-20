@@ -1096,7 +1096,7 @@ class _ChatScreenState extends State<ChatScreen>
                           _isSearching = true;
                         });
                       },
-                      icon: const Icon(Icons.search, color: Colors.white),
+                      icon: const Icon(Icons.search, color: Color(0xFF4C59BC)),
                       tooltip: 'Ara',
                     ),
 
@@ -1105,7 +1105,7 @@ class _ChatScreenState extends State<ChatScreen>
                       borderRadius: BorderRadius.circular(14),
                     ),
                     elevation: 6,
-                    icon: const Icon(Icons.more_vert, color: Colors.white),
+                    icon: const Icon(Icons.more_vert, color: Color(0xFF4C59BC)),
                     onSelected: _handleMenuOption,
                     itemBuilder: (context) => [
                       PopupMenuItem(
@@ -1171,14 +1171,18 @@ class _ChatScreenState extends State<ChatScreen>
                     ? null
                     : TabBar(
                         controller: _tabController,
-                        indicatorColor: Colors.white,
+                        indicatorColor: const Color(0xFF4C59BC),
                         indicatorWeight: 3,
-                        labelColor: Colors.white,
-                        labelStyle: const TextStyle(
-                          fontWeight: FontWeight.bold,
+                        labelColor: const Color(0xFF4C59BC),
+                        labelStyle: GoogleFonts.inter(
+                          fontWeight: FontWeight.w700,
                           fontSize: 13,
                         ),
-                        unselectedLabelColor: Colors.white70,
+                        unselectedLabelColor: const Color(0xFF64748B),
+                        unselectedLabelStyle: GoogleFonts.inter(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
                         tabs: const [
                           Tab(text: 'SOHBETLER'),
                           Tab(text: 'KİŞİLER'),

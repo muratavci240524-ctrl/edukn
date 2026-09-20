@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
+import 'dart:convert';
 import '../../widgets/edukn_logo.dart';
 import '../../widgets/web_image_renderer.dart';
 import '../../services/term_service.dart';
@@ -42,6 +44,7 @@ import '../../constants/app_modules.dart';
 import '../../constants/school_type_modules.dart';
 import 'settings/sms_integration_screen.dart';
 import 'accounting/accounting_dashboard_screen.dart';
+import '../../services/splash/splash_service.dart';
 
 class SchoolDashboardV2Screen extends StatefulWidget {
   const SchoolDashboardV2Screen({Key? key}) : super(key: key);
@@ -76,6 +79,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
   @override
   void initState() {
     super.initState();
+    _loadCachedDashboardData();
     _loadInitialData();
     _searchFocusNode.addListener(() {
       if (_suppressFocusListener) return;
@@ -374,6 +378,93 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
     }
   }
 
+  static Map<String, dynamic> _cleanMapForCache(Map<String, dynamic> src) {
+    final res = <String, dynamic>{};
+    src.forEach((k, v) {
+      if (v is Timestamp) {
+        res[k] = {'__type': 'Timestamp', 'ms': v.millisecondsSinceEpoch};
+      } else if (v is DateTime) {
+        res[k] = {'__type': 'DateTime', 'ms': v.millisecondsSinceEpoch};
+      } else if (v is Map) {
+        res[k] = _cleanMapForCache(Map<String, dynamic>.from(v));
+      } else if (v is List) {
+        res[k] = v.map((item) => item is Map ? _cleanMapForCache(Map<String, dynamic>.from(item)) : item).toList();
+      } else if (v is String || v is num || v is bool || v == null) {
+        res[k] = v;
+      }
+    });
+    return res;
+  }
+
+  static Map<String, dynamic> _restoreMapFromCache(Map<String, dynamic> src) {
+    final res = <String, dynamic>{};
+    src.forEach((k, v) {
+      if (v is Map && v['__type'] == 'Timestamp' && v['ms'] is num) {
+        res[k] = Timestamp.fromMillisecondsSinceEpoch(v['ms'] as int);
+      } else if (v is Map && v['__type'] == 'DateTime' && v['ms'] is num) {
+        res[k] = DateTime.fromMillisecondsSinceEpoch(v['ms'] as int);
+      } else if (v is Map) {
+        res[k] = _restoreMapFromCache(Map<String, dynamic>.from(v));
+      } else if (v is List) {
+        res[k] = v.map((item) => item is Map ? _restoreMapFromCache(Map<String, dynamic>.from(item)) : item).toList();
+      } else {
+        res[k] = v;
+      }
+    });
+    return res;
+  }
+
+  Future<void> _loadCachedDashboardData() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      final prefs = await SharedPreferences.getInstance();
+      final cachedStr = prefs.getString('edukn_dash_cache_${user.uid}');
+      if (cachedStr != null && cachedStr.isNotEmpty) {
+        final decoded = json.decode(cachedStr) as Map<String, dynamic>;
+        if (mounted && isLoading) {
+          final cSchoolData = decoded['schoolData'] != null ? _restoreMapFromCache(Map<String, dynamic>.from(decoded['schoolData'])) : null;
+          final cUserData = decoded['userData'] != null ? _restoreMapFromCache(Map<String, dynamic>.from(decoded['userData'])) : null;
+          final cActiveTerm = decoded['activeTerm'] != null ? _restoreMapFromCache(Map<String, dynamic>.from(decoded['activeTerm'])) : null;
+          final cSelectedTerm = decoded['selectedTerm'] != null ? _restoreMapFromCache(Map<String, dynamic>.from(decoded['selectedTerm'])) : null;
+          List<Map<String, dynamic>> cAllTerms = [];
+          if (decoded['allTerms'] is List) {
+            cAllTerms = (decoded['allTerms'] as List).map((t) => _restoreMapFromCache(Map<String, dynamic>.from(t as Map))).toList();
+          }
+          if (cSchoolData != null) {
+            setState(() {
+              schoolData = cSchoolData;
+              userData = cUserData;
+              activeTerm = cActiveTerm;
+              selectedTerm = cSelectedTerm;
+              allTerms = cAllTerms;
+              isLoading = false; // ⚡ Anında açılış (0 ms bekleme)
+            });
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Dashboard disk cache yükleme hatası: $e');
+    }
+  }
+
+  Future<void> _saveDashboardDataToCache(String uid) async {
+    try {
+      if (schoolData == null) return;
+      final prefs = await SharedPreferences.getInstance();
+      final cachePayload = {
+        'schoolData': _cleanMapForCache(schoolData!),
+        'userData': userData != null ? _cleanMapForCache(userData!) : null,
+        'activeTerm': activeTerm != null ? _cleanMapForCache(activeTerm!) : null,
+        'selectedTerm': selectedTerm != null ? _cleanMapForCache(selectedTerm!) : null,
+        'allTerms': allTerms.map((t) => _cleanMapForCache(t)).toList(),
+      };
+      await prefs.setString('edukn_dash_cache_$uid', json.encode(cachePayload));
+    } catch (e) {
+      debugPrint('Dashboard disk cache kaydetme hatası: $e');
+    }
+  }
+
   Future<void> _loadInitialData() async { await _loadSchoolData(); }
 
   Future<void> _loadSchoolData() async {
@@ -460,6 +551,8 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
             selectedTerm = currentViewingTerm;
             isLoading = false;
           });
+
+          _saveDashboardDataToCache(user.uid);
 
           // Otomatik Senkronizasyon (Adminler için)
           if (currentUserData != null && (currentUserData['role'] == 'genel_mudur' || currentUserData['role'] == 'mudur' || currentUserData['role'] == 'admin')) {
@@ -727,9 +820,47 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
     }
   }
 
+  Widget _buildDashboardLoadingScreen() {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const EduKnLoader(size: 84),
+            const SizedBox(height: 24),
+            const EduKnLogo(type: EduKnLogoType.noSlogan, iconSize: 32),
+            const SizedBox(height: 8),
+            Text(
+              'DAHA İYİ PLANLA, DAHA HIZLI İLERLE',
+              style: GoogleFonts.roboto(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 2.2,
+                color: const Color(0xFF64748B),
+              ),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: 120,
+              height: 3,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(99),
+                child: LinearProgressIndicator(
+                  backgroundColor: Colors.blue.shade100,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.blue.shade700),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (isLoading) return _buildDashboardLoadingScreen();
     if (schoolData == null) {
       // Ghost login durumu: Otomatik çıkış yap ve giriş ekranına yönlendir
       WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -744,8 +875,14 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
         } catch (_) {}
         if (mounted) Navigator.pushReplacementNamed(context, '/school-login');
       });
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return _buildDashboardLoadingScreen();
     }
+
+    // Dashboard ve veriler hazır; HTML açılış animasyonunu (splash) pürüzsüzce kapat
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      SplashService.hide();
+    });
+
     final size = MediaQuery.of(context).size; final isMobile = size.width < 1100;
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),

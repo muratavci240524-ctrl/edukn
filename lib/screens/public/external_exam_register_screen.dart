@@ -13,6 +13,7 @@ import 'dart:convert';
 import 'dart:html' as html;
 import 'package:flutter/rendering.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import '../../services/splash/splash_service.dart';
 
 enum PortalState { landing, form, ticket }
 
@@ -79,6 +80,7 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      SplashService.hide();
       if (mounted) {
         _loadExam();
       }

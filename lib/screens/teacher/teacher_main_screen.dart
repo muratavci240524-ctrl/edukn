@@ -6,11 +6,13 @@ import '../../services/chat_service.dart';
 import '../../services/announcement_service.dart';
 import '../../services/user_permission_service.dart';
 import '../../widgets/stylish_bottom_nav.dart';
+import '../../widgets/notification_prompt_dialog.dart';
 import 'teacher_haberlesme_screen.dart';
 import 'teacher_operations_screen.dart';
 import 'teacher_dashboard_tab.dart';
 import '../school/school_types/chat/call/call_service.dart';
 import '../school/school_types/chat/call/call_screen_dialog.dart';
+import '../../services/splash/splash_service.dart';
 
 class TeacherMainScreen extends StatefulWidget {
   final String institutionId;
@@ -46,6 +48,16 @@ class _TeacherMainScreenState extends State<TeacherMainScreen> {
     ];
     _pageLoaded[_currentIndex] = true; // İlk sayfayı yükle
     _startBadgeListeners();
+
+    // Bildirim izni açık değilse öğretmen girişinde şık bir diyalogla hatırlat
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      SplashService.hide();
+      Future.delayed(const Duration(milliseconds: 1200), () {
+        if (mounted) {
+          NotificationPromptDialog.checkAndShow(context);
+        }
+      });
+    });
   }
 
   @override

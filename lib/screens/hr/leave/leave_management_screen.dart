@@ -1,4 +1,5 @@
-﻿import 'package:flutter/material.dart';
+import 'dart:convert';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/foundation.dart';
 import 'package:file_saver/file_saver.dart';
@@ -10,9 +11,11 @@ import 'package:share_plus/share_plus.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../services/leave_service.dart';
 import '../../../services/leave_conflict_service.dart';
 import '../../../services/term_service.dart';
+import '../../../services/user_permission_service.dart';
 
 class LeaveManagementScreen extends StatefulWidget {
   final String? institutionId;
@@ -34,6 +37,13 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
   final LeaveService _service = LeaveService();
   TabController? _tabController;
   
+  // ⚡ Cache-First RAM Önbelleği
+  static List<Map<String, dynamic>>? _cachedAllRequests;
+  static List<Map<String, dynamic>>? _cachedMyRequests;
+  static Map<String, dynamic>? _cachedMyBalance;
+  static List<Map<String, dynamic>>? _cachedAllStaff;
+  static Map<int, int>? _cachedWeekdayLessonCounts;
+
   String? _myInstitutionId;
   String? _myUserId;
   String _myRole = 'staff';
@@ -56,9 +66,75 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
   bool _showFilters = false;
   String? _selectedCalendarStaffId;
 
+  static Map<String, dynamic> _makeJsonSafeMap(Map<String, dynamic> map) {
+    final res = <String, dynamic>{};
+    map.forEach((k, v) {
+      if (v is Timestamp) {
+        res[k] = v.toDate().toIso8601String();
+      } else if (v is DateTime) {
+        res[k] = v.toIso8601String();
+      } else if (v is Map) {
+        res[k] = _makeJsonSafeMap(Map<String, dynamic>.from(v));
+      } else if (v is List) {
+        res[k] = _makeJsonSafeList(v);
+      } else {
+        res[k] = v;
+      }
+    });
+    return res;
+  }
+
+  static List<dynamic> _makeJsonSafeList(List<dynamic> list) {
+    return list.map((e) {
+      if (e is Timestamp) return e.toDate().toIso8601String();
+      if (e is DateTime) return e.toIso8601String();
+      if (e is Map) return _makeJsonSafeMap(Map<String, dynamic>.from(e));
+      if (e is List) return _makeJsonSafeList(e);
+      return e;
+    }).toList();
+  }
+
+  Future<void> _loadFromDiskCache() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      final prefs = await SharedPreferences.getInstance();
+      final myUid = widget.forceUserId ?? user.uid;
+      final cachedReqStr = prefs.getString('edukn_leave_my_reqs_$myUid');
+      final cachedBalStr = prefs.getString('edukn_leave_balance_$myUid');
+      if (cachedReqStr != null && cachedReqStr.isNotEmpty && _myRequests.isEmpty) {
+        final List dec = json.decode(cachedReqStr);
+        final list = dec.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        final bal = cachedBalStr != null ? json.decode(cachedBalStr) as Map<String, dynamic> : null;
+        if (mounted && list.isNotEmpty) {
+          setState(() {
+            _myRequests = list;
+            _allRequests = list;
+            _myBalance = bal;
+            _isLoading = false;
+          });
+          _cachedMyRequests = list;
+          _cachedMyBalance = bal;
+        }
+      }
+    } catch (_) {}
+  }
+
   @override
   void initState() {
     super.initState();
+    if (_cachedMyRequests != null && _cachedMyRequests!.isNotEmpty) {
+      _myRequests = List.from(_cachedMyRequests!);
+      _allRequests = List.from(_cachedAllRequests ?? []);
+      _myBalance = _cachedMyBalance;
+      _allStaff = List.from(_cachedAllStaff ?? []);
+      if (_cachedWeekdayLessonCounts != null) {
+        _weekdayLessonCounts = Map.from(_cachedWeekdayLessonCounts!);
+      }
+      _isLoading = false;
+    } else {
+      _loadFromDiskCache();
+    }
     _initialize();
   }
 
@@ -68,10 +144,12 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
 
   Future<void> _initialize() async {
     try {
-      setState(() {
-        _isLoading = true;
-        _hasError = false;
-      });
+      if (_cachedMyRequests == null || _cachedMyRequests!.isEmpty) {
+        setState(() {
+          _isLoading = true;
+          _hasError = false;
+        });
+      }
       
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) {
@@ -83,14 +161,24 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
       }
       _myUserId = widget.forceUserId ?? user.uid;
 
-      final userDoc = await FirebaseFirestore.instance.collection('users').doc(_myUserId).get().timeout(const Duration(seconds: 10));
-      if (userDoc.exists) {
-        final userData = userDoc.data()!;
-        _myInstitutionId = widget.institutionId ?? userData['institutionId'];
+      final cachedUserData = UserPermissionService.getCachedUserData();
+      if (cachedUserData != null) {
+        _myInstitutionId = widget.institutionId ?? cachedUserData['institutionId'];
         if (widget.isTeacherMode) {
           _myRole = 'teacher';
         } else {
-          _myRole = (userData['role'] ?? 'staff').toString().toLowerCase();
+          _myRole = (cachedUserData['role'] ?? 'staff').toString().toLowerCase();
+        }
+      } else {
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(_myUserId).get().timeout(const Duration(seconds: 5));
+        if (userDoc.exists) {
+          final userData = userDoc.data()!;
+          _myInstitutionId = widget.institutionId ?? userData['institutionId'];
+          if (widget.isTeacherMode) {
+            _myRole = 'teacher';
+          } else {
+            _myRole = (userData['role'] ?? 'staff').toString().toLowerCase();
+          }
         }
       }
 
@@ -99,17 +187,20 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
 
       if (mounted) {
         final bool isAdmin = _isAdminRole(_myRole);
-        _tabController = TabController(length: isAdmin ? 3 : 1, vsync: this);
+        _tabController ??= TabController(length: isAdmin ? 3 : 1, vsync: this);
+        _tabController!.removeListener(_onTabChanged);
         _tabController!.addListener(_onTabChanged);
       }
 
       await _loadData().timeout(const Duration(seconds: 15));
     } catch (e) {
       debugPrint('Error initializing LeaveManagementScreen: $e');
-      setState(() {
-        _hasError = true;
-        _errorMessage = 'Yükleme sırasında bir hata oluştu: $e';
-      });
+      if (_myRequests.isEmpty) {
+        setState(() {
+          _hasError = true;
+          _errorMessage = 'Yükleme sırasında bir hata oluştu: $e';
+        });
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -131,44 +222,60 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
 
-      // Aktif döneme ait izin taleplerini çek
-      final requests = await _service.getLeaveRequests(
+      // Parallelize requests, workPeriods, allStaff, and leave balance
+      final requestsFuture = _service.getLeaveRequests(
         institutionId: _myInstitutionId!,
-        termId: _activeTermId, // sadece aktif dönem
+        termId: _activeTermId,
       );
-      
-      try {
-        final periodsSnap = await FirebaseFirestore.instance
-            .collection('workPeriods')
-            .where('institutionId', isEqualTo: _myInstitutionId!)
-            .where('isActive', isEqualTo: true)
-            .get();
-        if (periodsSnap.docs.isNotEmpty) {
-          final lessonHours = periodsSnap.docs.first.data()['lessonHours'];
-          if (lessonHours != null && lessonHours['lessonTimes'] != null) {
-            const days = ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar'];
-            for (int i = 0; i < 7; i++) {
-              final times = lessonHours['lessonTimes'][days[i]] as List?;
-              if (times != null && times.isNotEmpty) {
-                _weekdayLessonCounts[i + 1] = times.length;
-              }
+
+      final periodsFuture = FirebaseFirestore.instance
+          .collection('workPeriods')
+          .where('institutionId', isEqualTo: _myInstitutionId!)
+          .where('isActive', isEqualTo: true)
+          .get();
+
+      final staffFuture = _allStaff.isNotEmpty
+          ? Future.value(null)
+          : FirebaseFirestore.instance
+              .collection('users')
+              .where('institutionId', isEqualTo: _myInstitutionId!)
+              .get();
+
+      final balanceFuture = _service.getLeaveBalance(_myUserId!, _myInstitutionId!);
+
+      final results = await Future.wait<dynamic>([
+        requestsFuture,
+        periodsFuture,
+        staffFuture,
+        balanceFuture,
+      ]);
+
+      final requests = results[0] as List<Map<String, dynamic>>;
+      final periodsSnap = results[1] as QuerySnapshot;
+      final staffSnap = results[2] as QuerySnapshot?;
+      final balance = results[3] as Map<String, dynamic>;
+
+      if (periodsSnap.docs.isNotEmpty) {
+        final lessonHours = (periodsSnap.docs.first.data() as Map<String, dynamic>)['lessonHours'];
+        if (lessonHours != null && lessonHours['lessonTimes'] != null) {
+          const days = ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar'];
+          for (int i = 0; i < 7; i++) {
+            final times = lessonHours['lessonTimes'][days[i]] as List?;
+            if (times != null && times.isNotEmpty) {
+              _weekdayLessonCounts[i + 1] = times.length;
             }
           }
         }
-      } catch (e) {
-        print('Error loading workPeriods for lesson counts: $e');
       }
 
-      if (_allStaff.isEmpty) {
-        final staffDocs = await FirebaseFirestore.instance.collection('users').where('institutionId', isEqualTo: _myInstitutionId!).get();
-        _allStaff = staffDocs.docs.map((d) {
-          final data = d.data();
+      if (_allStaff.isEmpty && staffSnap != null) {
+        _allStaff = staffSnap.docs.map((d) {
+          final data = d.data() as Map<String, dynamic>;
           String dept = data['department'] ?? data['departmentName'] ?? 'Genel';
           String roleStr = (data['role'] ?? 'Personel').toString();
           if (roleStr.toLowerCase().contains('teacher') || roleStr.toLowerCase().contains('ogretmen')) roleStr = 'Öğretmen';
           else if (roleStr.toLowerCase().contains('mudur') || roleStr.toLowerCase().contains('admin')) roleStr = 'Müdür/Yönetici';
 
-          // Smart School Type Detection
           String school = '';
           if (data['schoolTypeName'] != null && data['schoolTypeName'].toString().isNotEmpty) {
             school = data['schoolTypeName'];
@@ -192,17 +299,25 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
         }).toList();
       }
 
-      final balance = await _service.getLeaveBalance(_myUserId!, _myInstitutionId!);
+      final myRequests = requests.where((r) => (r['staffId'] ?? r['userId']) == _myUserId).toList();
+
+      // Update static cache
+      _cachedAllRequests = requests;
+      _cachedMyRequests = myRequests;
+      _cachedMyBalance = balance;
+      _cachedAllStaff = _allStaff;
+      _cachedWeekdayLessonCounts = _weekdayLessonCounts;
 
       if (mounted) {
         setState(() {
           _allRequests = requests;
-          _myRequests = requests.where((r) => (r['staffId'] ?? r['userId']) == _myUserId).toList();
+          _myRequests = myRequests;
           _myBalance = balance;
+          _isLoading = false;
         });
       }
     } catch (e) {
-      print('Error loading leave data: $e');
+      debugPrint('Error loading leave data: $e');
     }
   }
 

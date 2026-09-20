@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -69,6 +70,21 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
 
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return [];
+
+    // ⚡ SharedPreferences Disk Önbelleği (Cold Start Anında Açılış)
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cachedStr = prefs.getString('cached_teacher_school_types_${user.uid}');
+      if (cachedStr != null && cachedStr.isNotEmpty) {
+        final List dec = json.decode(cachedStr);
+        final list = dec.map((e) => Map<String, String>.from(e as Map)).toList();
+        if (list.isNotEmpty) {
+          _cachedTeacherSchoolTypes = list;
+          return list;
+        }
+      }
+    } catch (_) {}
+
     final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
     final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
 
@@ -117,6 +133,10 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
 
     if (result.isNotEmpty) {
       _cachedTeacherSchoolTypes = result;
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('cached_teacher_school_types_${user.uid}', json.encode(result));
+      } catch (_) {}
     }
     return result;
   }
@@ -223,12 +243,34 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     return foundTypes.toList();
   }
 
+  static final Map<String, List<String>> _cachedTeacherAssignedClassIdsMap = {};
+
   Future<List<String>> _resolveTeacherAssignedClassIds(
     String instId,
     Map<String, dynamic>? userData,
     User user, {
     String? termId,
   }) async {
+    final cacheKey = '$instId-$termId-${user.uid}';
+    if (_cachedTeacherAssignedClassIdsMap.containsKey(cacheKey) &&
+        _cachedTeacherAssignedClassIdsMap[cacheKey]!.isNotEmpty) {
+      return _cachedTeacherAssignedClassIdsMap[cacheKey]!;
+    }
+
+    // ⚡ SharedPreferences Disk Önbelleği (Cold Start Anında Açılış)
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cachedClassStr = prefs.getString('cached_assigned_classes_${user.uid}_$termId');
+      if (cachedClassStr != null && cachedClassStr.isNotEmpty) {
+        final List dec = json.decode(cachedClassStr);
+        final list = dec.map((e) => e.toString()).toList();
+        if (list.isNotEmpty) {
+          _cachedTeacherAssignedClassIdsMap[cacheKey] = list;
+          return list;
+        }
+      }
+    } catch (_) {}
+
     final Set<String> validTeacherIds = {user.uid};
     final docId = userData?['id']?.toString();
     if (docId != null && docId.isNotEmpty) validTeacherIds.add(docId);
@@ -247,128 +289,86 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     final Set<String> classIds = {};
     final Set<String> termFilteredClassIds = {};
 
-    // 1. lessonAssignments sorguları (Array teacherIds ve single teacherId)
+    // Parallelize all lessonAssignments and classSchedules queries in one single Future.wait
+    final List<Future<QuerySnapshot>> queries = [];
     for (final inst in instIds) {
       for (final tid in validTeacherIds) {
         // Array teacherIds
-        final arraySnap = await FirebaseFirestore.instance
+        queries.add(FirebaseFirestore.instance
             .collection('lessonAssignments')
             .where('institutionId', isEqualTo: inst)
             .where('teacherIds', arrayContains: tid)
             .where('isActive', isEqualTo: true)
-            .get();
-        for (final doc in arraySnap.docs) {
-          final data = doc.data();
-          final cid = data['classId']?.toString();
-          if (cid != null && cid.isNotEmpty) {
-            classIds.add(cid);
-            if (termId != null && data['termId']?.toString() == termId) {
-              termFilteredClassIds.add(cid);
-            }
-          }
-        }
+            .get());
 
         // Single teacherId
-        final singleSnap = await FirebaseFirestore.instance
+        queries.add(FirebaseFirestore.instance
             .collection('lessonAssignments')
             .where('institutionId', isEqualTo: inst)
             .where('teacherId', isEqualTo: tid)
             .where('isActive', isEqualTo: true)
-            .get();
-        for (final doc in singleSnap.docs) {
-          final data = doc.data();
-          final cid = data['classId']?.toString();
-          if (cid != null && cid.isNotEmpty) {
-            classIds.add(cid);
-            if (termId != null && data['termId']?.toString() == termId) {
-              termFilteredClassIds.add(cid);
-            }
-          }
-        }
-      }
+            .get());
 
-      // İsim ile lessonAssignments
-      if (fullName.isNotEmpty) {
-        try {
-          final nameSnap = await FirebaseFirestore.instance
-              .collection('lessonAssignments')
-              .where('institutionId', isEqualTo: inst)
-              .where('teacherNames', arrayContains: fullName)
-              .where('isActive', isEqualTo: true)
-              .get();
-          for (final doc in nameSnap.docs) {
-            final data = doc.data();
-            final cid = data['classId']?.toString();
-            if (cid != null && cid.isNotEmpty) {
-              classIds.add(cid);
-              if (termId != null && data['termId']?.toString() == termId) {
-                termFilteredClassIds.add(cid);
-              }
-            }
-          }
-        } catch (_) {}
-      }
-
-      // 2. classSchedules sorguları (Ders programındaki şubeleri de bağla)
-      for (final tid in validTeacherIds) {
-        final csSnap = await FirebaseFirestore.instance
+        // classSchedules teacherId
+        queries.add(FirebaseFirestore.instance
             .collection('classSchedules')
             .where('institutionId', isEqualTo: inst)
             .where('teacherId', isEqualTo: tid)
-            .get();
-        for (final doc in csSnap.docs) {
-          final data = doc.data();
-          final cid = data['classId']?.toString();
-          if (cid != null && cid.isNotEmpty) {
-            classIds.add(cid);
-            if (termId != null && (data['termId']?.toString() == termId || data['periodId']?.toString() == termId)) {
-              termFilteredClassIds.add(cid);
-            }
-          }
-        }
+            .get());
 
-        final csArraySnap = await FirebaseFirestore.instance
+        // classSchedules teacherIds array
+        queries.add(FirebaseFirestore.instance
             .collection('classSchedules')
             .where('institutionId', isEqualTo: inst)
             .where('teacherIds', arrayContains: tid)
-            .get();
-        for (final doc in csArraySnap.docs) {
-          final data = doc.data();
+            .get());
+      }
+
+      // Name-based lessonAssignments & classSchedules
+      if (fullName.isNotEmpty) {
+        queries.add(FirebaseFirestore.instance
+            .collection('lessonAssignments')
+            .where('institutionId', isEqualTo: inst)
+            .where('teacherNames', arrayContains: fullName)
+            .where('isActive', isEqualTo: true)
+            .get());
+
+        queries.add(FirebaseFirestore.instance
+            .collection('classSchedules')
+            .where('institutionId', isEqualTo: inst)
+            .where('teacherName', isEqualTo: fullName)
+            .get());
+      }
+    }
+
+    try {
+      final snapshots = await Future.wait(queries);
+      for (final snap in snapshots) {
+        for (final doc in snap.docs) {
+          final data = doc.data() as Map<String, dynamic>;
           final cid = data['classId']?.toString();
           if (cid != null && cid.isNotEmpty) {
             classIds.add(cid);
-            if (termId != null && (data['termId']?.toString() == termId || data['periodId']?.toString() == termId)) {
+            final docTerm = data['termId']?.toString() ?? data['periodId']?.toString();
+            if (termId != null && docTerm == termId) {
               termFilteredClassIds.add(cid);
             }
           }
         }
       }
-
-      if (fullName.isNotEmpty) {
-        try {
-          final csNameSnap = await FirebaseFirestore.instance
-              .collection('classSchedules')
-              .where('institutionId', isEqualTo: inst)
-              .where('teacherName', isEqualTo: fullName)
-              .get();
-          for (final doc in csNameSnap.docs) {
-            final data = doc.data();
-            final cid = data['classId']?.toString();
-            if (cid != null && cid.isNotEmpty) {
-              classIds.add(cid);
-              if (termId != null && (data['termId']?.toString() == termId || data['periodId']?.toString() == termId)) {
-                termFilteredClassIds.add(cid);
-              }
-            }
-          }
-        } catch (_) {}
-      }
+    } catch (e) {
+      debugPrint('Error in _resolveTeacherAssignedClassIds parallel fetch: $e');
     }
 
-    if (termFilteredClassIds.isNotEmpty) {
-      return termFilteredClassIds.toList();
+    final result = termFilteredClassIds.isNotEmpty ? termFilteredClassIds.toList() : classIds.toList();
+    if (result.isNotEmpty) {
+      _cachedTeacherAssignedClassIdsMap[cacheKey] = result;
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('cached_assigned_classes_${user.uid}_$termId', json.encode(result));
+      } catch (_) {}
     }
-    return classIds.toList();
+    return result;
   }
 
   Future<void> _navigateToAssessmentReports() async {
@@ -1058,14 +1058,31 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       if (classIds.isNotEmpty) {
         final limitIds = classIds.length > 30 ? classIds.take(30).toList() : classIds;
         
-        // Fetch Class Names
-        final classesSnap = await FirebaseFirestore.instance.collection('classes').where(FieldPath.documentId, whereIn: limitIds).get();
-        classNames = classesSnap.docs.map((d) => (d.data()['name'] ?? '').toString()).where((n) => n.isNotEmpty).toList();
+        final classesSnapFuture = FirebaseFirestore.instance
+            .collection('classes')
+            .where(FieldPath.documentId, whereIn: limitIds)
+            .get();
 
-        // Fetch Student IDs for these classes
+        final List<Future<QuerySnapshot>> studentFutures = [];
         for (var i = 0; i < limitIds.length; i += 10) {
           final chunk = limitIds.sublist(i, i + 10 > limitIds.length ? limitIds.length : i + 10);
-          final studentsSnap = await FirebaseFirestore.instance.collection('students').where('institutionId', isEqualTo: instId).where('classId', whereIn: chunk).where('isActive', isEqualTo: true).get();
+          studentFutures.add(FirebaseFirestore.instance
+              .collection('students')
+              .where('institutionId', isEqualTo: instId)
+              .where('classId', whereIn: chunk)
+              .where('isActive', isEqualTo: true)
+              .get());
+        }
+
+        final results = await Future.wait<dynamic>([classesSnapFuture, ...studentFutures]);
+        final classesSnap = results[0] as QuerySnapshot;
+        classNames = classesSnap.docs
+            .map((d) => ((d.data() as Map<String, dynamic>)['name'] ?? '').toString())
+            .where((n) => n.isNotEmpty)
+            .toList();
+
+        for (var i = 1; i < results.length; i++) {
+          final studentsSnap = results[i] as QuerySnapshot;
           studentIds.addAll(studentsSnap.docs.map((doc) => doc.id));
         }
       }

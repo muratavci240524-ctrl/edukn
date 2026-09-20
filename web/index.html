@@ -3,16 +3,42 @@
 <head>
   <base href="$FLUTTER_BASE_HREF">
 
+  <!-- 🧹 Eski ve bozuk Service Worker / Cache Temizliği (Tek Seferlik Güvenli Sürüm Kontrolü) -->
+  <script>
+    (function() {
+      const CURRENT_CACHE_VERSION = 'edukn_v2026_09';
+      try {
+        const savedVersion = localStorage.getItem('edukn_cache_version');
+        if (savedVersion !== CURRENT_CACHE_VERSION) {
+          if ('caches' in window) {
+            caches.keys().then(function(names) {
+              names.forEach(function(name) {
+                caches.delete(name);
+              });
+            });
+          }
+          localStorage.setItem('edukn_cache_version', CURRENT_CACHE_VERSION);
+          console.log('🧹 Eski cache temizlendi, sürüm:', CURRENT_CACHE_VERSION);
+        }
+      } catch (e) {
+        console.warn('Cache kontrol hatası:', e);
+      }
+    })();
+  </script>
+
   <!-- PWA Sürüm Güncelleme Dinleyicisi -->
   <script>
-    // Dart (Flutter) tarafında tanımlanacak olan fonksiyon.
     window.onPwaUpdateAvailable = null;
+    let _refreshing = false;
 
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.addEventListener('controllerchange', function() {
         console.log('🔄 Yeni Service Worker kontrolü devraldı.');
         if (window.onPwaUpdateAvailable) {
           window.onPwaUpdateAvailable();
+        } else if (!_refreshing) {
+          _refreshing = true;
+          window.location.reload();
         }
       });
     }
@@ -183,34 +209,18 @@
     })();
   </script>
 
-  <!-- PWA BOŞ EKRAN DÜZELTMESİ (Background Context Loss Fix) -->
+  <!-- 🛡️ PWA CONTEXT KORUMASI (Arka Plandan Dönüşte Yenileme Yapmaz) -->
   <script>
     (function() {
-      let _lastHiddenTime = 0;
-      const RELOAD_THRESHOLD_MS = 10 * 60 * 1000; // 10 dakika (eski: 15 saniye)
-
-      document.addEventListener('visibilitychange', function() {
-        if (document.hidden) {
-          _lastHiddenTime = Date.now();
-        } else {
-          if (_lastHiddenTime > 0) {
-            const timeHiddenMs = Date.now() - _lastHiddenTime;
-            // Sadece 10 dakikadan uzun süre arka planda kaldıysa yenile
-            // (sekme değiştirme, kısa bekleme gibi durumlarda YENILEME YAPMA)
-            if (timeHiddenMs > RELOAD_THRESHOLD_MS) {
-              console.log('🔄 Uygulama uzun süre arka planda kaldı (' + Math.round(timeHiddenMs/60000) + ' dk), yenileniyor...');
-              window.location.reload();
-            }
-          }
-          _lastHiddenTime = 0; // sıfırla
-        }
-      });
-
-      // Sadece gerçek WebGL context kaybında yenile (sekme değiştirmede değil)
+      // Sekme değiştirildiğinde veya ekran kilitlendiğinde sayfayı reload YAPMA!
+      // Kullanıcının açık olan ekranı ve formu korunur.
       document.addEventListener('webglcontextlost', function(e) {
         e.preventDefault();
-        console.log('❌ WebGL Context Lost! Sayfa yenileniyor...');
-        window.location.reload();
+        console.warn('⚠️ WebGL Context geçici olarak uykuya alındı (Sayfa yenilenmeyecek).');
+      }, false);
+
+      document.addEventListener('webglcontextrestored', function() {
+        console.log('✅ WebGL Context başarıyla geri yüklendi.');
       }, false);
     })();
   </script>
@@ -385,28 +395,17 @@
             if (splash && splash.parentNode) {
               splash.parentNode.removeChild(splash);
             }
-          }, 550);
+          }, 600);
         }
       };
 
-      // 1. Flutter ilk frame'i çizdiğinde
-      window.addEventListener('flutter-first-frame', function() {
-        console.log('⚡ flutter-first-frame tetiklendi, splash kaldırılıyor.');
-        window.hideLoadingSplash();
-      });
+      // NOT: flutter-first-frame veya MutationObserver ile erken kaldırmıyoruz!
+      // Flutter uygulaması arka planda oturum kontrolünü ve dashboard önbelleğini
+      // hazırladıktan sonra SplashService.hide() çağırarak splash ekranını kapatır.
+      // Böylece kullanıcı tek ve kesintisiz bir açılış animasyonu görür.
 
-      // 2. DOM'a Flutter container'ı veya canvas'ı eklendiğinde
-      const observer = new MutationObserver(function(mutations, obs) {
-        const flutterEl = document.querySelector('flutter-view, flt-glass-pane, flt-scene-host');
-        if (flutterEl) {
-          setTimeout(window.hideLoadingSplash, 250);
-          obs.disconnect();
-        }
-      });
-      observer.observe(document.body, { childList: true, subtree: true });
-
-      // 3. Güvenlik fallback'i (En geç 15 saniye sonra kaldır)
-      setTimeout(window.hideLoadingSplash, 15000);
+      // Güvenlik fallback'i (En geç 12 saniye sonra otomatik kaldır)
+      setTimeout(window.hideLoadingSplash, 12000);
     })();
   </script>
   <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
@@ -430,7 +429,12 @@
             if (!newWorker) return;
 
             newWorker.addEventListener('statechange', function() {
-              // Yeni SW "aktive oldu" ve eski bir controller vardı (ilk yükleme değil)
+              // Yeni bir worker indirildiğinde bekleme durumunu atlaması için talimat ver
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                console.log('🔄 Yeni Service Worker indirildi, bekleme atlanıyor...');
+                newWorker.postMessage({ type: 'SKIP_WAITING' });
+              }
+              // Yeni SW "aktive oldu" ve eski bir controller vardı
               if (newWorker.state === 'activated' && navigator.serviceWorker.controller) {
                 console.log('🔄 Yeni uygulama sürümü yüklendi.');
               }

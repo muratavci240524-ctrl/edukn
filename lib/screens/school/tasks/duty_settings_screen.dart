@@ -424,6 +424,17 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
         .toList()
       ..sort();
 
+    final sortedLocations = List<DutyLocation>.from(locations);
+    sortedLocations.sort((a, b) {
+      final cfgA = locationConfigs[a.id] as Map<String, dynamic>?;
+      final cfgB = locationConfigs[b.id] as Map<String, dynamic>?;
+      final orderA = (cfgA?['order'] as num?)?.toInt() ?? a.order;
+      final orderB = (cfgB?['order'] as num?)?.toInt() ?? b.order;
+      final cmp = orderA.compareTo(orderB);
+      if (cmp != 0) return cmp;
+      return a.name.compareTo(b.name);
+    });
+
     return Column(
       children: [
         Padding(
@@ -441,7 +452,7 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Nöbet yerleri genel havuzdan çekilmiştir. Bu alt dönemde kullanılacak yerleri açıp kapatabilir, gruplarını, gün ve saatlerini özelleştirebilirsiniz.',
+                    'Nöbet yerlerini sol taraftaki tutamaçtan tutup sürükleyerek sıralayabilirsiniz. Nöbet tablosundaki satırlar bu sıraya göre listelenecektir.',
                     style: TextStyle(fontSize: 12, color: Colors.grey.shade700, fontWeight: FontWeight.w500),
                   ),
                 ),
@@ -450,11 +461,18 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
           ),
         ),
         Expanded(
-          child: ListView.builder(
+          child: ReorderableListView.builder(
+            buildDefaultDragHandles: false,
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 80),
-            itemCount: locations.length,
+            itemCount: sortedLocations.length,
+            onReorder: (oldIndex, newIndex) => _onReorderPeriodLocations(
+              oldIndex,
+              newIndex,
+              sortedLocations,
+              locationConfigs,
+            ),
             itemBuilder: (context, index) {
-              final loc = locations[index];
+              final loc = sortedLocations[index];
               final config = locationConfigs[loc.id] as Map<String, dynamic>?;
               final isEnabled = config?['isEnabled'] == true; // Varsayılan kapalı
 
@@ -470,9 +488,9 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
                   groupName.isNotEmpty;
 
               return Opacity(
+                key: ValueKey(loc.id),
                 opacity: isEnabled ? 1.0 : 0.55,
                 child: Container(
-                  key: ValueKey(loc.id),
                   margin: const EdgeInsets.only(bottom: 8),
                   decoration: BoxDecoration(
                     color: Colors.white,
@@ -495,21 +513,38 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     child: Row(
                       children: [
-                        // Sıra No Badge
-                        Container(
-                          width: 26,
-                          height: 26,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: isEnabled ? const Color(0xFF4F46E5).withOpacity(0.1) : Colors.grey.shade200,
-                            shape: BoxShape.circle,
-                          ),
-                          child: Text(
-                            '${index + 1}',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                              color: isEnabled ? const Color(0xFF4F46E5) : Colors.grey.shade600,
+                        // Tutamaç (Drag Handle) ve Sıra No Badge
+                        ReorderableDragStartListener(
+                          index: index,
+                          child: MouseRegion(
+                            cursor: SystemMouseCursors.grab,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.drag_indicator_rounded,
+                                  color: isEnabled ? const Color(0xFF4F46E5) : Colors.grey.shade400,
+                                  size: 22,
+                                ),
+                                const SizedBox(width: 6),
+                                Container(
+                                  width: 26,
+                                  height: 26,
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    color: isEnabled ? const Color(0xFF4F46E5).withOpacity(0.1) : Colors.grey.shade200,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Text(
+                                    '${index + 1}',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: isEnabled ? const Color(0xFF4F46E5) : Colors.grey.shade600,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
@@ -628,6 +663,34 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
                           ),
                         ),
 
+                        // Yukarı Taşı
+                        IconButton(
+                          icon: const Icon(Icons.keyboard_arrow_up_rounded),
+                          iconSize: 20,
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                          color: index > 0 ? const Color(0xFF4F46E5) : Colors.grey.shade300,
+                          tooltip: 'Yukarı Taşı',
+                          onPressed: index > 0
+                              ? () => _movePeriodLocation(index, -1, sortedLocations, locationConfigs)
+                              : null,
+                        ),
+                        // Aşağı Taşı
+                        IconButton(
+                          icon: const Icon(Icons.keyboard_arrow_down_rounded),
+                          iconSize: 20,
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                          color: index < sortedLocations.length - 1 ? const Color(0xFF4F46E5) : Colors.grey.shade300,
+                          tooltip: 'Aşağı Taşı',
+                          onPressed: index < sortedLocations.length - 1
+                              ? () => _movePeriodLocation(index, 1, sortedLocations, locationConfigs)
+                              : null,
+                        ),
+                        const SizedBox(width: 4),
+
                         // Düzenle Butonu (Sadece bu alt döneme özel gün/saat/grup)
                         IconButton(
                           icon: const Icon(Icons.edit_outlined, color: Color(0xFF0891B2)),
@@ -675,6 +738,71 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
         ),
       ],
     );
+  }
+
+  Future<void> _onReorderPeriodLocations(
+    int oldIndex,
+    int newIndex,
+    List<DutyLocation> list,
+    Map<String, dynamic> locationConfigs,
+  ) async {
+    if (widget.periodId == null || widget.periodId!.isEmpty) return;
+    if (newIndex > oldIndex) {
+      newIndex -= 1;
+    }
+    final item = list.removeAt(oldIndex);
+    list.insert(newIndex, item);
+    await _savePeriodLocationOrders(list, locationConfigs);
+  }
+
+  Future<void> _movePeriodLocation(
+    int currentIndex,
+    int direction,
+    List<DutyLocation> list,
+    Map<String, dynamic> locationConfigs,
+  ) async {
+    final targetIndex = currentIndex + direction;
+    if (targetIndex < 0 || targetIndex >= list.length) return;
+
+    final item = list.removeAt(currentIndex);
+    list.insert(targetIndex, item);
+    await _savePeriodLocationOrders(list, locationConfigs);
+  }
+
+  Future<void> _savePeriodLocationOrders(
+    List<DutyLocation> list,
+    Map<String, dynamic> locationConfigs,
+  ) async {
+    if (widget.periodId == null || widget.periodId!.isEmpty) return;
+
+    try {
+      final periodRef = FirebaseFirestore.instance.collection('workPeriods').doc(widget.periodId);
+      final periodSnap = await periodRef.get();
+      final pData = periodSnap.data() ?? {};
+      final currentConfigs = Map<String, dynamic>.from(pData['dutyLocationConfigs'] as Map? ?? {});
+
+      for (int i = 0; i < list.length; i++) {
+        final locId = list[i].id;
+        final locCfg = Map<String, dynamic>.from(currentConfigs[locId] as Map? ?? {});
+        locCfg['order'] = i;
+        currentConfigs[locId] = locCfg;
+      }
+
+      // 1. Alt döneme özel sıralamayı workPeriods içine kaydet
+      await periodRef.set({
+        'dutyLocationConfigs': currentConfigs,
+      }, SetOptions(merge: true));
+
+      // 2. Genel dutyLocations koleksiyonunu da aynı sıraya göre güncelle
+      final batch = FirebaseFirestore.instance.batch();
+      final col = FirebaseFirestore.instance.collection('dutyLocations');
+      for (int i = 0; i < list.length; i++) {
+        batch.update(col.doc(list[i].id), {'order': i});
+      }
+      await batch.commit();
+    } catch (e) {
+      debugPrint('Alt dönem nöbet yeri sıralama kaydetme hatası: $e');
+    }
   }
 
   // --- Sıralama Mantığı ---
@@ -780,6 +908,9 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
             : List<int>.from(location?.activeDays ?? [1, 2, 3, 4, 5]))
         : List<int>.from(location?.activeDays ?? [1, 2, 3, 4, 5]);
     bool checkOtherDays = location?.checkOtherDays ?? true;
+    bool isAmir = isPeriodMode
+        ? (currentConfig?['isAmir'] == true || (location?.isAmir ?? false))
+        : (location?.isAmir ?? false);
 
     Map<String, dynamic> getGroupVisuals(String g) {
       if (g == 'Kat Nöbetleri') {
@@ -1547,6 +1678,53 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
                                 },
                               ),
                             ],
+                            const SizedBox(height: 14),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: isAmir ? const Color(0xFFEEF2FF) : const Color(0xFFF8FAFC),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: isAmir ? const Color(0xFF818CF8) : const Color(0xFFE2E8F0),
+                                  width: isAmir ? 1.5 : 1,
+                                ),
+                              ),
+                              child: SwitchListTile(
+                                contentPadding: EdgeInsets.zero,
+                                title: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.shield_rounded,
+                                      size: 20,
+                                      color: isAmir ? const Color(0xFF4F46E5) : const Color(0xFF64748B),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    const Text(
+                                      'Nöbetçi Amir Yeri',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14,
+                                        color: Color(0xFF0F172A),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                subtitle: const Padding(
+                                  padding: EdgeInsets.only(top: 4),
+                                  child: Text(
+                                    'Bu nöbet yerine atanan öğretmen, öğretmenlerin nöbet kartında "Günün Nöbetçi Amiri" olarak görünür.',
+                                    style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                                  ),
+                                ),
+                                activeColor: const Color(0xFF4F46E5),
+                                value: isAmir,
+                                onChanged: (val) {
+                                  setState(() {
+                                    isAmir = val;
+                                  });
+                                },
+                              ),
+                            ),
                             const SizedBox(height: 24),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.end,
@@ -1585,10 +1763,17 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
                                               'startTime': startCtrl.text.trim(),
                                               'endTime': endCtrl.text.trim(),
                                               'group': groupCtrl.text.trim(),
+                                              'isAmir': isAmir,
                                               'isEnabled': true,
                                             }
                                           }
                                         }, SetOptions(merge: true));
+
+                                        // Ana dutyLocations dokümanını da merge ederek güncelle
+                                        await FirebaseFirestore.instance
+                                            .collection('dutyLocations')
+                                            .doc(location.id)
+                                            .set({'isAmir': isAmir}, SetOptions(merge: true));
                                       } catch (e) {
                                         debugPrint('Error saving dutyLocationConfigs: $e');
                                       }
@@ -1606,6 +1791,7 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
                                         'description': descCtrl.text.trim(),
                                         'checkOtherDays': checkOtherDays,
                                         'group': groupCtrl.text.trim(),
+                                        'isAmir': isAmir,
                                       };
 
                                       if (location == null) {

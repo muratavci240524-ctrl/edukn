@@ -547,7 +547,56 @@ class SeatingPlan {
       studentConstraints: constraints,
     );
   }
+
+  SeatingPlan copyWith({
+    String? id,
+    String? title,
+    String? institutionId,
+    String? schoolTypeId,
+    String? schoolTypeName,
+    String? classId,
+    String? className,
+    String? classroomId,
+    String? classroomName,
+    String? layoutId,
+    String? termId,
+    String? termName,
+    DateTime? planDate,
+    List<DeskCell>? cells,
+    String? createdBy,
+    String? createdByName,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    String? notes,
+    double? penaltyScore,
+    Map<String, StudentSeatingConstraint>? studentConstraints,
+  }) {
+    return SeatingPlan(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      institutionId: institutionId ?? this.institutionId,
+      schoolTypeId: schoolTypeId ?? this.schoolTypeId,
+      schoolTypeName: schoolTypeName ?? this.schoolTypeName,
+      classId: classId ?? this.classId,
+      className: className ?? this.className,
+      classroomId: classroomId ?? this.classroomId,
+      classroomName: classroomName ?? this.classroomName,
+      layoutId: layoutId ?? this.layoutId,
+      termId: termId ?? this.termId,
+      termName: termName ?? this.termName,
+      planDate: planDate ?? this.planDate,
+      cells: cells ?? this.cells,
+      createdBy: createdBy ?? this.createdBy,
+      createdByName: createdByName ?? this.createdByName,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      notes: notes ?? this.notes,
+      penaltyScore: penaltyScore ?? this.penaltyScore,
+      studentConstraints: studentConstraints ?? this.studentConstraints,
+    );
+  }
 }
+
 
 /// Öğrenci Oturma Tercihi / Sıra Kriterleri
 enum RowZonePreference {

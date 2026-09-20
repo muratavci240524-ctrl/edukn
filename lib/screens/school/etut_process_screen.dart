@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/term_service.dart';
 import '../../services/user_permission_service.dart';
 import '../../widgets/edukn_logo.dart';
@@ -50,6 +52,16 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
   bool _isLoading = true;
   DateTime _focusedDate = DateTime.now();
 
+  // ⚡ Cache-First RAM & Disk Önbelleği (Anında açılır, sıfır bekleme)
+  static List<bool>? _cachedActiveDays;
+  static int? _cachedStartHour;
+  static int? _cachedEndHour;
+  static List<Map<String, dynamic>>? _cachedAllStudents;
+  static List<Map<String, dynamic>>? _cachedAllTeachers;
+  static Map<String, String>? _cachedClassNameMap;
+  static Map<String, String>? _cachedLessonNameMap;
+  static String? _cachedSchoolId;
+
   // Clash Data
   Map<String, dynamic> _clashData = {};
   String? _schoolId;
@@ -60,13 +72,329 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
   int _endHour = 20;
   Set<String> _currentTeacherUnavailableSlots = {}; // Format: "dayIndex-hour"
 
+  static Map<String, dynamic> _makeJsonSafeMap(Map<String, dynamic> map) {
+    final res = <String, dynamic>{};
+    map.forEach((k, v) {
+      if (v is Timestamp) {
+        res[k] = v.toDate().toIso8601String();
+      } else if (v is DateTime) {
+        res[k] = v.toIso8601String();
+      } else if (v is Map) {
+        res[k] = _makeJsonSafeMap(Map<String, dynamic>.from(v));
+      } else if (v is List) {
+        res[k] = _makeJsonSafeList(v);
+      } else {
+        res[k] = v;
+      }
+    });
+    return res;
+  }
+
+  static List<dynamic> _makeJsonSafeList(List<dynamic> list) {
+    return list.map((e) {
+      if (e is Timestamp) return e.toDate().toIso8601String();
+      if (e is DateTime) return e.toIso8601String();
+      if (e is Map) return _makeJsonSafeMap(Map<String, dynamic>.from(e));
+      if (e is List) return _makeJsonSafeList(e);
+      return e;
+    }).toList();
+  }
+
+  Future<void> _loadFromDiskCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = 'edukn_etut_meta_${widget.institutionId}_${widget.schoolTypeId}_${widget.teacherId ?? ''}';
+      final cachedStr = prefs.getString(key);
+      if (cachedStr != null && cachedStr.isNotEmpty && _allStudents.isEmpty) {
+        final Map<String, dynamic> data = json.decode(cachedStr);
+        final students = (data['students'] as List?)?.map((e) => Map<String, dynamic>.from(e as Map)).toList() ?? [];
+        final teachers = (data['teachers'] as List?)?.map((e) => Map<String, dynamic>.from(e as Map)).toList() ?? [];
+        final classNames = Map<String, String>.from(data['classNames'] ?? {});
+        final lessonNames = Map<String, String>.from(data['lessonNames'] ?? {});
+        final activeDays = (data['activeDays'] as List?)?.map((e) => e as bool).toList() ?? List.generate(7, (index) => true);
+        final startHour = data['startHour'] as int? ?? 8;
+        final endHour = data['endHour'] as int? ?? 20;
+        final schoolId = data['schoolId'] as String?;
+
+        if (mounted && students.isNotEmpty) {
+          setState(() {
+            _allStudents = students;
+            _allTeachers = teachers;
+            _classNameMap = classNames;
+            _lessonNameMap = lessonNames;
+            _activeDays = activeDays;
+            _startHour = startHour;
+            _endHour = endHour;
+            _schoolId = schoolId;
+            _isLoading = false;
+          });
+          _cachedAllStudents = students;
+          _cachedAllTeachers = teachers;
+          _cachedClassNameMap = classNames;
+          _cachedLessonNameMap = lessonNames;
+          _cachedActiveDays = activeDays;
+          _cachedStartHour = startHour;
+          _cachedEndHour = endHour;
+          _cachedSchoolId = schoolId;
+        }
+      }
+    } catch (_) {}
+  }
+
   @override
   void initState() {
     super.initState();
     if (widget.isTeacher && widget.teacherId != null) {
       _selectedTeacherId = widget.teacherId;
     }
+    if (_cachedAllStudents != null && _cachedAllStudents!.isNotEmpty) {
+      _allStudents = List.from(_cachedAllStudents!);
+      _allTeachers = List.from(_cachedAllTeachers ?? []);
+      _classNameMap = Map.from(_cachedClassNameMap ?? {});
+      _lessonNameMap = Map.from(_cachedLessonNameMap ?? {});
+      _schoolId = _cachedSchoolId;
+      if (_cachedActiveDays != null) _activeDays = List.from(_cachedActiveDays!);
+      if (_cachedStartHour != null) _startHour = _cachedStartHour!;
+      if (_cachedEndHour != null) _endHour = _cachedEndHour!;
+      _isLoading = false;
+    } else {
+      _loadFromDiskCache();
+    }
     _loadData();
+  }
+
+  Future<void> _loadData() async {
+    if (_cachedAllStudents == null || _cachedAllStudents!.isEmpty) {
+      if (mounted) setState(() => _isLoading = true);
+    }
+    try {
+      final uData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
+      final currentUid = FirebaseAuth.instance.currentUser?.uid;
+      final Set<String> validTeacherIds = {
+        if (widget.teacherId != null && widget.teacherId!.isNotEmpty) widget.teacherId!,
+        if (currentUid != null && currentUid.isNotEmpty) currentUid,
+        if (uData?['id'] != null) uData!['id'].toString(),
+        if (uData?['teacherId'] != null) uData!['teacherId'].toString(),
+        if (uData?['authUserId'] != null) uData!['authUserId'].toString(),
+      };
+
+      // Parallelize all queries including settings, metadata, and assignments
+      final termIdFuture = TermService().getActiveTermId();
+      final settingsFuture = FirebaseFirestore.instance
+          .collection('etut_settings')
+          .doc(widget.institutionId)
+          .get();
+
+      final studentsFuture = FirebaseFirestore.instance
+          .collection('students')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+          .where('isActive', isEqualTo: true)
+          .get();
+
+      final usersFuture = FirebaseFirestore.instance
+          .collection('users')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .where('type', isEqualTo: 'staff')
+          .where('isActive', isEqualTo: true)
+          .get();
+
+      final schoolsFuture = FirebaseFirestore.instance
+          .collection('schools')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .limit(1)
+          .get();
+
+      final classesFuture = FirebaseFirestore.instance
+          .collection('classes')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .get();
+
+      final lessonsFuture = FirebaseFirestore.instance
+          .collection('lessons')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .get();
+
+      final assignmentsFuture = FirebaseFirestore.instance
+          .collection('lessonAssignments')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .where('isActive', isEqualTo: true)
+          .get();
+
+      final results = await Future.wait<dynamic>([
+        settingsFuture,
+        studentsFuture,
+        usersFuture,
+        schoolsFuture,
+        classesFuture,
+        lessonsFuture,
+        assignmentsFuture,
+        termIdFuture,
+      ]);
+
+      final settingsDoc = results[0] as DocumentSnapshot;
+      final studentsSnap = results[1] as QuerySnapshot;
+      final usersSnap = results[2] as QuerySnapshot;
+      final schoolsSnap = results[3] as QuerySnapshot;
+      final classesSnap = results[4] as QuerySnapshot;
+      final lessonsSnap = results[5] as QuerySnapshot;
+      final assignmentsSnap = results[6] as QuerySnapshot;
+      final termId = results[7] as String?;
+
+      // 1. Process settings
+      List<bool> newActiveDays = List.from(_activeDays);
+      int newStartHour = _startHour;
+      int newEndHour = _endHour;
+
+      if (settingsDoc.exists) {
+        final data = settingsDoc.data() as Map<String, dynamic>;
+        if (data['activeDays'] != null) {
+          newActiveDays = List<bool>.from(data['activeDays']);
+        }
+        newStartHour = data['startHour'] ?? 8;
+        newEndHour = data['endHour'] ?? 20;
+      }
+
+      // Check workPeriod for schedule active days if needed
+      try {
+        var periodQuery = FirebaseFirestore.instance
+            .collection('workPeriods')
+            .where('institutionId', isEqualTo: widget.institutionId)
+            .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+            .where('isActive', isEqualTo: true);
+
+        if (termId != null) {
+          periodQuery = periodQuery.where('termId', isEqualTo: termId);
+        }
+
+        final periodSnap = await periodQuery.limit(1).get();
+        if (periodSnap.docs.isNotEmpty) {
+          final periodData = periodSnap.docs.first.data();
+          final lessonHours = periodData['lessonHours'] as Map<String, dynamic>?;
+          if (lessonHours != null && lessonHours['selectedDays'] != null) {
+            final selectedDays = List<String>.from(lessonHours['selectedDays']);
+            final daysList = ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar'];
+            for (int i = 0; i < 7; i++) {
+              final dayName = daysList[i];
+              if (!selectedDays.contains(dayName)) {
+                newActiveDays[i] = false;
+              }
+            }
+          }
+        }
+      } catch (_) {}
+
+      // 2. Process metadata
+      var newStudents = studentsSnap.docs
+          .map((doc) => {'id': doc.id, ...(doc.data() as Map<String, dynamic>)})
+          .toList();
+
+      final newClassNameMap = {
+        for (var doc in classesSnap.docs)
+          doc.id: (((doc.data() as Map<String, dynamic>)['className'] ?? (doc.data() as Map<String, dynamic>)['name'] ?? '')).toString()
+      };
+
+      final newLessonNameMap = {
+        for (var doc in lessonsSnap.docs)
+          doc.id: (((doc.data() as Map<String, dynamic>)['lessonName'] ?? (doc.data() as Map<String, dynamic>)['name'] ?? '')).toString()
+      };
+
+      // 3. Filter teacher assigned classes if in teacher mode
+      List<Map<String, dynamic>> newTeachers = [];
+      if (widget.isTeacher && widget.teacherId != null) {
+        final classIds = <String>{};
+        for (var doc in assignmentsSnap.docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          final tId = (data['teacherId'] ?? '').toString();
+          final tIds = (data['teacherIds'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
+          if (validTeacherIds.contains(tId) || tIds.any((id) => validTeacherIds.contains(id))) {
+            final cid = (data['classId'] ?? '').toString();
+            if (cid.isNotEmpty) classIds.add(cid);
+          }
+        }
+
+        if (classIds.isNotEmpty) {
+          newStudents = newStudents.where((s) => classIds.contains(s['classId']?.toString())).toList();
+        }
+
+        newTeachers = usersSnap.docs
+            .map((doc) => {'id': doc.id, ...(doc.data() as Map<String, dynamic>)})
+            .where((t) => validTeacherIds.contains(t['id']) || validTeacherIds.contains(t['uid']) || validTeacherIds.contains(t['authUserId']))
+            .toList();
+
+        if (newTeachers.isEmpty) {
+          newTeachers = usersSnap.docs
+              .map((doc) => {'id': doc.id, ...(doc.data() as Map<String, dynamic>)})
+              .where((t) {
+                final title = (t['title'] ?? '').toString().toLowerCase();
+                return title == 'ogretmen' || title == 'teacher';
+              })
+              .toList();
+        }
+      } else {
+        newTeachers = usersSnap.docs
+            .map((doc) => {'id': doc.id, ...(doc.data() as Map<String, dynamic>)})
+            .where((t) {
+              final title = (t['title'] ?? '').toString().toLowerCase();
+              return title == 'ogretmen' || title == 'teacher';
+            })
+            .toList();
+      }
+
+      newTeachers.sort((a, b) {
+        final nameA = (a['fullName'] ?? '').toString();
+        final nameB = (b['fullName'] ?? '').toString();
+        return _turkishCompare(nameA, nameB);
+      });
+
+      String? newSchoolId = _schoolId;
+      if (schoolsSnap.docs.isNotEmpty) {
+        newSchoolId = schoolsSnap.docs.first.id;
+      }
+
+      // Update static cache
+      _cachedActiveDays = newActiveDays;
+      _cachedStartHour = newStartHour;
+      _cachedEndHour = newEndHour;
+      _cachedAllStudents = newStudents;
+      _cachedAllTeachers = newTeachers;
+      _cachedClassNameMap = newClassNameMap;
+      _cachedLessonNameMap = newLessonNameMap;
+      _cachedSchoolId = newSchoolId;
+
+      // 💾 Diske kalıcı kaydet (Uygulama kapatılıp açılsa da 0 ms'de yüklenir)
+      SharedPreferences.getInstance().then((prefs) {
+        final key = 'edukn_etut_meta_${widget.institutionId}_${widget.schoolTypeId}_${widget.teacherId ?? ''}';
+        final payload = {
+          'students': _makeJsonSafeList(newStudents),
+          'teachers': _makeJsonSafeList(newTeachers),
+          'classNames': newClassNameMap,
+          'lessonNames': newLessonNameMap,
+          'activeDays': newActiveDays,
+          'startHour': newStartHour,
+          'endHour': newEndHour,
+          'schoolId': newSchoolId,
+        };
+        prefs.setString(key, json.encode(payload));
+      }).catchError((_) {});
+
+      if (mounted) {
+        setState(() {
+          _activeDays = newActiveDays;
+          _startHour = newStartHour;
+          _endHour = newEndHour;
+          _allStudents = newStudents;
+          _allTeachers = newTeachers;
+          _classNameMap = newClassNameMap;
+          _lessonNameMap = newLessonNameMap;
+          _schoolId = newSchoolId;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading etut data: $e');
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   Future<void> _loadSettings() async {
@@ -88,167 +416,8 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
           });
         }
       }
-
-      // Merge active days from Ders Programı
-      try {
-        final termId = await TermService().getActiveTermId();
-        var periodQuery = FirebaseFirestore.instance
-            .collection('workPeriods')
-            .where('institutionId', isEqualTo: widget.institutionId)
-            .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
-            .where('isActive', isEqualTo: true);
-
-        if (termId != null) {
-          periodQuery = periodQuery.where('termId', isEqualTo: termId);
-        }
-
-        final periodSnap = await periodQuery.get();
-        if (periodSnap.docs.isNotEmpty) {
-          final periodData = periodSnap.docs.first.data();
-          final lessonHours = periodData['lessonHours'] as Map<String, dynamic>?;
-          if (lessonHours != null && lessonHours['selectedDays'] != null) {
-            final selectedDays = List<String>.from(lessonHours['selectedDays']);
-            final daysList = ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar'];
-            if (mounted) {
-              setState(() {
-                for (int i = 0; i < 7; i++) {
-                  final dayName = daysList[i];
-                  if (!selectedDays.contains(dayName)) {
-                    _activeDays[i] = false;
-                  }
-                }
-              });
-            }
-          }
-        }
-      } catch (e) {
-        debugPrint('Error loading schedule active days: $e');
-      }
     } catch (e) {
       debugPrint('Error loading etut settings: $e');
-    }
-  }
-
-  Future<void> _loadData() async {
-    setState(() => _isLoading = true);
-    await _loadSettings();
-    try {
-      final reqs = await Future.wait([
-        FirebaseFirestore.instance
-            .collection('students')
-            .where('institutionId', isEqualTo: widget.institutionId)
-            .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
-            .where('isActive', isEqualTo: true)
-            .get(),
-        FirebaseFirestore.instance
-            .collection('users')
-            .where('institutionId', isEqualTo: widget.institutionId)
-            .where('type', isEqualTo: 'staff')
-            .where('isActive', isEqualTo: true)
-            .get(),
-        FirebaseFirestore.instance
-            .collection('schools')
-            .where('institutionId', isEqualTo: widget.institutionId)
-            .limit(1)
-            .get(),
-        FirebaseFirestore.instance
-            .collection('classes')
-            .where('institutionId', isEqualTo: widget.institutionId)
-            .get(),
-        FirebaseFirestore.instance
-            .collection('lessons')
-            .where('institutionId', isEqualTo: widget.institutionId)
-            .get(),
-      ]);
-
-      _allStudents = reqs[0].docs
-          .map((doc) => {'id': doc.id, ...doc.data()})
-          .toList();
-
-      _classNameMap = {
-        for (var doc in reqs[3].docs)
-          doc.id: (doc.data()['className'] ?? doc.data()['name'] ?? '').toString()
-      };
-
-      _lessonNameMap = {
-        for (var doc in reqs[4].docs)
-          doc.id: (doc.data()['lessonName'] ?? doc.data()['name'] ?? '').toString()
-      };
-
-      if (widget.isTeacher && widget.teacherId != null) {
-        // Teacher Mode: Filter students by assigned classes
-        final uData = await UserPermissionService.loadUserData();
-        final currentUid = FirebaseAuth.instance.currentUser?.uid;
-        final Set<String> validTeacherIds = {
-          widget.teacherId!,
-          if (currentUid != null && currentUid.isNotEmpty) currentUid,
-          if (uData?['id'] != null) uData!['id'].toString(),
-          if (uData?['teacherId'] != null) uData!['teacherId'].toString(),
-          if (uData?['authUserId'] != null) uData!['authUserId'].toString(),
-        };
-
-        // Kurumdaki tüm aktif atamaları çek ve öğretmenin derslerine filtrele
-        final assignmentsSnap = await FirebaseFirestore.instance
-            .collection('lessonAssignments')
-            .where('institutionId', isEqualTo: widget.institutionId)
-            .where('isActive', isEqualTo: true)
-            .get();
-
-        final classIds = <String>{};
-        for (var doc in assignmentsSnap.docs) {
-          final data = doc.data();
-          final tId = (data['teacherId'] ?? '').toString();
-          final tIds = (data['teacherIds'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
-          if (validTeacherIds.contains(tId) || tIds.any((id) => validTeacherIds.contains(id))) {
-            final cid = (data['classId'] ?? '').toString();
-            if (cid.isNotEmpty) classIds.add(cid);
-          }
-        }
-
-        if (classIds.isNotEmpty) {
-          _allStudents = _allStudents.where((s) => classIds.contains(s['classId']?.toString())).toList();
-        }
-        
-        // Teacher Mode: Sadece kendini veya listedeki öğretmenleri göster
-        _allTeachers = reqs[1].docs
-            .map((doc) => {'id': doc.id, ...doc.data()})
-            .where((t) => validTeacherIds.contains(t['id']) || validTeacherIds.contains(t['uid']) || validTeacherIds.contains(t['authUserId']))
-            .toList();
-            
-        if (_allTeachers.isEmpty) {
-           _allTeachers = reqs[1].docs
-            .map((doc) => {'id': doc.id, ...doc.data()})
-            .where((t) {
-              final title = (t['title'] ?? '').toString().toLowerCase();
-              return title == 'ogretmen' || title == 'teacher';
-            })
-            .toList();
-        }
-      } else {
-        _allTeachers = reqs[1].docs
-            .map((doc) => {'id': doc.id, ...doc.data()})
-            .where((t) {
-              final title = (t['title'] ?? '').toString().toLowerCase();
-              return title == 'ogretmen' || title == 'teacher';
-            })
-            .toList();
-      }
-
-      // Turkish locale-aware sorting for teachers list
-      _allTeachers.sort((a, b) {
-        final nameA = (a['fullName'] ?? '').toString();
-        final nameB = (b['fullName'] ?? '').toString();
-        return _turkishCompare(nameA, nameB);
-      });
-
-      if (reqs[2].docs.isNotEmpty) {
-        _schoolId = reqs[2].docs.first.id;
-      }
-
-      setState(() => _isLoading = false);
-    } catch (e) {
-      debugPrint('Error loading etut data: $e');
-      setState(() => _isLoading = false);
     }
   }
 

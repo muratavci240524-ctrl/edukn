@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'dart:async';
+import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/user_permission_service.dart';
 import '../../services/announcement_service.dart';
@@ -125,7 +126,11 @@ class _NotificationSection extends StatefulWidget {
   State<_NotificationSection> createState() => _NotificationSectionState();
 }
  
-class _NotificationSectionState extends State<_NotificationSection> {
+class _NotificationSectionState extends State<_NotificationSection>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   Map<String, dynamic>? _userData;
   String? _schoolId;
   String? _schoolTypeId;
@@ -153,18 +158,126 @@ class _NotificationSectionState extends State<_NotificationSection> {
     return _snaps[type]?.docs ?? [];
   }
 
+  Timer? _debounceTimer;
+
   @override
   void dispose() {
     for (final s in _streams.values) {
       s.cancel();
     }
     _timer?.cancel();
+    _debounceTimer?.cancel();
     super.dispose();
+  }
+
+  // ⚡ Statik Global Önbellek (Tekrar tekrar Firestore'a sormayı engeller, anında açılır)
+  static List<Map<String, dynamic>> _memoryTeacherNotifs = [];
+  static Map<String, dynamic>? _globalCachedUserData;
+  static String? _globalCachedSchoolId;
+  static String? _globalCachedActiveTermId;
+  static bool? _globalCachedNotifyMissingAttendance;
+  static final Map<String, Map<String, dynamic>> _globalDutyLocationsMap = {};
+  static final Set<String> _globalValidPeriodIds = {};
+  static final Map<String, String> _globalClassNamesMap = {};
+  static String? _globalCachedInstId;
+
+  static bool _notificationsAreEqual(List<Map<String, dynamic>> a, List<Map<String, dynamic>> b) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      final itemA = a[i];
+      final itemB = b[i];
+      if (itemA['id'] != itemB['id']) return false;
+      if (itemA['title'] != itemB['title']) return false;
+      if (itemA['body'] != itemB['body']) return false;
+      if (itemA['type'] != itemB['type']) return false;
+      final timeA = itemA['time'] is DateTime ? (itemA['time'] as DateTime).millisecondsSinceEpoch : null;
+      final timeB = itemB['time'] is DateTime ? (itemB['time'] as DateTime).millisecondsSinceEpoch : null;
+      if (timeA != timeB) return false;
+    }
+    return true;
+  }
+
+  void _scheduleUpdateNotifications() {
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 150), () {
+      if (mounted) {
+        _updateNotifications();
+      }
+    });
+  }
+
+  static Map<String, dynamic> _serializeNotif(Map<String, dynamic> notif) {
+    final copy = Map<String, dynamic>.from(notif);
+    if (copy['time'] is DateTime) {
+      copy['time'] = {'__type': 'DateTime', 'ms': (copy['time'] as DateTime).millisecondsSinceEpoch};
+    }
+    if (copy['data'] is Map) {
+      final d = Map<String, dynamic>.from(copy['data'] as Map);
+      d.forEach((k, v) {
+        if (v is Timestamp) {
+          d[k] = {'__type': 'Timestamp', 'ms': v.millisecondsSinceEpoch};
+        } else if (v is DateTime) {
+          d[k] = {'__type': 'DateTime', 'ms': v.millisecondsSinceEpoch};
+        }
+      });
+      copy['data'] = d;
+    }
+    return copy;
+  }
+
+  static Map<String, dynamic> _deserializeNotif(Map<String, dynamic> notif) {
+    final copy = Map<String, dynamic>.from(notif);
+    if (copy['time'] is Map && copy['time']['__type'] == 'DateTime' && copy['time']['ms'] is num) {
+      copy['time'] = DateTime.fromMillisecondsSinceEpoch(copy['time']['ms'] as int);
+    } else if (copy['time'] is String) {
+      copy['time'] = DateTime.tryParse(copy['time']) ?? DateTime.now();
+    } else if (copy['time'] == null) {
+      copy['time'] = DateTime.now();
+    }
+    return copy;
+  }
+
+  Future<void> _loadCachedNotifications() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      final prefs = await SharedPreferences.getInstance();
+      final jsonStr = prefs.getString('edukn_teacher_notifs_${user.uid}');
+      if (jsonStr != null && jsonStr.isNotEmpty) {
+        final List decoded = json.decode(jsonStr);
+        final list = decoded.map((e) => _deserializeNotif(Map<String, dynamic>.from(e as Map))).toList();
+        if (mounted && list.isNotEmpty) {
+          setState(() {
+            _allNotifications = list;
+            _isLoading = false;
+            _memoryTeacherNotifs = list;
+          });
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _saveCachedNotifications(List<Map<String, dynamic>> items) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      _memoryTeacherNotifs = items;
+      final prefs = await SharedPreferences.getInstance();
+      final serialized = items.take(30).map((e) => _serializeNotif(e)).toList();
+      await prefs.setString('edukn_teacher_notifs_${user.uid}', json.encode(serialized));
+    } catch (_) {}
   }
 
   @override
   void initState() {
     super.initState();
+    if (_memoryTeacherNotifs.isNotEmpty) {
+      _allNotifications = List<Map<String, dynamic>>.from(_memoryTeacherNotifs);
+      _isLoading = false;
+    } else {
+      _loadCachedNotifications();
+    }
     _loadDismissedIds().then((_) {
       _loadInitialData();
     });
@@ -280,91 +393,154 @@ class _NotificationSectionState extends State<_NotificationSection> {
  
   Future<void> _loadInitialData() async {
     try {
-      _userData = await UserPermissionService.loadUserData().timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => null,
-      );
-      _schoolId = await AnnouncementService().getSchoolId().timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => null,
-      );
- 
-      if (_userData != null) {
-        _schoolTypeId = _userData!['schoolTypeId'];
-        _schoolTypeName = _userData!['schoolTypeName'];
-      }
+      final instIds = [widget.institutionId, widget.institutionId.toUpperCase(), widget.institutionId.toLowerCase()].toSet().toList();
 
-      try {
-        _activeTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
-      } catch (e) {
-        debugPrint('Error getting active term: $e');
-      }
+      if (_globalCachedInstId == widget.institutionId && _globalCachedUserData != null && _globalClassNamesMap.isNotEmpty) {
+        _userData = _globalCachedUserData;
+        _schoolId = _globalCachedSchoolId;
+        _activeTermId = _globalCachedActiveTermId;
+        _notifyTeacherMissingAttendance = _globalCachedNotifyMissingAttendance ?? true;
+        _dutyLocationsMap.addAll(_globalDutyLocationsMap);
+        _validPeriodIds = Set.from(_globalValidPeriodIds);
+        _classNamesMap = Map.from(_globalClassNamesMap);
+        if (_userData != null) {
+          _schoolTypeId = _userData!['schoolTypeId'];
+          _schoolTypeName = _userData!['schoolTypeName'];
+        }
+      } else {
+        _userData = UserPermissionService.cachedUserData ?? await UserPermissionService.loadUserData().timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => null,
+        );
+        if (_userData != null) {
+          _schoolTypeId = _userData!['schoolTypeId'];
+          _schoolTypeName = _userData!['schoolTypeName'];
+          _globalCachedUserData = _userData;
+        }
 
-      final instIds = [widget.institutionId, widget.institutionId.toUpperCase(), widget.institutionId.toLowerCase()];
+        final Future<String?> termFuture = (_globalCachedActiveTermId != null)
+            ? Future<String?>.value(_globalCachedActiveTermId)
+            : (() async {
+                try {
+                  return await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
+                } catch (_) {
+                  return null;
+                }
+              })();
 
-      if (_schoolId == null || _schoolId!.isEmpty) {
-        try {
-          final schoolSnap = await FirebaseFirestore.instance
-              .collection('schools')
-              .where('institutionId', whereIn: instIds)
-              .limit(1)
-              .get();
-          if (schoolSnap.docs.isNotEmpty) {
-            _schoolId = schoolSnap.docs.first.id;
+        final Future<String?> schoolIdFuture = (_globalCachedSchoolId != null)
+            ? Future<String?>.value(_globalCachedSchoolId)
+            : (() async {
+                try {
+                  return await AnnouncementService().getSchoolId();
+                } catch (_) {
+                  return null;
+                }
+              })();
+
+        final Future<QuerySnapshot<Map<String, dynamic>>?> dutyLocFuture = (_globalDutyLocationsMap.isNotEmpty)
+            ? Future<QuerySnapshot<Map<String, dynamic>>?>.value(null)
+            : (() async {
+                try {
+                  return await FirebaseFirestore.instance.collection('dutyLocations').where('institutionId', whereIn: instIds).get();
+                } catch (_) {
+                  return null;
+                }
+              })();
+
+        final Future<QuerySnapshot<Map<String, dynamic>>?> classesFuture = (_globalClassNamesMap.isNotEmpty)
+            ? Future<QuerySnapshot<Map<String, dynamic>>?>.value(null)
+            : (() async {
+                try {
+                  return await FirebaseFirestore.instance.collection('classes').where('institutionId', whereIn: instIds).get();
+                } catch (_) {
+                  return null;
+                }
+              })();
+
+        final Future<QuerySnapshot<Map<String, dynamic>>?> schoolSnapFuture = (_globalCachedSchoolId != null)
+            ? Future<QuerySnapshot<Map<String, dynamic>>?>.value(null)
+            : (() async {
+                try {
+                  return await FirebaseFirestore.instance.collection('schools').where('institutionId', whereIn: instIds).limit(1).get();
+                } catch (_) {
+                  return null;
+                }
+              })();
+
+        final initResults = await Future.wait<dynamic>([
+          termFuture,
+          schoolIdFuture,
+          dutyLocFuture,
+          classesFuture,
+          schoolSnapFuture,
+        ]).timeout(const Duration(seconds: 6), onTimeout: () => [null, null, null, null, null]);
+
+        _activeTermId = initResults[0] as String?;
+        _globalCachedActiveTermId = _activeTermId;
+
+        _schoolId = initResults[1] as String?;
+        if ((_schoolId == null || _schoolId!.isEmpty) && initResults[4] is QuerySnapshot) {
+          final sSnap = initResults[4] as QuerySnapshot;
+          if (sSnap.docs.isNotEmpty) {
+            _schoolId = sSnap.docs.first.id;
           }
-        } catch (_) {}
-      }
+        }
+        _globalCachedSchoolId = _schoolId;
 
-      if (_schoolId != null && _schoolId!.isNotEmpty) {
-        try {
-          final sDoc = await FirebaseFirestore.instance.collection('schools').doc(_schoolId).get();
-          if (sDoc.exists) {
-            final appSettings = sDoc.data()?['appSettings'] as Map<String, dynamic>?;
-            if (appSettings != null && appSettings.containsKey('notifyTeacherMissingAttendance')) {
-              _notifyTeacherMissingAttendance = appSettings['notifyTeacherMissingAttendance'] == true;
+        if (initResults[2] is QuerySnapshot) {
+          final dlSnap = initResults[2] as QuerySnapshot;
+          for (var doc in dlSnap.docs) {
+            final data = Map<String, dynamic>.from(doc.data() as Map);
+            _dutyLocationsMap[doc.id] = data;
+            _globalDutyLocationsMap[doc.id] = data;
+          }
+        } else {
+          _dutyLocationsMap.addAll(_globalDutyLocationsMap);
+        }
+
+        if (initResults[3] is QuerySnapshot) {
+          final cSnap = initResults[3] as QuerySnapshot;
+          for (var doc in cSnap.docs) {
+            final data = Map<String, dynamic>.from(doc.data() as Map);
+            final name = (data['className'] ?? data['name'] ?? 'Sınıf').toString();
+            _classNamesMap[doc.id] = name;
+            _globalClassNamesMap[doc.id] = name;
+          }
+        } else {
+          _classNamesMap.addAll(_globalClassNamesMap);
+        }
+
+        if (_activeTermId != null && _activeTermId!.isNotEmpty && _globalValidPeriodIds.isEmpty) {
+          try {
+            final wpSnap = await FirebaseFirestore.instance
+                .collection('workPeriods')
+                .where('institutionId', whereIn: instIds)
+                .where('termId', isEqualTo: _activeTermId)
+                .get();
+            _validPeriodIds = wpSnap.docs.map((d) => d.id).toSet();
+            _globalValidPeriodIds.addAll(_validPeriodIds);
+          } catch (_) {}
+        } else {
+          _validPeriodIds = Set.from(_globalValidPeriodIds);
+        }
+
+        if (_schoolId != null && _schoolId!.isNotEmpty && _globalCachedNotifyMissingAttendance == null) {
+          try {
+            final sDoc = await FirebaseFirestore.instance.collection('schools').doc(_schoolId).get();
+            if (sDoc.exists) {
+              final appSettings = sDoc.data()?['appSettings'] as Map<String, dynamic>?;
+              if (appSettings != null && appSettings.containsKey('notifyTeacherMissingAttendance')) {
+                _notifyTeacherMissingAttendance = appSettings['notifyTeacherMissingAttendance'] == true;
+                _globalCachedNotifyMissingAttendance = _notifyTeacherMissingAttendance;
+              }
             }
-          }
-        } catch (e) {
-          debugPrint('Error loading appSettings: $e');
+          } catch (_) {}
+        } else if (_globalCachedNotifyMissingAttendance != null) {
+          _notifyTeacherMissingAttendance = _globalCachedNotifyMissingAttendance!;
         }
-      }
 
-      try {
-        final dlSnap = await FirebaseFirestore.instance
-            .collection('dutyLocations')
-            .where('institutionId', whereIn: instIds)
-            .get();
-        for (var doc in dlSnap.docs) {
-          _dutyLocationsMap[doc.id] = doc.data();
-        }
-      } catch (e) {
-        debugPrint('Error loading dutyLocations: $e');
-      }
-
-      if (_activeTermId != null && _activeTermId!.isNotEmpty) {
-        try {
-          final wpSnap = await FirebaseFirestore.instance
-              .collection('workPeriods')
-              .where('institutionId', whereIn: instIds)
-              .where('termId', isEqualTo: _activeTermId)
-              .get();
-          _validPeriodIds = wpSnap.docs.map((d) => d.id).toSet();
-        } catch (e) {
-          debugPrint('Error loading workPeriods: $e');
-        }
-      }
-
-      try {
-        final classesSnap = await FirebaseFirestore.instance
-            .collection('classes')
-            .where('institutionId', whereIn: instIds)
-            .get();
-        for (var doc in classesSnap.docs) {
-          final data = doc.data();
-          _classNamesMap[doc.id] = (data['className'] ?? data['name'] ?? 'Sınıf').toString();
-        }
-      } catch (e) {
-        debugPrint('Error loading classes for notifications: $e');
+        _globalCachedInstId = widget.institutionId;
       }
 
       if (mounted) {
@@ -540,7 +716,7 @@ class _NotificationSectionState extends State<_NotificationSection> {
             }
           }
           _typeDocs[type] = combinedDocs.values.toList();
-          _updateNotifications();
+          _scheduleUpdateNotifications();
         }, onError: (e) {
           debugPrint('--- Stream error ($subKey) ---: $e');
         });
@@ -556,7 +732,7 @@ class _NotificationSectionState extends State<_NotificationSection> {
       final sub = stream.listen((snap) {
         if (mounted) {
           _snaps[type] = snap;
-          _updateNotifications();
+          _scheduleUpdateNotifications();
         }
       }, onError: (e) {
         debugPrint('--- Stream error ($type) ---');
@@ -1050,8 +1226,20 @@ class _NotificationSectionState extends State<_NotificationSection> {
       return !_dismissedIds.contains(item['id']);
     }).toList();
     filteredResult.sort((a, b) => (b['time'] as DateTime).compareTo(a['time'] as DateTime));
+    final hasChanged = !_notificationsAreEqual(_allNotifications, filteredResult);
+    if (!hasChanged && _allNotifications.isNotEmpty) {
+      if (_isLoading && mounted) {
+        setState(() => _isLoading = false);
+      }
+      return;
+    }
+
     if (mounted) {
-      setState(() => _allNotifications = filteredResult);
+      setState(() {
+        _allNotifications = filteredResult;
+        _isLoading = false;
+      });
+      _saveCachedNotifications(filteredResult);
     }
   }
 
@@ -1079,7 +1267,10 @@ class _NotificationSectionState extends State<_NotificationSection> {
  
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) return const Center(child: CircularProgressIndicator());
+    super.build(context);
+    if (_isLoading && _allNotifications.isEmpty) {
+      return const SizedBox.shrink();
+    }
  
     return Container(
       padding: const EdgeInsets.all(16),
@@ -1899,45 +2090,40 @@ class _CalendarSection extends StatefulWidget {
   State<_CalendarSection> createState() => _CalendarSectionState();
 }
 
-class _CalendarSectionState extends State<_CalendarSection> {
+class _CalendarSectionState extends State<_CalendarSection>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   Map<String, dynamic>? _userData;
-  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
+    _userData = UserPermissionService.cachedUserData;
     _loadUserData();
   }
 
   Future<void> _loadUserData() async {
     try {
       final data = await UserPermissionService.loadUserData();
-      if (mounted) {
+      if (mounted && data != null && data != _userData) {
         setState(() {
           _userData = data;
-          _isLoading = false;
         });
       }
     } catch (e) {
       debugPrint('Error loading user data for calendar: $e');
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
+    super.build(context);
     return SharedCalendarSection(
       schoolTypeId: '',
       institutionId: widget.institutionId,
-      userData: _userData,
+      userData: _userData ?? UserPermissionService.cachedUserData,
     );
   }
 }

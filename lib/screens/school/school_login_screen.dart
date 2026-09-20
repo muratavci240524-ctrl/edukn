@@ -19,6 +19,7 @@ import '../../services/user_permission_service.dart';
 import '../../services/term_service.dart';
 import '../../services/crypto_service.dart';
 import 'school_types/school_type_detail_screen.dart';
+import '../../services/splash/splash_service.dart';
 
 class SchoolLoginScreen extends StatefulWidget {
   const SchoolLoginScreen({Key? key}) : super(key: key);
@@ -165,6 +166,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
           if (!mounted) return;
           // Login ekranı değil, yoklama ekranına yönlendir
           Navigator.pushReplacementNamed(context, currentPath);
+          SplashService.hide();
           return;
         }
         if (currentPath.startsWith('/sinav-basvuru')) {
@@ -174,6 +176,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
               ? '/sinav-basvuru?examId=$examId'
               : '/sinav-basvuru';
           Navigator.pushReplacementNamed(context, route);
+          SplashService.hide();
           return;
         }
       }
@@ -181,9 +184,13 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       // Firebase Auth oturumu var mı?
       User? user = FirebaseAuth.instance.currentUser;
       if (user == null && kIsWeb) {
-        // Web'de yüklenmesi vakit alabilir, çok kısa bekle
-        await Future.delayed(const Duration(milliseconds: 1000));
-        user = FirebaseAuth.instance.currentUser;
+        try {
+          user = await FirebaseAuth.instance
+              .authStateChanges()
+              .first
+              .timeout(const Duration(milliseconds: 600), onTimeout: () => null);
+        } catch (_) {}
+        user ??= FirebaseAuth.instance.currentUser;
       }
       
       if (user != null) {
@@ -219,6 +226,33 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
           );
           return;
         }
+
+        // Öğretmen ise doğrudan Öğretmen Paneline yönlendir (ara ekran atlamalarını engelle)
+        bool isTeacher = (role.contains('ogretmen') || role.contains('teacher') || role.contains('öğretmen')) &&
+            !(role.contains('genel_mudur') ||
+              role.contains('genel müdür') ||
+              role.contains('genel mudur') ||
+              role.contains('mudur') ||
+              role.contains('müdür') ||
+              role.contains('admin') ||
+              role.contains('hr') ||
+              role.contains('muhasebe') ||
+              role.contains('satin_alma') ||
+              role.contains('depo') ||
+              role.contains('destek_hizmetleri') ||
+              role.contains('personel') ||
+              role.contains('staff') ||
+              role.contains('kurucu') ||
+              role.contains('yönetici') ||
+              role.contains('yonetici'));
+
+        if (isTeacher || (activePortal == 'teacher' && (role.contains('ogretmen') || role.contains('teacher') || role.contains('öğretmen')))) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => TeacherMainScreen(institutionId: instId)),
+          );
+          return;
+        }
         
         // Direkt dashboard'a git
         Navigator.pushReplacementNamed(context, '/school-dashboard');
@@ -233,6 +267,9 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
     }
     if (mounted) {
       setState(() => _checkingSession = false);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        SplashService.hide();
+      });
     }
   }
 
@@ -684,19 +721,6 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
 
       // ── ADIM 6: Yönlendirme ──
       if (mounted) {
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => WillPopScope(
-            onWillPop: () async => false,
-            child: const Center(child: EduKnLoader(size: 100)),
-          ),
-        );
-
-        await Future.delayed(const Duration(milliseconds: 1500));
-        if (!mounted) return;
-        Navigator.pop(context);
-
         if (userData != null) {
           await _routeUserAfterLoadingData(userData, institutionId);
         } else {
@@ -1631,15 +1655,11 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Oturum kontrol edilirken splash ekranı göster
+    // Oturum kontrol edilirken arka planda temiz yüzey tut (HTML splash ekranı sahnede çalışıyor)
     if (_checkingSession) {
       return const Scaffold(
-        backgroundColor: Colors.white,
-        body: Center(
-          child: CircularProgressIndicator(
-            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF4C59BC)),
-          ),
-        ),
+        backgroundColor: Color(0xFFF8FAFC),
+        body: SizedBox.shrink(),
       );
     }
 

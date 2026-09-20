@@ -1,5 +1,6 @@
 import 'dart:ui' as ui;
 import 'dart:math' as math;
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:intl/intl.dart';
@@ -142,8 +143,18 @@ class _SchoolTypeDetailScreenState extends State<SchoolTypeDetailScreen> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+      return Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const EduKnLoader(size: 80),
+              const SizedBox(height: 24),
+              const EduKnLogo(type: EduKnLogoType.noSlogan, iconSize: 32),
+            ],
+          ),
+        ),
       );
     }
 
@@ -2155,20 +2166,67 @@ class _DashboardTabState extends State<_DashboardTab> {
   }
 }
 
-class SharedNotificationSection extends StatelessWidget {
+class SharedNotificationSection extends StatefulWidget {
   final String schoolTypeId;
   final String institutionId;
   final Map<String, dynamic>? userData;
 
   const SharedNotificationSection({
+    Key? key,
     required this.schoolTypeId,
     required this.institutionId,
     this.userData,
-  });
+  }) : super(key: key);
+
+  @override
+  State<SharedNotificationSection> createState() => _SharedNotificationSectionState();
+}
+
+class _SharedNotificationSectionState extends State<SharedNotificationSection> {
+  static final Map<String, List<Map<String, dynamic>>> _memoryNotifCache = {};
+  List<Map<String, dynamic>> _cachedItems = [];
+
+  String _getCacheKey() => '${widget.institutionId}_${widget.schoolTypeId}';
+
+  @override
+  void initState() {
+    super.initState();
+    final key = _getCacheKey();
+    if (_memoryNotifCache.containsKey(key)) {
+      _cachedItems = _memoryNotifCache[key]!;
+    } else {
+      _loadFromDiskCache(key);
+    }
+  }
+
+  Future<void> _loadFromDiskCache(String key) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonStr = prefs.getString('edukn_notif_cache_$key');
+      if (jsonStr != null && jsonStr.isNotEmpty) {
+        final List decoded = json.decode(jsonStr);
+        final list = decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        if (mounted && list.isNotEmpty) {
+          setState(() {
+            _cachedItems = list;
+            _memoryNotifCache[key] = list;
+          });
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _saveToDiskCache(String key, List<Map<String, dynamic>> items) async {
+    try {
+      _memoryNotifCache[key] = items;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('edukn_notif_cache_$key', json.encode(items));
+    } catch (_) {}
+  }
 
   @override
   Widget build(BuildContext context) {
-    final role = (userData?['role'] as String?)?.toLowerCase();
+    final role = (widget.userData?['role'] as String?)?.toLowerCase();
     final isTeacher = role == 'ogretmen' || role == 'öğretmen';
 
     return Container(
@@ -2237,37 +2295,58 @@ class SharedNotificationSection extends StatelessWidget {
                 return SafeStreamBuilder<QuerySnapshot>(
                   stream: FirebaseFirestore.instance
                       .collection('activities')
-                      .where('institutionId', isEqualTo: institutionId)
+                      .where('institutionId', isEqualTo: widget.institutionId)
                       .orderBy('createdAt', descending: true)
                       .snapshots(),
                   builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting && chatSnapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
+                    final isActivitiesWaiting = snapshot.connectionState == ConnectionState.waiting;
+                    final isChatWaiting = chatSnapshot.connectionState == ConnectionState.waiting;
 
-                    final docs = snapshot.data?.docs ?? [];
-                    final filteredDocs = docs.where((doc) {
-                      final data = doc.data() as Map<String, dynamic>;
-                      
-                      final createdAtTs = data['createdAt'] as Timestamp?;
-                      if (createdAtTs != null) {
-                        final difference = DateTime.now().difference(createdAtTs.toDate());
-                        if (difference.inHours > 48) return false;
-                      } else {
-                        return false; 
-                      }
+                    List<Map<String, dynamic>> announcementList = [];
 
-                      final sId = data['schoolTypeId'] as String?;
-                      if (schoolTypeId.isNotEmpty && sId != null && sId != schoolTypeId) return false;
-
-                      if (isTeacher) {
-                        final targetRoles = data['targetRoles'] as List<dynamic>?;
-                        if (targetRoles != null && !targetRoles.contains('ogretmen') && !targetRoles.contains('öğretmen')) {
-                          return false;
+                    if (snapshot.hasData) {
+                      final docs = snapshot.data?.docs ?? [];
+                      final filteredDocs = docs.where((doc) {
+                        final data = doc.data() as Map<String, dynamic>;
+                        
+                        final createdAtTs = data['createdAt'] as Timestamp?;
+                        if (createdAtTs != null) {
+                          final difference = DateTime.now().difference(createdAtTs.toDate());
+                          if (difference.inDays > 30) return false; // Son 30 günün duyurularını göster
+                        } else {
+                          return false; 
                         }
+
+                        final sId = data['schoolTypeId'] as String?;
+                        if (widget.schoolTypeId.isNotEmpty && sId != null && sId != widget.schoolTypeId) return false;
+
+                        if (isTeacher) {
+                          final targetRoles = data['targetRoles'] as List<dynamic>?;
+                          if (targetRoles != null && !targetRoles.contains('ogretmen') && !targetRoles.contains('öğretmen')) {
+                            return false;
+                          }
+                        }
+                        return true;
+                      }).take(10).toList();
+
+                      for (var doc in filteredDocs) {
+                        final data = doc.data() as Map<String, dynamic>;
+                        final title = data['title'] ?? 'Duyuru';
+                        final type = data['type'] ?? 'Genel';
+                        final ts = data['createdAt'] as Timestamp?;
+                        final timeStr = ts != null ? DateFormat('HH:mm').format(ts.toDate()) : '';
+                        announcementList.add({
+                          'title': title.toString(),
+                          'subtitle': '$type - $timeStr',
+                          'time': ts != null ? DateFormat('dd.MM').format(ts.toDate()) : '',
+                          'type': type == 'Önemli' ? 'announcement' : 'report',
+                        });
                       }
-                      return true;
-                    }).take(10).toList();
+                      _saveToDiskCache(_getCacheKey(), announcementList);
+                    } else if (_cachedItems.isNotEmpty) {
+                      // ⚡ Stream henüz veri vermeden önce disk/RAM önbelleğindeki duyuruları anında göster
+                      announcementList = List<Map<String, dynamic>>.from(_cachedItems);
+                    }
 
                     final List<Widget> items = [];
 
@@ -2279,9 +2358,9 @@ class SharedNotificationSection extends StatelessWidget {
                               context,
                               MaterialPageRoute(
                                 builder: (_) => ChatScreen(
-                                  schoolTypeId: schoolTypeId.isEmpty ? '' : schoolTypeId,
-                                  schoolTypeName: schoolTypeId.isEmpty ? 'Tüm Okul Türleri' : schoolTypeId,
-                                  institutionId: institutionId,
+                                  schoolTypeId: widget.schoolTypeId.isEmpty ? '' : widget.schoolTypeId,
+                                  schoolTypeName: widget.schoolTypeId.isEmpty ? 'Tüm Okul Türleri' : widget.schoolTypeId,
+                                  institutionId: widget.institutionId,
                                 ),
                               ),
                             );
@@ -2304,9 +2383,9 @@ class SharedNotificationSection extends StatelessWidget {
                               context,
                               MaterialPageRoute(
                                 builder: (_) => ChatScreen(
-                                  schoolTypeId: schoolTypeId.isEmpty ? '' : schoolTypeId,
-                                  schoolTypeName: schoolTypeId.isEmpty ? 'Tüm Okul Türleri' : schoolTypeId,
-                                  institutionId: institutionId,
+                                  schoolTypeId: widget.schoolTypeId.isEmpty ? '' : widget.schoolTypeId,
+                                  schoolTypeName: widget.schoolTypeId.isEmpty ? 'Tüm Okul Türleri' : widget.schoolTypeId,
+                                  institutionId: widget.institutionId,
                                 ),
                               ),
                             );
@@ -2321,24 +2400,21 @@ class SharedNotificationSection extends StatelessWidget {
                       );
                     }
 
-                    for (var doc in filteredDocs) {
-                      final data = doc.data() as Map<String, dynamic>;
-                      final title = data['title'] ?? 'Duyuru';
-                      final type = data['type'] ?? 'Genel';
-                      final ts = data['createdAt'] as Timestamp?;
-                      final timeStr = ts != null ? DateFormat('HH:mm').format(ts.toDate()) : '';
-
+                    for (var ann in announcementList) {
                       items.add(
                         _buildNotificationCard(
-                          title: title,
-                          subtitle: '$type - $timeStr',
-                          time: ts != null ? DateFormat('dd.MM').format(ts.toDate()) : '',
-                          type: type == 'Önemli' ? 'announcement' : 'report',
+                          title: ann['title'] ?? 'Duyuru',
+                          subtitle: ann['subtitle'] ?? '',
+                          time: ann['time'] ?? '',
+                          type: ann['type'] ?? 'report',
                         )
                       );
                     }
 
                     if (items.isEmpty) {
+                      if (isActivitiesWaiting && isChatWaiting && _cachedItems.isEmpty) {
+                        return const SizedBox.shrink();
+                      }
                       return Center(
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
@@ -2489,7 +2565,23 @@ class SharedCalendarSection extends StatefulWidget {
   State<SharedCalendarSection> createState() => _SharedCalendarSectionState();
 }
 
-class _SharedCalendarSectionState extends State<SharedCalendarSection> {
+class _SharedCalendarSectionState extends State<SharedCalendarSection>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  // ⚡ Cache-First Hızlı Takvim Önbelleği (Girişte bekleme yapmaz, anında gösterir)
+  static final Map<String, List<Map<String, dynamic>>> _memoryEventsCache = {};
+  static final Map<String, String> _memoryActiveTermName = {};
+  static final Map<String, Map<String, dynamic>> _globalDutyLocationsMap = {};
+  static final Map<String, DateTime> _lastFetchTime = {};
+
+  // ⚡ Global Dönem ve Çalışma Dönemleri Önbelleği (Tekrar tekrar Firestore'a sormaz)
+  static Map<String, dynamic>? _cachedTermInfo;
+  static Set<String>? _cachedValidWorkPeriodIds;
+  static Map<String, Map<String, dynamic>>? _cachedWpLocationConfigs;
+  static String? _cachedInstForWp;
+
   DateTime _focusedDay = DateTime.now();
   DateTime _selectedDay = DateTime.now();
   List<Map<String, dynamic>> _events = [];
@@ -2526,6 +2618,88 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
     'Kas',
     'Ara',
   ];
+
+  String _getCacheKey() {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? 'guest';
+    return '${widget.institutionId}_${uid}_${widget.schoolTypeId}_${_focusedDay.year}_${_focusedDay.month}';
+  }
+
+  static Map<String, dynamic> _serializeEventForDisk(Map<String, dynamic> e) {
+    final copy = Map<String, dynamic>.from(e);
+    copy.forEach((k, v) {
+      if (v is Timestamp) {
+        copy[k] = {'__type': 'Timestamp', 'ms': v.millisecondsSinceEpoch};
+      } else if (v is DateTime) {
+        copy[k] = {'__type': 'DateTime', 'ms': v.millisecondsSinceEpoch};
+      }
+    });
+    return copy;
+  }
+
+  static Map<String, dynamic> _deserializeEventFromDisk(Map<String, dynamic> e) {
+    final copy = Map<String, dynamic>.from(e);
+    copy.forEach((k, v) {
+      if (v is Map && v['__type'] == 'Timestamp' && v['ms'] is num) {
+        copy[k] = Timestamp.fromMillisecondsSinceEpoch(v['ms'] as int);
+      } else if (v is Map && v['__type'] == 'DateTime' && v['ms'] is num) {
+        copy[k] = DateTime.fromMillisecondsSinceEpoch(v['ms'] as int);
+      }
+    });
+    return copy;
+  }
+
+  static bool _eventsAreEqual(List<Map<String, dynamic>> a, List<Map<String, dynamic>> b) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      final itemA = a[i];
+      final itemB = b[i];
+      if (itemA['id'] != itemB['id']) return false;
+      if (itemA['title'] != itemB['title']) return false;
+      if (itemA['source'] != itemB['source']) return false;
+      
+      final dateA = itemA['date'] is Timestamp
+          ? (itemA['date'] as Timestamp).millisecondsSinceEpoch
+          : (itemA['date'] is DateTime ? (itemA['date'] as DateTime).millisecondsSinceEpoch : null);
+      final dateB = itemB['date'] is Timestamp
+          ? (itemB['date'] as Timestamp).millisecondsSinceEpoch
+          : (itemB['date'] is DateTime ? (itemB['date'] as DateTime).millisecondsSinceEpoch : null);
+      if (dateA != dateB) return false;
+    }
+    return true;
+  }
+
+  Future<void> _loadFromDiskCache(String cacheKey) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonStr = prefs.getString('edukn_cal_cache_$cacheKey');
+      if (jsonStr != null && jsonStr.isNotEmpty) {
+        final List decoded = json.decode(jsonStr);
+        final loadedEvents = decoded
+            .map((item) => _deserializeEventFromDisk(Map<String, dynamic>.from(item as Map)))
+            .toList();
+        if (loadedEvents.isNotEmpty && mounted) {
+          setState(() {
+            _events = loadedEvents;
+            _isLoading = false;
+          });
+          _memoryEventsCache[cacheKey] = loadedEvents;
+        }
+      }
+    } catch (e) {
+      debugPrint('Disk cache okuma hatası: $e');
+    }
+  }
+
+  Future<void> _saveToDiskCache(String cacheKey, List<Map<String, dynamic>> events) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final serialized = events.map((e) => _serializeEventForDisk(e)).toList();
+      await prefs.setString('edukn_cal_cache_$cacheKey', json.encode(serialized));
+    } catch (e) {
+      debugPrint('Disk cache yazma hatası: $e');
+    }
+  }
 
   String _formatDateTr(dynamic dateVal, {bool short = false}) {
     DateTime? dt;
@@ -2574,11 +2748,48 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
   @override
   void initState() {
     super.initState();
-    _loadEvents();
+    // ⚡ 1. Adım: RAM Önbelleğinden Oku (Anında Açılış)
+    final cacheKey = _getCacheKey();
+    final cached = _memoryEventsCache[cacheKey];
+    if (cached != null && cached.isNotEmpty) {
+      _events = List<Map<String, dynamic>>.from(cached);
+      _activeTermName = _memoryActiveTermName[cacheKey];
+      _isLoading = false;
+      _loadEvents(isSilent: true);
+    } else {
+      // ⚡ 2. Adım: RAM'de yoksa Diskten Oku (Önceki oturumdan kalan kalıcı veri)
+      _initCalendarWithCache(cacheKey);
+    }
   }
 
-  Future<void> _loadEvents() async {
-    setState(() => _isLoading = true);
+  @override
+  void didUpdateWidget(covariant SharedCalendarSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.userData != oldWidget.userData ||
+        widget.institutionId != oldWidget.institutionId ||
+        widget.schoolTypeId != oldWidget.schoolTypeId) {
+      _loadEvents(isSilent: _events.isNotEmpty);
+    }
+  }
+
+  Future<void> _initCalendarWithCache(String cacheKey) async {
+    await _loadFromDiskCache(cacheKey);
+    if (mounted) {
+      _loadEvents(isSilent: _events.isNotEmpty);
+    }
+  }
+
+  Future<void> _loadEvents({bool isSilent = false, bool force = false}) async {
+    final cacheKey = _getCacheKey();
+    final lastFetch = _lastFetchTime[cacheKey];
+    if (!force && lastFetch != null && _events.isNotEmpty && DateTime.now().difference(lastFetch) < const Duration(seconds: 45)) {
+      if (_isLoading) setState(() => _isLoading = false);
+      return;
+    }
+
+    if (!isSilent && _events.isEmpty) {
+      setState(() => _isLoading = true);
+    }
     try {
       final startOfMonth = DateTime(_focusedDay.year, _focusedDay.month, 1);
       final endOfMonth = DateTime(
@@ -2590,10 +2801,16 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
         59,
       );
 
-      final List<String> instIds = [widget.institutionId, widget.institutionId.toUpperCase(), widget.institutionId.toLowerCase()];
-      final role = (widget.userData?['role'] as String?)?.toLowerCase() ?? '';
-      final title = (widget.userData?['title'] as String?)?.toLowerCase() ?? '';
-      final type = (widget.userData?['type'] as String?)?.toLowerCase() ?? '';
+      final List<String> instIds = [
+        widget.institutionId,
+        widget.institutionId.toUpperCase(),
+        widget.institutionId.toLowerCase(),
+      ].where((s) => s.isNotEmpty).toSet().toList();
+
+      final uData = widget.userData ?? UserPermissionService.cachedUserData;
+      final role = (uData?['role'] as String?)?.toLowerCase() ?? '';
+      final title = (uData?['title'] as String?)?.toLowerCase() ?? '';
+      final type = (uData?['type'] as String?)?.toLowerCase() ?? '';
       final isTeacher = widget.schoolTypeId.isEmpty ||
                         role.contains('ogretmen') || role.contains('öğretmen') || role.contains('teacher') ||
                         title.contains('ogretmen') || title.contains('öğretmen') || title.contains('teacher') ||
@@ -2602,52 +2819,60 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
                         title.contains('ogrenci') || title.contains('öğrenci') || title.contains('student') ||
                         type == 'student';
       final currentAuthUid = FirebaseAuth.instance.currentUser?.uid;
-      final docId = widget.userData?['id']?.toString();
-      final authUserId = widget.userData?['authUserId']?.toString();
+      final docId = uData?['id']?.toString();
+      final authUserId = uData?['authUserId']?.toString();
+      final tId = uData?['teacherId']?.toString();
+      final staffId = uData?['staffId']?.toString();
+      final username = uData?['username']?.toString();
+      final teacherName = (uData?['fullName'] ?? uData?['name'] ?? '').toString().trim();
+
       final validTeacherIds = <String>{
         if (currentAuthUid != null && currentAuthUid.isNotEmpty) currentAuthUid,
         if (docId != null && docId.isNotEmpty) docId,
         if (authUserId != null && authUserId.isNotEmpty) authUserId,
+        if (tId != null && tId.isNotEmpty) tId,
+        if (staffId != null && staffId.isNotEmpty) staffId,
+        if (username != null && username.isNotEmpty) username,
       }.toList();
       final myId = validTeacherIds.isNotEmpty ? validTeacherIds.first : null;
 
-      // Aktif dönem filtresi ve geçerli çalışma dönemleri
-      final activeTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
-      if (activeTermId != null && activeTermId.isNotEmpty) {
-        try {
-          final termDoc = await FirebaseFirestore.instance.collection('terms').doc(activeTermId).get();
-          if (termDoc.exists) {
-            _activeTermName = (termDoc.data()?['name'] ?? termDoc.data()?['termName'])?.toString();
-          }
-        } catch (_) {}
-      }
-
-      Set<String> validWorkPeriodIds = {};
-      final Map<String, Map<String, dynamic>> wpLocationConfigs = {};
-      try {
-        final wpSnap = await FirebaseFirestore.instance
-            .collection('workPeriods')
-            .where('institutionId', whereIn: instIds)
-            .get();
-        for (var wpDoc in wpSnap.docs) {
-          final wpData = wpDoc.data();
-          final wpTermId = wpData['termId']?.toString().trim();
-          if (activeTermId == null || activeTermId.isEmpty || wpTermId == activeTermId || wpDoc.id == activeTermId) {
-            validWorkPeriodIds.add(wpDoc.id);
-          }
-          if (wpData['dutyLocationConfigs'] is Map) {
-            wpLocationConfigs[wpDoc.id] = Map<String, dynamic>.from(wpData['dutyLocationConfigs'] as Map);
-          }
-        }
-      } catch (e) {
-        debugPrint('Error loading workPeriods for calendar: $e');
-      }
-
-      // Öğretmen sınıflarını ve tüm verileri paralel yükleyelim (8x Hızlı)
+      // ⚡ Ay sınırları: Sadece görüntülenen aktif ay (+/- 7 gün takvim taşma payı)
       final Set<String> assignedClassIds = {};
-      final startTs = Timestamp.fromDate(startOfMonth.subtract(const Duration(days: 15)));
-      final endTs = Timestamp.fromDate(endOfMonth.add(const Duration(days: 15)));
+      final startTs = Timestamp.fromDate(startOfMonth.subtract(const Duration(days: 7)));
+      final endTs = Timestamp.fromDate(endOfMonth.add(const Duration(days: 7)));
 
+      // 1. Dönem Bilgisi Sorgusu (Önbellekte varsa Firestore'a tekrar sormaz)
+      final termFuture = (_cachedTermInfo != null)
+          ? Future.value(_cachedTermInfo)
+          : (() async {
+              try {
+                final tId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
+                if (tId != null && tId.isNotEmpty) {
+                  final termDoc = await FirebaseFirestore.instance.collection('terms').doc(tId).get();
+                  if (termDoc.exists) {
+                    final tName = (termDoc.data()?['name'] ?? termDoc.data()?['termName'])?.toString();
+                    final info = <String, dynamic>{'id': tId, 'name': tName};
+                    _cachedTermInfo = info;
+                    return info;
+                  }
+                  final info = <String, dynamic>{'id': tId, 'name': null};
+                  _cachedTermInfo = info;
+                  return info;
+                }
+              } catch (_) {}
+              return <String, dynamic>{'id': null, 'name': null};
+            })();
+
+      // 2. Çalışma Dönemleri (WorkPeriods - Önbellekte varsa Firestore'a tekrar sormaz)
+      final wpFuture = (_cachedValidWorkPeriodIds != null && _cachedInstForWp == widget.institutionId)
+          ? Future.value(null)
+          : FirebaseFirestore.instance
+              .collection('workPeriods')
+              .where('institutionId', whereIn: instIds)
+              .get()
+              .catchError((_) => FirebaseFirestore.instance.collection('workPeriods').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get());
+
+      // 3. Öğretmen Sınıf Atamaları
       final assignFuture = (isTeacher && validTeacherIds.isNotEmpty)
           ? Future.wait(validTeacherIds.map((tId) => FirebaseFirestore.instance
               .collection('lessonAssignments')
@@ -2657,11 +2882,13 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
               .get().catchError((_) => FirebaseFirestore.instance.collection('lessonAssignments').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get())))
           : Future.value(<QuerySnapshot>[]);
 
+      // 4. Sınıflar
       final classesFuture = FirebaseFirestore.instance
           .collection('classes')
           .where('institutionId', whereIn: instIds)
           .get().catchError((_) => FirebaseFirestore.instance.collection('classes').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get());
 
+      // 5. Aktiviteler (Sadece bu ay)
       final activitiesFuture = FirebaseFirestore.instance
           .collection('activities')
           .where('institutionId', whereIn: instIds)
@@ -2669,6 +2896,7 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
           .where('date', isLessThanOrEqualTo: endTs)
           .get().catchError((_) => FirebaseFirestore.instance.collection('activities').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get());
 
+      // 6. Etüt Talepleri
       final etutFuture = (validTeacherIds.isNotEmpty)
           ? Future.wait(validTeacherIds.map((tId) => FirebaseFirestore.instance
               .collection('etut_requests')
@@ -2682,6 +2910,7 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
               .then((snap) => [snap])
               .catchError((_) => <QuerySnapshot<Map<String, dynamic>>>[]);
 
+      // 7. Geziler (Sadece bu ay)
       final geziFuture = FirebaseFirestore.instance
           .collection('field_trips')
           .where('institutionId', whereIn: instIds)
@@ -2689,17 +2918,34 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
           .where('departureTime', isLessThanOrEqualTo: endTs)
           .get().catchError((_) => FirebaseFirestore.instance.collection('field_trips').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get());
 
-      final dutyFuture = (validTeacherIds.isNotEmpty)
-          ? Future.wait(instIds.map((inst) => FirebaseFirestore.instance
-              .collection('dutyScheduleItems')
-              .where('institutionId', isEqualTo: inst)
-              .where('teacherId', whereIn: validTeacherIds)
-              .get().catchError((e) {
-                debugPrint('Calendar duty fetch error for $inst: $e');
-                return FirebaseFirestore.instance.collection('dutyScheduleItems').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get();
-              })))
+      // 8. Nöbetler (Tüm öğretmen ID'leri ve isimler eş zamanlı paralel sorgulanır)
+      final dutyFuture = (isTeacher && (validTeacherIds.isNotEmpty || teacherName.isNotEmpty))
+          ? (() {
+              final List<Future<QuerySnapshot>> dutyQueryList = [];
+              for (final inst in instIds) {
+                for (int i = 0; i < validTeacherIds.length; i += 10) {
+                  final chunk = validTeacherIds.skip(i).take(10).toList();
+                  dutyQueryList.add(FirebaseFirestore.instance
+                      .collection('dutyScheduleItems')
+                      .where('institutionId', isEqualTo: inst)
+                      .where('teacherId', whereIn: chunk)
+                      .get()
+                      .catchError((_) => FirebaseFirestore.instance.collection('dutyScheduleItems').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get()));
+                }
+                if (teacherName.isNotEmpty) {
+                  dutyQueryList.add(FirebaseFirestore.instance
+                      .collection('dutyScheduleItems')
+                      .where('institutionId', isEqualTo: inst)
+                      .where('teacherName', isEqualTo: teacherName)
+                      .get()
+                      .catchError((_) => FirebaseFirestore.instance.collection('dutyScheduleItems').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get()));
+                }
+              }
+              return Future.wait(dutyQueryList);
+            })()
           : Future.value(<QuerySnapshot>[]);
 
+      // 9. Ödevler (Sadece bu ay)
       final homeworkFuture = (validTeacherIds.isNotEmpty)
           ? Future.wait(validTeacherIds.map((tId) => FirebaseFirestore.instance
               .collection('homeworks')
@@ -2710,6 +2956,7 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
               .get().catchError((_) => FirebaseFirestore.instance.collection('homeworks').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get())))
           : Future.value(<QuerySnapshot>[]);
 
+      // 10. Sınıf Sınavları (Sadece bu ay)
       final classExamsFuture = (myId != null)
           ? FirebaseFirestore.instance
               .collection('class_exams')
@@ -2719,34 +2966,91 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
               .get().catchError((_) => FirebaseFirestore.instance.collection('class_exams').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get())
           : Future.value(null);
 
-      final dutyLocationsFuture = (myId != null)
+      // 11. Deneme Sınavları (Sadece bu ay)
+      final trialExamsFuture = FirebaseFirestore.instance
+          .collection('trial_exams')
+          .where('institutionId', whereIn: instIds)
+          .where('isActive', isEqualTo: true)
+          .where('date', isGreaterThanOrEqualTo: startTs)
+          .where('date', isLessThanOrEqualTo: endTs)
+          .get()
+          .catchError((_) => FirebaseFirestore.instance
+              .collection('trial_exams')
+              .where('institutionId', whereIn: instIds)
+              .where('isActive', isEqualTo: true)
+              .get()
+              .catchError((_) => FirebaseFirestore.instance.collection('trial_exams').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get()));
+
+      // 12. Nöbet Yerleri (Önbellekte varsa tekrar sorma)
+      final dutyLocationsFuture = (myId != null && _globalDutyLocationsMap.isEmpty)
           ? FirebaseFirestore.instance
               .collection('dutyLocations')
               .where('institutionId', whereIn: instIds)
               .get().catchError((_) => FirebaseFirestore.instance.collection('dutyLocations').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get())
           : Future.value(null);
 
+      // ⚡ TÜM SORGULARI TEK BİR EŞ ZAMANLI PATLAMA İLE ÇEK (Sequential waterfall kaldırıldı)
       final results = await Future.wait([
-        assignFuture,
-        classesFuture,
-        activitiesFuture,
-        etutFuture,
-        geziFuture,
-        dutyFuture,
-        homeworkFuture,
-        classExamsFuture,
-        dutyLocationsFuture,
-      ]);
+        termFuture,             // 0
+        wpFuture,               // 1
+        assignFuture,           // 2
+        classesFuture,          // 3
+        activitiesFuture,       // 4
+        etutFuture,             // 5
+        geziFuture,             // 6
+        dutyFuture,             // 7
+        homeworkFuture,         // 8
+        classExamsFuture,       // 9
+        trialExamsFuture,       // 10
+        dutyLocationsFuture,    // 11
+      ]).timeout(
+        const Duration(seconds: 8),
+        onTimeout: () {
+          debugPrint('⚠️ Calendar Future.wait timeout (8s) - Mevcut verilerle devam ediliyor.');
+          return List.filled(12, null);
+        },
+      );
 
-      final assignSnapshots = results[0] as List<QuerySnapshot>?;
-      final classesSnapshot = results[1] as QuerySnapshot;
-      final activitiesSnapshot = results[2] as QuerySnapshot;
-      final etutSnapshots = results[3] as List<QuerySnapshot>?;
-      final geziSnapshot = results[4] as QuerySnapshot;
-      final dutySnapshots = results[5] as List<QuerySnapshot>?;
-      final homeworkSnapshots = results[6] as List<QuerySnapshot>?;
-      final classExamsSnapshot = results[7] as QuerySnapshot?;
-      final dutyLocationsSnapshot = results[8] as QuerySnapshot?;
+      final termInfo = results[0] as Map<String, dynamic>?;
+      final activeTermId = termInfo?['id'] as String?;
+      if (termInfo?['name'] != null) {
+        _activeTermName = termInfo!['name'].toString();
+      }
+
+      final wpSnap = results[1] as QuerySnapshot?;
+      Set<String> validWorkPeriodIds;
+      Map<String, Map<String, dynamic>> wpLocationConfigs;
+      if (wpSnap != null) {
+        validWorkPeriodIds = {};
+        wpLocationConfigs = {};
+        for (var wpDoc in wpSnap.docs) {
+          final wpData = wpDoc.data() as Map<String, dynamic>;
+          final wpTermId = wpData['termId']?.toString().trim();
+          if (activeTermId == null || activeTermId.isEmpty || wpTermId == activeTermId || wpDoc.id == activeTermId) {
+            validWorkPeriodIds.add(wpDoc.id);
+          }
+          if (wpData['dutyLocationConfigs'] is Map) {
+            wpLocationConfigs[wpDoc.id] = Map<String, dynamic>.from(wpData['dutyLocationConfigs'] as Map);
+          }
+        }
+        _cachedValidWorkPeriodIds = validWorkPeriodIds;
+        _cachedWpLocationConfigs = wpLocationConfigs;
+        _cachedInstForWp = widget.institutionId;
+      } else {
+        validWorkPeriodIds = _cachedValidWorkPeriodIds ?? {};
+        wpLocationConfigs = _cachedWpLocationConfigs ?? {};
+      }
+
+      final assignSnapshots = results[2] as List<QuerySnapshot>?;
+      final classesSnapshot = results[3] as QuerySnapshot?;
+      final activitiesSnapshot = results[4] as QuerySnapshot?;
+      final etutSnapshots = results[5] as List<QuerySnapshot>?;
+      final geziSnapshot = results[6] as QuerySnapshot?;
+      final dutySnapshots = results[7] as List<QuerySnapshot>?;
+      final homeworkSnapshots = results[8] as List<QuerySnapshot>?;
+      final classExamsSnapshot = results[9] as QuerySnapshot?;
+      final trialExamsSnapshot = results[10] as QuerySnapshot?;
+      final dutyLocationsSnapshot = results[11] as QuerySnapshot?;
 
       final List<QueryDocumentSnapshot> allAssignDocs = [];
       if (assignSnapshots != null) {
@@ -2788,15 +3092,17 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
         }
       }
 
-      final Map<String, Map<String, dynamic>> dutyLocationsMap = {};
+      final Map<String, Map<String, dynamic>> dutyLocationsMap = Map.from(_globalDutyLocationsMap);
       if (dutyLocationsSnapshot != null) {
         for (var doc in dutyLocationsSnapshot.docs) {
           final locData = Map<String, dynamic>.from(doc.data() as Map);
           locData['id'] = doc.id;
           dutyLocationsMap[doc.id] = locData;
+          _globalDutyLocationsMap[doc.id] = locData;
           final locName = (locData['name'] ?? '').toString().trim().toLowerCase();
           if (locName.isNotEmpty) {
             dutyLocationsMap['name_$locName'] = locData;
+            _globalDutyLocationsMap['name_$locName'] = locData;
           }
         }
       }
@@ -2814,31 +3120,34 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
       }
 
       final Map<String, String> classIdToName = {};
-      for (var doc in classesSnapshot.docs) {
-        final cData = doc.data() as Map<String, dynamic>;
-        final cId = doc.id;
-        final cName = cData['className']?.toString() ?? cData['name']?.toString() ?? '';
-        if (cName.isNotEmpty) {
-          classIdToName[cId] = cName;
+      if (classesSnapshot != null) {
+        for (var doc in classesSnapshot.docs) {
+          final cData = doc.data() as Map<String, dynamic>;
+          final cId = doc.id;
+          final cName = cData['className']?.toString() ?? cData['name']?.toString() ?? '';
+          if (cName.isNotEmpty) {
+            classIdToName[cId] = cName;
+          }
         }
       }
 
       List<Map<String, dynamic>> allEvents = [];
 
       // Mapper: Activities
-      allEvents.addAll(
-        activitiesSnapshot.docs
-            .map((doc) {
-                final data = doc.data() as Map<String, dynamic>;
-                final parsedDate = _parseDateTime(data['date']);
-                return <String, dynamic>{
-                  ...data,
-                  'id': doc.id,
-                  'source': 'activity',
-                  'displayType': data['type'] ?? 'Etkinlik',
-                  'date': parsedDate != null ? Timestamp.fromDate(parsedDate) : null,
-                };
-              })
+      if (activitiesSnapshot != null) {
+        allEvents.addAll(
+          activitiesSnapshot.docs
+              .map((doc) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  final parsedDate = _parseDateTime(data['date']);
+                  return <String, dynamic>{
+                    ...data,
+                    'id': doc.id,
+                    'source': 'activity',
+                    'displayType': data['type'] ?? 'Etkinlik',
+                    'date': parsedDate != null ? Timestamp.fromDate(parsedDate) : null,
+                  };
+                })
             .where((data) {
               final sId = data['schoolTypeId'] as String?;
               if (widget.schoolTypeId.isNotEmpty && sId != null && sId != widget.schoolTypeId) return false;
@@ -2883,6 +3192,7 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
                   date.isBefore(endOfMonth.add(Duration(seconds: 1)));
             }),
       );
+      }
 
       // Mapper: Etütler
       allEvents.addAll(
@@ -2941,9 +3251,10 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
       );
 
       // Mapper: Geziler
-      allEvents.addAll(
-        geziSnapshot.docs
-            .map((doc) {
+      if (geziSnapshot != null) {
+        allEvents.addAll(
+          geziSnapshot.docs
+              .map((doc) {
                 final data = doc.data() as Map<String, dynamic>;
                 final parsedDate = _parseDateTime(data['departureTime']);
                 return <String, dynamic>{
@@ -2981,9 +3292,10 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
                   date.isBefore(endOfMonth.add(Duration(seconds: 1)));
             }),
       );
+      }
 
       // 4. Öğretmen özel yüklemeleri (Nöbetler, Ödevler, Sınavlar)
-      if (isTeacher && (myId != null || validTeacherIds.isNotEmpty)) {
+      if (isTeacher && (myId != null || validTeacherIds.isNotEmpty || teacherName.isNotEmpty)) {
         // A. dutyScheduleItems (Nöbetler)
         if (allDutyDocs.isNotEmpty) {
           for (var doc in allDutyDocs) {
@@ -2996,28 +3308,21 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
               termMatches = true;
             } else if (itemTermId != null && itemTermId.isNotEmpty) {
               termMatches = (itemTermId == activeTermId);
-            } else if (itemPeriodId == activeTermId || validWorkPeriodIds.contains(itemPeriodId) || itemPeriodId.isEmpty) {
+            } else if (itemPeriodId.isEmpty || itemPeriodId == activeTermId || validWorkPeriodIds.contains(itemPeriodId)) {
+              termMatches = true;
+            } else {
+              // Failsafe: Öğretmenin kendi nöbeti ise döneme takılıp kaybolmasın
               termMatches = true;
             }
             if (!termMatches) continue;
 
-            final dDayOfWeek = data['dayOfWeek'] as int?;
+            final dDayOfWeek = int.tryParse(data['dayOfWeek']?.toString() ?? '');
             final dWeekStart = _parseDateTime(data['weekStart']);
             final location = data['locationName'] ?? data['dutyLocation'] ?? 'Nöbet Yeri';
             final locationId = (data['locationId'] ?? '').toString();
             var locData = dutyLocationsMap[locationId] ??
-                dutyLocationsMap['name_${location.toString().trim().toLowerCase()}'];
-
-            if (locData == null && locationId.isNotEmpty) {
-              try {
-                final dDoc = await FirebaseFirestore.instance.collection('dutyLocations').doc(locationId).get();
-                if (dDoc.exists && dDoc.data() != null) {
-                  locData = Map<String, dynamic>.from(dDoc.data()!);
-                  locData['id'] = dDoc.id;
-                  dutyLocationsMap[locationId] = locData;
-                }
-              } catch (_) {}
-            }
+                dutyLocationsMap['name_${location.toString().trim().toLowerCase()}'] ??
+                _globalDutyLocationsMap[locationId];
 
             final actualLocId = locationId.isNotEmpty ? locationId : (locData?['id']?.toString() ?? '');
             Map<String, dynamic>? cfg = (actualLocId.isNotEmpty && itemPeriodId.isNotEmpty)
@@ -3034,15 +3339,29 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
 
             final dutyDesc = (locData?['description'] ?? cfg?['description'] ?? data['locationDescription'] ?? data['description'] ?? '').toString().trim();
 
-            DateTime? dutyDate;
+            DateTime? singleDutyDate;
             if (data['dutyDate'] != null) {
-              dutyDate = _parseDateTime(data['dutyDate']);
+              singleDutyDate = _parseDateTime(data['dutyDate']);
             }
-            if (dutyDate == null && dDayOfWeek != null && dWeekStart != null) {
-              dutyDate = dWeekStart.add(Duration(days: dDayOfWeek - 1));
+            if (singleDutyDate == null && dDayOfWeek != null && dWeekStart != null) {
+              singleDutyDate = dWeekStart.add(Duration(days: dDayOfWeek - 1));
             }
-            
-            if (dutyDate != null) {
+
+            final List<DateTime> dutyDates = [];
+            if (singleDutyDate != null) {
+              dutyDates.add(singleDutyDate);
+            } else if (dDayOfWeek != null && dDayOfWeek >= 1 && dDayOfWeek <= 7) {
+              // Eğer dWeekStart yoksa, o ayın tüm o haftanın günlerine yay (Haftalık döngüsel nöbet programı)
+              DateTime cur = startOfMonth;
+              while (!cur.isAfter(endOfMonth)) {
+                if (cur.weekday == dDayOfWeek) {
+                  dutyDates.add(cur);
+                }
+                cur = cur.add(const Duration(days: 1));
+              }
+            }
+
+            for (final dutyDate in dutyDates) {
               if (dutyDate.isAfter(startOfMonth.subtract(const Duration(seconds: 1))) &&
                   dutyDate.isBefore(endOfMonth.add(const Duration(seconds: 1)))) {
                 
@@ -3090,7 +3409,7 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
 
                 allEvents.add(<String, dynamic>{
                   ...data,
-                  'id': 'duty_${doc.id}',
+                  'id': 'duty_${doc.id}_${dutyDate.year}_${dutyDate.month}_${dutyDate.day}',
                   'source': 'duty',
                   'title': 'Nöbet: $location',
                   'locationName': location,
@@ -3177,51 +3496,81 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
           }
         }
 
-        // E. trial_exams (Deneme Sınavları)
-        final trialExamsSnapshot = await FirebaseFirestore.instance
-            .collection('trial_exams')
-            .where('institutionId', whereIn: instIds)
-            .where('isActive', isEqualTo: true)
-            .get();
+        // E. trial_exams (Deneme Sınavları - Paralel sorgudan alındı)
+        if (trialExamsSnapshot != null) {
+          for (var doc in trialExamsSnapshot.docs) {
+            final data = doc.data() as Map<String, dynamic>;
+            final itemTermId = data['termId']?.toString().trim();
+            if (activeTermId != null && activeTermId.isNotEmpty && itemTermId != null && itemTermId.isNotEmpty) {
+              if (itemTermId != activeTermId) continue;
+            }
 
-        for (var doc in trialExamsSnapshot.docs) {
-          final data = doc.data();
-          final itemTermId = data['termId']?.toString().trim();
-          if (activeTermId != null && activeTermId.isNotEmpty && itemTermId != null && itemTermId.isNotEmpty) {
-            if (itemTermId != activeTermId) continue;
-          }
-
-          final examDate = _parseDateTime(data['date']);
-          final name = data['name'] ?? data['examName'] ?? 'Deneme Sınavı';
-          
-          if (examDate != null) {
-            if (examDate.isAfter(startOfMonth.subtract(const Duration(seconds: 1))) &&
-                examDate.isBefore(endOfMonth.add(const Duration(seconds: 1)))) {
-              final ts = Timestamp.fromDate(examDate);
-              allEvents.add(<String, dynamic>{
-                ...data,
-                'id': 'trial_exam_${doc.id}',
-                'source': 'trial_exam',
-                'title': 'Deneme Sınavı: $name',
-                'displayType': 'Sınav',
-                'type': 'Sınav',
-                'date': ts,
-                'startTime': ts,
-                'endTime': ts,
-              });
+            final examDate = _parseDateTime(data['date']);
+            final name = data['name'] ?? data['examName'] ?? 'Deneme Sınavı';
+            
+            if (examDate != null) {
+              if (examDate.isAfter(startOfMonth.subtract(const Duration(seconds: 1))) &&
+                  examDate.isBefore(endOfMonth.add(const Duration(seconds: 1)))) {
+                final ts = Timestamp.fromDate(examDate);
+                allEvents.add(<String, dynamic>{
+                  ...data,
+                  'id': 'trial_exam_${doc.id}',
+                  'source': 'trial_exam',
+                  'title': 'Deneme Sınavı: $name',
+                  'displayType': 'Sınav',
+                  'type': 'Sınav',
+                  'date': ts,
+                  'startTime': ts,
+                  'endTime': ts,
+                });
+              }
             }
           }
         }
       }
 
-      setState(() {
-        _events = allEvents;
-        _isLoading = false;
-      });
+      // ⚡ Değişiklik kontrolü: Sadece veri değiştiyse arayüzü ve önbelleği güncelle
+      final hasChanged = !_eventsAreEqual(_events, allEvents);
+      _lastFetchTime[cacheKey] = DateTime.now();
+
+      if (hasChanged) {
+        _memoryEventsCache[cacheKey] = allEvents;
+        _saveToDiskCache(cacheKey, allEvents);
+      }
+      if (_activeTermName != null) {
+        _memoryActiveTermName[cacheKey] = _activeTermName!;
+      }
+
+      if (mounted) {
+        setState(() {
+          if (hasChanged || _events.isEmpty) {
+            _events = allEvents;
+          }
+          _isLoading = false;
+        });
+      }
     } catch (e) {
       print('Etkinlik yükleme hatası: $e');
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  void _onNavigateDate(DateTime newDay, {DateTime? newSelectedDay}) {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? 'guest';
+    final newKey = '${widget.institutionId}_${uid}_${widget.schoolTypeId}_${newDay.year}_${newDay.month}';
+    final cached = _memoryEventsCache[newKey];
+    setState(() {
+      _focusedDay = newDay;
+      if (newSelectedDay != null) _selectedDay = newSelectedDay;
+      if (cached != null && cached.isNotEmpty) {
+        _events = List<Map<String, dynamic>>.from(cached);
+        _activeTermName = _memoryActiveTermName[newKey];
+      }
+    });
+    if (cached == null || cached.isEmpty) {
+      _loadFromDiskCache(newKey);
+    }
+    _loadEvents(isSilent: cached != null && cached.isNotEmpty);
   }
 
 
@@ -3245,6 +3594,7 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     bool isWideScreen = MediaQuery.of(context).size.width > 900;
 
     return Stack(
@@ -3254,7 +3604,7 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
           child: ConstrainedBox(
             constraints: BoxConstraints(maxWidth: isWideScreen ? 750 : double.infinity),
             child: Container(
-              margin: EdgeInsets.all(isWideScreen ? 24 : 16),
+              margin: EdgeInsets.all(isWideScreen ? 24 : 10),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(24),
@@ -3271,9 +3621,15 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
               ),
               child: Column(
                 children: [
+                  ClipRRect(
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                    child: _isLoading
+                        ? const LinearProgressIndicator(minHeight: 3, backgroundColor: Colors.transparent)
+                        : const SizedBox(height: 3),
+                  ),
                   // Takvim Başlığı
                   Padding(
-                    padding: EdgeInsets.fromLTRB(isWideScreen ? 24 : 16, 24, isWideScreen ? 24 : 8, 16),
+                    padding: EdgeInsets.fromLTRB(isWideScreen ? 24 : 16, isWideScreen ? 24 : 12, isWideScreen ? 24 : 8, isWideScreen ? 16 : 6),
                     child: Row(
                       children: [
                         Expanded(
@@ -3316,30 +3672,12 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
                                   ],
                                 ),
                               ),
-                              if (_isLoading)
-                                Padding(
-                                  padding: EdgeInsets.only(top: 4),
-                                  child: SizedBox(
-                                    width: 60,
-                                    height: 2,
-                                    child: LinearProgressIndicator(
-                                      backgroundColor: Colors.blue.withOpacity(0.1),
-                                      valueColor: AlwaysStoppedAnimation<Color>(
-                                        Colors.blue,
-                                      ),
-                                    ),
-                                  ),
-                                ),
                             ],
                           ),
                         ),
                         TextButton(
                           onPressed: () {
-                            setState(() {
-                              _focusedDay = DateTime.now();
-                              _selectedDay = DateTime.now();
-                            });
-                            _loadEvents();
+                            _onNavigateDate(DateTime.now(), newSelectedDay: DateTime.now());
                           },
                           child: Text('Bugün'),
                           style: TextButton.styleFrom(
@@ -3349,36 +3687,26 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
                         ),
                         IconButton(
                           onPressed: () {
-                            setState(() {
-                              if (_isWeeklyView) {
-                                _selectedDay = _selectedDay.subtract(Duration(days: 7));
-                                _focusedDay = _selectedDay;
-                              } else {
-                                _focusedDay = DateTime(
-                                  _focusedDay.year,
-                                  _focusedDay.month - 1,
-                                );
-                              }
-                            });
-                            _loadEvents();
+                            if (_isWeeklyView) {
+                              final newSel = _selectedDay.subtract(Duration(days: 7));
+                              _onNavigateDate(newSel, newSelectedDay: newSel);
+                            } else {
+                              final newFocused = DateTime(_focusedDay.year, _focusedDay.month - 1);
+                              _onNavigateDate(newFocused);
+                            }
                           },
                           icon: Icon(Icons.chevron_left_rounded),
                           splashRadius: 24,
                         ),
                         IconButton(
                           onPressed: () {
-                            setState(() {
-                              if (_isWeeklyView) {
-                                _selectedDay = _selectedDay.add(Duration(days: 7));
-                                _focusedDay = _selectedDay;
-                              } else {
-                                _focusedDay = DateTime(
-                                  _focusedDay.year,
-                                  _focusedDay.month + 1,
-                                );
-                              }
-                            });
-                            _loadEvents();
+                            if (_isWeeklyView) {
+                              final newSel = _selectedDay.add(Duration(days: 7));
+                              _onNavigateDate(newSel, newSelectedDay: newSel);
+                            } else {
+                              final newFocused = DateTime(_focusedDay.year, _focusedDay.month + 1);
+                              _onNavigateDate(newFocused);
+                            }
                           },
                           icon: Icon(Icons.chevron_right_rounded),
                           splashRadius: 24,
@@ -3408,20 +3736,20 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
                           .toList(),
                     ),
                   ),
-                  SizedBox(height: 8),
+                  SizedBox(height: isWideScreen ? 8 : 4),
                   // Günler Grid (Clipped view fixed by removing Flexible and using NeverScrollableScrollPhysics)
                   Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: _isWeeklyView ? 8 : 4),
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: _isWeeklyView ? 8 : 2),
                     child: _buildCalendarGrid(),
                   ),
-                  SizedBox(height: 8),
+                  SizedBox(height: isWideScreen ? 8 : 4),
                   // Seçili Gün Etkinlikleri
                   Expanded(
                     child: Container(
-                      padding: EdgeInsets.symmetric(horizontal: 24),
+                      padding: EdgeInsets.symmetric(horizontal: isWideScreen ? 24 : 16),
                       decoration: BoxDecoration(
                         color: Colors.grey.shade50,
-                        borderRadius: BorderRadius.only(
+                        borderRadius: const BorderRadius.only(
                           bottomLeft: Radius.circular(24),
                           bottomRight: Radius.circular(24),
                         ),
@@ -3467,7 +3795,7 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
         crossAxisCount: 7,
         mainAxisSpacing: 2,
         crossAxisSpacing: 2,
-        childAspectRatio: _isWeeklyView ? (isWideScreen ? 1.5 : 1.2) : (isWideScreen ? 2.3 : 1.6), // Tasarım odaklı yassı oran. Günler arasındaki dikey boşluk problemini çözer.
+        childAspectRatio: _isWeeklyView ? (isWideScreen ? 1.5 : 1.25) : (isWideScreen ? 2.3 : 1.8), // Kompakt ve taşmayan dinamik en-boy oranı
       ),
       itemCount: totalCells,
       itemBuilder: (context, index) {
@@ -3531,8 +3859,8 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
             child: AnimatedContainer(
               duration: Duration(milliseconds: 250),
               curve: Curves.easeOutCirc,
-              width: 38,
-              height: 38,
+              width: isWideScreen ? 38 : 34,
+              height: isWideScreen ? 38 : 34,
               decoration: BoxDecoration(
                 color: isSelected
                     ? Colors.blue
@@ -3621,11 +3949,13 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
       return aTime.toString().compareTo(bTime.toString());
     });
 
+    final bool isWideScreen = MediaQuery.of(context).size.width > 900;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: EdgeInsets.only(top: 16, bottom: 8),
+          padding: EdgeInsets.only(top: isWideScreen ? 16 : 8, bottom: isWideScreen ? 8 : 4),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -3633,7 +3963,7 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
                 '${_selectedDay.day} ${_months[_selectedDay.month - 1]}',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
-                  fontSize: 16,
+                  fontSize: isWideScreen ? 16 : 15,
                   color: Colors.grey.shade800,
                 ),
               ),
@@ -3643,8 +3973,11 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
                 icon: Icon(
                   _isWeeklyView ? Icons.calendar_month_rounded : Icons.calendar_view_week_rounded,
                   color: Colors.blue.shade600,
+                  size: 20,
                 ),
-                splashRadius: 24,
+                splashRadius: 20,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
                 onPressed: () {
                   setState(() {
                     _isWeeklyView = !_isWeeklyView;
@@ -3654,6 +3987,7 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
                   });
                 },
               ),
+              const SizedBox(width: 8),
               Text(
                 '${selectedDayEvents.length} Etkinlik',
                 style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
@@ -3664,27 +3998,34 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection> {
         Expanded(
           child: selectedDayEvents.isEmpty
               ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.event_note_rounded,
-                        color: Colors.grey.shade300,
-                        size: 40,
+                  child: SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.event_note_rounded,
+                            color: Colors.grey.shade300,
+                            size: 32,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Bu gün için etkinlik yok',
+                            style: TextStyle(
+                              color: Colors.grey.shade400,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
                       ),
-                      SizedBox(height: 8),
-                      Text(
-                        'Bu gün için etkinlik yok',
-                        style: TextStyle(
-                          color: Colors.grey.shade400,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 )
               : ListView.builder(
-                  padding: EdgeInsets.only(bottom: 24),
+                  padding: const EdgeInsets.only(bottom: 16),
                   itemCount: selectedDayEvents.length,
                   itemBuilder: (context, index) {
                     final event = selectedDayEvents[index];

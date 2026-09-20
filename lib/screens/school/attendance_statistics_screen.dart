@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../services/term_service.dart';
 
@@ -23,6 +25,11 @@ class AttendanceStatisticsScreen extends StatefulWidget {
 }
 
 class _AttendanceStatisticsScreenState extends State<AttendanceStatisticsScreen> {
+  // ⚡ Cache-First RAM & Disk Önbelleği (Anında açılır, sıfır bekleme)
+  static List<Map<String, dynamic>>? _cachedClasses;
+  static Map<String, String>? _cachedStudentNameById;
+  static String? _cachedActiveWorkPeriodId;
+
   bool _loading = true;
   String? _activeWorkPeriodId;
 
@@ -55,11 +62,46 @@ class _AttendanceStatisticsScreenState extends State<AttendanceStatisticsScreen>
   List<Map<String, dynamic>> _onDutyList = [];
   List<Map<String, dynamic>> _reportedList = [];
 
+  Future<void> _loadFromDiskCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final keyClasses = 'edukn_att_classes_${widget.institutionId}_${widget.schoolTypeId}';
+      final keyStudents = 'edukn_att_students_${widget.institutionId}_${widget.schoolTypeId}';
+      final cachedClassesStr = prefs.getString(keyClasses);
+      final cachedStudentsStr = prefs.getString(keyStudents);
+      if (cachedClassesStr != null && cachedClassesStr.isNotEmpty && _classes.isEmpty) {
+        final List dec = json.decode(cachedClassesStr);
+        final list = dec.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        final Map<String, dynamic> studDec = cachedStudentsStr != null ? json.decode(cachedStudentsStr) : {};
+        final studMap = studDec.map((k, v) => MapEntry(k, v.toString()));
+        if (mounted && list.isNotEmpty) {
+          setState(() {
+            _classes = list;
+            _studentNameById = studMap;
+            _loading = false;
+          });
+          _cachedClasses = list;
+          _cachedStudentNameById = studMap;
+        }
+      }
+    } catch (_) {}
+  }
+
   @override
   void initState() {
     super.initState();
     _selectedDay = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
-    _init();
+    if (_cachedClasses != null && _cachedClasses!.isNotEmpty) {
+      _classes = List.from(_cachedClasses!);
+      if (_cachedStudentNameById != null) {
+        _studentNameById = Map.from(_cachedStudentNameById!);
+      }
+      _activeWorkPeriodId = _cachedActiveWorkPeriodId;
+      _loading = false;
+    } else {
+      _loadFromDiskCache();
+    }
+    _init(isBackground: _cachedClasses != null && _cachedClasses!.isNotEmpty);
   }
 
   Widget _buildLessonHourFilter() {
@@ -107,8 +149,10 @@ class _AttendanceStatisticsScreenState extends State<AttendanceStatisticsScreen>
     );
   }
 
-  Future<void> _init() async {
-    setState(() => _loading = true);
+  Future<void> _init({bool isBackground = false}) async {
+    if (!isBackground) {
+      setState(() => _loading = true);
+    }
     try {
       await Future.wait([
         _loadActivePeriodAndTerm(),
@@ -120,8 +164,9 @@ class _AttendanceStatisticsScreenState extends State<AttendanceStatisticsScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e')));
     } finally {
-      if (!mounted) return;
-      setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 
@@ -146,6 +191,7 @@ class _AttendanceStatisticsScreenState extends State<AttendanceStatisticsScreen>
 
     if (periodSnap.docs.isNotEmpty) {
       _activeWorkPeriodId = periodSnap.docs.first.id;
+      _cachedActiveWorkPeriodId = _activeWorkPeriodId;
     }
     await TermService().getActiveTermId();
   }
@@ -175,6 +221,13 @@ class _AttendanceStatisticsScreenState extends State<AttendanceStatisticsScreen>
 
     filtered.sort((a, b) => (a['className'] ?? '').toString().compareTo((b['className'] ?? '').toString()));
     _classes = filtered;
+    _cachedClasses = List.from(filtered);
+
+    // 💾 Diske kalıcı kaydet
+    SharedPreferences.getInstance().then((prefs) {
+      final key = 'edukn_att_classes_${widget.institutionId}_${widget.schoolTypeId}';
+      prefs.setString(key, json.encode(filtered));
+    }).catchError((_) {});
   }
 
   Future<void> _loadStudentsIndex() async {
@@ -196,6 +249,13 @@ class _AttendanceStatisticsScreenState extends State<AttendanceStatisticsScreen>
     }
 
     _studentNameById = map;
+    _cachedStudentNameById = Map.from(map);
+
+    // 💾 Diske kalıcı kaydet
+    SharedPreferences.getInstance().then((prefs) {
+      final key = 'edukn_att_students_${widget.institutionId}_${widget.schoolTypeId}';
+      prefs.setString(key, json.encode(map));
+    }).catchError((_) {});
   }
 
   DateTime _startOfWeek(DateTime day) {

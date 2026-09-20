@@ -6,3 +6,19 @@ Future<String?> requestWebNotificationPermission() async {
   // Sadece web'de çalışacak
   return null;
 }
+
+String getWebNotificationPermissionStatus() {
+  return 'unsupported';
+}
+
+bool isIosWeb() {
+  return false;
+}
+
+bool isStandalonePwa() {
+  return false;
+}
+
+bool isNotificationSupported() {
+  return false;
+}

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,6 +10,7 @@ import '../constants/app_modules.dart';
 /// Tüm modüller bu servisi kullanarak kullanıcı verilerini ve yetkilerini alır
 class UserPermissionService {
   static Map<String, dynamic>? _cachedUserData;
+  static Map<String, dynamic>? get cachedUserData => _cachedUserData;
   static bool _isImpersonating = false;
   static Future<Map<String, dynamic>?>? _loadFuture;
   // resolveInstitutionId sonucunu cache'le — her ekran açılışında Firestore'a gitmemek için
@@ -16,17 +18,75 @@ class UserPermissionService {
   // Rol şablonu cache — login sonrası yüklenir
   static Map<String, dynamic>? _cachedRoleTemplate;
 
+  static Map<String, dynamic> _makeJsonSafe(Map<String, dynamic> map) {
+    final result = <String, dynamic>{};
+    map.forEach((key, value) {
+      if (value is Timestamp) {
+        result[key] = value.toDate().toIso8601String();
+      } else if (value is DateTime) {
+        result[key] = value.toIso8601String();
+      } else if (value is Map) {
+        result[key] = _makeJsonSafe(Map<String, dynamic>.from(value));
+      } else if (value is List) {
+        result[key] = value.map((e) {
+          if (e is Timestamp) return e.toDate().toIso8601String();
+          if (e is DateTime) return e.toIso8601String();
+          if (e is Map) return _makeJsonSafe(Map<String, dynamic>.from(e));
+          return e;
+        }).toList();
+      } else {
+        result[key] = value;
+      }
+    });
+    return result;
+  }
+
   /// Kullanıcı verilerini yükle (normal veya impersonation)
   static Future<Map<String, dynamic>?> loadUserData({bool forceRefresh = false}) async {
     if (!forceRefresh && _cachedUserData != null) return _cachedUserData;
     if (!forceRefresh && _loadFuture != null) {
       final result = await _loadFuture!;
       if (result != null) return result;
-      // Önceki sonuç null ise tekrar dene
+    }
+
+    // ⚡ Cold Start Hızı: SharedPreferences disk önbelleğinden anında 0 ms'de yükle!
+    if (!forceRefresh) {
+      try {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          final prefs = await SharedPreferences.getInstance();
+          final isImp = prefs.getBool('is_impersonating') ?? false;
+          if (!isImp) {
+            final cachedJson = prefs.getString('edukn_cached_user_${user.uid}');
+            if (cachedJson != null && cachedJson.isNotEmpty) {
+              final decoded = json.decode(cachedJson) as Map<String, dynamic>;
+              _cachedUserData = decoded;
+              _cachedInstitutionId = decoded['institutionId']?.toString();
+              // Arka planda sessizce Firestore'dan doğrula/yenile
+              _internalLoadUserData().then((fresh) {
+                if (fresh != null) {
+                  prefs.setString('edukn_cached_user_${user.uid}', json.encode(_makeJsonSafe(fresh)));
+                }
+              }).catchError((_) {});
+              return _cachedUserData;
+            }
+          }
+        }
+      } catch (_) {}
     }
     
     _loadFuture = _internalLoadUserData();
-    return _loadFuture;
+    final res = await _loadFuture!;
+    if (res != null) {
+      try {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('edukn_cached_user_${user.uid}', json.encode(_makeJsonSafe(res)));
+        }
+      } catch (_) {}
+    }
+    return res;
   }
 
   static Future<Map<String, dynamic>?> _internalLoadUserData() async {
@@ -239,7 +299,7 @@ class UserPermissionService {
             
         if (parentQuery.docs.isNotEmpty) {
           userData = parentQuery.docs.first.data();
-          userData!['id'] = parentQuery.docs.first.id;
+          userData['id'] = parentQuery.docs.first.id;
           userData['role'] = 'parent';
           print('✅ Parent olarak bulundu: ${userData['fullName'] ?? userData['name']}');
         }
@@ -685,5 +745,116 @@ class UserPermissionService {
     }
 
     return _cachedInstitutionId ?? 'GMAIL';
+  }
+
+  /// Kullanıcının öğretmen olup olmadığını kontrol eder
+  static bool isTeacher() {
+    final role = (_cachedUserData?['role'] ?? '').toString().toLowerCase();
+    return role == 'teacher' || role == 'ogretmen' || role == 'öğretmen';
+  }
+
+  /// Öğretmenin yetkili olduğu sınıfları getirir:
+  /// 1. Danışman / Sınıf Öğretmeni olduğu sınıf (classTeacherId, advisoryClassId vb.)
+  /// 2. Rehberlik Öğretmeni olduğu sınıf (guidanceCounselorId, counselorId vb.)
+  /// 3. Dersine girdiği sınıflar (lessonAssignments & classSchedules)
+  static Future<Set<String>> getTeacherAllowedClassIds({
+    required String institutionId,
+    String? teacherId,
+  }) async {
+    final Set<String> classIds = {};
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      final userData = await loadUserData();
+      final instId = (userData?['institutionId'] ?? institutionId).toString();
+      final instIds = [instId, instId.toLowerCase(), instId.toUpperCase()].toSet().toList();
+
+      final Set<String> validTeacherIds = {};
+      if (teacherId != null && teacherId.isNotEmpty) validTeacherIds.add(teacherId);
+      if (user != null) validTeacherIds.add(user.uid);
+      final docId = userData?['id']?.toString();
+      if (docId != null && docId.isNotEmpty) validTeacherIds.add(docId);
+      final authUserId = userData?['authUserId']?.toString();
+      if (authUserId != null && authUserId.isNotEmpty) validTeacherIds.add(authUserId);
+      final tId = userData?['teacherId']?.toString();
+      if (tId != null && tId.isNotEmpty) validTeacherIds.add(tId);
+
+      // userData içindeki doğrudan tanımlı sınıflar
+      for (final field in [
+        'advisoryClassId',
+        'classTeacherClassId',
+        'counselorClassId',
+        'guidanceClassId',
+        'assignedClassId',
+      ]) {
+        final cid = userData?[field]?.toString();
+        if (cid != null && cid.isNotEmpty) classIds.add(cid);
+      }
+      if (userData?['assignedClassIds'] is List) {
+        for (var c in (userData!['assignedClassIds'] as List)) {
+          if (c != null && c.toString().isNotEmpty) classIds.add(c.toString());
+        }
+      }
+
+      // 1. Sınıf Öğretmenliği (Danışman) ve Rehberlik Öğretmenliği (classes koleksiyonu)
+      for (final tid in validTeacherIds) {
+        final queries = await Future.wait([
+          FirebaseFirestore.instance
+              .collection('classes')
+              .where('institutionId', whereIn: instIds)
+              .where('classTeacherId', isEqualTo: tid)
+              .where('isActive', isEqualTo: true)
+              .get(),
+          FirebaseFirestore.instance
+              .collection('classes')
+              .where('institutionId', whereIn: instIds)
+              .where('guidanceCounselorId', isEqualTo: tid)
+              .where('isActive', isEqualTo: true)
+              .get(),
+          FirebaseFirestore.instance
+              .collection('classes')
+              .where('institutionId', whereIn: instIds)
+              .where('counselorId', isEqualTo: tid)
+              .where('isActive', isEqualTo: true)
+              .get(),
+        ]);
+        for (var snap in queries) {
+          for (var doc in snap.docs) {
+            classIds.add(doc.id);
+          }
+        }
+      }
+
+      // 2. Dersine girdiği sınıflar (lessonAssignments ve classSchedules)
+      for (final tid in validTeacherIds) {
+        final queries = await Future.wait([
+          FirebaseFirestore.instance
+              .collection('lessonAssignments')
+              .where('institutionId', whereIn: instIds)
+              .where('teacherIds', arrayContains: tid)
+              .where('isActive', isEqualTo: true)
+              .get(),
+          FirebaseFirestore.instance
+              .collection('lessonAssignments')
+              .where('institutionId', whereIn: instIds)
+              .where('teacherId', isEqualTo: tid)
+              .where('isActive', isEqualTo: true)
+              .get(),
+          FirebaseFirestore.instance
+              .collection('classSchedules')
+              .where('institutionId', whereIn: instIds)
+              .where('teacherId', isEqualTo: tid)
+              .get(),
+        ]);
+        for (var snap in queries) {
+          for (var doc in snap.docs) {
+            final cid = (doc.data() as Map<String, dynamic>?)?['classId']?.toString();
+            if (cid != null && cid.isNotEmpty) classIds.add(cid);
+          }
+        }
+      }
+    } catch (e) {
+      print('Öğretmen yetkili sınıfları alınırken hata: $e');
+    }
+    return classIds;
   }
 }

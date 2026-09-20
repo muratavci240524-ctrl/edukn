@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../models/school/duty_model.dart';
 import '../../services/term_service.dart';
 import '../../services/user_permission_service.dart';
@@ -22,25 +24,89 @@ class TeacherDutyScreen extends StatefulWidget {
 }
 
 class _TeacherDutyScreenState extends State<TeacherDutyScreen> {
+  // ⚡ Cache-First RAM & Disk Önbelleği (Anında açılır, sıfır bekleme)
+  static List<DutyScheduleItem>? _cachedMyDuties;
+  static Map<String, DutyLocation>? _cachedLocations;
+  static Map<String, String>? _cachedDutyAmirs;
+  static String? _cachedTermName;
+
   bool _isLoading = true;
   List<DutyScheduleItem> _myDuties = [];
   final Map<String, DutyLocation> _locations = {};
-  String? _currentUserId;
+  final Map<String, String> _dutyAmirs = {};
   String? _effectiveTermId;
   String? _termName;
+
+  Future<void> _loadFromDiskCache() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      final prefs = await SharedPreferences.getInstance();
+      final key = 'edukn_duties_${user.uid}_${widget.institutionId}';
+      final cachedStr = prefs.getString(key);
+      final cachedLocsStr = prefs.getString('edukn_duty_locs_${widget.institutionId}');
+      final cachedAmirsStr = prefs.getString('edukn_duty_amirs_${widget.institutionId}');
+      final cachedTerm = prefs.getString('edukn_duty_term_${widget.institutionId}');
+      if (cachedStr != null && cachedStr.isNotEmpty && _myDuties.isEmpty) {
+        final List dec = json.decode(cachedStr);
+        final list = dec.map((e) {
+          final m = Map<String, dynamic>.from(e as Map);
+          final id = m['id']?.toString() ?? '';
+          return DutyScheduleItem.fromMap(m, id);
+        }).toList();
+
+        Map<String, DutyLocation> locs = {};
+        if (cachedLocsStr != null) {
+          final Map<String, dynamic> locsDec = json.decode(cachedLocsStr);
+          locsDec.forEach((k, v) {
+            locs[k] = DutyLocation.fromMap(Map<String, dynamic>.from(v as Map));
+          });
+        }
+
+        Map<String, String> amirs = {};
+        if (cachedAmirsStr != null) {
+          amirs = Map<String, String>.from(json.decode(cachedAmirsStr));
+        }
+
+        if (mounted && list.isNotEmpty) {
+          setState(() {
+            _myDuties = list;
+            _locations.addAll(locs);
+            _dutyAmirs.addAll(amirs);
+            if (cachedTerm != null) _termName = cachedTerm;
+            _isLoading = false;
+          });
+          _cachedMyDuties = list;
+          _cachedLocations = locs;
+          _cachedDutyAmirs = amirs;
+          _cachedTermName = cachedTerm;
+        }
+      }
+    } catch (_) {}
+  }
 
   @override
   void initState() {
     super.initState();
-    _loadData();
+    if (_cachedMyDuties != null) {
+      _myDuties = List.from(_cachedMyDuties!);
+      if (_cachedLocations != null) _locations.addAll(_cachedLocations!);
+      if (_cachedDutyAmirs != null) _dutyAmirs.addAll(_cachedDutyAmirs!);
+      _termName = _cachedTermName;
+      _isLoading = false;
+    } else {
+      _loadFromDiskCache();
+    }
+    _loadData(isBackground: _cachedMyDuties != null);
   }
 
-  Future<void> _loadData() async {
-    setState(() => _isLoading = true);
+  Future<void> _loadData({bool isBackground = false}) async {
+    if (!isBackground) {
+      setState(() => _isLoading = true);
+    }
     try {
       final authUid = FirebaseAuth.instance.currentUser?.uid;
       if (authUid == null) return;
-      _currentUserId = authUid;
 
       final userData = await UserPermissionService.loadUserData();
       final docId = userData?['id']?.toString();
@@ -91,13 +157,13 @@ class _TeacherDutyScreenState extends State<TeacherDutyScreen> {
 
       if (_effectiveTermId != null && _effectiveTermId!.isNotEmpty) {
         try {
-          for (final inst in instIds) {
-            final wpSnap = await FirebaseFirestore.instance
-                .collection('workPeriods')
-                .where('institutionId', isEqualTo: inst)
-                .where('termId', isEqualTo: _effectiveTermId)
-                .get();
-            for (var d in wpSnap.docs) {
+          final wpSnaps = await Future.wait(instIds.map((inst) => FirebaseFirestore.instance
+              .collection('workPeriods')
+              .where('institutionId', isEqualTo: inst)
+              .where('termId', isEqualTo: _effectiveTermId)
+              .get().catchError((_) => FirebaseFirestore.instance.collection('workPeriods').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get())));
+          for (final snap in wpSnaps) {
+            for (var d in snap.docs) {
               validWorkPeriodIds.add(d.id);
             }
           }
@@ -106,39 +172,37 @@ class _TeacherDutyScreenState extends State<TeacherDutyScreen> {
         }
       }
 
-      // 3. Load my duties (Çift Kimlik - DocID, Auth UID, StaffId ve İsim desteği)
+      // 3. Load my duties (Çift Kimlik - DocID, Auth UID, StaffId ve İsim desteği - Paralel Sorgulama)
       final List<QueryDocumentSnapshot<Map<String, dynamic>>> allDutyDocs = [];
       final Set<String> seenDutyDocIds = {};
 
+      final List<Future<QuerySnapshot<Map<String, dynamic>>>> dutyQueries = [];
       for (final inst in instIds) {
         for (int i = 0; i < validTeacherIds.length; i += 10) {
           final chunk = validTeacherIds.skip(i).take(10).toList();
-          final itemsSnap = await FirebaseFirestore.instance
+          dutyQueries.add(FirebaseFirestore.instance
               .collection('dutyScheduleItems')
               .where('institutionId', isEqualTo: inst)
               .where('teacherId', whereIn: chunk)
-              .get();
-          for (var doc in itemsSnap.docs) {
-            if (seenDutyDocIds.add(doc.id)) {
-              allDutyDocs.add(doc);
-            }
-          }
+              .get().catchError((_) => FirebaseFirestore.instance.collection('dutyScheduleItems').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get()));
         }
 
         // İsim bazlı nöbet atamalarını da tara (Failsafe)
         if (teacherName.isNotEmpty) {
-          try {
-            final itemsByNameSnap = await FirebaseFirestore.instance
-                .collection('dutyScheduleItems')
-                .where('institutionId', isEqualTo: inst)
-                .where('teacherName', isEqualTo: teacherName)
-                .get();
-            for (var doc in itemsByNameSnap.docs) {
-              if (seenDutyDocIds.add(doc.id)) {
-                allDutyDocs.add(doc);
-              }
-            }
-          } catch (_) {}
+          dutyQueries.add(FirebaseFirestore.instance
+              .collection('dutyScheduleItems')
+              .where('institutionId', isEqualTo: inst)
+              .where('teacherName', isEqualTo: teacherName)
+              .get().catchError((_) => FirebaseFirestore.instance.collection('dutyScheduleItems').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get()));
+        }
+      }
+
+      final dutySnaps = await Future.wait(dutyQueries);
+      for (final s in dutySnaps) {
+        for (var doc in s.docs) {
+          if (seenDutyDocIds.add(doc.id)) {
+            allDutyDocs.add(doc);
+          }
         }
       }
 
@@ -171,18 +235,99 @@ class _TeacherDutyScreenState extends State<TeacherDutyScreen> {
         }
       }
 
-      // 4. Load locations
-      final locIds = filteredItems.map((i) => i.locationId).toSet().toList();
-      if (locIds.isNotEmpty) {
-        final locSnap = await FirebaseFirestore.instance
-            .collection('dutyLocations')
-            .where('institutionId', isEqualTo: widget.institutionId)
-            .get();
+      // 4. Load locations and discover Nöbetçi Amir locations
+      _locations.clear();
+      _dutyAmirs.clear();
 
-        for (var doc in locSnap.docs) {
-          final data = doc.data();
-          data['id'] = doc.id;
-          _locations[doc.id] = DutyLocation.fromMap(data);
+      final locSnap = await FirebaseFirestore.instance
+          .collection('dutyLocations')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .get();
+
+      final Set<String> amirLocationIds = {};
+
+      for (var doc in locSnap.docs) {
+        final data = doc.data();
+        data['id'] = doc.id;
+        final loc = DutyLocation.fromMap(data);
+        _locations[doc.id] = loc;
+
+        // Yalnızca nöbet yeri ayarlarında "Nöbetçi Amir Yeri" olarak işaretlenen yerler
+        if (loc.isAmir == true) {
+          amirLocationIds.add(doc.id);
+        }
+      }
+
+      // Ayrıca alt dönem konfigürasyonunda isAmir olarak işaretlenmiş yerleri de ekle
+      if (validWorkPeriodIds.isNotEmpty) {
+        for (final wpId in validWorkPeriodIds) {
+          try {
+            final wpDoc = await FirebaseFirestore.instance.collection('workPeriods').doc(wpId).get();
+            final configs = wpDoc.data()?['dutyLocationConfigs'] as Map<String, dynamic>?;
+            if (configs != null) {
+              configs.forEach((locId, c) {
+                if (c is Map && c['isAmir'] == true) {
+                  amirLocationIds.add(locId);
+                }
+              });
+            }
+          } catch (_) {}
+        }
+      }
+
+      // 4.1 Load dutyScheduleItems for Nöbetçi Amir (Paralel)
+      final List<QueryDocumentSnapshot<Map<String, dynamic>>> amirDocs = [];
+      if (amirLocationIds.isNotEmpty) {
+        final List<Future<QuerySnapshot<Map<String, dynamic>>>> amirQueries = [];
+        final amirIdList = amirLocationIds.toList();
+        for (final inst in instIds) {
+          for (int i = 0; i < amirIdList.length; i += 10) {
+            final chunk = amirIdList.skip(i).take(10).toList();
+            amirQueries.add(FirebaseFirestore.instance
+                .collection('dutyScheduleItems')
+                .where('institutionId', isEqualTo: inst)
+                .where('locationId', whereIn: chunk)
+                .get()
+                .catchError((_) => FirebaseFirestore.instance.collection('dutyScheduleItems').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get()));
+          }
+        }
+        final amirSnaps = await Future.wait(amirQueries);
+        for (final s in amirSnaps) {
+          amirDocs.addAll(s.docs);
+        }
+      }
+
+      for (var doc in amirDocs) {
+        final data = doc.data();
+        final teacherName = (data['teacherName'] ?? '').toString().trim();
+        if (teacherName.isEmpty) continue;
+
+        // 1. Exact dutyDate (yyyy-MM-dd)
+        final dDate = data['dutyDate']?.toString().trim();
+        if (dDate != null && dDate.isNotEmpty) {
+          _dutyAmirs[dDate] = teacherName;
+        }
+
+        // 2. weekStart + dayOfWeek
+        final weekStartStr = data['weekStart']?.toString().trim();
+        final dayOfWeek = int.tryParse(data['dayOfWeek']?.toString() ?? '');
+        if (weekStartStr != null && dayOfWeek != null) {
+          final dt = DateTime.tryParse(weekStartStr);
+          if (dt != null) {
+            final calculatedDate = dt.add(Duration(days: dayOfWeek - 1));
+            final dateKey = DateFormat('yyyy-MM-dd').format(calculatedDate);
+            _dutyAmirs[dateKey] = teacherName;
+            _dutyAmirs['${DateFormat('yyyy-MM-dd').format(dt)}_$dayOfWeek'] = teacherName;
+          }
+        }
+
+        // 3. periodId + dayOfWeek and generic dayOfWeek
+        final periodId = data['periodId']?.toString().trim() ?? '';
+        if (dayOfWeek != null) {
+          if (periodId.isNotEmpty) {
+            _dutyAmirs['${periodId}_$dayOfWeek'] = teacherName;
+          }
+          _dutyAmirs['day_$dayOfWeek'] ??= teacherName;
         }
       }
 
@@ -203,10 +348,53 @@ class _TeacherDutyScreenState extends State<TeacherDutyScreen> {
         return a.dayOfWeek.compareTo(b.dayOfWeek);
       });
 
-      _myDuties = filteredItems;
+      bool hasChanged = _myDuties.length != filteredItems.length;
+      if (!hasChanged) {
+        for (int i = 0; i < filteredItems.length; i++) {
+          if (filteredItems[i].id != _myDuties[i].id) {
+            hasChanged = true;
+            break;
+          }
+        }
+      }
+
+      _cachedMyDuties = List.from(filteredItems);
+      _cachedLocations = Map.from(_locations);
+      _cachedDutyAmirs = Map.from(_dutyAmirs);
+      _cachedTermName = _termName;
+
+      // 💾 Diske kalıcı kaydet (Uygulama kapatılıp açılsa da 0 ms'de gelir)
+      SharedPreferences.getInstance().then((prefs) {
+        final key = 'edukn_duties_${authUid}_${widget.institutionId}';
+        final dutyList = filteredItems.map((d) {
+          final m = d.toMap();
+          m['id'] = d.id;
+          return m;
+        }).toList();
+        prefs.setString(key, json.encode(dutyList));
+
+        final locMap = <String, dynamic>{};
+        _locations.forEach((k, v) => locMap[k] = v.toMap());
+        prefs.setString('edukn_duty_locs_${widget.institutionId}', json.encode(locMap));
+
+        if (_dutyAmirs.isNotEmpty) {
+          prefs.setString('edukn_duty_amirs_${widget.institutionId}', json.encode(_dutyAmirs));
+        }
+        if (_termName != null) {
+          prefs.setString('edukn_duty_term_${widget.institutionId}', _termName!);
+        }
+      }).catchError((_) {});
+
+      if (mounted) {
+        setState(() {
+          if (hasChanged || _myDuties.isEmpty) {
+            _myDuties = filteredItems;
+          }
+          _isLoading = false;
+        });
+      }
     } catch (e) {
       debugPrint('Error loading duties: $e');
-    } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
@@ -240,6 +428,34 @@ class _TeacherDutyScreenState extends State<TeacherDutyScreen> {
       case 12: return 'Ara';
       default: return '';
     }
+  }
+
+  String? _getDutyAmir(DutyScheduleItem duty, DateTime? dutyDate) {
+    if (dutyDate != null) {
+      final dateKey = DateFormat('yyyy-MM-dd').format(dutyDate);
+      if (_dutyAmirs.containsKey(dateKey)) {
+        return _dutyAmirs[dateKey];
+      }
+    }
+
+    final dutyDateStr = duty.dutyDate?.trim();
+    if (dutyDateStr != null && dutyDateStr.isNotEmpty && _dutyAmirs.containsKey(dutyDateStr)) {
+      return _dutyAmirs[dutyDateStr];
+    }
+
+    if (duty.weekStart != null) {
+      final weekKey = '${DateFormat('yyyy-MM-dd').format(duty.weekStart!)}_${duty.dayOfWeek}';
+      if (_dutyAmirs.containsKey(weekKey)) {
+        return _dutyAmirs[weekKey];
+      }
+    }
+
+    final periodKey = '${duty.periodId}_${duty.dayOfWeek}';
+    if (_dutyAmirs.containsKey(periodKey)) {
+      return _dutyAmirs[periodKey];
+    }
+
+    return _dutyAmirs['day_${duty.dayOfWeek}'];
   }
 
   @override
@@ -415,6 +631,7 @@ class _TeacherDutyScreenState extends State<TeacherDutyScreen> {
   ) {
     final locationName = loc?.name ?? duty.locationName ?? 'Bilinmeyen Yer';
     final hasDescription = loc != null && loc.description.trim().isNotEmpty;
+    final amirName = _getDutyAmir(duty, dutyDate);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -617,6 +834,72 @@ class _TeacherDutyScreenState extends State<TeacherDutyScreen> {
                   ),
               ],
             ),
+
+            // Günün Nöbetçi Amiri (Varsa kartla birleşik, açıklamanın üstünde kompakt gösterilir)
+            if (amirName != null && amirName.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: isToday
+                      ? const Color(0xFFF0FDF4)
+                      : isPast
+                          ? Colors.grey.shade100
+                          : const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: isToday
+                        ? const Color(0xFFBBF7D0)
+                        : isPast
+                            ? Colors.grey.shade300
+                            : const Color(0xFFE2E8F0),
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.shield_outlined,
+                      size: 15,
+                      color: isToday
+                          ? const Color(0xFF15803D)
+                          : isPast
+                              ? Colors.grey.shade600
+                              : const Color(0xFF475569),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Nöbetçi Amir: ',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                        color: isToday
+                            ? const Color(0xFF15803D)
+                            : isPast
+                                ? Colors.grey.shade600
+                                : const Color(0xFF475569),
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        amirName,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: isToday
+                              ? const Color(0xFF14532D)
+                              : isPast
+                                  ? Colors.grey.shade800
+                                  : const Color(0xFF0F172A),
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
 
             // Nöbet Yeri Açıklaması (Varsa Kartın Alt Kısmında Şık Bir Kutuda Gösterilir)
             if (hasDescription) ...[

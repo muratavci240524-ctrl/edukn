@@ -39,8 +39,23 @@ class TermService {
     final savedActiveTermId = prefs.getString('active_term_id');
     if (savedActiveTermId != null && savedActiveTermId.isNotEmpty) {
       _cachedActiveTermId = savedActiveTermId;
+      // ⚡ Cold Start Hızı: Kayıtlı dönemi hemen 0 ms'de döndür, arka planda sessizce doğrula!
+      _refreshActiveTermInBackground();
+      return _cachedActiveTermId;
     }
     
+    return _internalFetchActiveTerm();
+  }
+
+  void _refreshActiveTermInBackground() {
+    _internalFetchActiveTerm().catchError((e) {
+      debugPrint('Background term refresh error: $e');
+      return null;
+    });
+  }
+
+  Future<String?> _internalFetchActiveTerm() async {
+    final prefs = await SharedPreferences.getInstance();
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return _cachedActiveTermId;

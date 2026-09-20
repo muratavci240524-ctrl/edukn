@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../models/survey_model.dart';
@@ -33,6 +33,8 @@ class SurveyListScreen extends StatefulWidget {
 class _SurveyListScreenState extends State<SurveyListScreen> {
   final SurveyService _surveyService = SurveyService();
 
+  static List<String>? _cachedClassIds;
+
   List<String> _classIds = [];
   bool _isInitLoading = false;
   String? _currentTermId;
@@ -41,12 +43,18 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
   @override
   void initState() {
     super.initState();
+    if (_cachedClassIds != null && _cachedClassIds!.isNotEmpty) {
+      _classIds = List.from(_cachedClassIds!);
+      _isInitLoading = false;
+    }
     _surveyService.checkScheduledSurveys(widget.institutionId);
     _loadTermAndClasses();
   }
 
   Future<void> _loadTermAndClasses() async {
-    setState(() => _isInitLoading = true);
+    if (_classIds.isEmpty) {
+      setState(() => _isInitLoading = true);
+    }
     try {
       _currentTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
       if (widget.isTeacher && widget.teacherId != null) {
@@ -74,6 +82,8 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
         .whereType<String>()
         .toSet()
         .toList();
+
+    _cachedClassIds = ids;
 
     if (mounted) {
       setState(() {

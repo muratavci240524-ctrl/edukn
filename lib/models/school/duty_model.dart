@@ -9,6 +9,7 @@ class DutyLocation {
   final bool checkOtherDays; // If true, show warning for teachers in other days
   final int order; // Sıralama önceliği
   final String group; // Nöbet Grubu (Örn: Kat Nöbetleri, Aziz Sancar, Hafta Sonu)
+  final bool isAmir; // Günün Nöbetçi Amiri olarak kabul edilir
   final Map<String, List<String>>
   eligibilities; // Key: "dayId" (e.g. "1"), Value: List of Teacher IDs
 
@@ -23,6 +24,7 @@ class DutyLocation {
     this.checkOtherDays = true,
     this.order = 0,
     this.group = '',
+    this.isAmir = false,
     this.eligibilities = const {},
   });
 
@@ -37,6 +39,7 @@ class DutyLocation {
     bool? checkOtherDays,
     int? order,
     String? group,
+    bool? isAmir,
     Map<String, List<String>>? eligibilities,
   }) {
     return DutyLocation(
@@ -50,6 +53,7 @@ class DutyLocation {
       checkOtherDays: checkOtherDays ?? this.checkOtherDays,
       order: order ?? this.order,
       group: group ?? this.group,
+      isAmir: isAmir ?? this.isAmir,
       eligibilities: eligibilities ?? this.eligibilities,
     );
   }
@@ -66,6 +70,7 @@ class DutyLocation {
       'checkOtherDays': checkOtherDays,
       'order': order,
       'group': group,
+      'isAmir': isAmir,
       'eligibilities': eligibilities,
     };
   }
@@ -91,6 +96,7 @@ class DutyLocation {
       checkOtherDays: map['checkOtherDays'] ?? true,
       order: (map['order'] ?? 0) as int,
       group: map['group'] ?? '',
+      isAmir: map['isAmir'] == true,
       eligibilities: parsedElig,
     );
   }

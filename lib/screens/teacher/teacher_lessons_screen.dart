@@ -1,7 +1,9 @@
-﻿import 'package:flutter/material.dart';
+import 'dart:convert';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../school/teacher_schedule_view_screen.dart';
 import '../../services/user_permission_service.dart';
 
@@ -15,17 +17,53 @@ class TeacherLessonsScreen extends StatefulWidget {
 }
 
 class _TeacherLessonsScreenState extends State<TeacherLessonsScreen> {
+  // ⚡ Cache-First RAM & Disk Önbelleği (Anında açılır, sıfır bekleme)
+  static Map<String, dynamic>? _cachedUserData;
+  static List<Map<String, dynamic>>? _cachedSchoolTypes;
+
   Map<String, dynamic>? userData;
   bool isLoading = true;
   List<Map<String, dynamic>> schoolTypes = [];
 
+  Future<void> _loadFromDiskCache() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      final prefs = await SharedPreferences.getInstance();
+      final cachedStr = prefs.getString('edukn_teacher_lessons_types_${user.uid}_${widget.institutionId}');
+      if (cachedStr != null && cachedStr.isNotEmpty && schoolTypes.isEmpty) {
+        final List dec = json.decode(cachedStr);
+        final list = dec.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        if (mounted && list.isNotEmpty) {
+          setState(() {
+            schoolTypes = list;
+            userData = UserPermissionService.getCachedUserData();
+            isLoading = false;
+          });
+          _cachedSchoolTypes = list;
+          _cachedUserData = userData;
+        }
+      }
+    } catch (_) {}
+  }
+
   @override
   void initState() {
     super.initState();
-    _loadTeacherData();
+    if (_cachedSchoolTypes != null && _cachedSchoolTypes!.isNotEmpty) {
+      userData = _cachedUserData;
+      schoolTypes = List.from(_cachedSchoolTypes!);
+      isLoading = false;
+    } else {
+      _loadFromDiskCache();
+    }
+    _loadTeacherData(isBackground: _cachedSchoolTypes != null && _cachedSchoolTypes!.isNotEmpty);
   }
 
-  Future<void> _loadTeacherData() async {
+  Future<void> _loadTeacherData({bool isBackground = false}) async {
+    if (!isBackground) {
+      setState(() => isLoading = true);
+    }
     final data = await UserPermissionService.loadUserData();
     if (!mounted) return;
 
@@ -167,6 +205,15 @@ class _TeacherLessonsScreenState extends State<TeacherLessonsScreen> {
         });
       }
     }
+
+    _cachedUserData = data;
+    _cachedSchoolTypes = List.from(loadedTypes);
+
+    // 💾 Diske kalıcı kaydet
+    SharedPreferences.getInstance().then((prefs) {
+      final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      prefs.setString('edukn_teacher_lessons_types_${uid}_${widget.institutionId}', json.encode(loadedTypes));
+    }).catchError((_) {});
 
     if (mounted) {
       setState(() {

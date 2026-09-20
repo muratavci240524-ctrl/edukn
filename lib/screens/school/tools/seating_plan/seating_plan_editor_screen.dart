@@ -8,6 +8,7 @@ import '../../../../models/class_model.dart';
 import '../../../../services/seating_distribution_service.dart';
 import '../../../../services/seating_pdf_service.dart';
 import '../../../../widgets/edukn_app_bar.dart';
+import '../../../../services/user_permission_service.dart';
 import 'classroom_layout_editor_screen.dart';
 
 class SeatingPlanEditorScreen extends StatefulWidget {
@@ -17,6 +18,8 @@ class SeatingPlanEditorScreen extends StatefulWidget {
   final SeatingPlan? existingPlan;
   final String? initialClassId;
   final List<String>? allowedClassIds;
+  final bool isTeacher;
+  final String? teacherId;
 
   const SeatingPlanEditorScreen({
     Key? key,
@@ -26,6 +29,8 @@ class SeatingPlanEditorScreen extends StatefulWidget {
     this.existingPlan,
     this.initialClassId,
     this.allowedClassIds,
+    this.isTeacher = false,
+    this.teacherId,
   }) : super(key: key);
 
   @override
@@ -145,12 +150,37 @@ class _SeatingPlanEditorScreenState extends State<SeatingPlanEditorScreen> {
       var list = snap.docs
           .map((d) => ClassModel.fromMap(d.data(), d.id))
           .where((c) =>
-              c.schoolTypeId == widget.schoolTypeId || c.schoolTypeId.isEmpty)
+              c.isActive != false &&
+              (widget.schoolTypeId.isEmpty ||
+                  c.schoolTypeId.isEmpty ||
+                  c.schoolTypeId == widget.schoolTypeId))
           .toList();
 
-      if (widget.allowedClassIds != null) {
-        list = list.where((c) => widget.allowedClassIds!.contains(c.id)).toList();
+      // Öğretmen kontrolü ve izinli sınıfların çözümlenmesi
+      final isTeacher = widget.isTeacher || UserPermissionService.isTeacher();
+      Set<String>? allowedIds;
+      if (widget.allowedClassIds != null && widget.allowedClassIds!.isNotEmpty) {
+        allowedIds = widget.allowedClassIds!.toSet();
+      } else if (isTeacher) {
+        allowedIds = await UserPermissionService.getTeacherAllowedClassIds(
+          institutionId: widget.institutionId,
+          teacherId: widget.teacherId,
+        );
       }
+
+      if (allowedIds != null) {
+        list = list.where((c) => allowedIds!.contains(c.id)).toList();
+      }
+
+      // Mükerrer / Çifter çifter şubeleri engellemek için isim bazlı tekilleştir
+      final Map<String, ClassModel> uniqueByName = {};
+      for (var c in list) {
+        final norm = c.className.trim().toUpperCase().replaceAll(' ', '');
+        if (!uniqueByName.containsKey(norm)) {
+          uniqueByName[norm] = c;
+        }
+      }
+      list = uniqueByName.values.toList();
 
       list.sort((a, b) => a.className.compareTo(b.className));
 

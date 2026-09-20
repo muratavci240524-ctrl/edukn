@@ -1,4 +1,5 @@
-﻿import 'dart:typed_data';
+import 'dart:convert';
+import 'dart:typed_data';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
@@ -8,6 +9,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:excel/excel.dart' hide Border;
 import 'package:file_saver/file_saver.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../services/homework_statistics_service.dart';
 import '../../../../models/school/homework_model.dart';
 import 'homework_detail_screen.dart';
@@ -42,6 +44,14 @@ class _HomeworkOperationsScreenState extends State<HomeworkOperationsScreen>
   DateTime _startDate = DateTime.now();
   DateTime _endDate = DateTime.now();
 
+  // ⚡ Cache-First RAM & Disk Önbelleği (Anında açılır, sıfır bekleme)
+  static List<Homework>? _cachedHomeworks;
+  static Map<String, String>? _cachedTeacherNames;
+  static List<Map<String, dynamic>>? _cachedAllTeachers;
+  static Map<String, String>? _cachedClassNames;
+  static Map<String, String>? _cachedLessonNames;
+  static Map<String, Map<String, dynamic>>? _cachedStudentInfo;
+
   // Data
   bool _loading = false;
   List<Homework> _homeworks = [];
@@ -66,6 +76,63 @@ class _HomeworkOperationsScreenState extends State<HomeworkOperationsScreen>
     });
   }
 
+  static Homework _homeworkFromSafeMap(Map<String, dynamic> map) {
+    final m = Map<String, dynamic>.from(map);
+    if (m['createdAt'] is String) {
+      m['createdAt'] = Timestamp.fromDate(DateTime.parse(m['createdAt']));
+    }
+    if (m['assignedDate'] is String) {
+      m['assignedDate'] = Timestamp.fromDate(DateTime.parse(m['assignedDate']));
+    }
+    if (m['dueDate'] is String) {
+      m['dueDate'] = Timestamp.fromDate(DateTime.parse(m['dueDate']));
+    }
+    return Homework.fromMap(m);
+  }
+
+  static Map<String, dynamic> _homeworkToSafeMap(Homework hw) {
+    return {
+      'id': hw.id,
+      'institutionId': hw.institutionId,
+      'classId': hw.classId,
+      'lessonId': hw.lessonId,
+      'teacherId': hw.teacherId,
+      'title': hw.title,
+      'content': hw.content,
+      'createdAt': hw.createdAt.toIso8601String(),
+      'assignedDate': hw.assignedDate.toIso8601String(),
+      'dueDate': hw.dueDate.toIso8601String(),
+      'attachments': hw.attachments.map((x) => x.toMap()).toList(),
+      'targetStudentIds': hw.targetStudentIds,
+      'studentStatuses': hw.studentStatuses,
+    };
+  }
+
+  Future<void> _loadFromDiskCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = 'edukn_hw_cache_${widget.institutionId}';
+      final cachedHw = prefs.getString(key);
+      final cachedTeachers = prefs.getString('edukn_hw_teachers_${widget.institutionId}');
+      final cachedClasses = prefs.getString('edukn_hw_classes_${widget.institutionId}');
+      final cachedLessons = prefs.getString('edukn_hw_lessons_${widget.institutionId}');
+      if (cachedHw != null && cachedHw.isNotEmpty && _homeworks.isEmpty) {
+        final List dec = json.decode(cachedHw);
+        final list = dec.map((e) => _homeworkFromSafeMap(Map<String, dynamic>.from(e as Map))).toList();
+        if (mounted && list.isNotEmpty) {
+          setState(() {
+            _homeworks = list;
+            if (cachedTeachers != null) _teacherNames.addAll(Map<String, String>.from(json.decode(cachedTeachers)));
+            if (cachedClasses != null) _classNames.addAll(Map<String, String>.from(json.decode(cachedClasses)));
+            if (cachedLessons != null) _lessonNames.addAll(Map<String, String>.from(json.decode(cachedLessons)));
+            _loading = false;
+          });
+          _cachedHomeworks = list;
+        }
+      }
+    } catch (_) {}
+  }
+
   @override
   void initState() {
     super.initState();
@@ -75,7 +142,20 @@ class _HomeworkOperationsScreenState extends State<HomeworkOperationsScreen>
       if (!_tabController.indexIsChanging) setState(() {});
     });
     _initializeDate();
-    _fetchAllData();
+
+    if (_cachedHomeworks != null && _cachedHomeworks!.isNotEmpty) {
+      _homeworks = List.from(_cachedHomeworks!);
+      if (_cachedTeacherNames != null) _teacherNames.addAll(_cachedTeacherNames!);
+      if (_cachedAllTeachers != null) _allTeachers.addAll(_cachedAllTeachers!);
+      if (_cachedClassNames != null) _classNames.addAll(_cachedClassNames!);
+      if (_cachedLessonNames != null) _lessonNames = Map.from(_cachedLessonNames!);
+      if (_cachedStudentInfo != null) _studentInfo = Map.from(_cachedStudentInfo!);
+      _loading = false;
+    } else {
+      _loadFromDiskCache();
+    }
+
+    _fetchAllData(isBackground: _cachedHomeworks != null && _cachedHomeworks!.isNotEmpty);
   }
 
   void _initializeDate() {
@@ -104,89 +184,148 @@ class _HomeworkOperationsScreenState extends State<HomeworkOperationsScreen>
     // 'custom' maintains current selection
   }
 
-  Future<void> _fetchAllData() async {
-    setState(() => _loading = true);
+  Future<void> _fetchAllData({bool isBackground = false}) async {
+    if (!isBackground) {
+      setState(() => _loading = true);
+    }
     try {
-      // 1. Fetch Homeworks (Fetch ALL then filter in memory to avoid Index Errors)
-      final hSnap = await FirebaseFirestore.instance
-          .collection('homeworks')
-          .where('institutionId', isEqualTo: widget.institutionId)
-          .get();
+      final startTs = Timestamp.fromDate(_startDate.subtract(const Duration(days: 7)));
+      final endTs = Timestamp.fromDate(_endDate.add(const Duration(days: 7)));
 
+      final results = await Future.wait<dynamic>([
+        // 0: Homeworks (Aktif tarih aralığı filtresiyle hızlı)
+        FirebaseFirestore.instance
+            .collection('homeworks')
+            .where('institutionId', isEqualTo: widget.institutionId)
+            .where('createdAt', isGreaterThanOrEqualTo: startTs)
+            .where('createdAt', isLessThanOrEqualTo: endTs)
+            .get()
+            .catchError((_) => FirebaseFirestore.instance
+                .collection('homeworks')
+                .where('institutionId', isEqualTo: widget.institutionId)
+                .get()),
+        // 1: Teachers
+        (_cachedTeacherNames != null && _cachedTeacherNames!.isNotEmpty)
+            ? Future<QuerySnapshot<Map<String, dynamic>>?>.value(null)
+            : FirebaseFirestore.instance
+                .collection('users')
+                .where('institutionId', isEqualTo: widget.institutionId)
+                .get()
+                .catchError((_) => FirebaseFirestore.instance.collection('users').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get()),
+        // 2: Classes
+        (_cachedClassNames != null && _cachedClassNames!.isNotEmpty)
+            ? Future<QuerySnapshot<Map<String, dynamic>>?>.value(null)
+            : FirebaseFirestore.instance
+                .collection('classes')
+                .where('institutionId', isEqualTo: widget.institutionId)
+                .get()
+                .catchError((_) => FirebaseFirestore.instance.collection('classes').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get()),
+        // 3: Lessons
+        (_cachedLessonNames != null && _cachedLessonNames!.isNotEmpty)
+            ? Future<QuerySnapshot<Map<String, dynamic>>?>.value(null)
+            : FirebaseFirestore.instance
+                .collection('lessons')
+                .where('institutionId', isEqualTo: widget.institutionId)
+                .get()
+                .catchError((_) => FirebaseFirestore.instance.collection('lessons').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get()),
+        // 4: Students
+        (_cachedStudentInfo != null && _cachedStudentInfo!.isNotEmpty)
+            ? Future<QuerySnapshot<Map<String, dynamic>>?>.value(null)
+            : FirebaseFirestore.instance
+                .collection('students')
+                .where('institutionId', isEqualTo: widget.institutionId)
+                .get()
+                .catchError((_) => FirebaseFirestore.instance.collection('students').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get()),
+      ]);
+
+      final hSnap = results[0] as QuerySnapshot<Map<String, dynamic>>;
       final allHomeworks = hSnap.docs.map((doc) {
         final data = doc.data();
         data['id'] = doc.id;
         return Homework.fromMap(data);
       }).toList();
 
-      // Filter by Date in Memory
-      _homeworks = allHomeworks.where((hw) {
+      final filteredHw = allHomeworks.where((hw) {
         return hw.createdAt.isAfter(
               _startDate.subtract(const Duration(seconds: 1)),
             ) &&
             hw.createdAt.isBefore(_endDate.add(const Duration(seconds: 1)));
       }).toList();
 
-      // Sort by Date Descending
-      _homeworks.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      filteredHw.sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
-      // 2. Resolve Teachers, Classes, Lessons, Students
-
-      // A. Fetch Teachers (Users)
-      final uSnap = await FirebaseFirestore.instance
-          .collection('users')
-          .where('institutionId', isEqualTo: widget.institutionId)
-          .get();
-
-      _allTeachers.clear();
-      for (var doc in uSnap.docs) {
-        final d = doc.data();
-        d['id'] = doc.id; // Store Doc ID
-        _allTeachers.add(d);
-
-        final name =
-            d['fullName'] ?? '${d['firstName'] ?? ''} ${d['lastName'] ?? ''}';
-        _teacherNames[doc.id] = name.trim();
-        // Also map by uid if exists
-        if (d['uid'] != null) _teacherNames[d['uid']] = name.trim();
+      if (results[1] is QuerySnapshot<Map<String, dynamic>>) {
+        final uSnap = results[1] as QuerySnapshot<Map<String, dynamic>>;
+        _allTeachers.clear();
+        for (var doc in uSnap.docs) {
+          final d = doc.data();
+          d['id'] = doc.id;
+          _allTeachers.add(d);
+          final name = d['fullName'] ?? '${d['firstName'] ?? ''} ${d['lastName'] ?? ''}';
+          _teacherNames[doc.id] = name.trim();
+          if (d['uid'] != null) _teacherNames[d['uid']] = name.trim();
+        }
+        _cachedTeacherNames = Map.from(_teacherNames);
+        _cachedAllTeachers = List.from(_allTeachers);
       }
 
-      // B. Fetch Classes
-      final cSnap = await FirebaseFirestore.instance
-          .collection('classes')
-          .where('institutionId', isEqualTo: widget.institutionId)
-          .get();
-      for (var doc in cSnap.docs) {
-        _classNames[doc.id] =
-            (doc.data()['className'] ?? doc.data()['name'] ?? '').toString();
+      if (results[2] is QuerySnapshot<Map<String, dynamic>>) {
+        final cSnap = results[2] as QuerySnapshot<Map<String, dynamic>>;
+        for (var doc in cSnap.docs) {
+          _classNames[doc.id] = (doc.data()['className'] ?? doc.data()['name'] ?? '').toString();
+        }
+        _cachedClassNames = Map.from(_classNames);
       }
 
-      // C. Fetch Lessons
-      final lSnap = await FirebaseFirestore.instance
-          .collection('lessons')
-          .where('institutionId', isEqualTo: widget.institutionId)
-          .get();
-      for (var doc in lSnap.docs) {
-        final data = doc.data();
-        _lessonNames[doc.id] =
-            (data['name'] ??
-                    data['lessonName'] ??
-                    'Ders ${doc.id.substring(0, 4)}')
-                .toString();
+      if (results[3] is QuerySnapshot<Map<String, dynamic>>) {
+        final lSnap = results[3] as QuerySnapshot<Map<String, dynamic>>;
+        for (var doc in lSnap.docs) {
+          final data = doc.data();
+          _lessonNames[doc.id] = (data['name'] ?? data['lessonName'] ?? 'Ders ${doc.id.substring(0, 4)}').toString();
+        }
+        _cachedLessonNames = Map.from(_lessonNames);
       }
 
-      // D. Fetch Students
-      final sSnap = await FirebaseFirestore.instance
-          .collection('students')
-          .where('institutionId', isEqualTo: widget.institutionId)
-          .get();
-      for (var doc in sSnap.docs) {
-        _studentInfo[doc.id] = doc.data();
+      if (results[4] is QuerySnapshot<Map<String, dynamic>>) {
+        final sSnap = results[4] as QuerySnapshot<Map<String, dynamic>>;
+        for (var doc in sSnap.docs) {
+          _studentInfo[doc.id] = doc.data();
+        }
+        _cachedStudentInfo = Map.from(_studentInfo);
+      }
+
+      bool hasChanged = _homeworks.length != filteredHw.length;
+      if (!hasChanged) {
+        for (int i = 0; i < filteredHw.length; i++) {
+          if (filteredHw[i].id != _homeworks[i].id) {
+            hasChanged = true;
+            break;
+          }
+        }
+      }
+
+      _cachedHomeworks = List.from(filteredHw);
+
+      // 💾 Diske kalıcı kaydet (Uygulama tamamen kapatılıp açılsa da 0 ms'de gelir)
+      SharedPreferences.getInstance().then((prefs) {
+        final safeList = filteredHw.map((hw) => _homeworkToSafeMap(hw)).toList();
+        prefs.setString('edukn_hw_cache_${widget.institutionId}', json.encode(safeList));
+        if (_teacherNames.isNotEmpty) prefs.setString('edukn_hw_teachers_${widget.institutionId}', json.encode(_teacherNames));
+        if (_classNames.isNotEmpty) prefs.setString('edukn_hw_classes_${widget.institutionId}', json.encode(_classNames));
+        if (_lessonNames.isNotEmpty) prefs.setString('edukn_hw_lessons_${widget.institutionId}', json.encode(_lessonNames));
+      }).catchError((_) {});
+
+      if (mounted) {
+        setState(() {
+          if (hasChanged || _homeworks.isEmpty) {
+            _homeworks = filteredHw;
+          }
+          _loading = false;
+        });
       }
     } catch (e) {
       debugPrint('Error fetching data: $e');
-    } finally {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 

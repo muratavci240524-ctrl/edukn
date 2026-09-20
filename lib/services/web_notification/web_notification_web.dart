@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:html' as html;
 import 'dart:js' as js;
 
 void showWebNotification(String title, String body) {
@@ -75,31 +77,70 @@ void showWebNotification(String title, String body) {
   }
 }
 
+/// Bildirim API'sinin bu tarayıcıda desteklenip desteklenmediğini kontrol eder
+bool isNotificationSupported() {
+  try {
+    return html.Notification.supported;
+  } catch (_) {
+    return false;
+  }
+}
+
+/// Mevcut bildirim izin durumunu döner: 'granted', 'denied', 'default', 'unsupported'
+String getWebNotificationPermissionStatus() {
+  try {
+    if (!html.Notification.supported) {
+      return 'unsupported';
+    }
+    return html.Notification.permission ?? 'default';
+  } catch (_) {
+    return 'unsupported';
+  }
+}
+
+/// Kullanıcının iOS (iPhone, iPad, iPod) üzerinde olup olmadığını anlar
+bool isIosWeb() {
+  try {
+    final ua = html.window.navigator.userAgent.toLowerCase();
+    return ua.contains('iphone') || ua.contains('ipad') || ua.contains('ipod');
+  } catch (_) {
+    return false;
+  }
+}
+
+/// iOS veya Android'de uygulamanın PWA (Ana Ekrana Eklendi) olarak açılıp açılmadığını anlar
+bool isStandalonePwa() {
+  try {
+    final isIosStandalone = js.context['navigator']?['standalone'] == true;
+    if (isIosStandalone) return true;
+
+    final matchMedia = html.window.matchMedia('(display-mode: standalone)');
+    return matchMedia.matches;
+  } catch (_) {
+    return false;
+  }
+}
+
+/// Kullanıcı bir butona bastığında doğrudan sistem bildirim iznini ister
 Future<String?> requestWebNotificationPermission() async {
   try {
-    if (js.context.hasProperty('Notification')) {
-      final perm = js.context['Notification']?['permission'];
-      js.context['console'].callMethod('log', ['🌐 Web Bildirim İzni Kontrolü: $perm']);
-      if (perm == 'granted' || perm == 'denied') {
-        return perm?.toString();
-      }
-
-      // Kullanıcı bir butona bastığı için tarayıcı izin penceresini hemen gösterir
-      js.context.callMethod('eval', [
-        '''
-        (function() {
-          if (window.Notification) {
-            Notification.requestPermission().then(function(p) {
-              console.log("🌐 Tarayıcı bildirim izni sonucu:", p);
-            });
-          }
-        })();
-        '''
-      ]);
-      return perm?.toString();
+    if (!html.Notification.supported) {
+      js.context['console'].callMethod('log', ['⚠️ Bu tarayıcıda Notification API desteklenmiyor.']);
+      return 'unsupported';
     }
+
+    final currentPerm = html.Notification.permission;
+    if (currentPerm == 'granted') {
+      return 'granted';
+    }
+
+    js.context['console'].callMethod('log', ['🌐 Tarayıcı bildirim izni isteniyor...']);
+    final permission = await html.Notification.requestPermission();
+    js.context['console'].callMethod('log', ['🌐 Tarayıcı bildirim izni sonucu: $permission']);
+    return permission;
   } catch (e) {
     js.context['console']?.callMethod('log', ['❌ requestWebNotificationPermission hatası: $e']);
+    return null;
   }
-  return null;
 }
+

@@ -1632,68 +1632,224 @@ class PdfService {
     required List<List<String>> rows,
   }) async {
     final pdf = pw.Document();
-    final font = await PdfGoogleFonts.robotoRegular();
-    final fontBold = await PdfGoogleFonts.robotoBold();
+    final font = await PdfService.getFont();
+    final fontBold = await PdfService.getFontBold();
+
+    final deepNavy = PdfColor.fromHex('#1E1B4B'); // Indigo 950
+    final amberAccent = PdfColor.fromHex('#F59E0B'); // Amber 500
+    final borderColor = PdfColor.fromHex('#E2E8F0'); // Slate 200
+    final textDark = PdfColor.fromHex('#0F172A'); // Slate 900
+    final textMuted = PdfColor.fromHex('#64748B'); // Slate 500
+    final zebraBg = PdfColor.fromHex('#F8FAFC'); // Slate 50
+    final badgeBg = PdfColor.fromHex('#EEF2FF'); // Indigo 50
+    final badgeBorder = PdfColor.fromHex('#C7D2FE'); // Indigo 200
+    final badgeText = PdfColor.fromHex('#3730A3'); // Indigo 800
+
+    // Kısa nöbet yeri başlığı oluşturan yardımcı (... ile kısaltma)
+    String shortenLocationHeader(String name) {
+      name = name.trim();
+      final clean = name
+          .replaceAll('Nöbetçi Müdür Yardımcısı', 'Nöb. Md. Yrd.')
+          .replaceAll('Müdür Yardımcısı', 'Md. Yrd.')
+          .replaceAll('Koridoru', 'Kor.')
+          .replaceAll('Koridor', 'Kor.')
+          .replaceAll('Bahçe (Orta Alan)', 'Bahçe-Orta')
+          .replaceAll('Bahçe (Halı Saha)', 'Bahçe-Halı')
+          .replaceAll('(L Koridor)', '(L)')
+          .replaceAll('(U Koridor)', '(U)')
+          .replaceAll('L Koridor', '(L)')
+          .replaceAll('U Koridor', '(U)');
+      if (clean.length > 11) {
+        return '${clean.substring(0, 9)}...';
+      }
+      return clean;
+    }
+
+    final formattedHeaders = <String>[];
+    for (int i = 0; i < headers.length; i++) {
+      if (i == 0) {
+        formattedHeaders.add('ÖĞRETMEN');
+      } else if (i == 1) {
+        formattedHeaders.add('TOP.');
+      } else {
+        formattedHeaders.add(shortenLocationHeader(headers[i]));
+      }
+    }
+
+    // Format rows: single line teacher name, zero as '-'
+    final formattedRows = <List<String>>[];
+    for (var r in rows) {
+      final newRow = <String>[];
+      for (int c = 0; c < r.length; c++) {
+        final val = r[c].trim();
+        if (c == 0) {
+          // İsim tek satırda
+          newRow.add(val);
+        } else if (c == 1) {
+          // Toplam
+          newRow.add(val);
+        } else {
+          // Nöbet yeri adedi: 0 ise '-' yap, dolu ise sayıyı göster
+          if (val == '0' || val.isEmpty) {
+            newRow.add('-');
+          } else {
+            newRow.add(val);
+          }
+        }
+      }
+      formattedRows.add(newRow);
+    }
+
+    // Nöbet yerlerinin genişliği standart: her lokasyon sütununa eşit FlexColumnWidth(1)
+    final columnWidths = <int, pw.TableColumnWidth>{
+      0: const pw.FixedColumnWidth(135), // Öğretmen adı tek satırda ferahça sığar
+      1: const pw.FixedColumnWidth(34),  // Toplam
+      for (int i = 2; i < formattedHeaders.length; i++)
+        i: const pw.FlexColumnWidth(1),  // Standart eşit genişlik
+    };
+
+    final cellAlignments = <int, pw.Alignment>{
+      0: pw.Alignment.centerLeft,
+      1: pw.Alignment.center,
+      for (int i = 2; i < formattedHeaders.length; i++)
+        i: pw.Alignment.center,
+    };
 
     pdf.addPage(
       pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
+        pageFormat: PdfPageFormat.a4.landscape,
+        margin: const pw.EdgeInsets.symmetric(horizontal: 22, vertical: 18),
         theme: pw.ThemeData.withFont(base: font, bold: fontBold),
+        header: (pw.Context context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: pw.CrossAxisAlignment.end,
+                children: [
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        'NÖBET İSTATİSTİKLERİ RAPORU',
+                        style: pw.TextStyle(
+                          font: fontBold,
+                          fontSize: 14,
+                          color: deepNavy,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                      pw.SizedBox(height: 2),
+                      pw.Text(
+                        periodName,
+                        style: pw.TextStyle(
+                          font: fontBold,
+                          fontSize: 9.5,
+                          color: badgeText,
+                        ),
+                      ),
+                    ],
+                  ),
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.end,
+                    children: [
+                      pw.Container(
+                        padding: const pw.EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
+                        decoration: pw.BoxDecoration(
+                          color: badgeBg,
+                          borderRadius:
+                              const pw.BorderRadius.all(pw.Radius.circular(5)),
+                          border: pw.Border.all(color: badgeBorder, width: 0.7),
+                        ),
+                        child: pw.Text(
+                          dateRange,
+                          style: pw.TextStyle(
+                            font: fontBold,
+                            fontSize: 8.5,
+                            color: badgeText,
+                          ),
+                        ),
+                      ),
+                      pw.SizedBox(height: 2),
+                      pw.Text(
+                        'Oluşturulma: ${DateTime.now().day}.${DateTime.now().month}.${DateTime.now().year}',
+                        style: pw.TextStyle(
+                          font: font,
+                          fontSize: 7.5,
+                          color: textMuted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 6),
+              pw.Row(
+                children: [
+                  pw.Expanded(
+                    flex: 85,
+                    child: pw.Container(height: 2, color: deepNavy),
+                  ),
+                  pw.Expanded(
+                    flex: 15,
+                    child: pw.Container(height: 2, color: amberAccent),
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 8),
+            ],
+          );
+        },
+        footer: (pw.Context context) {
+          return pw.Container(
+            alignment: pw.Alignment.centerRight,
+            margin: const pw.EdgeInsets.only(top: 8),
+            child: pw.Text(
+              'Sayfa ${context.pageNumber} / ${context.pagesCount}',
+              style: pw.TextStyle(
+                font: font,
+                fontSize: 8,
+                color: textMuted,
+              ),
+            ),
+          );
+        },
         build: (pw.Context context) {
           return [
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Text(
-                      'Nöbet İstatistikleri - $periodName',
-                      style: pw.TextStyle(
-                        fontSize: 20,
-                        fontWeight: pw.FontWeight.bold,
-                        color: PdfColors.indigo900,
-                      ),
-                    ),
-                    pw.Text(
-                      dateRange,
-                      style: const pw.TextStyle(
-                        fontSize: 12,
-                        color: PdfColors.grey700,
-                      ),
-                    ),
-                  ],
-                ),
-                pw.Text(
-                  'Oluşturulma: ${DateTime.now().day}.${DateTime.now().month}.${DateTime.now().year}',
-                  style: const pw.TextStyle(fontSize: 10),
-                ),
-              ],
-            ),
-            pw.SizedBox(height: 20),
             pw.Table.fromTextArray(
               context: context,
-              headers: headers,
-              data: rows,
+              headers: formattedHeaders,
+              data: formattedRows,
+              columnWidths: columnWidths,
+              cellAlignments: cellAlignments,
+              headerAlignments: cellAlignments,
+              headerHeight: 26,
+              cellHeight: 18,
               headerStyle: pw.TextStyle(
-                fontWeight: pw.FontWeight.bold,
+                font: fontBold,
                 color: PdfColors.white,
-                fontSize: 10,
+                fontSize: 7.5,
               ),
-              headerDecoration: const pw.BoxDecoration(
-                color: PdfColors.indigo900,
-                borderRadius: pw.BorderRadius.vertical(
-                  top: pw.Radius.circular(4),
-                ),
+              headerDecoration: pw.BoxDecoration(
+                color: deepNavy,
               ),
-              cellHeight: 25,
-              cellStyle: const pw.TextStyle(fontSize: 9),
-              cellAlignments: {
-                0: pw.Alignment.centerLeft,
-                for (var i = 1; i < headers.length; i++) i: pw.Alignment.center,
-              },
-              oddRowDecoration: const pw.BoxDecoration(
-                color: PdfColors.grey100,
+              cellStyle: pw.TextStyle(
+                font: font,
+                fontSize: 7.8,
+                color: textDark,
+              ),
+              cellPadding: const pw.EdgeInsets.symmetric(
+                horizontal: 3,
+                vertical: 2,
+              ),
+              oddRowDecoration: pw.BoxDecoration(
+                color: zebraBg,
+              ),
+              border: pw.TableBorder.all(
+                color: borderColor,
+                width: 0.5,
               ),
             ),
           ];

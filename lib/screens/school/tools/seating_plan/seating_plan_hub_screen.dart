@@ -7,6 +7,7 @@ import '../../../../models/class_model.dart';
 import '../../../../models/school/seating_plan_model.dart';
 import '../../../../widgets/edukn_app_bar.dart';
 import '../../../../services/seating_pdf_service.dart';
+import '../../../../services/user_permission_service.dart';
 import 'seating_plan_editor_screen.dart';
 import 'classroom_layout_editor_screen.dart';
 import 'seating_analytics_screen.dart';
@@ -36,11 +37,52 @@ class SeatingPlanHubScreen extends StatefulWidget {
 class _SeatingPlanHubScreenState extends State<SeatingPlanHubScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  Set<String>? _teacherAllowedClassIds;
+  bool _isLoadingTeacherClasses = false;
+
+  List<String>? get _effectiveAllowedClassIds {
+    if (widget.allowedClassIds != null && widget.allowedClassIds!.isNotEmpty) {
+      return widget.allowedClassIds;
+    }
+    if (_teacherAllowedClassIds != null) {
+      return _teacherAllowedClassIds!.toList();
+    }
+    return null;
+  }
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _resolveTeacherClasses();
+  }
+
+  Future<void> _resolveTeacherClasses() async {
+    final isTeacher = widget.isTeacher || UserPermissionService.isTeacher();
+    if (isTeacher) {
+      if (widget.allowedClassIds != null && widget.allowedClassIds!.isNotEmpty) {
+        setState(() {
+          _teacherAllowedClassIds = widget.allowedClassIds!.toSet();
+        });
+        return;
+      }
+      setState(() => _isLoadingTeacherClasses = true);
+      try {
+        final ids = await UserPermissionService.getTeacherAllowedClassIds(
+          institutionId: widget.institutionId,
+          teacherId: widget.teacherId,
+        );
+        if (mounted) {
+          setState(() {
+            _teacherAllowedClassIds = ids;
+            _isLoadingTeacherClasses = false;
+          });
+        }
+      } catch (e) {
+        debugPrint('Error loading teacher classes in hub: $e');
+        if (mounted) setState(() => _isLoadingTeacherClasses = false);
+      }
+    }
   }
 
   @override
@@ -317,20 +359,64 @@ class _SeatingPlanHubScreenState extends State<SeatingPlanHubScreen>
               return const Center(child: CircularProgressIndicator());
             }
 
-            var classes = classesSnap.data!.docs.map((d) {
+            final isTeacher = widget.isTeacher || UserPermissionService.isTeacher();
+            final effectiveAllowedIds = _effectiveAllowedClassIds;
+
+            if (isTeacher && _isLoadingTeacherClasses && _teacherAllowedClassIds == null) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            var rawClasses = classesSnap.data!.docs.map((d) {
               return ClassModel.fromMap(d.data() as Map<String, dynamic>, d.id);
+            }).where((c) {
+              // 1. Sadece aktif şubeler
+              if (c.isActive == false) return false;
+              // 2. Okul türü filtresi
+              if (widget.schoolTypeId.isNotEmpty &&
+                  c.schoolTypeId.isNotEmpty &&
+                  c.schoolTypeId != widget.schoolTypeId) {
+                return false;
+              }
+              return true;
             }).toList();
 
+            // 3. Öğretmen ise sadece yetkili olduğu sınıfları filtrele
+            if (isTeacher && effectiveAllowedIds != null) {
+              rawClasses = rawClasses.where((c) => effectiveAllowedIds.contains(c.id)).toList();
+            }
+
+            // 4. Mükerrer / Çifter çifter görünen şubeleri engellemek için isim bazlı tekilleştir
+            final Map<String, ClassModel> uniqueClassesByName = {};
+            final Map<String, String> duplicateIdToCanonicalId = {};
+            for (var c in rawClasses) {
+              final normName = c.className.trim().toUpperCase().replaceAll(' ', '');
+              if (!uniqueClassesByName.containsKey(normName)) {
+                uniqueClassesByName[normName] = c;
+              } else {
+                if (c.id != null) {
+                  duplicateIdToCanonicalId[c.id!] = uniqueClassesByName[normName]!.id ?? c.id!;
+                }
+              }
+            }
+            var classes = uniqueClassesByName.values.toList();
+
+            // Mükerrer classId'leri birincil classId'ye yönlendir
             var plans = plansSnap.data!.docs.map((d) {
-              return SeatingPlan.fromMap(d.data() as Map<String, dynamic>, d.id);
+              final plan = SeatingPlan.fromMap(d.data() as Map<String, dynamic>, d.id);
+              if (duplicateIdToCanonicalId.containsKey(plan.classId)) {
+                return plan.copyWith(classId: duplicateIdToCanonicalId[plan.classId]!);
+              }
+              return plan;
             }).toList();
 
-            if (widget.allowedClassIds != null) {
-              classes = classes.where((c) => widget.allowedClassIds!.contains(c.id)).toList();
-              final allowedNames = classes.map((c) => c.className).toSet();
-              plans = plans.where((p) =>
-                  widget.allowedClassIds!.contains(p.classId) ||
-                  allowedNames.contains(p.className)).toList();
+            // Öğretmen ise sadece yetkili sınıfların planlarını filtrele
+            if (isTeacher && effectiveAllowedIds != null) {
+              final allowedNormalizedNames = classes.map((c) => c.className.trim().toUpperCase().replaceAll(' ', '')).toSet();
+              plans = plans.where((p) {
+                if (effectiveAllowedIds.contains(p.classId)) return true;
+                final normPlanName = p.className.trim().toUpperCase().replaceAll(' ', '');
+                return allowedNormalizedNames.contains(normPlanName);
+              }).toList();
             }
 
             // Sınıflara göre planları eşle
@@ -359,30 +445,34 @@ class _SeatingPlanHubScreenState extends State<SeatingPlanHubScreen>
               classesByLevel.putIfAbsent(lvl, () => []).add(c);
             }
 
-            // Eğer classes koleksiyonu boşsa veya eksikse, planlardaki sınıfları da seviyelere ekle
-            final seenClassNames = classes.map((c) => c.className).toSet();
-            final seenClassIds = classes.map((c) => c.id).toSet();
+            // Sadece classes koleksiyonunda hiç bulunmayan eski oturma planları varsa ve öğretmen yetkiliyse ekle:
+            // ANCAK classes listesinde zaten bu isimde aktif bir şube varsa KESİNLİKLE DUMMY OLUŞTURMA!
+            final seenClassNames = classes.map((c) => c.className.trim().toUpperCase().replaceAll(' ', '')).toSet();
+            final seenClassIds = classes.map((c) => c.id).whereType<String>().toSet();
             for (var p in plans) {
-              if (widget.allowedClassIds != null && !widget.allowedClassIds!.contains(p.classId)) {
+              final normPlanName = p.className.trim().toUpperCase().replaceAll(' ', '');
+              if (seenClassIds.contains(p.classId) || seenClassNames.contains(normPlanName)) {
+                continue; // Zaten bu isimde veya ID'de şube var, mükerrer oluşturma!
+              }
+              if (isTeacher && effectiveAllowedIds != null && !effectiveAllowedIds.contains(p.classId)) {
                 continue;
               }
-              if (!seenClassIds.contains(p.classId) && !seenClassNames.contains(p.className)) {
-                seenClassNames.add(p.className);
-                final lvl = _determineLevelFromName(p.className);
-                final dummyClass = ClassModel(
-                  id: p.classId.isNotEmpty ? p.classId : null,
-                  className: p.className,
-                  shortName: p.className,
-                  classTypeId: '',
-                  classTypeName: '',
-                  classLevel: lvl,
-                  schoolTypeId: widget.schoolTypeId,
-                  schoolTypeName: widget.schoolTypeName,
-                  institutionId: widget.institutionId,
-                  createdAt: DateTime.now(),
-                );
-                classesByLevel.putIfAbsent(lvl, () => []).add(dummyClass);
-              }
+
+              seenClassNames.add(normPlanName);
+              final lvl = _determineLevelFromName(p.className);
+              final dummyClass = ClassModel(
+                id: p.classId.isNotEmpty ? p.classId : null,
+                className: p.className,
+                shortName: p.className,
+                classTypeId: '',
+                classTypeName: '',
+                classLevel: lvl,
+                schoolTypeId: widget.schoolTypeId,
+                schoolTypeName: widget.schoolTypeName,
+                institutionId: widget.institutionId,
+                createdAt: DateTime.now(),
+              );
+              classesByLevel.putIfAbsent(lvl, () => []).add(dummyClass);
             }
 
             // Sınıfları ada göre sırala
@@ -1100,7 +1190,9 @@ class _SeatingPlanHubScreenState extends State<SeatingPlanHubScreen>
           schoolTypeId: widget.schoolTypeId,
           schoolTypeName: widget.schoolTypeName,
           initialClassId: initialClassId,
-          allowedClassIds: widget.allowedClassIds,
+          allowedClassIds: _effectiveAllowedClassIds,
+          isTeacher: widget.isTeacher || UserPermissionService.isTeacher(),
+          teacherId: widget.teacherId,
         ),
       ),
     );
@@ -1115,7 +1207,9 @@ class _SeatingPlanHubScreenState extends State<SeatingPlanHubScreen>
           schoolTypeId: widget.schoolTypeId,
           schoolTypeName: widget.schoolTypeName,
           existingPlan: plan,
-          allowedClassIds: widget.allowedClassIds,
+          allowedClassIds: _effectiveAllowedClassIds,
+          isTeacher: widget.isTeacher || UserPermissionService.isTeacher(),
+          teacherId: widget.teacherId,
         ),
       ),
     );

@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -8,6 +8,7 @@ import 'add_school_screen.dart';
 import 'admin_login_screen.dart';
 import '../admin/data_encryption_screen.dart';
 import 'package:edukn/widgets/safe_stream_builder.dart';
+import '../../services/splash/splash_service.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   @override
@@ -27,6 +28,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   
   // Dar ekranlarda hangi sekme gösterilsin
   int _selectedTabIndex = 0; // 0: İstatistikler, 1: Okullar
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      SplashService.hide();
+    });
+  }
 
   Future<void> _logout() async {
     try {

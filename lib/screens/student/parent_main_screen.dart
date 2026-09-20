@@ -11,6 +11,7 @@ import '../../services/term_service.dart';
 import 'parent_haberlesme_screen.dart';
 import 'parent_operations_screen.dart';
 import 'parent_dashboard_tab.dart';
+import '../../services/splash/splash_service.dart';
 
 class ParentMainScreen extends StatefulWidget {
   final String institutionId;
@@ -34,6 +35,9 @@ class _ParentMainScreenState extends State<ParentMainScreen> {
   void initState() {
     super.initState();
     _loadSelectedStudentAndChildren();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      SplashService.hide();
+    });
   }
 
   Future<void> _loadSelectedStudentAndChildren() async {

@@ -50,41 +50,6 @@ void main() async {
   await initializeDateFormatting('tr_TR', null);
 
   try {
-    if (kIsWeb) {
-      // Web'de Firebase SDK'ların yüklenmesini bekle
-      print('🌐 Web: Firebase SDK yükleniyor...');
-
-      // Debug mode'da SDK'lar daha yavaş yüklenir
-      const maxWaitSeconds = 15;
-      int attempts = 0;
-      bool sdkLoaded = false;
-
-      while (attempts < maxWaitSeconds * 10) {
-        try {
-          // dart:js kaldırıldı (Flutter 3.44+), basit delay kullan
-          // Firebase SDK'sı index.html'de synchronous yükleniyor, kısa bekleme yeterli
-          if (attempts > 5) { // 500ms sonra hazır kabul et
-            print('✅ Firebase SDK hazır (${attempts * 100}ms)');
-            sdkLoaded = true;
-            break;
-          }
-        } catch (e) {
-          // SDK henüz yüklenmemiş
-        }
-        await Future.delayed(Duration(milliseconds: 100));
-        attempts++;
-      }
-
-      if (!sdkLoaded) {
-        print('⚠️ Firebase SDK ${maxWaitSeconds} saniyede yüklenemedi!');
-        print('ℹ️  Lütfen internet bağlantınızı kontrol edin.');
-      } else {
-        // SDK yüklendi, initialization için bekle
-        print('⏳ Firebase initialization için bekleniyor...');
-        await Future.delayed(Duration(seconds: 2));
-      }
-    }
-
     print('🔥 Firebase başlatılıyor...');
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
@@ -94,7 +59,6 @@ void main() async {
     if (kIsWeb) {
       try {
         // Web için Firestore Cache ve Persistence Ayarları
-        // Ghost Login (hayalet oturum) önbellek sorunlarını çözmek için
         FirebaseFirestore.instance.settings = const Settings(
           persistenceEnabled: true,
           cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
@@ -105,35 +69,22 @@ void main() async {
       }
     }
 
-    // 🔒 GHOST LOGIN (HAYALET OTURUM) ÇÖZÜMÜ: Token Zorla Yenileme
-    // Uygulama açılışında, oturum açmış bir kullanıcı varsa token'ını zorla yenile.
-    // Eğer hesap silinmiş, pasif edilmiş veya token geçersizleşmişse, hata verecek ve oturum kapatılacak.
-    try {
-      final currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser != null) {
-        print('🔄 Mevcut kullanıcı bulundu, Auth Token zorla yenileniyor...');
-        await currentUser.getIdTokenResult(true);
-        print('✅ Auth Token başarıyla yenilendi.');
-      }
-    } catch (e) {
-      print('❌ Auth Token yenileme hatası! Oturum geçersiz. Çıkış yapılıyor: $e');
-      await FirebaseAuth.instance.signOut();
-    }
+    // 🔒 GHOST LOGIN (HAYALET OTURUM) ÇÖZÜMÜ: Token Kontrolü (Arka Planda, Açılışı Bloke Etmez)
+    _verifyAuthTokenInBackground();
 
-    // 🔐 Firebase App Check — Bot ve yetkisiz erişime karşı koruma
+    // 🔐 Firebase App Check — Bot ve yetkisiz erişime karşı koruma (Arka Planda Başlatılır)
     if (!kDebugMode) {
-      try {
-        await FirebaseAppCheck.instance.activate(
-          webProvider: ReCaptchaV3Provider(
-            '6Levx0gtAAAAALvp-sRrS-PFzvHMtAZ1TMdL6cvq',
-          ),
-          androidProvider: AndroidProvider.debug,
-          appleProvider: AppleProvider.debug,
-        );
+      FirebaseAppCheck.instance.activate(
+        webProvider: ReCaptchaV3Provider(
+          '6Levx0gtAAAAALvp-sRrS-PFzvHMtAZ1TMdL6cvq',
+        ),
+        androidProvider: AndroidProvider.debug,
+        appleProvider: AppleProvider.debug,
+      ).then((_) {
         print('✅ App Check aktif!');
-      } catch (e) {
+      }).catchError((e) {
         print('⚠️ App Check aktifleştirilemedi: $e');
-      }
+      });
     } else {
       print('ℹ️ Debug modunda App Check devre dışı bırakıldı.');
     }
@@ -145,6 +96,23 @@ void main() async {
   }
 
   runApp(MyApp());
+}
+
+/// Token geçerliliğini arka planda sessizce denetler, açılışı geciktirmez.
+void _verifyAuthTokenInBackground() async {
+  try {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser != null) {
+      print('🔄 Mevcut kullanıcı bulundu, Auth Token arka planda doğrulanıyor...');
+      await currentUser.getIdTokenResult(true);
+      print('✅ Auth Token başarıyla doğrulandı.');
+    }
+  } catch (e) {
+    print('❌ Auth Token yenileme hatası! Oturum geçersiz. Çıkış yapılıyor: $e');
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (_) {}
+  }
 }
 
 class MyApp extends StatelessWidget {

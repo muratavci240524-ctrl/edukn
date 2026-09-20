@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/foundation.dart';
@@ -11,6 +12,7 @@ import 'package:printing/printing.dart';
 import 'package:excel/excel.dart' hide Border;
 import 'package:file_saver/file_saver.dart';
 import 'dart:typed_data';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:intl/intl.dart';
 import 'package:edukn/screens/school/guidance/guidance_statistics_screen.dart';
@@ -39,6 +41,9 @@ class GuidanceInterviewScreen extends StatefulWidget {
 }
 
 class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
+  // ⚡ Cache-First RAM & Disk Önbelleği (Anında açılır, sıfır bekleme)
+  static final Map<String, List<Map<String, dynamic>>> _staticGuidanceCache = {};
+
   // State
   String _selectedTab = 'ogrenci'; // 'personel', 'ogrenci', 'veli'
   List<Map<String, dynamic>> _dataList = []; // Gelen veriler
@@ -99,10 +104,52 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
     'Diğer',
   ];
 
+  static dynamic _makeJsonSafe(dynamic value) {
+    if (value is Timestamp) return value.toDate().toIso8601String();
+    if (value is DateTime) return value.toIso8601String();
+    if (value is Color) return value.value;
+    if (value is Map) {
+      final res = <String, dynamic>{};
+      value.forEach((k, v) => res[k.toString()] = _makeJsonSafe(v));
+      return res;
+    }
+    if (value is List) return value.map((e) => _makeJsonSafe(e)).toList();
+    return value;
+  }
+
+  Future<void> _loadFromDiskCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = 'edukn_guidance_data_${widget.institutionId}_${widget.schoolTypeId}_$_selectedTab';
+      final cachedStr = prefs.getString(key);
+      if (cachedStr != null && cachedStr.isNotEmpty && _dataList.isEmpty) {
+        final List dec = json.decode(cachedStr);
+        final list = dec.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        if (mounted && list.isNotEmpty) {
+          setState(() {
+            _dataList = list;
+            _isLoading = false;
+            _filterData();
+          });
+          final cacheKey = '${widget.institutionId}_${widget.schoolTypeId}_$_selectedTab';
+          _staticGuidanceCache[cacheKey] = list;
+        }
+      }
+    } catch (_) {}
+  }
+
   @override
   void initState() {
     super.initState();
-    _loadData();
+    final cacheKey = '${widget.institutionId}_${widget.schoolTypeId}_$_selectedTab';
+    if (_staticGuidanceCache.containsKey(cacheKey) && _staticGuidanceCache[cacheKey]!.isNotEmpty) {
+      _dataList = List.from(_staticGuidanceCache[cacheKey]!);
+      _isLoading = false;
+      _filterData();
+    } else {
+      _loadFromDiskCache();
+    }
+    _loadData(isBackground: _staticGuidanceCache.containsKey(cacheKey) && _staticGuidanceCache[cacheKey]!.isNotEmpty);
   }
 
   @override
@@ -206,14 +253,20 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
   }
 
   // Veri Çekme
-  Future<void> _loadData() async {
-    setState(() {
-      _isLoading = true;
+  Future<void> _loadData({bool isBackground = false}) async {
+    if (!isBackground) {
+      setState(() {
+        _isLoading = true;
+        _selectedIds.clear();
+        _selectedNames.clear();
+        // Tab değişince listeye dön (mobil için)
+        _showFormMobile = false;
+      });
+    } else {
       _selectedIds.clear();
       _selectedNames.clear();
-      // Tab değişince listeye dön (mobil için)
       _showFormMobile = false;
-    });
+    }
 
     try {
       List<Map<String, dynamic>> rawData = [];
@@ -428,10 +481,18 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
         }).toList();
       }
 
+      final cacheKey = '${widget.institutionId}_${widget.schoolTypeId}_$_selectedTab';
+      _staticGuidanceCache[cacheKey] = List.from(rawData);
+
+      // 💾 Diske kalıcı kaydet
+      SharedPreferences.getInstance().then((prefs) {
+        final key = 'edukn_guidance_data_${widget.institutionId}_${widget.schoolTypeId}_$_selectedTab';
+        final safe = _makeJsonSafe(rawData);
+        prefs.setString(key, json.encode(safe));
+      }).catchError((_) {});
+
       if (mounted) {
         setState(() {
-          _dataList = rawData;
-          _isLoading = false;
           _dataList = rawData;
           _isLoading = false;
 
@@ -524,7 +585,18 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
         _selectedTab = tab;
         _selectedInterviewerFilter = null; // Reset filter on tab change
       });
-      _loadData();
+      final cacheKey = '${widget.institutionId}_${widget.schoolTypeId}_$tab';
+      if (_staticGuidanceCache.containsKey(cacheKey) && _staticGuidanceCache[cacheKey]!.isNotEmpty) {
+        setState(() {
+          _dataList = List.from(_staticGuidanceCache[cacheKey]!);
+          _isLoading = false;
+          _filterData();
+        });
+        _loadData(isBackground: true);
+      } else {
+        _loadFromDiskCache();
+        _loadData(isBackground: _dataList.isNotEmpty);
+      }
     }
   }
 
