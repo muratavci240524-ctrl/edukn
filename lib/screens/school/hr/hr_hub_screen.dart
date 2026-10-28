@@ -1,7 +1,6 @@
-﻿import 'package:flutter/material.dart' hide Border;
+import 'package:flutter/material.dart' hide Border;
 import 'package:flutter/material.dart' as material show Border;
 import 'package:edukn/widgets/edukn_app_bar.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:excel/excel.dart' as excel_pkg;
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -15,7 +14,6 @@ import 'package:edukn/screens/hr/contracts_screen.dart';
 import 'package:edukn/screens/hr/reports_screen.dart';
 
 import 'package:edukn/services/user_permission_service.dart';
-import 'package:intl/intl.dart';
 
 class HrHubScreen extends StatefulWidget {
   const HrHubScreen({Key? key}) : super(key: key);
@@ -44,9 +42,7 @@ class _HrHubScreenState extends State<HrHubScreen> {
   Future<void> _exportStaffToExcel() async {
     setState(() => _isExporting = true);
     try {
-      if (userData == null) {
-        userData = await UserPermissionService.loadUserData();
-      }
+      userData ??= await UserPermissionService.loadUserData();
       final institutionId = userData?['institutionId'];
       if (institutionId == null) {
         throw 'Kurum bilgisi bulunamadı.';
@@ -91,13 +87,13 @@ class _HrHubScreenState extends State<HrHubScreen> {
       final bytes = excel.save();
       if (bytes != null) {
         if (kIsWeb) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Excel dosyası hazırlandı, indiriliyor...')));
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Excel dosyası hazırlandı, indiriliyor...')));
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Excel dosyası başarıyla oluşturuldu.')));
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Excel dosyası başarıyla oluşturuldu.')));
         }
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Dışa aktarma hatası: $e')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Dışa aktarma hatası: $e')));
     } finally {
       if (mounted) setState(() => _isExporting = false);
     }
@@ -208,7 +204,7 @@ class _HrHubScreenState extends State<HrHubScreen> {
           color: Colors.white,
           borderRadius: BorderRadius.circular(32),
           border: material.Border.all(color: Colors.blueGrey.shade50),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 20, offset: const Offset(0, 10))],
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 20, offset: const Offset(0, 10))],
         ),
         child: Stack(
           children: [
@@ -218,7 +214,7 @@ class _HrHubScreenState extends State<HrHubScreen> {
               child: Container(
                 width: 100,
                 height: 100,
-                decoration: BoxDecoration(color: Colors.indigo.withOpacity(0.03), shape: BoxShape.circle),
+                decoration: BoxDecoration(color: Colors.indigo.withValues(alpha: 0.03), shape: BoxShape.circle),
               ),
             ),
             Column(
@@ -277,14 +273,14 @@ class _HrHubScreenState extends State<HrHubScreen> {
           color: Colors.white,
           borderRadius: BorderRadius.circular(24),
           border: material.Border.all(color: Colors.blueGrey.shade50),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.01), blurRadius: 10, offset: const Offset(0, 4))],
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.01), blurRadius: 10, offset: const Offset(0, 4))],
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
               padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+              decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
               child: Icon(item['icon'] as IconData, color: color, size: 24),
             ),
             const SizedBox(width: 20),
@@ -370,7 +366,7 @@ class _HrHubScreenState extends State<HrHubScreen> {
     return Container(
       padding: const EdgeInsets.all(32),
       decoration: BoxDecoration(
-        color: Colors.indigo.shade50.withOpacity(0.5),
+        color: Colors.indigo.shade50.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(24),
       ),
       child: Column(

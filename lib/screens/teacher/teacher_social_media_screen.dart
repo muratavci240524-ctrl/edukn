@@ -22,7 +22,7 @@ class _TeacherSocialMediaScreenState extends State<TeacherSocialMediaScreen> {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   Map<String, dynamic>? userData;
   Set<String> _assignedClassIds = {};
-  Set<String> _assignedStudentIds = {};
+  final Set<String> _assignedStudentIds = {};
   bool _isLoading = true;
 
   @override
@@ -114,7 +114,7 @@ class _TeacherSocialMediaScreenState extends State<TeacherSocialMediaScreen> {
                   Text(
                     'Sosyal Medya',
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.8),
+                      color: Colors.white.withValues(alpha: 0.8),
                       fontSize: 12,
                     ),
                   ),

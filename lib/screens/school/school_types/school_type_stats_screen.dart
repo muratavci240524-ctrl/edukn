@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -31,7 +31,7 @@ class _SchoolTypeStatsScreenState extends State<SchoolTypeStatsScreen>
     try {
       userData = await UserPermissionService.loadUserData();
     } catch (e) {
-      print('Kullanıcı yetkileri yüklenirken hata: $e');
+      debugPrint('Kullanıcı yetkileri yüklenirken hata: $e');
     }
   }
 
@@ -136,7 +136,7 @@ class _SchoolTypeStatsScreenState extends State<SchoolTypeStatsScreen>
       });
     } catch (e) {
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Veri yüklenirken hata oluştu: $e')),
       );
     }
@@ -962,16 +962,16 @@ class _SchoolTypeStatsScreenState extends State<SchoolTypeStatsScreen>
                           margin: EdgeInsets.only(bottom: 12),
                           padding: EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: color.withOpacity(0.1),
+                            color: color.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: color.withOpacity(0.3)),
+                            border: Border.all(color: color.withValues(alpha: 0.3)),
                           ),
                           child: Row(
                             children: [
                               Container(
                                 padding: EdgeInsets.all(8),
                                 decoration: BoxDecoration(
-                                  color: color.withOpacity(0.2),
+                                  color: color.withValues(alpha: 0.2),
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Icon(icon, color: color, size: 24),
@@ -1284,7 +1284,7 @@ class _SchoolTypeStatsScreenState extends State<SchoolTypeStatsScreen>
               Container(
                 padding: EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
+                  color: color.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(icon, color: color, size: 28),

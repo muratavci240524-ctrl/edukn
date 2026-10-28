@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -264,7 +264,7 @@ class _MessageMonitoringScreenState extends State<MessageMonitoringScreen> {
                   ));
                 }
               }
-            } catch (_) {}
+            } catch (silentError) { debugPrint('[message_monitoring_screen] hata yutuldu: $silentError'); }
           }
         }
       }
@@ -523,7 +523,7 @@ class _MessageMonitoringScreenState extends State<MessageMonitoringScreen> {
                                         color: isTargetSender ? const Color(0xFFD9FDD3) : Colors.white,
                                         borderRadius: BorderRadius.circular(12),
                                         boxShadow: [
-                                          BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 2, offset: const Offset(0, 1)),
+                                          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 2, offset: const Offset(0, 1)),
                                         ],
                                       ),
                                       child: Column(

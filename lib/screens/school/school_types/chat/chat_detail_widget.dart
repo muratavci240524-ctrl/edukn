@@ -11,7 +11,7 @@ import 'package:file_saver/file_saver.dart';
 import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'dart:async';
-import 'package:flutter/foundation.dart'; // for kIsWeb
+// for kIsWeb
 import 'forward_selection_sheet.dart';
 import '../../../../../services/chat_service.dart';
 
@@ -941,7 +941,7 @@ class _ChatDetailWidgetState extends State<ChatDetailWidget> {
         margin: const EdgeInsets.only(bottom: 4),
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.05),
+          color: Colors.black.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(4),
           border: const Border(
             left: BorderSide(color: Colors.indigo, width: 4),
@@ -1016,7 +1016,7 @@ class _ChatDetailWidgetState extends State<ChatDetailWidget> {
         child: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Row(
@@ -1306,7 +1306,7 @@ class _ChatDetailWidgetState extends State<ChatDetailWidget> {
               CircleAvatar(
                 backgroundColor: Colors.grey.shade300,
                 backgroundImage: chatImage != null
-                    ? NetworkImage(chatImage!)
+                    ? NetworkImage(chatImage)
                     : null,
                 child: chatImage == null
                     ? const Icon(Icons.person, color: Colors.white)
@@ -1343,7 +1343,7 @@ class _ChatDetailWidgetState extends State<ChatDetailWidget> {
                               );
                               subtitle = user.role ?? 'Çevrimiçi';
                             }
-                          } catch (_) {}
+                          } catch (silentError) { debugPrint('[chat_detail_widget] hata yutuldu: $silentError'); }
 
                           return Text(
                             subtitle,
@@ -1597,7 +1597,7 @@ class _ChatDetailWidgetState extends State<ChatDetailWidget> {
                                 ),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: Colors.black.withOpacity(0.08),
+                                    color: Colors.black.withValues(alpha: 0.08),
                                     offset: const Offset(0, 1),
                                     blurRadius: 1,
                                   ),
@@ -1805,7 +1805,7 @@ class _ChatDetailWidgetState extends State<ChatDetailWidget> {
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.18),
+                            color: Colors.black.withValues(alpha: 0.18),
                             blurRadius: 6,
                             offset: const Offset(0, 2),
                           ),
@@ -2019,7 +2019,7 @@ class _ChatDetailWidgetState extends State<ChatDetailWidget> {
                       borderRadius: BorderRadius.circular(8),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.08),
+                          color: Colors.black.withValues(alpha: 0.08),
                           offset: const Offset(0, 1),
                           blurRadius: 2,
                         ),
@@ -2119,7 +2119,7 @@ class _ChatDetailWidgetState extends State<ChatDetailWidget> {
                               });
                             }
 
-                            Navigator.pop(ctx);
+                            if (mounted) Navigator.pop(ctx);
                           },
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints(minWidth: 40, minHeight: 40),

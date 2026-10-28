@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
-import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/class_model.dart';
 import '../../services/term_service.dart';
@@ -136,7 +135,7 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
         });
       }
     } catch (e) {
-      print('Sınıf tipleri yüklenirken hata: $e');
+      debugPrint('Sınıf tipleri yüklenirken hata: $e');
     }
   }
 
@@ -154,9 +153,9 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
           .collection('classTypes')
           .add(defaultType.toMap());
 
-      print('✅ Varsayılan "Ders Sınıfı" tipi oluşturuldu');
+      debugPrint('✅ Varsayılan "Ders Sınıfı" tipi oluşturuldu');
     } catch (e) {
-      print('❌ Varsayılan tip oluşturulurken hata: $e');
+      debugPrint('❌ Varsayılan tip oluşturulurken hata: $e');
     }
   }
 
@@ -188,7 +187,7 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
         }
       }
     } catch (e) {
-      print('Okul türü seviyeleri yüklenirken hata: $e');
+      debugPrint('Okul türü seviyeleri yüklenirken hata: $e');
     }
   }
 
@@ -449,7 +448,7 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
   }) {
     showDialog(
       context: context,
-      barrierColor: Colors.black.withOpacity(0.05),
+      barrierColor: Colors.black.withValues(alpha: 0.05),
       builder: (context) => Stack(
         children: [
           Positioned(
@@ -491,7 +490,7 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
           ),
           boxShadow: isActive ? [
             BoxShadow(
-              color: Colors.black.withOpacity(0.1),
+              color: Colors.black.withValues(alpha: 0.1),
               blurRadius: 8,
               offset: Offset(0, 2),
             )
@@ -588,7 +587,7 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                         prefixIcon: const Icon(Icons.calendar_today),
                       ),
-                      value: selectedSourceTermId,
+                      initialValue: selectedSourceTermId,
                       items: targetTerms.map((t) {
                         final name = t['name'] ?? '${t['startYear']}-${t['endYear']}';
                         return DropdownMenuItem(
@@ -611,7 +610,7 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
                       title: const Text('Şubelere Atalı Dersleri Kopyala', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
                       subtitle: const Text('Şubelerin haftalık ders atamalarını da yeni döneme geçirir.', style: TextStyle(fontSize: 12)),
                       value: copyLessons,
-                      activeColor: Colors.indigo,
+                      activeThumbColor: Colors.indigo,
                       onChanged: (val) {
                         setDialogState(() {
                           copyLessons = val;
@@ -625,7 +624,7 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
                       title: const Text('Derslerin Öğretmen Atamalarını Kopyala', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
                       subtitle: const Text('Derslere atalı öğretmenleri de yeni döneme tanımlar.', style: TextStyle(fontSize: 12)),
                       value: copyTeachers,
-                      activeColor: Colors.indigo,
+                      activeThumbColor: Colors.indigo,
                       onChanged: copyLessons
                           ? (val) {
                               setDialogState(() {
@@ -701,7 +700,7 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
 
       if (sourceClassesSnap.docs.isEmpty) {
         Navigator.pop(context); // Close loader
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('$sourceTermName döneminde kopyalanacak şube bulunamadı.'),
             backgroundColor: Colors.orange,
@@ -899,7 +898,7 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
         successMessage += '\n$copiedLessons adet ders ve $copiedAssignments adet ders ataması başarıyla aktarıldı.';
       }
       
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('✓ $successMessage'),
           backgroundColor: Colors.green,
@@ -908,7 +907,7 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
       );
     } catch (e) {
       Navigator.pop(context); // Close loader
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('❌ Kopyalama hatası: $e'), backgroundColor: Colors.red),
       );
     }
@@ -1012,7 +1011,7 @@ class _ClassManagementScreenState extends State<ClassManagementScreen> {
                               return Container(
                                 padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.3),
+                                  color: Colors.white.withValues(alpha: 0.3),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Text(
@@ -1642,6 +1641,40 @@ class _ClassLessonListCard extends StatefulWidget {
   State<_ClassLessonListCard> createState() => _ClassLessonListCardState();
 }
 
+/// Bir şubenin ders atamalarını tekilleştirir: aynı ders (ders adı) birden
+/// fazla kez geçiyorsa (ör. dönem kopyaları / eski kayıtlar) yalnızca birini
+/// döndürür. Şubenin dönemine (termId) ait olan kayıt önceliklidir; başka
+/// dönemin kayıtları gösterilmez. Her satırın `id` alanı doc id'dir.
+List<Map<String, dynamic>> _dedupeClassAssignments(
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  String? termId,
+) {
+  final hasTerm = termId != null && termId.isNotEmpty;
+  final byKey = <String, Map<String, dynamic>>{};
+  int score(Map<String, dynamic> d) {
+    var s = 0;
+    if (hasTerm && d['termId']?.toString() == termId) s += 100;
+    if (((d['teacherIds'] as List?)?.isNotEmpty) ?? false) s += 10;
+    if (((d['weeklyHours'] as num?) ?? 0) > 0) s += 1;
+    return s;
+  }
+
+  for (final doc in docs) {
+    final data = Map<String, dynamic>.from(doc.data());
+    data['id'] = doc.id;
+    final rowTerm = data['termId']?.toString() ?? '';
+    // Başka döneme ait kayıtları ele (dönemi boş olanlar kalır)
+    if (hasTerm && rowTerm.isNotEmpty && rowTerm != termId) continue;
+    final key = (data['lessonName'] ?? data['lessonId'] ?? doc.id)
+        .toString()
+        .trim()
+        .toLowerCase();
+    final existing = byKey[key];
+    if (existing == null || score(data) > score(existing)) byKey[key] = data;
+  }
+  return byKey.values.toList();
+}
+
 class _ClassLessonListCardState extends State<_ClassLessonListCard> {
   int _lessonCount = 0;
   int _totalHours = 0;
@@ -1661,15 +1694,15 @@ class _ClassLessonListCardState extends State<_ClassLessonListCard> {
           .where('isActive', isEqualTo: true)
           .get();
 
+      final assignments = _dedupeClassAssignments(snapshot.docs, widget.termId);
       int totalHours = 0;
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        totalHours += (data['weeklyHours'] as int?) ?? 0;
+      for (var data in assignments) {
+        totalHours += (data['weeklyHours'] as num?)?.toInt() ?? 0;
       }
 
       if (mounted) {
         setState(() {
-          _lessonCount = snapshot.docs.length;
+          _lessonCount = assignments.length;
           _totalHours = totalHours;
           _isLoading = false;
         });
@@ -1690,7 +1723,7 @@ class _ClassLessonListCardState extends State<_ClassLessonListCard> {
         .get();
 
     if (lessonsSnapshot.docs.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Bu şubede kopyalanacak ders yok')),
       );
       return;
@@ -1709,7 +1742,7 @@ class _ClassLessonListCardState extends State<_ClassLessonListCard> {
         .toList();
 
     if (otherClasses.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Kopyalanacak başka şube yok')),
       );
       return;
@@ -1939,11 +1972,7 @@ class _LessonListDialogState extends State<_LessonListDialog> {
           .get();
 
       if (mounted) {
-        final lessons = snapshot.docs.map((doc) {
-          final data = doc.data();
-          data['id'] = doc.id;
-          return data;
-        }).toList();
+        final lessons = _dedupeClassAssignments(snapshot.docs, widget.termId);
 
         lessons.sort((a, b) => (a['lessonName'] ?? '').compareTo(b['lessonName'] ?? ''));
 
@@ -2034,7 +2063,7 @@ class _LessonListDialogState extends State<_LessonListDialog> {
         .toList();
 
     if (availableLessons.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Eklenebilecek ders kalmadı')),
       );
       return;
@@ -2113,7 +2142,7 @@ class _LessonListDialogState extends State<_LessonListDialog> {
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
+                    color: Colors.white.withValues(alpha: 0.2),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(Icons.book_rounded, color: Colors.white, size: 24),
@@ -2130,7 +2159,7 @@ class _LessonListDialogState extends State<_LessonListDialog> {
                       ),
                       Text(
                         widget.className,
-                        style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 14),
+                        style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 14),
                       ),
                     ],
                   ),
@@ -2143,7 +2172,7 @@ class _LessonListDialogState extends State<_LessonListDialog> {
                       icon: const Icon(Icons.add_task_rounded, color: Colors.white),
                       tooltip: 'Ders Ekle',
                       style: IconButton.styleFrom(
-                        backgroundColor: Colors.white.withOpacity(0.15),
+                        backgroundColor: Colors.white.withValues(alpha: 0.15),
                         padding: const EdgeInsets.all(10),
                       ),
                     ),
@@ -2156,7 +2185,7 @@ class _LessonListDialogState extends State<_LessonListDialog> {
                       icon: const Icon(Icons.copy_all_rounded, color: Colors.white),
                       tooltip: 'Kopyala',
                       style: IconButton.styleFrom(
-                        backgroundColor: Colors.white.withOpacity(0.15),
+                        backgroundColor: Colors.white.withValues(alpha: 0.15),
                         padding: const EdgeInsets.all(10),
                       ),
                     ),
@@ -2165,7 +2194,7 @@ class _LessonListDialogState extends State<_LessonListDialog> {
                       onPressed: () => Navigator.pop(context),
                       icon: const Icon(Icons.close_rounded, color: Colors.white),
                       style: IconButton.styleFrom(
-                        backgroundColor: Colors.white.withOpacity(0.15),
+                        backgroundColor: Colors.white.withValues(alpha: 0.15),
                         padding: const EdgeInsets.all(10),
                       ),
                     ),
@@ -2191,7 +2220,7 @@ class _LessonListDialogState extends State<_LessonListDialog> {
           decoration: BoxDecoration(
             color: Colors.white,
             boxShadow: [
-              BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -5)),
+              BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, -5)),
             ],
           ),
           child: Row(
@@ -2284,7 +2313,7 @@ class _LessonListDialogState extends State<_LessonListDialog> {
             border: Border.all(color: Colors.grey.shade100),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.02),
+                color: Colors.black.withValues(alpha: 0.02),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
@@ -2304,7 +2333,7 @@ class _LessonListDialogState extends State<_LessonListDialog> {
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.teal.withOpacity(0.2),
+                    color: Colors.teal.withValues(alpha: 0.2),
                     blurRadius: 8,
                     offset: const Offset(0, 4),
                   ),
@@ -2358,7 +2387,7 @@ class _LessonListDialogState extends State<_LessonListDialog> {
                   icon: Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: Colors.red.withOpacity(0.05),
+                      color: Colors.red.withValues(alpha: 0.05),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(Icons.delete_outline_rounded, color: Colors.red, size: 20),
@@ -2813,7 +2842,7 @@ class _ClassTypeDialogState extends State<_ClassTypeDialog> {
         );
       }
     } catch (e) {
-      print('❌ Sınıf tipi eklenirken hata: $e');
+      debugPrint('❌ Sınıf tipi eklenirken hata: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -3462,7 +3491,7 @@ class _ClassFormSheetState extends State<_ClassFormSheet> {
         Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black87)),
         const SizedBox(height: 8),
         DropdownButtonFormField<T>(
-          value: value,
+          initialValue: value,
           items: items,
           onChanged: onChanged,
           decoration: InputDecoration(
@@ -3841,7 +3870,7 @@ class _MultiSelectFilterSheetState<T> extends State<_MultiSelectFilterSheet<T>> 
                   : BorderRadius.circular(24),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
+                  color: Colors.black.withValues(alpha: 0.1),
                   blurRadius: 20,
                   offset: Offset(0, 10),
                 )

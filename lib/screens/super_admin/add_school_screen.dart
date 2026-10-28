@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -192,7 +192,7 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
         // Düzenleme modunda mevcut verileri doldur
         final data = widget.schoolData!;
 
-        print('📝 Okul düzenleme modu - Veriler yükleniyor...');
+        debugPrint('📝 Okul düzenleme modu - Veriler yükleniyor...');
 
         // WidgetsBinding ile frame sonrası yükle - UI'ın hazır olmasını bekle
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -205,12 +205,12 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
           _selectedCity = data['city'];
           _selectedDistrict = data['district'];
 
-          print('🏫 Okul: ${_schoolNameController.text}');
-          print('🆔 Kurum ID: ${_institutionIdController.text}');
-          print('📧 Email: ${_schoolEmailController.text}');
-          print('📞 Telefon: ${_schoolPhoneController.text}');
-          print('🏠 Adres: ${_schoolAddressController.text}');
-          print('📍 Şehir/İlçe: $_selectedCity / $_selectedDistrict');
+          debugPrint('🏫 Okul: ${_schoolNameController.text}');
+          debugPrint('🆔 Kurum ID: ${_institutionIdController.text}');
+          debugPrint('📧 Email: ${_schoolEmailController.text}');
+          debugPrint('📞 Telefon: ${_schoolPhoneController.text}');
+          debugPrint('🏠 Adres: ${_schoolAddressController.text}');
+          debugPrint('📍 Şehir/İlçe: $_selectedCity / $_selectedDistrict');
 
           _adminFullNameController.text = data['adminFullName'] ?? '';
           _adminUsernameController.text = data['adminUsername'] ?? '';
@@ -218,16 +218,16 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
           _adminPhoneController.text = data['adminPhone'] ?? '';
           // Şifreyi gösterme (güvenlik)
 
-          print('👤 Yetkili: ${_adminFullNameController.text}');
-          print('👤 Kullanıcı Adı: ${_adminUsernameController.text}');
-          print('📧 Yetkili Email: ${_adminEmailController.text}');
-          print('📞 Yetkili Telefon: ${_adminPhoneController.text}');
+          debugPrint('👤 Yetkili: ${_adminFullNameController.text}');
+          debugPrint('👤 Kullanıcı Adı: ${_adminUsernameController.text}');
+          debugPrint('📧 Yetkili Email: ${_adminEmailController.text}');
+          debugPrint('📞 Yetkili Telefon: ${_adminPhoneController.text}');
 
           _studentQuota = (data['studentQuota'] ?? 250).toDouble();
           _isSchoolActive = data['isActive'] ?? true;
 
-          print('👥 Öğrenci Kotası: ${_studentQuota.toInt()}');
-          print('✅ Okul Durumu: ${_isSchoolActive ? "Aktif" : "Pasif"}');
+          debugPrint('👥 Öğrenci Kotası: ${_studentQuota.toInt()}');
+          debugPrint('✅ Okul Durumu: ${_isSchoolActive ? "Aktif" : "Pasif"}');
 
           // Modülleri doldur
           if (data['activeModules'] != null) {
@@ -235,9 +235,9 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
             _modules.forEach((key, value) {
               _modules[key] = activeModules.contains(key);
             });
-            print('📦 Aktif Modüller: ${activeModules.join(", ")}');
+            debugPrint('📦 Aktif Modüller: ${activeModules.join(", ")}');
           } else {
-            print('📦 Aktif Modüller: Varsayılan');
+            debugPrint('📦 Aktif Modüller: Varsayılan');
           }
 
           // Lisans tarihlerini doldur
@@ -250,7 +250,7 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
                 _licenseStartDate = DateTime.parse(data['licenseStartDate']);
               }
             } catch (e) {
-              print('Lisans başlangıç tarihi parse hatası: $e');
+              debugPrint('Lisans başlangıç tarihi parse hatası: $e');
               _licenseStartDate = DateTime.now();
             }
           } else {
@@ -266,24 +266,24 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
                 _licenseEndDate = DateTime.parse(data['licenseExpiresAt']);
               }
             } catch (e) {
-              print('Lisans bitiş tarihi parse hatası: $e');
+              debugPrint('Lisans bitiş tarihi parse hatası: $e');
               _licenseEndDate = DateTime.now().add(Duration(days: 365));
             }
           } else {
             _licenseEndDate = DateTime.now().add(Duration(days: 365));
           }
 
-          print(
+          debugPrint(
             '📅 Lisans Başlangıç: ${_licenseStartDate?.day}.${_licenseStartDate?.month}.${_licenseStartDate?.year}',
           );
-          print(
+          debugPrint(
             '📅 Lisans Bitiş: ${_licenseEndDate?.day}.${_licenseEndDate?.month}.${_licenseEndDate?.year}',
           );
           if (_licenseStartDate != null && _licenseEndDate != null) {
             final days = _licenseEndDate!.difference(_licenseStartDate!).inDays;
-            print('⏱️ Lisans Süresi: $days gün');
+            debugPrint('⏱️ Lisans Süresi: $days gün');
           }
-          print('✅ Tüm veriler başarıyla yüklendi!');
+          debugPrint('✅ Tüm veriler başarıyla yüklendi!');
         });
       });
     } else {
@@ -292,7 +292,7 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
       _licenseEndDate = DateTime.now().add(
         Duration(days: 365),
       ); // Varsayılan 1 yıl
-      print('🆕 Yeni okul oluşturma modu');
+      debugPrint('🆕 Yeni okul oluşturma modu');
     }
   }
 
@@ -315,17 +315,17 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        print('✅ Firebase Auth kullanıcı oluşturuldu: ${data['localId']}');
+        debugPrint('✅ Firebase Auth kullanıcı oluşturuldu: ${data['localId']}');
         return data['localId'] as String;
       } else {
         final error = json.decode(response.body);
-        print(
+        debugPrint(
           '❌ Auth kullanıcı oluşturma hatası: ${error['error']['message']}',
         );
         throw error['error']['message'];
       }
     } catch (e) {
-      print('❌ Auth kullanıcı oluşturma hatası: $e');
+      debugPrint('❌ Auth kullanıcı oluşturma hatası: $e');
       rethrow;
     }
   }
@@ -361,11 +361,11 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
       );
       
       if (signInResp.statusCode != 200) {
-        print('⚠️ Mevcut şifre ile giriş yapılamadı, şifre güncellenemiyor');
+        debugPrint('⚠️ Mevcut şifre ile giriş yapılamadı, şifre güncellenemiyor');
         // Yine de yeni şifreyi Firestore'da sakla - kullanıcı ilk girişte kendi güncelleyecek
         if (userQuery.docs.isNotEmpty) {
           await userQuery.docs.first.reference.update({'_tempPassword': newPassword});
-          print('💾 Yeni şifre geçici olarak Firestore\'a kaydedildi');
+          debugPrint('💾 Yeni şifre geçici olarak Firestore\'a kaydedildi');
         }
         return false;
       }
@@ -386,18 +386,18 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
       );
       
       if (updateResp.statusCode == 200) {
-        print('✅ Firebase Auth şifresi başarıyla güncellendi');
+        debugPrint('✅ Firebase Auth şifresi başarıyla güncellendi');
         // Temp şifreyi temizle
         if (userQuery.docs.isNotEmpty) {
           await userQuery.docs.first.reference.update({'_tempPassword': FieldValue.delete()});
         }
         return true;
       } else {
-        print('❌ Şifre güncelleme hatası: ${updateResp.body}');
+        debugPrint('❌ Şifre güncelleme hatası: ${updateResp.body}');
         return false;
       }
     } catch (e) {
-      print('❌ Şifre güncelleme exception: $e');
+      debugPrint('❌ Şifre güncelleme exception: $e');
       return false;
     }
   }
@@ -405,14 +405,14 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
   // Cloud Function üzerinden kullanıcı şifresini güncelle (Admin SDK)
   Future<bool> _updatePasswordViaCloudFunction(String uid, String newPassword) async {
     try {
-      print('🔑 Cloud Function ile şifre güncelleniyor: uid=$uid');
+      debugPrint('🔑 Cloud Function ile şifre güncelleniyor: uid=$uid');
       final callable = FirebaseFunctions.instance.httpsCallable('updateUserCredentials');
       final result = await callable.call({'uid': uid, 'newPassword': newPassword});
       final status = result.data['status'];
-      print('✅ Cloud Function sonuç: $status');
+      debugPrint('✅ Cloud Function sonuç: $status');
       return status == 'success';
     } catch (e) {
-      print('❌ Cloud Function şifre güncelleme hatası: $e');
+      debugPrint('❌ Cloud Function şifre güncelleme hatası: $e');
       return false;
     }
   }
@@ -572,7 +572,7 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
           .doc(widget.schoolId)
           .delete();
 
-      print('✅ Okul silindi: ${widget.schoolId}');
+      debugPrint('✅ Okul silindi: ${widget.schoolId}');
       // TODO: Admin kullanıcısı silmek için Cloud Function gerekli
 
       if (mounted) {
@@ -627,7 +627,7 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
 
     try {
       // ŞİMDİLİK DİREKT FİRESTORE'A YAZIYORUZ (Cloud Function yerine)
-      print('⚠️ Geçici çözüm: Direkt Firestore\'a yazılıyor...');
+      debugPrint('⚠️ Geçici çözüm: Direkt Firestore\'a yazılıyor...');
 
       // Kullanıcı adı ve kurum ID'den benzersiz email oluştur
       final username = _adminUsernameController.text.trim().toLowerCase();
@@ -674,42 +674,42 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
       }
 
       // Firebase'e gönderilecek tüm verileri konsola yazdır
-      print('\n🚀 Firebase\'e gönderilen veriler:');
-      print('=' * 50);
-      print('📋 Mod: ${_isEditMode ? "GÜNCELLEME" : "YENİ KAYIT"}');
-      print('-' * 50);
-      print('🏫 OKUL BİLGİLERİ:');
-      print('  • Okul Adı: ${data['schoolName']}');
-      print('  • Kurum ID: ${data['institutionId']}');
-      print('  • E-posta: ${data['schoolEmail']}');
-      print('  • Telefon: ${data['schoolPhone']}');
-      print('  • Adres: ${data['schoolAddress']}');
-      print('  • Şehir: ${data['city']}');
-      print('  • İlçe: ${data['district']}');
-      print('-' * 50);
-      print('👤 YETKİLİ BİLGİLERİ:');
-      print('  • Ad Soyad: ${data['adminFullName']}');
-      print('  • E-posta: ${data['adminEmail']}');
-      print('  • Telefon: ${data['adminPhone']}');
-      print(
+      debugPrint('\n🚀 Firebase\'e gönderilen veriler:');
+      debugPrint('=' * 50);
+      debugPrint('📋 Mod: ${_isEditMode ? "GÜNCELLEME" : "YENİ KAYIT"}');
+      debugPrint('-' * 50);
+      debugPrint('🏫 OKUL BİLGİLERİ:');
+      debugPrint('  • Okul Adı: ${data['schoolName']}');
+      debugPrint('  • Kurum ID: ${data['institutionId']}');
+      debugPrint('  • E-posta: ${data['schoolEmail']}');
+      debugPrint('  • Telefon: ${data['schoolPhone']}');
+      debugPrint('  • Adres: ${data['schoolAddress']}');
+      debugPrint('  • Şehir: ${data['city']}');
+      debugPrint('  • İlçe: ${data['district']}');
+      debugPrint('-' * 50);
+      debugPrint('👤 YETKİLİ BİLGİLERİ:');
+      debugPrint('  • Ad Soyad: ${data['adminFullName']}');
+      debugPrint('  • E-posta: ${data['adminEmail']}');
+      debugPrint('  • Telefon: ${data['adminPhone']}');
+      debugPrint(
         '  • Şifre: ${data.containsKey('adminPassword') ? "***GÜNCELLENDİ***" : "DEĞİŞMEDİ"}',
       );
-      print('-' * 50);
-      print('📊 KOTA VE MODÜLLER:');
-      print('  • Öğrenci Kotası: ${data['studentQuota']}');
-      print('  • Aktif Modüller: ${data['activeModules'].join(", ")}');
-      print('-' * 50);
-      print('📅 LİSANS BİLGİLERİ:');
-      print('  • Başlangıç (licenseStartDate): ${data['licenseStartDate']}');
-      print('  • Bitiş (licenseExpiresAt): ${data['licenseExpiresAt']}');
-      print(
+      debugPrint('-' * 50);
+      debugPrint('📊 KOTA VE MODÜLLER:');
+      debugPrint('  • Öğrenci Kotası: ${data['studentQuota']}');
+      debugPrint('  • Aktif Modüller: ${data['activeModules'].join(", ")}');
+      debugPrint('-' * 50);
+      debugPrint('📅 LİSANS BİLGİLERİ:');
+      debugPrint('  • Başlangıç (licenseStartDate): ${data['licenseStartDate']}');
+      debugPrint('  • Bitiş (licenseExpiresAt): ${data['licenseExpiresAt']}');
+      debugPrint(
         '  • Okul Durumu (isActive): ${data['isActive'] ? "AKTİF ✅" : "PASİF ❌"}',
       );
       if (_isEditMode) {
-        print('  • School ID: ${data['schoolId']}');
+        debugPrint('  • School ID: ${data['schoolId']}');
       }
-      print('=' * 50);
-      print('');
+      debugPrint('=' * 50);
+      debugPrint('');
 
       // Firestore'a direkt yaz
       if (_isEditMode) {
@@ -718,7 +718,7 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
             .collection('schools')
             .doc(widget.schoolId)
             .update(data);
-        print('✅ Okul güncellendi: ${widget.schoolId}');
+        debugPrint('✅ Okul güncellendi: ${widget.schoolId}');
 
         // ✅ Admin bilgilerini users koleksiyonunda da güncelle
         final adminUserId = widget.schoolData?['adminUserId'];
@@ -732,16 +732,16 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
         if (currentAuthId == null || isEmailChanged) {
           String? newAuthId;
           try {
-            print('🔍 Auth hesabı kontrol ediliyor/oluşturuluyor: $adminEmail');
+            debugPrint('🔍 Auth hesabı kontrol ediliyor/oluşturuluyor: $adminEmail');
             newAuthId = await _createAuthUser(
               adminEmail,
               _adminPasswordController.text.isNotEmpty ? _adminPasswordController.text : '123456',
             );
-            print('✅ Yeni Auth hesabı başarıyla oluşturuldu: $newAuthId');
+            debugPrint('✅ Yeni Auth hesabı başarıyla oluşturuldu: $newAuthId');
           } catch (e) {
-            print('⚠️ Auth hesabı oluşturma hatası: $e');
+            debugPrint('⚠️ Auth hesabı oluşturma hatası: $e');
             if (e.toString().contains('EMAIL_EXISTS')) {
-              print('ℹ️ Bu email zaten kayıtlı, mevcut UID aranıyor.');
+              debugPrint('ℹ️ Bu email zaten kayıtlı, mevcut UID aranıyor.');
               final userSearch = await FirebaseFirestore.instance
                   .collection('users')
                   .where('email', isEqualTo: adminEmail)
@@ -749,7 +749,7 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
                   .get();
               if (userSearch.docs.isNotEmpty) {
                 newAuthId = userSearch.docs.first.id;
-                print('✅ Mevcut authUserId bulundu: $newAuthId');
+                debugPrint('✅ Mevcut authUserId bulundu: $newAuthId');
               }
             } else if (mounted) {
                ScaffoldMessenger.of(context).showSnackBar(
@@ -766,9 +766,9 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
           if (isEmailChanged && newAuthId != null && adminUserId != null && adminUserId != newAuthId) {
             try {
               await FirebaseFirestore.instance.collection('users').doc(adminUserId).delete();
-              print('🗑️ Eski admin dokümanı silindi: $adminUserId');
+              debugPrint('🗑️ Eski admin dokümanı silindi: $adminUserId');
             } catch (e) {
-              print('⚠️ Eski doküman silinirken hata: $e');
+              debugPrint('⚠️ Eski doküman silinirken hata: $e');
             }
           }
           
@@ -804,16 +804,16 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
                 .update({'adminUserId': currentAuthId});
           }
 
-          print('✅ Admin kullanıcı bilgileri güncellendi ve senkronize edildi');
+          debugPrint('✅ Admin kullanıcı bilgileri güncellendi ve senkronize edildi');
         }
 
         // Şifre değiştirildiğinde Cloud Function ile Auth'u güncelle
         if (data.containsKey('adminPassword') && data['adminPassword'].toString().isNotEmpty && currentAuthId != null) {
           final newPass = data['adminPassword'].toString();
-          print('🔑 Şifre Cloud Function ile güncelleniyor...');
-          final updated = await _updatePasswordViaCloudFunction(currentAuthId!, newPass);
+          debugPrint('🔑 Şifre Cloud Function ile güncelleniyor...');
+          final updated = await _updatePasswordViaCloudFunction(currentAuthId, newPass);
           if (updated) {
-            print('✅ Auth şifresi başarıyla güncellendi');
+            debugPrint('✅ Auth şifresi başarıyla güncellendi');
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
@@ -824,7 +824,7 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
               );
             }
           } else {
-            print('⚠️ Şifre güncellenemedi, Firestore _tempPassword fallback deneniyor...');
+            debugPrint('⚠️ Şifre güncellenemedi, Firestore _tempPassword fallback deneniyor...');
             bool fallbackSaved = false;
             try {
               await FirebaseFirestore.instance
@@ -832,9 +832,9 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
                   .doc(currentAuthId)
                   .update({'_tempPassword': newPass});
               fallbackSaved = true;
-              print('💾 Şifre geçici olarak Firestore\'a kaydedildi (_tempPassword)');
+              debugPrint('💾 Şifre geçici olarak Firestore\'a kaydedildi (_tempPassword)');
             } catch (e) {
-              print('❌ Geçici şifre Firestore\'a kaydedilemedi: $e');
+              debugPrint('❌ Geçici şifre Firestore\'a kaydedilemedi: $e');
             }
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -851,14 +851,14 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
         }
       } else {
         // Yeni kayıt - Önce Firebase Auth kullanıcısı oluştur
-        print('\n🔐 Firebase Auth kullanıcısı oluşturuluyor...');
+        debugPrint('\n🔐 Firebase Auth kullanıcısı oluşturuluyor...');
         String? authUserId;
         try {
           authUserId = await _createAuthUser(
             adminEmail,
             _adminPasswordController.text,
           );
-          print('✅ Auth kullanıcı ID: $authUserId');
+          debugPrint('✅ Auth kullanıcı ID: $authUserId');
         } catch (e) {
           throw 'Firebase Auth kullanıcı oluşturulamadı: $e';
         }
@@ -873,18 +873,18 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
           'passiveStudents': 0,
         };
 
-        print('\n💾 Firestore\'a yazılan tam veri:');
-        print(firestoreData.toString());
-        print('');
+        debugPrint('\n💾 Firestore\'a yazılan tam veri:');
+        debugPrint(firestoreData.toString());
+        debugPrint('');
 
         final docRef = await FirebaseFirestore.instance
             .collection('schools')
             .add(firestoreData);
-        print('✅ Yeni okul oluşturuldu: ${docRef.id}');
-        print('✅ Admin kullanıcısı Firebase Auth\'a eklendi!');
+        debugPrint('✅ Yeni okul oluşturuldu: ${docRef.id}');
+        debugPrint('✅ Admin kullanıcısı Firebase Auth\'a eklendi!');
 
         // ✅ ÖNEMLİ: Admin kullanıcıyı users koleksiyonuna da ekle
-        print('\n👤 Admin kullanıcı kaydı users koleksiyonuna ekleniyor...');
+        debugPrint('\n👤 Admin kullanıcı kaydı users koleksiyonuna ekleniyor...');
         final adminUserData = {
           'authUserId': authUserId,
           'institutionId': institutionId,
@@ -921,8 +921,8 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
             .doc(authUserId)
             .set(adminUserData);
 
-        print('✅ Admin kullanıcı kaydı users koleksiyonuna eklendi!');
-        print(
+        debugPrint('✅ Admin kullanıcı kaydı users koleksiyonuna eklendi!');
+        debugPrint(
           '🎯 Artık okul yöneticisi giriş yapıp kullanıcı yönetimi yapabilir!',
         );
       }
@@ -1153,7 +1153,7 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
                 return Column(
                   children: [
                     DropdownButtonFormField<String>(
-                      value: _selectedCity,
+                      initialValue: _selectedCity,
                       decoration: InputDecoration(
                         labelText: 'İl *',
                         prefixIcon: Icon(Icons.location_city),
@@ -1171,7 +1171,7 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
                     ),
                     SizedBox(height: 16),
                     DropdownButtonFormField<String>(
-                      value: _selectedDistrict,
+                      initialValue: _selectedDistrict,
                       decoration: InputDecoration(
                         labelText: 'İlçe *',
                         prefixIcon: Icon(Icons.location_on),
@@ -1195,7 +1195,7 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
                 children: [
                   Expanded(
                     child: DropdownButtonFormField<String>(
-                      value: _selectedCity,
+                      initialValue: _selectedCity,
                       decoration: InputDecoration(
                         labelText: 'İl *',
                         prefixIcon: Icon(Icons.location_city),
@@ -1215,7 +1215,7 @@ class _AddSchoolScreenState extends State<AddSchoolScreen> {
                   SizedBox(width: 16),
                   Expanded(
                     child: DropdownButtonFormField<String>(
-                      value: _selectedDistrict,
+                      initialValue: _selectedDistrict,
                       decoration: InputDecoration(
                         labelText: 'İlçe *',
                         prefixIcon: Icon(Icons.location_on),

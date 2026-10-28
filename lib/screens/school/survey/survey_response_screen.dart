@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -51,17 +51,17 @@ class _SurveyResponseScreenState extends State<SurveyResponseScreen> {
       return;
     }
 
-    print('📝 SurveyResponseScreen: Loading survey ${widget.surveyId}');
+    debugPrint('📝 SurveyResponseScreen: Loading survey ${widget.surveyId}');
 
     try {
       final currentUser = FirebaseAuth.instance.currentUser;
       if (currentUser == null) {
-        print('❌ No current user');
+        debugPrint('❌ No current user');
         setState(() => _isLoading = false);
         return;
       }
 
-      print('📝 Fetching survey and user response...');
+      debugPrint('📝 Fetching survey and user response...');
       final results =
           await Future.wait([
             _surveyService.getSurvey(widget.surveyId!),
@@ -69,7 +69,7 @@ class _SurveyResponseScreenState extends State<SurveyResponseScreen> {
           ]).timeout(
             Duration(seconds: 10),
             onTimeout: () {
-              print('⚠️ Survey load timed out');
+              debugPrint('⚠️ Survey load timed out');
               return [null, null];
             },
           );
@@ -77,8 +77,8 @@ class _SurveyResponseScreenState extends State<SurveyResponseScreen> {
       final survey = results[0] as Survey?;
       final existingResponse = results[1] as Map<String, dynamic>?;
 
-      print('✅ Survey loaded: ${survey != null}');
-      print('✅ Existing response: ${existingResponse != null}');
+      debugPrint('✅ Survey loaded: ${survey != null}');
+      debugPrint('✅ Existing response: ${existingResponse != null}');
 
       if (mounted) {
         setState(() {
@@ -94,8 +94,8 @@ class _SurveyResponseScreenState extends State<SurveyResponseScreen> {
         }
       }
     } catch (e, stackTrace) {
-      print('❌ SurveyResponseScreen error: $e');
-      print('Stack trace: $stackTrace');
+      debugPrint('❌ SurveyResponseScreen error: $e');
+      debugPrint('Stack trace: $stackTrace');
 
       if (mounted) {
         setState(() => _isLoading = false);
@@ -525,8 +525,8 @@ class _SurveyResponseScreenState extends State<SurveyResponseScreen> {
         boxShadow: [
           BoxShadow(
             color: isInvalid
-                ? Colors.red.withOpacity(0.05)
-                : Colors.black.withOpacity(0.02),
+                ? Colors.red.withValues(alpha: 0.05)
+                : Colors.black.withValues(alpha: 0.02),
             blurRadius: 4,
             offset: Offset(0, 2),
           ),
@@ -764,7 +764,7 @@ class _SurveyResponseScreenState extends State<SurveyResponseScreen> {
                 border: Border.all(color: Colors.indigo.shade200, width: 1.5),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.indigo.withOpacity(0.1),
+                    color: Colors.indigo.withValues(alpha: 0.1),
                     blurRadius: 8,
                     offset: Offset(0, 2),
                   ),
@@ -885,7 +885,7 @@ class _SurveyResponseScreenState extends State<SurveyResponseScreen> {
                   boxShadow: [
                     if (currentRank != null)
                       BoxShadow(
-                        color: Colors.indigo.withOpacity(0.1),
+                        color: Colors.indigo.withValues(alpha: 0.1),
                         blurRadius: 4,
                         offset: Offset(0, 2),
                       ),
@@ -907,7 +907,7 @@ class _SurveyResponseScreenState extends State<SurveyResponseScreen> {
                           shape: BoxShape.circle,
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.indigo.withOpacity(0.3),
+                              color: Colors.indigo.withValues(alpha: 0.3),
                               blurRadius: 4,
                               offset: Offset(0, 2),
                             ),
@@ -957,7 +957,7 @@ class _SurveyResponseScreenState extends State<SurveyResponseScreen> {
                     SizedBox(
                       width: 140,
                       child: DropdownButtonFormField<int>(
-                        value: currentRank,
+                        initialValue: currentRank,
                         decoration: InputDecoration(
                           labelText: 'Tercih Sırası',
                           labelStyle: TextStyle(fontSize: 12),
@@ -1017,8 +1017,6 @@ class _SurveyResponseScreenState extends State<SurveyResponseScreen> {
             }).toList(),
           ],
         );
-      default:
-        return SizedBox();
     }
   }
 

@@ -1,0 +1,35 @@
+  Future<void> _printAttendanceReport(ExamDistribution exam) async {
+    try {
+      Map<String, Map<String, bool>> attendance = {};
+      final id = exam.id;
+      if (id != null && id.isNotEmpty) {
+        final db = FirebaseFirestore.instance;
+        var snap = await db.collection('butterfly_exams').doc(id).get();
+        if (!snap.exists) snap = await db.collection('seating_plans').doc(id).get();
+        final raw = snap.data()?['attendance'];
+        if (raw is Map) {
+          raw.forEach((roomKey, v) {
+            if (v is Map) {
+              attendance[roomKey.toString()] = {
+                for (final e in v.entries) e.key.toString(): e.value == true,
+              };
+            }
+          });
+        }
+      }
+      final bytes = await ButterflyPdfService.generateAttendanceReportPdf(
+        distribution: exam,
+        attendance: attendance,
+      );
+      await Printing.layoutPdf(
+        onLayout: (_) => bytes,
+        name: '${exam.title}_Yoklama_Raporu.pdf',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Rapor oluşturulurken hata: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }

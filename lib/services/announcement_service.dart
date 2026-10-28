@@ -29,7 +29,7 @@ class AnnouncementService {
       _cachedInstitutionId = await UserPermissionService.resolveInstitutionId(user.email ?? '', userData: userData);
       return _cachedInstitutionId;
     } catch (e) {
-      print('Correction error for Institution ID: $e');
+      debugPrint('Correction error for Institution ID: $e');
     }
     return null;
   }
@@ -50,7 +50,7 @@ class AnnouncementService {
         }
       }
     } catch (e) {
-      print('Error getting institutionId from schoolType: $e');
+      debugPrint('Error getting institutionId from schoolType: $e');
     }
     return null;
   }
@@ -66,7 +66,7 @@ class AnnouncementService {
         return;
       }
     } catch (e) {
-      print('Error getting schoolId from userData: $e');
+      debugPrint('Error getting schoolId from userData: $e');
     }
 
     final instId = await _getInstitutionId();
@@ -91,7 +91,7 @@ class AnnouncementService {
 
   // Tüm kullanıcıları getir
   Future<List<Map<String, dynamic>>> getAllUsers({String? schoolTypeId}) async {
-    print('📋 AnnouncementService: getAllUsers called');
+    debugPrint('📋 AnnouncementService: getAllUsers called');
     try {
       String? instId;
       if (schoolTypeId != null) {
@@ -100,11 +100,11 @@ class AnnouncementService {
       instId ??= await _getInstitutionId();
 
       if (instId == null) {
-        print('❌ No Institution ID found');
+        debugPrint('❌ No Institution ID found');
         return [];
       }
 
-      print('📋 Fetching users for institution: $instId');
+      debugPrint('📋 Fetching users for institution: $instId');
 
       final usersSnapshot = await _firestore
           .collection('users')
@@ -114,12 +114,12 @@ class AnnouncementService {
           .timeout(
             Duration(seconds: 15),
             onTimeout: () {
-              print('⚠️ getAllUsers timed out');
+              debugPrint('⚠️ getAllUsers timed out');
               throw TimeoutException('User fetch timed out');
             },
           );
 
-      print('✅ Got ${usersSnapshot.docs.length} users');
+      debugPrint('✅ Got ${usersSnapshot.docs.length} users');
 
       final usersList = usersSnapshot.docs.map((doc) {
         final data = doc.data();
@@ -139,7 +139,7 @@ class AnnouncementService {
 
       return usersList;
     } catch (e) {
-      print('❌ Kullanıcılar alınırken hata: $e');
+      debugPrint('❌ Kullanıcılar alınırken hata: $e');
       return [];
     }
   }
@@ -187,7 +187,7 @@ class AnnouncementService {
         };
       }).toList();
     } catch (e) {
-      print('Okul türleri alınırken hata: $e');
+      debugPrint('Okul türleri alınırken hata: $e');
       return [];
     }
   }
@@ -247,10 +247,10 @@ class AnnouncementService {
         }
       }
 
-      print('📚 Toplam ${allClasses.length} sınıf seviyesi bulundu');
+      debugPrint('📚 Toplam ${allClasses.length} sınıf seviyesi bulundu');
       return allClasses;
     } catch (e) {
-      print('Sınıf seviyeleri alınırken hata: $e');
+      debugPrint('Sınıf seviyeleri alınırken hata: $e');
       return [];
     }
   }
@@ -269,7 +269,7 @@ class AnnouncementService {
 
       if (instId == null) return [];
 
-      print(
+      debugPrint(
         '🎓 Öğrenciler aranıyor: $className, Şube: $branch, OkulTürü: $schoolTypeId',
       );
 
@@ -300,7 +300,7 @@ class AnnouncementService {
         }).toList();
       }
 
-      print('🎓 Bulunan öğrenci sayısı: ${filteredDocs.length}');
+      debugPrint('🎓 Bulunan öğrenci sayısı: ${filteredDocs.length}');
 
       return filteredDocs.map((doc) {
         final data = doc.data();
@@ -311,7 +311,7 @@ class AnnouncementService {
         };
       }).toList();
     } catch (e) {
-      print('❌ Öğrenciler alınırken hata: $e');
+      debugPrint('❌ Öğrenciler alınırken hata: $e');
       return [];
     }
   }
@@ -357,7 +357,7 @@ class AnnouncementService {
 
       return parents;
     } catch (e) {
-      print('Veliler alınırken hata: $e');
+      debugPrint('Veliler alınırken hata: $e');
       return [];
     }
   }
@@ -388,12 +388,12 @@ class AnnouncementService {
             teacherMap[mainTeacherId] = {'id': mainTeacherId, 'name': 'Sınıf Öğretmeni', 'role': 'Öğretmen'};
           }
         }
-      } catch (_) {}
+      } catch (silentError) { debugPrint('[announcement_service] hata yutuldu: $silentError'); }
 
       final results = await Future.wait([
-        _firestore.collection('lessonAssignments').where('institutionId', isEqualTo: instId).get().catchError((_) => null),
-        _firestore.collection('classSchedules').where('institutionId', isEqualTo: instId).get().catchError((_) => null),
-        _firestore.collection('users').where('institutionId', isEqualTo: instId).get().catchError((_) => null),
+        _firestore.collection('lessonAssignments').where('institutionId', isEqualTo: instId).get().then<QuerySnapshot<Map<String, dynamic>>?>((v) => v).catchError((_) => null),
+        _firestore.collection('classSchedules').where('institutionId', isEqualTo: instId).get().then<QuerySnapshot<Map<String, dynamic>>?>((v) => v).catchError((_) => null),
+        _firestore.collection('users').where('institutionId', isEqualTo: instId).get().then<QuerySnapshot<Map<String, dynamic>>?>((v) => v).catchError((_) => null),
       ]);
 
       final assignmentsSnap = results[0] as QuerySnapshot?;
@@ -485,7 +485,7 @@ class AnnouncementService {
 
       return teacherMap.values.toList();
     } catch (e) {
-      print('Öğretmenler alınırken hata: $e');
+      debugPrint('Öğretmenler alınırken hata: $e');
       return [];
     }
   }
@@ -493,22 +493,20 @@ class AnnouncementService {
   // Şubeleri getir
   Future<List<Map<String, dynamic>>> getBranches(String schoolTypeId) async {
     try {
-      print('🌿 getBranches called with schoolTypeId: $schoolTypeId');
+      debugPrint('🌿 getBranches called with schoolTypeId: $schoolTypeId');
 
       String? instId;
       if (schoolTypeId.isNotEmpty && schoolTypeId != 'GENEL') {
         instId = await _getInstitutionIdFromSchoolType(schoolTypeId);
       }
-      if (instId == null) {
-        instId = await _getInstitutionId();
-      }
+      instId ??= await _getInstitutionId();
 
       if (instId == null) {
-        print('❌ getBranches: Could not determine Institution ID');
+        debugPrint('❌ getBranches: Could not determine Institution ID');
         return [];
       }
 
-      print('🌿 Şubeler getiriliyor... Sorgulanan Kurum: $instId, Filtrelenecek OkulTürü: $schoolTypeId');
+      debugPrint('🌿 Şubeler getiriliyor... Sorgulanan Kurum: $instId, Filtrelenecek OkulTürü: $schoolTypeId');
 
       Query query = _firestore.collection('classes').where('institutionId', isEqualTo: instId);
       if (schoolTypeId.isNotEmpty && schoolTypeId != 'GENEL') {
@@ -529,18 +527,18 @@ class AnnouncementService {
         snapshot = await fallbackQuery.get();
       }
 
-      print(
+      debugPrint(
         '🌿 Toplam ${snapshot.docs.length} şube bulundu (Kurum: $instId, OkulTürü: $schoolTypeId).',
       );
 
       if (snapshot.docs.isNotEmpty) {
         final firstDoc = snapshot.docs.first.data() as Map<String, dynamic>;
-        print('🌿 Örnek Şube Verisi (İlk Kayıt):');
-        print('   - ID: ${snapshot.docs.first.id}');
-        print('   - className: ${firstDoc['className']}');
-        print('   - classLevel: ${firstDoc['classLevel']}');
-        print('   - SchoolTypeId: ${firstDoc['schoolTypeId']}');
-        print('   - InstitutionId: ${firstDoc['institutionId']}');
+        debugPrint('🌿 Örnek Şube Verisi (İlk Kayıt):');
+        debugPrint('   - ID: ${snapshot.docs.first.id}');
+        debugPrint('   - className: ${firstDoc['className']}');
+        debugPrint('   - classLevel: ${firstDoc['classLevel']}');
+        debugPrint('   - SchoolTypeId: ${firstDoc['schoolTypeId']}');
+        debugPrint('   - InstitutionId: ${firstDoc['institutionId']}');
       }
 
       final branches = snapshot.docs.map((doc) {
@@ -568,10 +566,10 @@ class AnnouncementService {
         );
       });
 
-      print('🌿 ${branches.length} şube hazır.');
+      debugPrint('🌿 ${branches.length} şube hazır.');
       return branches;
     } catch (e) {
-      print('❌ Şubeler alınırken hata: $e');
+      debugPrint('❌ Şubeler alınırken hata: $e');
       return [];
     }
   }
@@ -587,7 +585,7 @@ class AnnouncementService {
       List<String> variations = [];
       variations.add(query);
 
-      if (query.length > 0) {
+      if (query.isNotEmpty) {
         String capitalized = query[0].toUpperCase() + query.substring(1);
         if (capitalized != query) variations.add(capitalized);
 
@@ -640,7 +638,7 @@ class AnnouncementService {
 
       return uniqueResults.values.toList();
     } catch (e) {
-      print('Arama hatası: $e');
+      debugPrint('Arama hatası: $e');
       return [];
     }
   }
@@ -667,7 +665,7 @@ class AnnouncementService {
         };
       }).toList();
     } catch (e) {
-      print('Gruplar alınırken hata: $e');
+      debugPrint('Gruplar alınırken hata: $e');
       return [];
     }
   }
@@ -688,7 +686,7 @@ class AnnouncementService {
             'createdAt': FieldValue.serverTimestamp(),
           });
     } catch (e) {
-      print('Grup kaydedilirken hata: $e');
+      debugPrint('Grup kaydedilirken hata: $e');
       rethrow;
     }
   }
@@ -707,9 +705,9 @@ class AnnouncementService {
           .collection('announcementGroups')
           .doc(groupId)
           .delete();
-      print('✅ Grup silindi: $groupId');
+      debugPrint('✅ Grup silindi: $groupId');
     } catch (e) {
-      print('❌ Grup silinirken hata: $e');
+      debugPrint('❌ Grup silinirken hata: $e');
       rethrow;
     }
   }
@@ -734,17 +732,17 @@ class AnnouncementService {
     try {
       await _getSchoolInfo();
       if (_schoolId == null) {
-        print('Hata: Okul ID bulunamadı!');
+        debugPrint('Hata: Okul ID bulunamadı!');
         throw Exception('Okul bilgileri yüklenemedi. Lütfen tekrar deneyin.');
       }
 
-      print('Duyuru kaydediliyor - Okul ID: $_schoolId');
+      debugPrint('Duyuru kaydediliyor - Okul ID: $_schoolId');
 
       // Get user info for creator name
       String creatorName = 'Bilinmeyen';
       if (!isAnonymous && _auth.currentUser?.email != null) {
         try {
-          print('🔍 Kullanıcı arıyor: ${_auth.currentUser!.email}');
+          debugPrint('🔍 Kullanıcı arıyor: ${_auth.currentUser!.email}');
 
           // Önce email ile ara
           var userDocs = await _firestore
@@ -755,7 +753,7 @@ class AnnouncementService {
 
           // Bulunamadıysa okul ID ile ara
           if (userDocs.docs.isEmpty) {
-            print('📧 Email ile bulunamadı, institutionId ile deneniyor...');
+            debugPrint('📧 Email ile bulunamadı, institutionId ile deneniyor...');
             userDocs = await _firestore
                 .collection('users')
                 .where('institutionId', isEqualTo: _schoolId)
@@ -769,7 +767,7 @@ class AnnouncementService {
 
           if (userDocs.docs.isNotEmpty) {
             final userData = userDocs.docs.first.data();
-            print('📄 Kullanıcı verisi: $userData');
+            debugPrint('📄 Kullanıcı verisi: $userData');
             // Dashboard'daki gibi fullName öncelikli olarak kullan
             creatorName =
                 userData['fullName'] ??
@@ -777,16 +775,16 @@ class AnnouncementService {
                 userData['username'] ??
                 _auth.currentUser!.email?.split('@')[0] ??
                 'Bilinmeyen';
-            print('✅ Kullanıcı adı: $creatorName');
+            debugPrint('✅ Kullanıcı adı: $creatorName');
           } else {
-            print(
+            debugPrint(
               '❌ Kullanıcı dokümanı bulunamadı: ${_auth.currentUser!.email}',
             );
             creatorName =
                 _auth.currentUser!.email?.split('@')[0] ?? 'Bilinmeyen';
           }
         } catch (e) {
-          print('❌ Kullanıcı adı alınırken hata: $e');
+          debugPrint('❌ Kullanıcı adı alınırken hata: $e');
           creatorName = _auth.currentUser!.email?.split('@')[0] ?? 'Bilinmeyen';
         }
       }
@@ -800,7 +798,7 @@ class AnnouncementService {
             .get();
         if (schoolDoc.exists) {
           institutionName = schoolDoc.data()?['name'] ?? 'Kurum';
-          print('Okul adı bulundu: $institutionName');
+          debugPrint('Okul adı bulundu: $institutionName');
         }
       }
 
@@ -841,7 +839,7 @@ class AnnouncementService {
                   }
                 }
               }
-            } catch (_) {}
+            } catch (silentError) { debugPrint('[announcement_service] hata yutuldu: $silentError'); }
           }
         }
       }
@@ -896,7 +894,20 @@ class AnnouncementService {
           .collection('announcements')
           .add(announcementData);
 
-      print('Duyuru başarıyla kaydedildi. Doküman ID: ${docRef.id}');
+      debugPrint('Duyuru başarıyla kaydedildi. Doküman ID: ${docRef.id}');
+
+      // Hemen yayınlanan duyuruların hedef kitlesine bildirim gönder
+      if (status == 'published') {
+        await notifyRecipients(
+          recipients: recipients,
+          title: '📢 Duyuru: $title',
+          body: content,
+          type: 'announcement',
+          route: '/announcements',
+          entityId: docRef.id,
+          schoolTypeId: resolvedSchoolTypeId,
+        );
+      }
 
       // Tekrarlayan duyuruları oluştur
       if (repeatMode != null && repeatMode != 'none' && repeatUntil != null) {
@@ -910,12 +921,12 @@ class AnnouncementService {
 
       // Eğer duyuru hemen yayınlanıyorsa (scheduled değilse), hatırlatmaları hemen oluştur
       if (!schedulePublish && remindersList.isNotEmpty) {
-        print('🔔 Duyuru hemen yayınlandı, hatırlatmalar oluşturuluyor...');
+        debugPrint('🔔 Duyuru hemen yayınlandı, hatırlatmalar oluşturuluyor...');
         await _createReminderAnnouncements(docRef.id, announcementData);
       }
     } catch (e, stackTrace) {
-      print('Duyuru kaydedilirken hata: $e');
-      print('Stack trace: $stackTrace');
+      debugPrint('Duyuru kaydedilirken hata: $e');
+      debugPrint('Stack trace: $stackTrace');
       rethrow;
     }
   }
@@ -931,11 +942,11 @@ class AnnouncementService {
       final termId = data['termId'];
       
       if (schoolId == null) {
-        print('Hata: Okul ID bulunamadı');
+        debugPrint('Hata: Okul ID bulunamadı');
         return Stream.empty();
       }
       
-      print('Duyurular yükleniyor - Okul ID: $schoolId, Term ID: $termId');
+      debugPrint('Duyurular yükleniyor - Okul ID: $schoolId, Term ID: $termId');
       
       Query query = _firestore
           .collection('schools')
@@ -973,10 +984,10 @@ class AnnouncementService {
                 .get();
             if (schoolDoc.exists) {
               institutionName = schoolDoc.data()?['name'] ?? 'Kurum';
-              print('Okul adı bulundu (güncelleme): $institutionName');
+              debugPrint('Okul adı bulundu (güncelleme): $institutionName');
             }
           } catch (e) {
-            print('Okul adı alınırken hata: $e');
+            debugPrint('Okul adı alınırken hata: $e');
           }
           data['creatorName'] = institutionName;
         } else {
@@ -984,7 +995,7 @@ class AnnouncementService {
           String creatorName = 'Bilinmeyen';
           if (_auth.currentUser?.email != null) {
             try {
-              print(
+              debugPrint(
                 '🔍 Kullanıcı güncelleme için arıyor: ${_auth.currentUser!.email}',
               );
 
@@ -997,7 +1008,7 @@ class AnnouncementService {
 
               // Bulunamadıysa okul ID ile ara
               if (userDocs.docs.isEmpty) {
-                print(
+                debugPrint(
                   '📧 Email ile bulunamadı, institutionId ile deneniyor...',
                 );
                 userDocs = await _firestore
@@ -1013,23 +1024,23 @@ class AnnouncementService {
 
               if (userDocs.docs.isNotEmpty) {
                 final userData = userDocs.docs.first.data();
-                print('📄 Kullanıcı verisi (güncelleme): $userData');
+                debugPrint('📄 Kullanıcı verisi (güncelleme): $userData');
                 creatorName =
                     userData['fullName'] ??
                     userData['name'] ??
                     userData['username'] ??
                     _auth.currentUser!.email?.split('@')[0] ??
                     'Bilinmeyen';
-                print('✅ Kullanıcı adı (güncelleme): $creatorName');
+                debugPrint('✅ Kullanıcı adı (güncelleme): $creatorName');
               } else {
-                print(
+                debugPrint(
                   '❌ Kullanıcı dokümanı bulunamadı (güncelleme): ${_auth.currentUser!.email}',
                 );
                 creatorName =
                     _auth.currentUser!.email?.split('@')[0] ?? 'Bilinmeyen';
               }
             } catch (e) {
-              print('❌ Kullanıcı adı alınırken hata (güncelleme): $e');
+              debugPrint('❌ Kullanıcı adı alınırken hata (güncelleme): $e');
               creatorName =
                   _auth.currentUser!.email?.split('@')[0] ?? 'Bilinmeyen';
             }
@@ -1049,7 +1060,7 @@ class AnnouncementService {
       if (data.containsKey('reminders')) {
         final reminders = data['reminders'] as List<dynamic>;
         if (reminders.isNotEmpty) {
-          print('🔔 Duyuru güncellendi, hatırlatmalar kontrol ediliyor...');
+          debugPrint('🔔 Duyuru güncellendi, hatırlatmalar kontrol ediliyor...');
           // Güncel halini tekrar çek ki schoolTypeId gibi eksik alanlar da gelsin
           final updatedDoc = await _firestore
               .collection('schools')
@@ -1067,7 +1078,7 @@ class AnnouncementService {
         }
       }
     } catch (e) {
-      print('Duyuru güncellenirken hata: $e');
+      debugPrint('Duyuru güncellenirken hata: $e');
       rethrow;
     }
   }
@@ -1085,7 +1096,7 @@ class AnnouncementService {
           .doc(announcementId)
           .delete();
     } catch (e) {
-      print('Duyuru silinirken hata: $e');
+      debugPrint('Duyuru silinirken hata: $e');
       rethrow;
     }
   }
@@ -1102,9 +1113,9 @@ class AnnouncementService {
           .collection('announcements')
           .doc(announcementId)
           .update({'isPinned': true, 'pinnedAt': FieldValue.serverTimestamp()});
-      print('📌 Duyuru sabitlendi');
+      debugPrint('📌 Duyuru sabitlendi');
     } catch (e) {
-      print('Duyuru sabitlenirken hata: $e');
+      debugPrint('Duyuru sabitlenirken hata: $e');
       rethrow;
     }
   }
@@ -1121,9 +1132,9 @@ class AnnouncementService {
           .collection('announcements')
           .doc(announcementId)
           .update({'isPinned': false, 'pinnedAt': null});
-      print('📌 Duyuru sabitleme kaldırıldı');
+      debugPrint('📌 Duyuru sabitleme kaldırıldı');
     } catch (e) {
-      print('Duyuru sabitleme kaldırılırken hata: $e');
+      debugPrint('Duyuru sabitleme kaldırılırken hata: $e');
       rethrow;
     }
   }
@@ -1135,7 +1146,7 @@ class AnnouncementService {
       if (_schoolId == null) return;
 
       final now = DateTime.now();
-      print('🕐 Zamanlanmış duyurular kontrol ediliyor: ${now.toString()}');
+      debugPrint('🕐 Zamanlanmış duyurular kontrol ediliyor: ${now.toString()}');
 
       // Scheduled durumundaki duyuruları al
       final scheduledDocs = await _firestore
@@ -1145,7 +1156,7 @@ class AnnouncementService {
           .where('status', isEqualTo: 'scheduled')
           .get();
 
-      print('📋 ${scheduledDocs.docs.length} zamanlanmış duyuru bulundu');
+      debugPrint('📋 ${scheduledDocs.docs.length} zamanlanmış duyuru bulundu');
 
       for (var doc in scheduledDocs.docs) {
         final data = doc.data();
@@ -1153,7 +1164,7 @@ class AnnouncementService {
 
         // Yayınlama zamanı geldiyse
         if (now.isAfter(publishDate) || now.isAtSameMomentAs(publishDate)) {
-          print('✅ Duyuru yayınlanıyor: ${data['title']}');
+          debugPrint('✅ Duyuru yayınlanıyor: ${data['title']}');
 
           await doc.reference.update({
             'status': 'published',
@@ -1162,13 +1173,22 @@ class AnnouncementService {
 
           // Hatırlatmaları kontrol et ve oluştur (Orijinal veriyi kullanıyoruz)
           await _createReminderAnnouncements(doc.id, data);
+          await notifyRecipients(
+            recipients: List<String>.from(data['recipients'] ?? []),
+            title: '📢 Duyuru: ${data['title'] ?? 'Yeni Duyuru'}',
+            body: (data['content'] ?? '').toString(),
+            type: 'announcement',
+            route: '/announcements',
+            entityId: doc.id,
+            schoolTypeId: (data['schoolTypeId'] ?? '').toString(),
+          );
         }
       }
 
       // Hatırlatma zamanı gelmiş duyuruları kontrol et
       await _checkAndSendReminders();
     } catch (e) {
-      print('❌ Zamanlanmış duyurular kontrol edilirken hata: $e');
+      debugPrint('❌ Zamanlanmış duyurular kontrol edilirken hata: $e');
     }
   }
 
@@ -1181,11 +1201,11 @@ class AnnouncementService {
       final reminders = originalData['reminders'] as List<dynamic>? ?? [];
 
       if (reminders.isEmpty) {
-        print('ℹ️ Hatırlatma yok');
+        debugPrint('ℹ️ Hatırlatma yok');
         return;
       }
 
-      print('🔔 ${reminders.length} hatırlatma kontrol ediliyor...');
+      debugPrint('🔔 ${reminders.length} hatırlatma kontrol ediliyor...');
 
       // Mevcut alt hatırlatmaları kontrol et ki mükerrer oluşturmayalım
       final existingRemindersSnapshot = await _firestore
@@ -1250,7 +1270,7 @@ class AnnouncementService {
               .collection('announcements')
               .add(reminderData);
 
-          print('✅ Yeni hatırlatma duyurusu oluşturuldu: $reminderTitle');
+          debugPrint('✅ Yeni hatırlatma duyurusu oluşturuldu: $reminderTitle');
           updatedRemindersInOriginal.add({
             'date': reminder['date'],
             'sent': true,
@@ -1274,7 +1294,7 @@ class AnnouncementService {
             .update({'reminders': updatedRemindersInOriginal});
       }
     } catch (e) {
-      print('❌ Hatırlatma duyuruları oluşturulurken hata: $e');
+      debugPrint('❌ Hatırlatma duyuruları oluşturulurken hata: $e');
     }
   }
 
@@ -1292,7 +1312,7 @@ class AnnouncementService {
           .where('isReminder', isEqualTo: true)
           .get();
 
-      print('🔔 ${reminderDocs.docs.length} zamanlanmış hatırlatma bulundu');
+      debugPrint('🔔 ${reminderDocs.docs.length} zamanlanmış hatırlatma bulundu');
 
       for (var doc in reminderDocs.docs) {
         final data = doc.data();
@@ -1300,7 +1320,7 @@ class AnnouncementService {
 
         // Hatırlatma zamanı geldiyse yayınla
         if (now.isAfter(publishDate) || now.isAtSameMomentAs(publishDate)) {
-          print('✅ Hatırlatma yayınlanıyor: ${data['title']}');
+          debugPrint('✅ Hatırlatma yayınlanıyor: ${data['title']}');
 
           await doc.reference.update({
             'status': 'published',
@@ -1309,7 +1329,7 @@ class AnnouncementService {
         }
       }
     } catch (e) {
-      print('❌ Hatırlatmalar kontrol edilirken hata: $e');
+      debugPrint('❌ Hatırlatmalar kontrol edilirken hata: $e');
     }
   }
 
@@ -1337,7 +1357,7 @@ class AnnouncementService {
           .orderBy('publishDate', descending: false)
           .snapshots();
     } catch (e) {
-      print('Zamanlanmış duyurular alınırken hata: $e');
+      debugPrint('Zamanlanmış duyurular alınırken hata: $e');
       yield* Stream.value(
         await _firestore
             .collection('schools')
@@ -1359,7 +1379,7 @@ class AnnouncementService {
 
       final instId = await _getInstitutionId();
 
-      print(
+      debugPrint(
         '📋 getUsersBySchoolType: instId=$instId, schoolTypeId=$schoolTypeId',
       );
 
@@ -1370,7 +1390,7 @@ class AnnouncementService {
           .get();
 
       if (!schoolTypeDoc.exists) {
-        print('❌ getUsersBySchoolType: SchoolType document not found');
+        debugPrint('❌ getUsersBySchoolType: SchoolType document not found');
         return [];
       }
 
@@ -1379,7 +1399,7 @@ class AnnouncementService {
           schoolTypeDoc.data()?['typeName'] ??
           '';
 
-      print('📋 getUsersBySchoolType: schoolTypeName=$schoolTypeName');
+      debugPrint('📋 getUsersBySchoolType: schoolTypeName=$schoolTypeName');
 
       List<Map<String, dynamic>> allUsers = [];
       Set<String> addedUserIds = {}; // To avoid duplicates
@@ -1392,7 +1412,7 @@ class AnnouncementService {
             .where('schoolTypeId', isEqualTo: schoolTypeId)
             .get();
 
-        print(
+        debugPrint(
           '📋 getUsersBySchoolType: Found ${studentsSnapshot.docs.length} students in students collection',
         );
 
@@ -1414,7 +1434,7 @@ class AnnouncementService {
           }
         }
       } catch (e) {
-        print(
+        debugPrint(
           '⚠️ getUsersBySchoolType: Error fetching from students collection: $e',
         );
       }
@@ -1435,7 +1455,7 @@ class AnnouncementService {
               docSchoolType == schoolTypeName;
         }).toList();
 
-        print(
+        debugPrint(
           '📋 getUsersBySchoolType: Found ${filteredStudents.length} students in users collection',
         );
 
@@ -1457,7 +1477,7 @@ class AnnouncementService {
           }
         }
       } catch (e) {
-        print(
+        debugPrint(
           '⚠️ getUsersBySchoolType: Error fetching students from users collection: $e',
         );
       }
@@ -1488,7 +1508,7 @@ class AnnouncementService {
           return true;
         });
 
-        print(
+        debugPrint(
           '📋 getUsersBySchoolType: Found ${staffDocs.length} staff members',
         );
 
@@ -1510,13 +1530,13 @@ class AnnouncementService {
           }
         }
       } catch (e) {
-        print('⚠️ getUsersBySchoolType: Error fetching staff: $e');
+        debugPrint('⚠️ getUsersBySchoolType: Error fetching staff: $e');
       }
 
-      print('✅ getUsersBySchoolType: Total ${allUsers.length} users loaded');
+      debugPrint('✅ getUsersBySchoolType: Total ${allUsers.length} users loaded');
       return allUsers;
     } catch (e) {
-      print('❌ Okul türüne göre kullanıcılar alınırken hata: $e');
+      debugPrint('❌ Okul türüne göre kullanıcılar alınırken hata: $e');
       return [];
     }
   }
@@ -1547,7 +1567,7 @@ class AnnouncementService {
         };
       }).toList();
     } catch (e) {
-      print('Sınıf seviyeleri alınırken hata: $e');
+      debugPrint('Sınıf seviyeleri alınırken hata: $e');
       return [];
     }
   }
@@ -1572,7 +1592,7 @@ class AnnouncementService {
         return {'id': doc.id, 'name': data['className'] ?? 'İsimsiz Sınıf'};
       }).toList();
     } catch (e) {
-      print('Sınıflar alınırken hata: $e');
+      debugPrint('Sınıflar alınırken hata: $e');
       return [];
     }
   }
@@ -1627,9 +1647,9 @@ class AnnouncementService {
 
         count++;
       }
-      print('✅ $count adet tekrarlayan duyuru oluşturuldu');
+      debugPrint('✅ $count adet tekrarlayan duyuru oluşturuldu');
     } catch (e) {
-      print('❌ Tekrarlayan duyuru oluşturma hatası: $e');
+      debugPrint('❌ Tekrarlayan duyuru oluşturma hatası: $e');
     }
   }
 
@@ -1669,7 +1689,7 @@ class AnnouncementService {
 
       return users;
     } catch (e) {
-      print('getAllUsersIncludingStudents hatası: $e');
+      debugPrint('getAllUsersIncludingStudents hatası: $e');
       return [];
     }
   }
@@ -1850,7 +1870,7 @@ class AnnouncementService {
             }
           }
         }
-      } catch (_) {}
+      } catch (silentError) { debugPrint('[announcement_service] hata yutuldu: $silentError'); }
     }
 
     return resolvedMap.values.toList();
@@ -1969,7 +1989,7 @@ class AnnouncementService {
       if (doc.exists && doc.data() != null && doc.data()!['teacherAnnouncementMode'] != null) {
         return doc.data()!['teacherAnnouncementMode'].toString();
       }
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[announcement_service] hata yutuldu: $silentError'); }
     try {
       final sDoc = await _firestore.collection('schools').doc(schoolId).get();
       if (sDoc.exists && sDoc.data() != null) {
@@ -1978,7 +1998,7 @@ class AnnouncementService {
           return appSettings['teacherAnnouncementMode'].toString();
         }
       }
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[announcement_service] hata yutuldu: $silentError'); }
     return 'approval_required';
   }
 
@@ -1990,24 +2010,80 @@ class AnnouncementService {
           'teacherAnnouncementMode': mode,
         }
       }, SetOptions(merge: true));
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[announcement_service] hata yutuldu: $silentError'); }
 
     try {
       await _firestore.collection('schools').doc(schoolId).collection('settings').doc('announcements').set({
         'teacherAnnouncementMode': mode,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[announcement_service] hata yutuldu: $silentError'); }
+  }
+
+  /// Hedef kitledeki (recipients) kullanıcılara bildirim ister.
+  /// `notificationRequests` kaydını Cloud Function işler: push + uygulama içi bildirim.
+  /// Paylaşımı yapan kişi hariç tutulur.
+  Future<void> notifyRecipients({
+    required List<String> recipients,
+    required String title,
+    required String body,
+    required String type, // announcement | social_post
+    required String route,
+    String? entityId,
+    String? schoolTypeId,
+  }) async {
+    try {
+      final instId = await _getInstitutionId();
+      if (instId == null) return;
+      final targets = recipients.isEmpty ? <String>['ALL'] : recipients;
+      final users = await resolveRecipientUsers(targets, schoolTypeId: schoolTypeId);
+      final me = _auth.currentUser?.uid;
+      final uids = users
+          .map((u) => (u['id'] ?? '').toString())
+          .where((id) => id.isNotEmpty && id != me)
+          .toSet()
+          .toList();
+      if (uids.isEmpty) return;
+      await _firestore.collection('notificationRequests').add({
+        'institutionId': instId,
+        'recipientUids': uids,
+        'title': title,
+        'message': body.length > 120 ? body.substring(0, 120) : body,
+        'type': type,
+        'route': route,
+        'entityId': entityId,
+        'createdBy': _auth.currentUser?.email,
+        'createdAt': FieldValue.serverTimestamp(),
+        'status': 'pending',
+      });
+    } catch (e) {
+      debugPrint('[notifyRecipients] hata: $e');
+    }
   }
 
   /// Duyuruyu onayla (Yönetici)
   Future<void> approveAnnouncement(String announcementId, String schoolId, String approverEmail) async {
-    await _firestore.collection('schools').doc(schoolId).collection('announcements').doc(announcementId).update({
+    final ref = _firestore.collection('schools').doc(schoolId).collection('announcements').doc(announcementId);
+    await ref.update({
       'status': 'published',
       'approvalStatus': 'approved',
       'approvedBy': approverEmail,
       'approvedAt': FieldValue.serverTimestamp(),
     });
+    try {
+      final d = (await ref.get()).data();
+      if (d != null) {
+        await notifyRecipients(
+          recipients: List<String>.from(d['recipients'] ?? []),
+          title: '📢 Duyuru: ${d['title'] ?? 'Yeni Duyuru'}',
+          body: (d['content'] ?? '').toString(),
+          type: 'announcement',
+          route: '/announcements',
+          entityId: announcementId,
+          schoolTypeId: (d['schoolTypeId'] ?? '').toString(),
+        );
+      }
+    } catch (silentError) { debugPrint('[approveAnnouncement notify] $silentError'); }
   }
 
   /// Duyuruyu reddet (Yönetici)

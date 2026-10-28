@@ -897,6 +897,10 @@ exports.onAnnouncementCreated = onDocumentCreated(
         if (!announcement) return;
         const { institutionId, title: annTitle, content } = announcement;
         if (!institutionId) return;
+        // Hedefli bildirim artik uygulama tarafindan (notificationRequests ile) gonderiliyor;
+        // burada tum kuruma yayin yapmak hedef kitle disindakilere de bildirim gonderiyordu.
+        return;
+        // eslint-disable-next-line no-unreachable
         const recipientUids = await getInstitutionUserUids(institutionId);
         await sendNotifications({
             recipientUids,
@@ -1806,9 +1810,9 @@ exports.processNotificationRequest = onDocumentCreated("notificationRequests/{do
             recipientUids: targetUids,
             title: title || "Yeni Bildirim",
             body: message || "",
-            route: "/school-dashboard",
+            route: request.route || "/school-dashboard",
             type: type || "general",
-            entityId: event.params.docId,
+            entityId: request.entityId || event.params.docId,
         });
     }
     

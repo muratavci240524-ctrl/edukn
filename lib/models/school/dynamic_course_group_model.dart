@@ -183,9 +183,34 @@ class DynamicCourseGroup {
     return null;
   }
 
+  static String _normTeacherName(String s) => s
+      .trim()
+      .replaceAll('İ', 'i')
+      .replaceAll('I', 'i')
+      .replaceAll('ı', 'i')
+      .toLowerCase()
+      .replaceAll('ğ', 'g')
+      .replaceAll('ü', 'u')
+      .replaceAll('ş', 's')
+      .replaceAll('ö', 'o')
+      .replaceAll('ç', 'c')
+      .replaceAll(RegExp(r'\s+'), ' ');
+
   /// Öğretmenin hangi alt grupta olduğunu bulur
-  List<DynamicSubGroup> findSubGroupsForTeacher(String teacherId) {
-    return subGroups.where((g) => g.teacherIds.contains(teacherId)).toList();
+  List<DynamicSubGroup> findSubGroupsForTeacher(
+    String teacherId, {
+    String? teacherName,
+  }) {
+    final normName = (teacherName != null && teacherName.trim().isNotEmpty)
+        ? _normTeacherName(teacherName)
+        : null;
+    return subGroups.where((g) {
+      if (teacherId.isNotEmpty && g.teacherIds.contains(teacherId)) return true;
+      if (normName != null && normName.isNotEmpty) {
+        return g.teacherNames.any((n) => _normTeacherName(n) == normName);
+      }
+      return false;
+    }).toList();
   }
 
   factory DynamicCourseGroup.fromFirestore(DocumentSnapshot doc) {

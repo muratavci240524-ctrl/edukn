@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../widgets/edukn_logo.dart';
@@ -100,7 +99,7 @@ class ParentStudentSelectionScreen extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: Colors.indigo.shade100.withOpacity(0.2),
+            color: Colors.indigo.shade100.withValues(alpha: 0.2),
             blurRadius: 20,
             offset: const Offset(0, 10),
           ),

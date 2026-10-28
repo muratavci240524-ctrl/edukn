@@ -144,7 +144,7 @@ class SurveyService {
         .map(
           (snapshot) {
             final list = snapshot.docs
-                .map((doc) => Survey.fromMap(doc.data() as Map<String, dynamic>, doc.id))
+                .map((doc) => Survey.fromMap(doc.data(), doc.id))
                 .toList();
             if (termId != null && termId.isNotEmpty) {
               return list.where((survey) => survey.termId == termId || survey.termId == null).toList();
@@ -167,7 +167,7 @@ class SurveyService {
         .orderBy('createdAt', descending: true)
         .snapshots()
         .map((snapshot) {
-      final list = snapshot.docs.map((doc) => Survey.fromMap(doc.data() as Map<String, dynamic>, doc.id)).toList();
+      final list = snapshot.docs.map((doc) => Survey.fromMap(doc.data(), doc.id)).toList();
       
       final termFiltered = (termId != null && termId.isNotEmpty)
           ? list.where((survey) => survey.termId == termId || survey.termId == null).toList()

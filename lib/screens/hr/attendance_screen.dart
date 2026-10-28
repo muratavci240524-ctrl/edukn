@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'attendance/attendance_dashboard.dart';
 import 'shifts/shift_management_screen.dart';
@@ -81,7 +81,7 @@ class AttendanceScreen extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.indigo.withOpacity(0.08),
+                  color: Colors.indigo.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Icon(icon, color: Colors.indigo, size: 28),

@@ -264,7 +264,14 @@ class _SeatingPlanEditorScreenState extends State<SeatingPlanEditorScreen> {
         }
       }
 
-      final list = snap.docs.map((d) {
+      final list = snap.docs.where((d) {
+        final data = d.data();
+        final status = (data['status'] ?? '').toString().toLowerCase();
+        return data['isActive'] != false &&
+            status != 'passive' &&
+            status != 'pasif' &&
+            status != 'inactive';
+      }).map((d) {
         final data = d.data();
         final firstName = (data['firstName'] ?? data['name'] ?? '').toString();
         final lastName = (data['lastName'] ?? data['surname'] ?? '').toString();
@@ -497,7 +504,7 @@ class _SeatingPlanEditorScreenState extends State<SeatingPlanEditorScreen> {
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF2E7D32).withOpacity(0.1),
+                      color: const Color(0xFF2E7D32).withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: const Icon(Icons.auto_awesome_rounded, color: Color(0xFF2E7D32), size: 22),
@@ -721,7 +728,7 @@ class _SeatingPlanEditorScreenState extends State<SeatingPlanEditorScreen> {
                     Container(
                       padding: const EdgeInsets.all(6),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF5C6BC0).withOpacity(0.1),
+                        color: const Color(0xFF5C6BC0).withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: const Icon(Icons.print_rounded, size: 18, color: Color(0xFF5C6BC0)),
@@ -738,7 +745,7 @@ class _SeatingPlanEditorScreenState extends State<SeatingPlanEditorScreen> {
                     Container(
                       padding: const EdgeInsets.all(6),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF5C6BC0).withOpacity(0.1),
+                        color: const Color(0xFF5C6BC0).withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: const Icon(Icons.tune_rounded, size: 18, color: Color(0xFF5C6BC0)),
@@ -778,7 +785,7 @@ class _SeatingPlanEditorScreenState extends State<SeatingPlanEditorScreen> {
                 color: Colors.white,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.08),
+                    color: Colors.black.withValues(alpha: 0.08),
                     blurRadius: 10,
                     offset: const Offset(0, -2),
                   ),
@@ -945,7 +952,7 @@ class _SeatingPlanEditorScreenState extends State<SeatingPlanEditorScreen> {
         border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF1E293B).withOpacity(0.04),
+            color: const Color(0xFF1E293B).withValues(alpha: 0.04),
             blurRadius: 16,
             offset: const Offset(0, 4),
           ),
@@ -982,7 +989,7 @@ class _SeatingPlanEditorScreenState extends State<SeatingPlanEditorScreen> {
                   return Column(
                     children: [
                       DropdownButtonFormField<String>(
-                        value: _selectedClassId,
+                        initialValue: _selectedClassId,
                         style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)),
                         dropdownColor: Colors.white,
                         borderRadius: BorderRadius.circular(16),
@@ -1043,7 +1050,7 @@ class _SeatingPlanEditorScreenState extends State<SeatingPlanEditorScreen> {
                     Expanded(
                       flex: 3,
                       child: DropdownButtonFormField<String>(
-                        value: _selectedClassId,
+                        initialValue: _selectedClassId,
                         style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)),
                         dropdownColor: Colors.white,
                         borderRadius: BorderRadius.circular(16),
@@ -1108,7 +1115,7 @@ class _SeatingPlanEditorScreenState extends State<SeatingPlanEditorScreen> {
                   return Column(
                     children: [
                       DropdownButtonFormField<String>(
-                        value: _layouts.any((l) => l.id == _selectedLayoutId) ? _selectedLayoutId : null,
+                        initialValue: _layouts.any((l) => l.id == _selectedLayoutId) ? _selectedLayoutId : null,
                         style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)),
                         dropdownColor: Colors.white,
                         borderRadius: BorderRadius.circular(16),
@@ -1168,7 +1175,7 @@ class _SeatingPlanEditorScreenState extends State<SeatingPlanEditorScreen> {
                   children: [
                     Expanded(
                       child: DropdownButtonFormField<String>(
-                        value: _layouts.any((l) => l.id == _selectedLayoutId) ? _selectedLayoutId : null,
+                        initialValue: _layouts.any((l) => l.id == _selectedLayoutId) ? _selectedLayoutId : null,
                         style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)),
                         dropdownColor: Colors.white,
                         borderRadius: BorderRadius.circular(16),
@@ -1271,7 +1278,7 @@ class _SeatingPlanEditorScreenState extends State<SeatingPlanEditorScreen> {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -1713,7 +1720,7 @@ class _SeatingPlanEditorScreenState extends State<SeatingPlanEditorScreen> {
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.03),
+              color: Colors.black.withValues(alpha: 0.03),
               blurRadius: 3,
               offset: const Offset(0, 1),
             ),
@@ -1939,7 +1946,7 @@ class _SeatingPlanEditorScreenState extends State<SeatingPlanEditorScreen> {
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF5C6BC0).withOpacity(0.1),
+                          color: const Color(0xFF5C6BC0).withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: const Icon(Icons.person_add_rounded, color: Color(0xFF5C6BC0), size: 20),
@@ -2024,7 +2031,7 @@ class _SeatingPlanEditorScreenState extends State<SeatingPlanEditorScreen> {
                                 trailing: Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFF5C6BC0).withOpacity(0.1),
+                                    color: const Color(0xFF5C6BC0).withValues(alpha: 0.1),
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Text('Oturt', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 12, color: const Color(0xFF5C6BC0))),
@@ -2264,7 +2271,7 @@ class _SeatingPlanEditorScreenState extends State<SeatingPlanEditorScreen> {
                                 ),
                                 const SizedBox(height: 10),
                                 DropdownButtonFormField<RowZonePreference>(
-                                  value: constraint.rowZonePreference,
+                                  initialValue: constraint.rowZonePreference,
                                   isExpanded: true,
                                   decoration: InputDecoration(
                                     filled: true,
@@ -2407,7 +2414,7 @@ class _SeatingPlanEditorScreenState extends State<SeatingPlanEditorScreen> {
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFDC2626).withOpacity(0.1),
+                          color: const Color(0xFFDC2626).withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: const Icon(Icons.person_off_rounded, color: Color(0xFFDC2626), size: 20),
@@ -2769,7 +2776,7 @@ class _SeatingPlanEditorScreenState extends State<SeatingPlanEditorScreen> {
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF5C6BC0).withOpacity(0.1),
+                        color: const Color(0xFF5C6BC0).withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: const Icon(Icons.tune_rounded, color: Color(0xFF5C6BC0), size: 22),

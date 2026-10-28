@@ -127,7 +127,7 @@ class _ScheduleSettingsPanelState extends State<ScheduleSettingsPanel>
 
   // State: Tab 2 (Sınıf+Ders Birleştirme)
   String? _selectedMergeLessonGroupKey;
-  Set<String> _selectedMergeClassIds = {};
+  final Set<String> _selectedMergeClassIds = {};
 
   // State: Tab 3 (Saati Kapat)
   bool _closedSlotTeacherMode = true; // true = Öğretmen, false = Şube
@@ -265,9 +265,9 @@ class _ScheduleSettingsPanelState extends State<ScheduleSettingsPanel>
         assignQuery.get(),
       ]);
 
-      final classSnap = coreResults[0] as QuerySnapshot;
-      final lessonSnap = coreResults[1] as QuerySnapshot;
-      final assignSnap = coreResults[2] as QuerySnapshot;
+      final classSnap = coreResults[0];
+      final lessonSnap = coreResults[1];
+      final assignSnap = coreResults[2];
 
       // Users sorgusu zaten başlatıldı, şimdi sonucunu al
       QuerySnapshot? usersSnap;
@@ -712,7 +712,7 @@ class _ScheduleSettingsPanelState extends State<ScheduleSettingsPanel>
                       borderRadius: BorderRadius.circular(10),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.08),
+                          color: Colors.black.withValues(alpha: 0.08),
                           blurRadius: 8,
                           offset: const Offset(0, 2),
                         )
@@ -1134,7 +1134,7 @@ class _ScheduleSettingsPanelState extends State<ScheduleSettingsPanel>
                     borderRadius: BorderRadius.circular(12),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.indigo.withOpacity(0.2),
+                        color: Colors.indigo.withValues(alpha: 0.2),
                         blurRadius: 6,
                         offset: const Offset(0, 2),
                       )
@@ -1311,7 +1311,7 @@ class _ScheduleSettingsPanelState extends State<ScheduleSettingsPanel>
                   value: allowSplit,
                   onChanged: (v) =>
                       setState(() => _lessonAllowSplit[blockKey] = v),
-                  activeColor: Colors.orange.shade600,
+                  activeThumbColor: Colors.orange.shade600,
                 ),
               ],
             ),
@@ -1391,7 +1391,7 @@ class _ScheduleSettingsPanelState extends State<ScheduleSettingsPanel>
                       }
                     });
                   },
-                  activeColor: Colors.red.shade600,
+                  activeThumbColor: Colors.red.shade600,
                 ),
               ],
             ),
@@ -1464,7 +1464,7 @@ class _ScheduleSettingsPanelState extends State<ScheduleSettingsPanel>
                       }
                     });
                   },
-                  activeColor: Colors.red.shade600,
+                  activeThumbColor: Colors.red.shade600,
                 ),
               ],
             ),
@@ -1577,7 +1577,7 @@ class _ScheduleSettingsPanelState extends State<ScheduleSettingsPanel>
                       boxShadow: state != 0
                           ? [
                               BoxShadow(
-                                color: (state == 1 ? Colors.green : Colors.red).withOpacity(0.25),
+                                color: (state == 1 ? Colors.green : Colors.red).withValues(alpha: 0.25),
                                 blurRadius: 4,
                                 offset: const Offset(0, 2),
                               )
@@ -1951,7 +1951,7 @@ class _ScheduleSettingsPanelState extends State<ScheduleSettingsPanel>
                       border: Border.all(color: Colors.grey.shade300),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.02),
+                          color: Colors.black.withValues(alpha: 0.02),
                           blurRadius: 4,
                           offset: const Offset(0, 2),
                         ),
@@ -2218,7 +2218,7 @@ class _ScheduleSettingsPanelState extends State<ScheduleSettingsPanel>
                           color: _closedSlotSubTab == 0 ? Colors.white : Colors.transparent,
                           borderRadius: BorderRadius.circular(10),
                           boxShadow: _closedSlotSubTab == 0
-                              ? [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 4)]
+                              ? [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 4)]
                               : [],
                         ),
                         child: Row(
@@ -2252,7 +2252,7 @@ class _ScheduleSettingsPanelState extends State<ScheduleSettingsPanel>
                           color: _closedSlotSubTab == 1 ? Colors.white : Colors.transparent,
                           borderRadius: BorderRadius.circular(10),
                           boxShadow: _closedSlotSubTab == 1
-                              ? [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 4)]
+                              ? [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 4)]
                               : [],
                         ),
                         child: Row(
@@ -2605,8 +2605,8 @@ class _ScheduleSettingsPanelState extends State<ScheduleSettingsPanel>
                   boxShadow: [
                     BoxShadow(
                       color: activeType != 'none'
-                          ? Colors.orange.withOpacity(0.06)
-                          : Colors.black.withOpacity(0.02),
+                          ? Colors.orange.withValues(alpha: 0.06)
+                          : Colors.black.withValues(alpha: 0.02),
                       blurRadius: 6,
                       offset: const Offset(0, 2),
                     ),
@@ -3718,7 +3718,7 @@ class _ScheduleSettingsPanelState extends State<ScheduleSettingsPanel>
                           border: Border.all(color: Colors.grey.shade200),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.02),
+                              color: Colors.black.withValues(alpha: 0.02),
                               blurRadius: 4,
                               offset: const Offset(0, 1),
                             ),

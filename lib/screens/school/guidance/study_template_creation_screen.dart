@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -151,7 +151,7 @@ class _StudyTemplateCreationScreenState
             ),
           );
         }
-        Navigator.pop(context);
+        if (mounted) Navigator.pop(context);
         return;
       }
 

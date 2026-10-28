@@ -1,58 +1,49 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 enum AgmAssignmentType { auto, manual }
 
-/// Bir öğrencinin bir AGM grubuna atanması
 class AgmAssignment {
   final String id;
   final String cycleId;
-  final String groupId;
   final String institutionId;
-
-  // Öğrenci bilgileri
+  final String groupId;
+  final String groupName;
   final String ogrenciId;
   final String ogrenciAdi;
-  final String subeId;
-  final String subeAdi;
-
-  // Algoritma skoru
-  final double ihtiyacSkoru; // 0.0 – 1.0
-
-  // Atama tipi
+  final String? sube;
+  final String? subeId;
   final AgmAssignmentType atamaTipi;
-  final String? groupName; // Group context for display
-  final DateTime olusturulmaZamani;
+  final double ihtiyacSkoru; // 0.0 - 1.0 (1.0 means most needed)
+  final double basariOrani; // 0.0 - 1.0
   final bool isAbsent;
 
   AgmAssignment({
     required this.id,
     required this.cycleId,
+    this.institutionId = '',
     required this.groupId,
-    required this.institutionId,
+    required this.groupName,
     required this.ogrenciId,
     required this.ogrenciAdi,
-    required this.subeId,
-    required this.subeAdi,
-    required this.ihtiyacSkoru,
+    this.sube,
+    this.subeId,
     this.atamaTipi = AgmAssignmentType.auto,
-    this.groupName,
-    required this.olusturulmaZamani,
+    this.ihtiyacSkoru = 0.0,
+    this.basariOrani = 0.0,
     this.isAbsent = false,
   });
 
   Map<String, dynamic> toMap() {
     return {
       'cycleId': cycleId,
-      'groupId': groupId,
       'institutionId': institutionId,
+      'groupId': groupId,
+      'groupName': groupName,
       'ogrenciId': ogrenciId,
       'ogrenciAdi': ogrenciAdi,
+      'sube': sube,
       'subeId': subeId,
-      'subeAdi': subeAdi,
-      'ihtiyacSkoru': ihtiyacSkoru,
       'atamaTipi': atamaTipi.name,
-      'groupName': groupName,
-      'olusturulmaZamani': Timestamp.fromDate(olusturulmaZamani),
+      'ihtiyacSkoru': ihtiyacSkoru,
+      'basariOrani': basariOrani,
       'isAbsent': isAbsent,
     };
   }
@@ -61,21 +52,52 @@ class AgmAssignment {
     return AgmAssignment(
       id: id,
       cycleId: map['cycleId'] ?? '',
-      groupId: map['groupId'] ?? '',
       institutionId: map['institutionId'] ?? '',
+      groupId: map['groupId'] ?? '',
+      groupName: map['groupName'] ?? map['groupAdi'] ?? '',
       ogrenciId: map['ogrenciId'] ?? '',
       ogrenciAdi: map['ogrenciAdi'] ?? '',
-      subeId: map['subeId'] ?? '',
-      subeAdi: map['subeAdi'] ?? '',
-      ihtiyacSkoru: (map['ihtiyacSkoru'] ?? 0.0).toDouble(),
+      sube: map['sube'] ?? map['subeAdi'],
+      subeId: map['subeId'],
       atamaTipi: AgmAssignmentType.values.firstWhere(
         (e) => e.name == map['atamaTipi'],
         orElse: () => AgmAssignmentType.auto,
       ),
-      groupName: map['groupName'],
-      olusturulmaZamani:
-          (map['olusturulmaZamani'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      ihtiyacSkoru: (map['ihtiyacSkoru'] ?? 0.0).toDouble(),
+      basariOrani: (map['basariOrani'] ?? 0.0).toDouble(),
       isAbsent: map['isAbsent'] ?? false,
+    );
+  }
+
+  AgmAssignment copyWith({
+    String? id,
+    String? cycleId,
+    String? institutionId,
+    String? groupId,
+    String? groupName,
+    String? ogrenciId,
+    String? ogrenciAdi,
+    String? sube,
+    String? subeId,
+    AgmAssignmentType? atamaTipi,
+    double? ihtiyacSkoru,
+    double? basariOrani,
+    bool? isAbsent,
+  }) {
+    return AgmAssignment(
+      id: id ?? this.id,
+      cycleId: cycleId ?? this.cycleId,
+      institutionId: institutionId ?? this.institutionId,
+      groupId: groupId ?? this.groupId,
+      groupName: groupName ?? this.groupName,
+      ogrenciId: ogrenciId ?? this.ogrenciId,
+      ogrenciAdi: ogrenciAdi ?? this.ogrenciAdi,
+      sube: sube ?? this.sube,
+      subeId: subeId ?? this.subeId,
+      atamaTipi: atamaTipi ?? this.atamaTipi,
+      ihtiyacSkoru: ihtiyacSkoru ?? this.ihtiyacSkoru,
+      basariOrani: basariOrani ?? this.basariOrani,
+      isAbsent: isAbsent ?? this.isAbsent,
     );
   }
 }

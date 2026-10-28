@@ -77,7 +77,7 @@ class CustomDateRangePicker {
                 borderRadius: BorderRadius.circular(12),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.15),
+                    color: Colors.black.withValues(alpha: 0.15),
                     blurRadius: 32,
                     offset: const Offset(0, 16),
                   ),
@@ -477,7 +477,7 @@ class _PickerBodyState<T> extends State<_PickerBody<T>> {
             color: Colors.white,
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.04),
+                color: Colors.black.withValues(alpha: 0.04),
                 offset: const Offset(0, -4),
                 blurRadius: 12,
               )

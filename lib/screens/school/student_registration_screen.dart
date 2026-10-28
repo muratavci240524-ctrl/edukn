@@ -11,7 +11,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:excel/excel.dart' hide Border;
 import 'package:file_saver/file_saver.dart';
-import 'dart:typed_data';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -22,10 +21,8 @@ import '../../services/term_service.dart';
 import 'student_bulk_upload_dialog.dart';
 import '../../services/crypto_service.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:edukn/widgets/safe_stream_builder.dart';
 import 'accounting/student_payment_plan_widget.dart';
 
 
@@ -51,11 +48,11 @@ Future<String?> _createAuthUser(String email, String password) async {
       return data['localId'] as String;
     } else {
       final error = json.decode(response.body);
-      print('⚠️ SignUp REST API: ${error['error']?['message']}');
+      debugPrint('⚠️ SignUp REST API: ${error['error']?['message']}');
       return null;
     }
   } catch (e) {
-    print('❌ Auth kullanıcı oluşturma hatası: $e');
+    debugPrint('❌ Auth kullanıcı oluşturma hatası: $e');
     return null;
   }
 }
@@ -114,7 +111,7 @@ Future<void> _launchParentPhone(BuildContext context, String? phone) async {
   try {
     final canCall = await canLaunchUrl(uri);
     if (!canCall) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Bu cihazdan arama yapılamıyor.'),
           backgroundColor: Colors.orange,
@@ -125,7 +122,7 @@ Future<void> _launchParentPhone(BuildContext context, String? phone) async {
 
     final launched = await launchUrl(uri);
     if (!launched) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Arama başlatılamadı.'),
           backgroundColor: Colors.red,
@@ -133,7 +130,7 @@ Future<void> _launchParentPhone(BuildContext context, String? phone) async {
       );
     }
   } catch (_) {
-    ScaffoldMessenger.of(context).showSnackBar(
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('Arama yapılırken bir hata oluştu.'),
         backgroundColor: Colors.red,
@@ -429,7 +426,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
         _selectedStudentId = null;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             keepNumber
@@ -442,7 +439,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
 
       _loadData(); // Listeyi yenile
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('❌ Hata: $e'), backgroundColor: Colors.red),
       );
     }
@@ -515,7 +512,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
         _selectedStudentId = null;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('✓ Öğrenci kalıcı olarak silindi'),
           backgroundColor: Colors.red.shade700,
@@ -525,7 +522,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
 
       _loadData(); // Listeyi yenile
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('❌ Hata: $e'), backgroundColor: Colors.red),
       );
     }
@@ -559,7 +556,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
     if (confirm != true) return;
 
     try {
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Siliniyor...')));
 
@@ -584,12 +581,12 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
         await Future.delayed(Duration(milliseconds: 50));
       }
 
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Tüm öğrenciler silindi.')));
       _loadData(); // Listeyi yenile
     } catch (e) {
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata: $e')));
     }
@@ -1785,12 +1782,12 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
           ext: 'xlsx',
           mimeType: MimeType.microsoftExcel,
         );
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('✓ Excel raporu başarıyla indirildi.')),
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
       );
     }
@@ -2054,7 +2051,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
         name: '${student['fullName'] ?? 'Ogrenci'}_bilgi_formu',
       );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Yazdırma sırasında hata oluştu: $e'), backgroundColor: Colors.red),
       );
     }
@@ -2188,7 +2185,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
       // Filtrelemeyi her zaman uygula (dönem filtresi dahil)
       _filterStudents();
     } catch (e) {
-      print('❌ Veri yükleme hatası: $e');
+      debugPrint('❌ Veri yükleme hatası: $e');
       if (mounted) {
         setState(() => _isLoading = false);
       }
@@ -2560,7 +2557,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
                           context,
                         ).copyWith(canvasColor: Colors.indigo.shade700),
                         child: DropdownButtonFormField<String?>(
-                          value: _selectedTermFilter,
+                          initialValue: _selectedTermFilter,
                           style: TextStyle(color: Colors.white),
                           icon: Icon(
                             Icons.arrow_drop_down,
@@ -2620,7 +2617,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
                           context,
                         ).copyWith(canvasColor: Colors.indigo.shade700),
                         child: DropdownButtonFormField<String?>(
-                          value: _filterSchoolType,
+                          initialValue: _filterSchoolType,
                           style: TextStyle(color: Colors.white),
                           icon: Icon(
                             Icons.arrow_drop_down,
@@ -2691,7 +2688,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
                           context,
                         ).copyWith(canvasColor: Colors.indigo.shade700),
                         child: DropdownButtonFormField<String?>(
-                          value: _filterClassLevel,
+                          initialValue: _filterClassLevel,
                           style: TextStyle(color: Colors.white),
                           icon: Icon(
                             Icons.arrow_drop_down,
@@ -2811,7 +2808,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
                               context,
                             ).copyWith(canvasColor: Colors.indigo.shade700),
                             child: DropdownButtonFormField<String?>(
-                              value: effectiveValue,
+                              initialValue: effectiveValue,
                               style: TextStyle(color: Colors.white),
                               icon: Icon(
                                 Icons.arrow_drop_down,
@@ -2873,7 +2870,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
                           context,
                         ).copyWith(canvasColor: Colors.indigo.shade700),
                         child: DropdownButtonFormField<String?>(
-                          value: _filterEntryType,
+                          initialValue: _filterEntryType,
                           style: TextStyle(color: Colors.white),
                           icon: Icon(
                             Icons.arrow_drop_down,
@@ -3071,10 +3068,10 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
         child: Container(
           padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
-            color: isSelected ? Colors.white : Colors.white.withOpacity(0.15),
+            color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.15),
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
-              color: isSelected ? Colors.white : Colors.white.withOpacity(0.3),
+              color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.3),
               width: isSelected ? 2 : 1,
             ),
           ),
@@ -4196,8 +4193,8 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
                   _selectedStudent!['parents'] = currentParents;
                 });
 
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
+                if (mounted) Navigator.pop(context);
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text('✓ Öğrenci veli olarak eklendi'),
                     backgroundColor: Colors.green,
@@ -4206,8 +4203,8 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
 
                 _loadData(); // Listeyi yenile
               } catch (e) {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
+                if (mounted) Navigator.pop(context);
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text('❌ Hata: $e'),
                     backgroundColor: Colors.red,
@@ -4294,7 +4291,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
                       children: [
                         // Yakınlık Türü
                         DropdownButtonFormField<String>(
-                          value: selectedRelation,
+                          initialValue: selectedRelation,
                           decoration: InputDecoration(
                             labelText: 'Yakınlık Türü *',
                             border: OutlineInputBorder(
@@ -4472,7 +4469,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
                         SizedBox(height: 16),
                         // Veli SMS Alsın
                         DropdownButtonFormField<String>(
-                          value: selectedSmsOption,
+                          initialValue: selectedSmsOption,
                           decoration: InputDecoration(
                             labelText: 'Veli SMS Alsın',
                             border: OutlineInputBorder(
@@ -4694,8 +4691,8 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
                           _selectedStudent!['parents'] = currentParents;
                         });
 
-                        Navigator.pop(context);
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        if (mounted) Navigator.pop(context);
+                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text('✓ Veli eklendi'),
                             backgroundColor: Colors.green,
@@ -4704,7 +4701,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
 
                         _loadData();
                       } catch (e) {
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text('❌ Hata: $e'),
                             backgroundColor: Colors.red,
@@ -4852,7 +4849,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
                         ),
                         SizedBox(height: 16),
                         DropdownButtonFormField<String>(
-                          value: selectedRelation,
+                          initialValue: selectedRelation,
                           decoration: InputDecoration(
                             labelText: 'Yakınlık Derecesi *',
                             border: OutlineInputBorder(
@@ -5063,8 +5060,8 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
                             _selectedStudent!['parents'] = currentParents;
                           });
 
-                          Navigator.pop(context);
-                          ScaffoldMessenger.of(context).showSnackBar(
+                          if (mounted) Navigator.pop(context);
+                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text('✓ Veli güncellendi'),
                               backgroundColor: Colors.green,
@@ -5074,7 +5071,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
                           _loadData(); // Listeyi yenile
                         }
                       } catch (e) {
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text('❌ Hata: $e'),
                             backgroundColor: Colors.red,
@@ -5140,8 +5137,8 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
                     _selectedStudent!['parents'] = currentParents;
                   });
 
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  if (mounted) Navigator.pop(context);
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('✓ Veli silindi'),
                       backgroundColor: Colors.green,
@@ -5151,8 +5148,8 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
                   _loadData(); // Listeyi yenile
                 }
               } catch (e) {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
+                if (mounted) Navigator.pop(context);
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text('❌ Hata: $e'),
                     backgroundColor: Colors.red,
@@ -5209,7 +5206,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
               Container(
                 padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: Colors.indigo.withOpacity(0.1),
+                  color: Colors.indigo.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(
@@ -5428,7 +5425,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
                                   await FirebaseFunctions.instance
                                       .httpsCallable('updateUserCredentials')
                                       .call({'uid': uid, 'newPassword': password});
-                                  print('✅ Auth şifresi güncellendi: $uid');
+                                  debugPrint('✅ Auth şifresi güncellendi: $uid');
                                 } else {
                                   final newUid = await _createAuthUser(targetEmail, password);
                                   if (customEmail.isNotEmpty && customEmail.contains('@')) {
@@ -5451,7 +5448,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
                                   }, SetOptions(merge: true));
                                 }
                               } catch (authErr) {
-                                print('⚠️ Auth senkronizasyon hatası: $authErr');
+                                debugPrint('⚠️ Auth senkronizasyon hatası: $authErr');
                               }
                             }
                           }
@@ -5460,8 +5457,8 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
                             _selectedStudent = tempData;
                           });
 
-                          Navigator.pop(context);
-                          ScaffoldMessenger.of(context).showSnackBar(
+                          if (mounted) Navigator.pop(context);
+                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text('✓ $section kaydedildi'),
                               backgroundColor: Colors.green,
@@ -5469,7 +5466,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
                           );
                           _loadData(); // Listeyi yenile
                         } catch (e) {
-                          ScaffoldMessenger.of(context).showSnackBar(
+                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text('❌ Hata: $e'),
                               backgroundColor: Colors.red,
@@ -5504,11 +5501,21 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
     Map<String, dynamic> tempData,
     StateSetter setModalState,
   ) {
+    // Kayıtlı ad/soyad 'name' ve 'surname' alanlarında tutulur; yoksa fullName'den türet
+    if (tempData['name'] == null && tempData['surname'] == null) {
+      final parts = (tempData['fullName'] ?? '').toString().trim().split(RegExp(r'\s+'));
+      if (parts.isNotEmpty && parts.first.isNotEmpty) {
+        tempData['surname'] = parts.length > 1 ? parts.last : '';
+        tempData['name'] = parts.length > 1
+            ? parts.sublist(0, parts.length - 1).join(' ')
+            : parts.first;
+      }
+    }
     return Column(
       children: [
         TextFormField(
-          key: ValueKey('firstName_${tempData['firstName']}'),
-          initialValue: tempData['firstName'] ?? '',
+          key: const ValueKey('student_edit_name'),
+          initialValue: (tempData['name'] ?? '').toString(),
           decoration: InputDecoration(
             labelText: 'Ad *',
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
@@ -5516,19 +5523,16 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
           ),
           textCapitalization: TextCapitalization.words,
           onChanged: (value) {
-            setModalState(() {
-              tempData['firstName'] = value;
-              // fullName'i güncelle
-              tempData['fullName'] =
-                  '${value.trim()} ${(tempData['lastName'] ?? '').trim()}'
-                      .trim();
-            });
+            tempData['name'] = value;
+            tempData['fullName'] =
+                '${value.trim()} ${(tempData['surname'] ?? '').toString().trim()}'
+                    .trim();
           },
         ),
         SizedBox(height: 16),
         TextFormField(
-          key: ValueKey('lastName_${tempData['lastName']}'),
-          initialValue: tempData['lastName'] ?? '',
+          key: const ValueKey('student_edit_surname'),
+          initialValue: (tempData['surname'] ?? '').toString(),
           decoration: InputDecoration(
             labelText: 'Soyad *',
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
@@ -5536,13 +5540,10 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
           ),
           textCapitalization: TextCapitalization.words,
           onChanged: (value) {
-            setModalState(() {
-              tempData['lastName'] = value;
-              // fullName'i güncelle
-              tempData['fullName'] =
-                  '${(tempData['firstName'] ?? '').trim()} ${value.trim()}'
-                      .trim();
-            });
+            tempData['surname'] = value;
+            tempData['fullName'] =
+                '${(tempData['name'] ?? '').toString().trim()} ${value.trim()}'
+                    .trim();
           },
         ),
         SizedBox(height: 16),
@@ -5593,7 +5594,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
         ),
         SizedBox(height: 16),
         DropdownButtonFormField<String?>(
-          value: ['Erkek', 'Kadın'].contains(tempData['gender'])
+          initialValue: ['Erkek', 'Kadın'].contains(tempData['gender'])
               ? tempData['gender']
               : null,
           decoration: InputDecoration(
@@ -5627,7 +5628,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
         ),
         SizedBox(height: 16),
         DropdownButtonFormField<String?>(
-          value:
+          initialValue:
               [
                 'A+',
                 'A-',
@@ -5728,7 +5729,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
     return Column(
       children: [
         DropdownButtonFormField<String?>(
-          value: TurkeyAddressData.cities.contains(tempData['city']?.toString().toUpperCase())
+          initialValue: TurkeyAddressData.cities.contains(tempData['city']?.toString().toUpperCase())
               ? tempData['city']?.toString().toUpperCase()
               : null,
           decoration: InputDecoration(
@@ -5753,7 +5754,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
         ),
         SizedBox(height: 16),
         DropdownButtonFormField<String?>(
-          value: (tempData['city'] != null &&
+          initialValue: (tempData['city'] != null &&
                   TurkeyAddressData.getDistricts(tempData['city']).contains(
                     tempData['district']?.toString().toUpperCase(),
                   ))
@@ -5900,22 +5901,19 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
   }
 
   // Kayıt Bilgileri Formu - Düzenlenebilir
+  // Programatik değer değişimlerinde alanı yeniden oluşturmak için sayaç
+  int _regFormGen = 0;
+
   Widget _buildRegistrationInfoFormEditable(
     Map<String, dynamic> tempData,
     StateSetter setModalState,
   ) {
-    final studentNoController = TextEditingController(
-      text: tempData['studentNo'],
-    );
-    final registrationDateController = TextEditingController(
-      text: tempData['registrationDate'],
-    );
-
     return Column(
       children: [
         // Öğrenci No
         TextFormField(
-          controller: studentNoController,
+          key: ValueKey('student_edit_no_$_regFormGen'),
+          initialValue: (tempData['studentNo'] ?? '').toString(),
           decoration: InputDecoration(
             labelText: 'Öğrenci No',
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
@@ -5941,7 +5939,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
                 }
 
                 setModalState(() {
-                  studentNoController.text = nextNo;
+                  _regFormGen++;
                   tempData['studentNo'] = nextNo;
                   tempData['studentNumber'] = nextNo;
                 });
@@ -5949,16 +5947,15 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
             ),
           ),
           onChanged: (value) {
-            setModalState(() {
-              tempData['studentNo'] = value;
-              tempData['studentNumber'] = value;
-            });
+            tempData['studentNo'] = value;
+            tempData['studentNumber'] = value;
           },
         ),
         SizedBox(height: 16),
         // Kayıt Tarihi
         TextFormField(
-          controller: registrationDateController,
+          key: ValueKey('student_edit_regdate_$_regFormGen'),
+          initialValue: (tempData['registrationDate'] ?? '').toString(),
           decoration: InputDecoration(
             labelText: 'Kayıt Tarihi (gg.aa.yyyy)',
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
@@ -5971,7 +5968,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
                 final formatted =
                     '${now.day.toString().padLeft(2, '0')}.${now.month.toString().padLeft(2, '0')}.${now.year}';
                 setModalState(() {
-                  registrationDateController.text = formatted;
+                  _regFormGen++;
                   tempData['registrationDate'] = formatted;
                 });
               },
@@ -5980,15 +5977,13 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
           inputFormatters: [DateTextFormatter()],
           keyboardType: TextInputType.number,
           onChanged: (value) {
-            setModalState(() {
-              tempData['registrationDate'] = value;
-            });
+            tempData['registrationDate'] = value;
           },
         ),
         SizedBox(height: 16),
         // Kayıt Türü
         DropdownButtonFormField<String?>(
-          value:
+          initialValue:
               [
                 'Asil Kayıt',
                 'Yedek Kayıt',
@@ -6020,7 +6015,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
         SizedBox(height: 16),
         // Giriş Türü
         DropdownButtonFormField<String?>(
-          value: ['Yeni', 'Yenileme'].contains(tempData['entryType'])
+          initialValue: ['Yeni', 'Yenileme'].contains(tempData['entryType'])
               ? tempData['entryType']
               : null,
           decoration: InputDecoration(
@@ -6097,7 +6092,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
     return Column(
       children: [
         DropdownButtonFormField<String?>(
-          value:
+          initialValue:
               _schoolTypes.any((type) => type['id'] == tempData['schoolTypeId'])
               ? tempData['schoolTypeId']
               : null,
@@ -6126,7 +6121,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
         // Sınıf Seviyesi - Sadece okul türü seçiliyse göster
         if (tempData['schoolTypeId'] != null)
           DropdownButtonFormField<String?>(
-            value:
+            initialValue:
                 getClassLevelsForSchoolType(tempData['schoolTypeId']).any(
                   (item) => item.value == tempData['classLevel']?.toString(),
                 )
@@ -6202,7 +6197,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
               final classes = snapshot.data ?? [];
 
               return DropdownButtonFormField<String?>(
-                value: classes.any((c) => c['id'] == tempData['classId'])
+                initialValue: classes.any((c) => c['id'] == tempData['classId'])
                     ? tempData['classId']
                     : null,
                 decoration: InputDecoration(
@@ -6255,7 +6250,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
         if (tempData['schoolTypeId'] != null && tempData['classLevel'] != null)
           SizedBox(height: 16),
         DropdownButtonFormField<String?>(
-          value: _terms.any((term) => term['id'] == tempData['termId'])
+          initialValue: _terms.any((term) => term['id'] == tempData['termId'])
               ? tempData['termId']
               : null,
           decoration: InputDecoration(
@@ -6303,7 +6298,7 @@ class _StudentRegistrationScreenState extends State<StudentRegistrationScreen>
         ),
         SizedBox(height: 16),
         DropdownButtonFormField<String?>(
-          value: ['Örgün', 'Açık'].contains(tempData['educationType'])
+          initialValue: ['Örgün', 'Açık'].contains(tempData['educationType'])
               ? tempData['educationType']
               : null,
           decoration: InputDecoration(
@@ -6402,10 +6397,9 @@ class _StudentRegistrationFormScreen extends StatefulWidget {
   const _StudentRegistrationFormScreen({
     Key? key,
     required this.onSave,
-    this.existingStudent,
     this.isViewingPastTerm = false,
     this.fixedSchoolTypeId,
-  }) : super(key: key);
+  }) : existingStudent = null, super(key: key);
 
   @override
   __StudentRegistrationFormScreenState createState() =>
@@ -6461,7 +6455,7 @@ class __StudentRegistrationFormScreenState
   final TextEditingController _emailController = TextEditingController();
   String? _selectedHearSource;
   String? _selectedEducationType;
-  List<String> _educationTypesList = ['Tam Gün', 'Sabahçı', 'Öğlenci', 'Yatılı', 'Akşam Kursu'];
+  final List<String> _educationTypesList = ['Tam Gün', 'Sabahçı', 'Öğlenci', 'Yatılı', 'Akşam Kursu'];
   String? _selectedForeignLanguage;
   final TextEditingController _referenceController = TextEditingController();
   bool _isStudentSelfGuardian = false;
@@ -6544,9 +6538,9 @@ class __StudentRegistrationFormScreenState
         }
 
         // Debug: Okul türlerini kontrol et
-        print('📚 [Ayrı Sayfa] Yüklenen okul sayısı: ${_schoolTypes.length}');
+        debugPrint('📚 [Ayrı Sayfa] Yüklenen okul sayısı: ${_schoolTypes.length}');
         for (var st in _schoolTypes) {
-          print(
+          debugPrint(
             '  - ${st['schoolTypeName'] ?? st['typeName']} (Tür: ${st['schoolType']})',
           );
         }
@@ -6565,7 +6559,7 @@ class __StudentRegistrationFormScreenState
         }
       });
     } catch (e) {
-      print('❌ Okul türleri yüklenemedi: $e');
+      debugPrint('❌ Okul türleri yüklenemedi: $e');
     }
   }
 
@@ -6597,11 +6591,11 @@ class __StudentRegistrationFormScreenState
         _currentStudentCount = studentsQuery.docs.length;
       });
 
-      print(
+      debugPrint(
         '📊 Kota Bilgisi: $_currentStudentCount / $_studentQuota (Kurum: $institutionId)',
       );
     } catch (e) {
-      print('❌ Kota bilgisi yüklenemedi: $e');
+      debugPrint('❌ Kota bilgisi yüklenemedi: $e');
     }
   }
 
@@ -6662,7 +6656,7 @@ class __StudentRegistrationFormScreenState
       }
       return true;
     } catch (e) {
-      print('❌ Kota kontrolü sırasında hata: $e');
+      debugPrint('❌ Kota kontrolü sırasında hata: $e');
       return true; // Hata durumunda kayda izin ver (veya verme, tercihe bağlı)
     }
   }
@@ -6709,7 +6703,7 @@ class __StudentRegistrationFormScreenState
       }).toList();
     }
 
-    print('✅ Öğrenci verileri forma yüklendi: ${student['fullName']}');
+    debugPrint('✅ Öğrenci verileri forma yüklendi: ${student['fullName']}');
   }
 
   Future<void> _checkDuplicateAndPullData(String tc) async {
@@ -6921,7 +6915,7 @@ class __StudentRegistrationFormScreenState
                     .get();
 
                 if (tcExists.docs.isNotEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(
                         '⚠ Bu TC Kimlik Numarası ile kayıtlı öğrenci var',
@@ -6941,7 +6935,7 @@ class __StudentRegistrationFormScreenState
                     .get();
 
                 if (usernameExists.docs.isNotEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('⚠ Bu kullanıcı adı zaten kullanılıyor'),
                       backgroundColor: Colors.red,
@@ -7067,7 +7061,7 @@ class __StudentRegistrationFormScreenState
                           await FirebaseFunctions.instance
                               .httpsCallable('updateUserCredentials')
                               .call({'uid': uid, 'newPassword': stPassword});
-                        } catch (_) {}
+                        } catch (silentError) { debugPrint('[student_registration_screen] hata yutuldu: $silentError'); }
                       } else {
                         final newUid = await _createAuthUser(stEmail, stPassword);
                         if (newUid != null) {
@@ -7088,10 +7082,10 @@ class __StudentRegistrationFormScreenState
                       }
                     }
                   } catch (syncErr) {
-                    print('⚠️ Öğrenci Auth senkronizasyonu uyarısı: $syncErr');
+                    debugPrint('⚠️ Öğrenci Auth senkronizasyonu uyarısı: $syncErr');
                   }
 
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(widget.existingStudent != null ? '✓ Öğrenci güncellendi!' : '✓ Öğrenci kaydedildi!'),
                       backgroundColor: Colors.green,
@@ -7099,9 +7093,9 @@ class __StudentRegistrationFormScreenState
                   );
 
                   widget.onSave();
-                  Navigator.pop(context);
+                  if (mounted) Navigator.pop(context);
                 } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('❌ Hata: $e'),
                       backgroundColor: Colors.red,
@@ -7140,7 +7134,7 @@ class __StudentRegistrationFormScreenState
             boxShadow: isActive
                 ? [
                     BoxShadow(
-                      color: Colors.blue.withOpacity(0.3),
+                      color: Colors.blue.withValues(alpha: 0.3),
                       blurRadius: 8,
                       offset: Offset(0, 4),
                     ),
@@ -7193,7 +7187,7 @@ class __StudentRegistrationFormScreenState
               DropdownMenuItem(value: 'demo', child: Text('Demo Kayıt')),
             ],
 
-            value: _selectedRegistrationType,
+            initialValue: _selectedRegistrationType,
             onChanged: (value) {
               setState(() {
                 _selectedRegistrationType = value;
@@ -7208,7 +7202,7 @@ class __StudentRegistrationFormScreenState
             decoration: _inputDecoration('Kayıt Olacağı Dönem *').copyWith(
               hintText: _terms.isEmpty ? 'Önce dönem oluşturun' : 'Seçiniz',
             ),
-            value: _selectedTermId,
+            initialValue: _selectedTermId,
             items: _terms.isEmpty
                 ? []
                 : _terms.expand((term) {
@@ -7464,7 +7458,7 @@ class __StudentRegistrationFormScreenState
                           ),
                           DropdownMenuItem(value: 'kiz', child: Text('Kız')),
                         ],
-                        value: _selectedGender,
+                        initialValue: _selectedGender,
                         onChanged: (value) {
                           setState(() {
                             _selectedGender = value;
@@ -7516,7 +7510,7 @@ class __StudentRegistrationFormScreenState
                         DropdownMenuItem(value: 'erkek', child: Text('Erkek')),
                         DropdownMenuItem(value: 'kiz', child: Text('Kız')),
                       ],
-                      value: _selectedGender,
+                      initialValue: _selectedGender,
                       onChanged: (value) {
                         setState(() {
                           _selectedGender = value;
@@ -7631,7 +7625,7 @@ class __StudentRegistrationFormScreenState
           DropdownButtonFormField<String>(
             decoration: _inputDecoration('Okul *'),
             hint: Text('Okul seçin'),
-            value: _selectedSchoolTypeId,
+            initialValue: _selectedSchoolTypeId,
             items: _schoolTypes.map((schoolType) {
               return DropdownMenuItem<String>(
                 value: schoolType['id'],
@@ -7695,13 +7689,13 @@ class __StudentRegistrationFormScreenState
                             _studentNoController.text = nextNumber.toString();
                           });
 
-                          ScaffoldMessenger.of(context).showSnackBar(
+                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text('✅ Otomatik numara: $nextNumber'),
                             ),
                           );
                         } catch (e) {
-                          ScaffoldMessenger.of(
+                          if (mounted) ScaffoldMessenger.of(
                             context,
                           ).showSnackBar(SnackBar(content: Text('Hata: $e')));
                         }
@@ -7739,7 +7733,7 @@ class __StudentRegistrationFormScreenState
                                 )
                                 .toList() ??
                             [],
-                  value: _selectedClassLevel,
+                  initialValue: _selectedClassLevel,
                   onChanged: (value) {
                     setState(() {
                       _selectedClassLevel = value;
@@ -7815,7 +7809,7 @@ class __StudentRegistrationFormScreenState
                       decoration: _inputDecoration(
                         'Şube ${_selectedClassLevel != null ? "($_selectedClassLevel. Sınıf)" : ""}',
                       ),
-                      value: _selectedClassId,
+                      initialValue: _selectedClassId,
                       hint: Text(
                         _selectedClassLevel == null
                             ? 'Önce sınıf seviyesi seçin'
@@ -7908,7 +7902,7 @@ class __StudentRegistrationFormScreenState
                     DropdownMenuItem(value: 'misafir', child: Text('Misafir Kaydı')),
                     DropdownMenuItem(value: 'demo', child: Text('Demo Kayıt')),
                   ],
-                  value: _selectedEntryType,
+                  initialValue: _selectedEntryType,
                   onChanged: (value) {
                     setState(() {
                       _selectedEntryType = value;
@@ -7959,7 +7953,7 @@ class __StudentRegistrationFormScreenState
                       ),
                     ),
                   ],
-                  value: _selectedHearSource,
+                  initialValue: _selectedHearSource,
                   onChanged: (value) {
                     setState(() {
                       _selectedHearSource = value;
@@ -7981,7 +7975,7 @@ class __StudentRegistrationFormScreenState
                       child: Text('+ Yeni Ekle...', style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold)),
                     ),
                   ],
-                  value: _selectedEducationType,
+                  initialValue: _selectedEducationType,
                   onChanged: (value) async {
                     if (value == 'yeni_ekle') {
                       String? newValue = await showDialog<String>(
@@ -8069,7 +8063,7 @@ class __StudentRegistrationFormScreenState
                     ),
                     DropdownMenuItem(value: 'arapca', child: Text('Arapça')),
                   ],
-                  value: _selectedForeignLanguage,
+                  initialValue: _selectedForeignLanguage,
                   onChanged: (value) {
                     setState(() {
                       _selectedForeignLanguage = value;
@@ -8579,8 +8573,8 @@ class __StudentRegistrationFormScreenState
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
                   decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.05),
-                    border: Border(bottom: BorderSide(color: Colors.blue.withOpacity(0.1))),
+                    color: Colors.blue.withValues(alpha: 0.05),
+                    border: Border(bottom: BorderSide(color: Colors.blue.withValues(alpha: 0.1))),
                   ),
                   child: Column(
                     children: [
@@ -8588,7 +8582,7 @@ class __StudentRegistrationFormScreenState
                         children: [
                           Container(
                             padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(color: Colors.blue.withOpacity(0.1), shape: BoxShape.circle),
+                            decoration: BoxDecoration(color: Colors.blue.withValues(alpha: 0.1), shape: BoxShape.circle),
                             child: const Icon(Icons.person_search_rounded, color: Colors.blue, size: 24),
                           ),
                           const SizedBox(width: 16),
@@ -8650,7 +8644,7 @@ class __StudentRegistrationFormScreenState
                             });
                           } catch (e) {
                             setStateDialog(() => isSearching = false);
-                            print("Search error: $e");
+                            debugPrint("Search error: $e");
                           }
                         },
                         decoration: _inputDecoration('Veli Adı veya TC No ile Ara...').copyWith(
@@ -8809,14 +8803,14 @@ class __StudentRegistrationFormScreenState
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
                   decoration: BoxDecoration(
-                    color: Colors.orange.withOpacity(0.05),
-                    border: Border(bottom: BorderSide(color: Colors.orange.withOpacity(0.1))),
+                    color: Colors.orange.withValues(alpha: 0.05),
+                    border: Border(bottom: BorderSide(color: Colors.orange.withValues(alpha: 0.1))),
                   ),
                   child: Row(
                     children: [
                       Container(
                         padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(color: Colors.orange.withOpacity(0.1), shape: BoxShape.circle),
+                        decoration: BoxDecoration(color: Colors.orange.withValues(alpha: 0.1), shape: BoxShape.circle),
                         child: const Icon(Icons.edit_rounded, color: Colors.orange, size: 24),
                       ),
                       const SizedBox(width: 16),
@@ -8843,7 +8837,7 @@ class __StudentRegistrationFormScreenState
                       children: [
                         DropdownButtonFormField<String>(
                           decoration: InputDecoration(labelText: 'Yakınlık Türü *', border: OutlineInputBorder()),
-                          value: selectedRelation,
+                          initialValue: selectedRelation,
                           items: validRelations.map((r) => DropdownMenuItem(value: r, child: Text(_formatRelation(r)))).toList(),
                           onChanged: (val) => setStateDialog(() => selectedRelation = val!),
                         ),
@@ -8900,7 +8894,7 @@ class __StudentRegistrationFormScreenState
                     padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -5))],
+                      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, -5))],
                     ),
                     child: Row(
                       children: [
@@ -9044,14 +9038,14 @@ class __StudentRegistrationFormScreenState
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
                 decoration: BoxDecoration(
-                  color: Colors.green.withOpacity(0.05),
-                  border: Border(bottom: BorderSide(color: Colors.green.withOpacity(0.1))),
+                  color: Colors.green.withValues(alpha: 0.05),
+                  border: Border(bottom: BorderSide(color: Colors.green.withValues(alpha: 0.1))),
                 ),
                 child: Row(
                   children: [
                     Container(
                       padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(color: Colors.green.withOpacity(0.1), shape: BoxShape.circle),
+                      decoration: BoxDecoration(color: Colors.green.withValues(alpha: 0.1), shape: BoxShape.circle),
                       child: const Icon(Icons.person_add_alt_1_rounded, color: Colors.green, size: 24),
                     ),
                     const SizedBox(width: 16),
@@ -9084,7 +9078,7 @@ class __StudentRegistrationFormScreenState
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -5))],
+                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, -5))],
                   ),
                   child: Row(
                     children: [
@@ -9192,7 +9186,7 @@ class __StudentRegistrationFormScreenState
       children: [
         DropdownButtonFormField<String>(
           decoration: _inputDecoration('Yakınlık Türü *'),
-          value: _selectedParentRelation,
+          initialValue: _selectedParentRelation,
           items: [
             DropdownMenuItem(value: 'anne', child: Text('Anne')),
             DropdownMenuItem(value: 'baba', child: Text('Baba')),
@@ -9481,14 +9475,14 @@ class __StudentRegistrationFormScreenState
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
                 decoration: BoxDecoration(
-                  color: Colors.blue.withOpacity(0.05),
-                  border: Border(bottom: BorderSide(color: Colors.blue.withOpacity(0.1))),
+                  color: Colors.blue.withValues(alpha: 0.05),
+                  border: Border(bottom: BorderSide(color: Colors.blue.withValues(alpha: 0.1))),
                 ),
                 child: Row(
                   children: [
                     Container(
                       padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(color: Colors.blue.withOpacity(0.1), shape: BoxShape.circle),
+                      decoration: BoxDecoration(color: Colors.blue.withValues(alpha: 0.1), shape: BoxShape.circle),
                       child: const Icon(Icons.add_location_alt_rounded, color: Colors.blue, size: 24),
                     ),
                     const SizedBox(width: 16),
@@ -9521,7 +9515,7 @@ class __StudentRegistrationFormScreenState
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -5))],
+                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, -5))],
                   ),
                   child: Row(
                     children: [
@@ -9573,7 +9567,7 @@ class __StudentRegistrationFormScreenState
       children: [
         DropdownButtonFormField<String>(
           decoration: _inputDecoration('Adres Türü *'),
-          value: tempData['type'],
+          initialValue: tempData['type'],
           items: [
             DropdownMenuItem(value: 'ev', child: Text('Ev Adresi')),
             DropdownMenuItem(value: 'posta', child: Text('Posta Adresi')),
@@ -9606,7 +9600,7 @@ class __StudentRegistrationFormScreenState
         SizedBox(height: 16),
         DropdownButtonFormField<String>(
           decoration: _inputDecoration('İl *'),
-          value: TurkeyAddressData.cities.contains(tempData['city']?.toUpperCase())
+          initialValue: TurkeyAddressData.cities.contains(tempData['city']?.toUpperCase())
               ? tempData['city']?.toUpperCase()
               : null,
           items: TurkeyAddressData.cities
@@ -9622,7 +9616,7 @@ class __StudentRegistrationFormScreenState
         SizedBox(height: 16),
         DropdownButtonFormField<String>(
           decoration: _inputDecoration('İlçe'),
-          value: (tempData['city'] != null &&
+          initialValue: (tempData['city'] != null &&
                   TurkeyAddressData.getDistricts(tempData['city']).contains(
                     tempData['district']?.toUpperCase(),
                   ))
@@ -9663,7 +9657,7 @@ class __StudentRegistrationFormScreenState
       labelText: label,
       labelStyle: TextStyle(color: Colors.grey.shade700, fontWeight: FontWeight.w500),
       filled: true,
-      fillColor: Colors.orange.shade50.withOpacity(0.3),
+      fillColor: Colors.orange.shade50.withValues(alpha: 0.3),
       contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),

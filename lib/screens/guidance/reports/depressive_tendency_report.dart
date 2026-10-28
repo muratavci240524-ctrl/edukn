@@ -54,7 +54,7 @@ class _DepressiveTendencyReportState extends State<DepressiveTendencyReport>
   final List<int> _reverseItems = [4, 9, 16, 22, 26, 29, 34];
 
   List<Map<String, dynamic>> _branches = [];
-  Map<String, Map<String, dynamic>> _userDetails = {};
+  final Map<String, Map<String, dynamic>> _userDetails = {};
   bool _isLoadingFilters = false;
 
   @override
@@ -98,7 +98,7 @@ class _DepressiveTendencyReportState extends State<DepressiveTendencyReport>
           .where((b) => respondentBranches.contains(b['id']))
           .toList();
     } catch (e) {
-      print('Load filters error: $e');
+      debugPrint('Load filters error: $e');
     }
     if (mounted) setState(() => _isLoadingFilters = false);
   }
@@ -283,7 +283,7 @@ class _DepressiveTendencyReportState extends State<DepressiveTendencyReport>
     return Container(
       width: double.infinity,
       child: DropdownButtonFormField(
-        value: value,
+        initialValue: value,
         decoration: InputDecoration(
           labelText: label,
           labelStyle: TextStyle(color: Colors.grey.shade600, fontSize: 14),
@@ -462,7 +462,7 @@ class _DepressiveTendencyReportState extends State<DepressiveTendencyReport>
                 child: const Row(
                   children: [
                     Icon(Icons.warning_amber_rounded, color: Colors.amber),
-                    const SizedBox(width: 8),
+                    SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         'Yüksek Kararsızlık Oranı: Bireyde duygusal farkındalık eksikliği veya bastırma eğilimi söz konusu olabilir.',
@@ -512,7 +512,7 @@ class _DepressiveTendencyReportState extends State<DepressiveTendencyReport>
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10),
         ],
       ),
       child: Column(
@@ -527,7 +527,7 @@ class _DepressiveTendencyReportState extends State<DepressiveTendencyReport>
               RadarChartData(
                 dataSets: [
                   RadarDataSet(
-                    fillColor: Colors.indigo.withOpacity(0.2),
+                    fillColor: Colors.indigo.withValues(alpha: 0.2),
                     borderColor: Colors.indigo,
                     entryRadius: 3,
                     dataEntries: data.map((d) => RadarEntry(value: d)).toList(),
@@ -790,7 +790,7 @@ class _DepressiveTendencyReportState extends State<DepressiveTendencyReport>
         mimeType: MimeType.pdf,
       );
     } catch (e) {
-      print('PDF error: $e');
+      debugPrint('PDF error: $e');
     }
   }
 
@@ -836,7 +836,7 @@ class _DepressiveTendencyReportState extends State<DepressiveTendencyReport>
         );
       }
     } catch (e) {
-      print('Excel error: $e');
+      debugPrint('Excel error: $e');
     }
   }
 }

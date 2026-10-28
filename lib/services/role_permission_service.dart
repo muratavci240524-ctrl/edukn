@@ -132,7 +132,13 @@ class RolePermissionService {
       // Sub-modules permissions
       Map<String, Map<String, dynamic>> subPerms = {};
       moduleInfo.subModules.forEach((subKey, subName) {
-        subPerms[subKey] = {'enabled': enabled, 'level': level};
+        bool subEnabled = enabled;
+        if (roleKey == 'ogretmen' &&
+            moduleKey == 'araclar' &&
+            (subKey == 'sinav_raporu_alma' || subKey == 'sinav_tamamlama' || subKey == 'sinav_yayinlama')) {
+          subEnabled = false;
+        }
+        subPerms[subKey] = {'enabled': subEnabled, 'level': level};
       });
 
       perms[moduleKey] = {

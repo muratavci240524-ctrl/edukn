@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -148,7 +148,7 @@ class _MentorGoalsScreenState extends State<MentorGoalsScreen> {
         _isSaving = false;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Hedefler başarıyla güncellendi.', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
           backgroundColor: Colors.teal.shade600,
@@ -157,7 +157,7 @@ class _MentorGoalsScreenState extends State<MentorGoalsScreen> {
     } catch (e) {
       debugPrint("Error saving goals: $e");
       setState(() => _isSaving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Hata: $e', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
           backgroundColor: Colors.red,
@@ -364,7 +364,7 @@ class _MentorGoalsScreenState extends State<MentorGoalsScreen> {
               children: [
                 CircleAvatar(
                   radius: 28,
-                  backgroundColor: Colors.white.withOpacity(0.15),
+                  backgroundColor: Colors.white.withValues(alpha: 0.15),
                   child: Text(
                     _selectedStudent!['fullName'].substring(0, 1).toUpperCase(),
                     style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 24),

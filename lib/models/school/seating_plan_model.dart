@@ -1,5 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+/// Firestore Timestamp ya da DateTime değerini DateTime'a çevirir.
+DateTime? _asDate(dynamic v) {
+  if (v is Timestamp) return v.toDate();
+  if (v is DateTime) return v;
+  return null;
+}
+
 /// Masa tipi (Tekli veya Çiftli sıra)
 enum DeskType {
   single, // 1 koltuk
@@ -231,8 +238,8 @@ class ClassroomLayout {
       cols: map['cols'] ?? 3,
       defaultDeskType: deskType,
       cells: cells,
-      createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
-      updatedAt: (map['updatedAt'] as Timestamp?)?.toDate(),
+      createdAt: _asDate(map['createdAt']) ?? DateTime.now(),
+      updatedAt: _asDate(map['updatedAt']),
       isDefault: map['isDefault'] ?? false,
     );
   }

@@ -15,12 +15,17 @@ import '../../../../models/assessment/exam_type_model.dart';
 import '../../../../models/assessment/optical_form_model.dart';
 import 'trial_exam_answer_key_screen.dart';
 import '../../../../services/term_service.dart';
+import '../../../../services/crypto_service.dart';
+import '../../../../services/user_permission_service.dart';
 
 import 'student_report_card_dialog.dart';
 import 'evaluation_models.dart';
 import 'unmatched_students_dialog.dart';
 import 'matched_students_dialog.dart';
 import 'absent_students_dialog.dart';
+import 'stats_bottom_sheet.dart';
+import 'optical_data_editor_screen.dart';
+import 'package:edukn/services/optical_line_edits.dart';
 
 class TrialExamForm extends StatefulWidget {
   final String institutionId;
@@ -78,7 +83,7 @@ class _TrialExamFormState extends State<TrialExamForm>
   // Session Management
   List<TrialExamSession> _sessions = [];
 
-  Map<int, dynamic> _selectedFiles = {};
+  final Map<int, dynamic> _selectedFiles = {};
   String? _currentResultsJson;
 
   bool _isLoading = false;
@@ -91,9 +96,11 @@ class _TrialExamFormState extends State<TrialExamForm>
   int _participatingStudents = 0;
   int _matchedCount = 0;
   int _unmatchedCount = 0;
-  List<Map<String, dynamic>> _absentStudents = [];
+  final List<Map<String, dynamic>> _absentStudents = [];
   Map<String, Map<String, dynamic>> _systemStudentsMap =
-      {}; // ID -> Student Data
+      {}; // ID -> Student Data (Target Grade)
+  Map<String, Map<String, dynamic>> _allSchoolStudentsMap =
+      {}; // ID -> Student Data (All School Students)
 
   // Handled Results (Active State)
   List<StudentResult> _currentResults = [];
@@ -147,7 +154,7 @@ class _TrialExamFormState extends State<TrialExamForm>
               .toList();
           _recalculateStats();
         } catch (e) {
-          print("Error restoring results: $e");
+          debugPrint("Error restoring results: $e");
         }
       }
 
@@ -173,6 +180,7 @@ class _TrialExamFormState extends State<TrialExamForm>
                 fileName: s.fileName,
                 fileUrl: s.fileUrl,
                 uploadedAt: s.uploadedAt,
+                lineEdits: List.from(s.lineEdits),
               ),
             )
             .toList();
@@ -216,11 +224,20 @@ class _TrialExamFormState extends State<TrialExamForm>
   Future<void> _loadBranches() async {
     if (_selectedClassLevel == null) return;
     try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('classes')
-          .where('institutionId', isEqualTo: widget.institutionId)
-          .where('isActive', isEqualTo: true)
-          .get();
+      final instVariants = UserPermissionService.getInstitutionIdVariants(widget.institutionId);
+      final targetInstId = instVariants.isNotEmpty ? instVariants.first : widget.institutionId;
+
+      final snapshot = instVariants.length > 1
+          ? await FirebaseFirestore.instance
+              .collection('classes')
+              .where('institutionId', whereIn: instVariants)
+              .where('isActive', isEqualTo: true)
+              .get()
+          : await FirebaseFirestore.instance
+              .collection('classes')
+              .where('institutionId', isEqualTo: targetInstId)
+              .where('isActive', isEqualTo: true)
+              .get();
 
       // Robust matching: Compare only digits
       final selectedDigits = _selectedClassLevel!.replaceAll(
@@ -231,11 +248,15 @@ class _TrialExamFormState extends State<TrialExamForm>
       final branches = snapshot.docs
           .where((doc) {
             final data = doc.data();
-            final level = data['classLevel'].toString();
+            final level = (data['classLevel'] ?? '').toString();
             final levelDigits = level.replaceAll(RegExp(r'[^0-9]'), '');
-            return levelDigits == selectedDigits && selectedDigits.isNotEmpty;
+            final name = (data['className'] ?? '').toString();
+            final nameDigits = RegExp(r'^\d+').firstMatch(name)?.group(0) ?? '';
+            return (levelDigits == selectedDigits || nameDigits == selectedDigits) &&
+                selectedDigits.isNotEmpty;
           })
           .map((doc) => doc.data()['className'].toString())
+          .where((name) => name.isNotEmpty)
           .toSet()
           .toList();
 
@@ -248,7 +269,7 @@ class _TrialExamFormState extends State<TrialExamForm>
         _fetchSystemStudents();
       }
     } catch (e) {
-      print('Error loading branches: $e');
+      debugPrint('Error loading branches: $e');
     }
   }
 
@@ -366,7 +387,7 @@ class _TrialExamFormState extends State<TrialExamForm>
         });
       }
     } catch (e) {
-      print('Error loading class levels: $e');
+      debugPrint('Error loading class levels: $e');
     }
   }
 
@@ -392,7 +413,7 @@ class _TrialExamFormState extends State<TrialExamForm>
             }
           },
           onError: (e) {
-            print('Error loading optical forms: $e');
+            debugPrint('Error loading optical forms: $e');
             if (mounted) {
               String message = 'Optik formlar yüklenirken hata oluştu: $e';
               if (e.toString().contains('permission-denied')) {
@@ -490,6 +511,7 @@ class _TrialExamFormState extends State<TrialExamForm>
         builder: (context) => TrialExamAnswerKeyScreen(
           bookletCount: _bookletCount,
           examType: selectedExamType,
+          classLevel: _selectedClassLevel ?? widget.trialExam?.classLevel ?? '',
           initialAnswerKeys: _answerKeys,
           initialOutcomes: _outcomes,
           initialMapping: _bookletMapping,
@@ -559,10 +581,13 @@ class _TrialExamFormState extends State<TrialExamForm>
             fileName: file.name,
             fileUrl: null,
             uploadedAt: DateTime.now(),
+            // Aynı dosya yeniden yüklenirse düzeltmeler korunur; farklı dosyada
+            // parmak izi tutmadığı için uygulanmaz.
+            lineEdits: oldSession.lineEdits,
           );
         });
 
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Row(
               children: [
@@ -589,7 +614,7 @@ class _TrialExamFormState extends State<TrialExamForm>
         await _previewMatchSession(index);
       }
     } catch (e) {
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Dosya seçimi hatası: $e')));
     }
@@ -613,28 +638,26 @@ class _TrialExamFormState extends State<TrialExamForm>
       return;
     }
 
-    // Hızlı lookup map hazırla
-    final Map<String, Map<String, dynamic>> sysByTc = {};
-    final Map<String, Map<String, dynamic>> sysByNo = {};
-    _systemStudentsMap.forEach((id, data) {
-      final t = (data['tcNo'] ?? '').toString().trim();
-      final n = (data['studentNo'] ?? '').toString().trim();
-      if (t.isNotEmpty) sysByTc[t] = data;
-      if (n.isNotEmpty) {
-        final cleanN = n.replaceFirst(RegExp(r'^0+'), '');
-        if (cleanN.isNotEmpty) sysByNo[cleanN] = data;
-        sysByNo[n] = data;
-      }
-    });
+    // Öğrenci listesi boşsa çek
+    if (_systemStudentsMap.isEmpty && _selectedClassLevel != null) {
+      await _fetchSystemStudents();
+    }
+
+    final matcher = StudentMatcher(
+      _allSchoolStudentsMap.isNotEmpty
+          ? _allSchoolStudentsMap.values
+          : _systemStudentsMap.values,
+    );
 
     // Bu oturumu işle (sonuçları kaydetme, sadece önizle)
+    final touched = <String>{};
     final sessionResult = await _processSessionSingle(
       session,
       sessionIndex,
-      sysByTc,
-      sysByNo,
+      matcher,
       null, // No examType for preview
       (_) {}, // İlerleme geri bildirimi gerekmiyor
+      touchedKeys: touched,
     );
 
     if (sessionResult.isEmpty) {
@@ -664,6 +687,9 @@ class _TrialExamFormState extends State<TrialExamForm>
           ? 'UNMATCHED_NO_${r.studentNo}'
           : 'UNKNOWN_${r.name}';
       merged[key] = r;
+    }
+    for (final k in touched) {
+      merged.remove(k);
     }
     // Yeni oturumu ekle
     sessionResult.forEach((key, student) {
@@ -728,12 +754,7 @@ class _TrialExamFormState extends State<TrialExamForm>
         if (downloadUrl != null && mounted) {
           // URL güncelle
           setState(() {
-            _sessions[sessionIndex] = TrialExamSession(
-              sessionNumber: session.sessionNumber,
-              selectedSubjects: session.selectedSubjects,
-              opticalFormId: session.opticalFormId,
-              opticalFormName: session.opticalFormName,
-              fileName: session.fileName,
+            _sessions[sessionIndex] = _sessions[sessionIndex].copyWith(
               fileUrl: downloadUrl,
               uploadedAt: DateTime.now(),
             );
@@ -760,7 +781,7 @@ class _TrialExamFormState extends State<TrialExamForm>
       try {
         await FirebaseStorage.instance.refFromURL(session.fileUrl!).delete();
       } catch (e) {
-        print("Delete storage error: $e"); // Ignore if already gone
+        debugPrint("Delete storage error: $e"); // Ignore if already gone
       }
     }
 
@@ -774,13 +795,14 @@ class _TrialExamFormState extends State<TrialExamForm>
         fileName: null,
         fileUrl: null,
         uploadedAt: null,
+        lineEdits: session.lineEdits,
       );
       _selectedFiles.remove(index);
     });
 
     // 3. Save to Firestore
     await _saveData(showFeedback: false);
-    ScaffoldMessenger.of(
+    if (mounted) ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text('Dosya kaldırıldı.')));
   }
@@ -912,7 +934,7 @@ class _TrialExamFormState extends State<TrialExamForm>
           date: _selectedDate,
           isActive: true,
           isPublished: _isPublished,
-          isLaunched: _isLaunched, // Persist launched status
+          isLaunched: _isLaunched,
           resultsJson: finalResultsJson,
           sharingSettings: _sharingSettings,
           bookletMapping: _bookletMapping,
@@ -1136,7 +1158,7 @@ class _TrialExamFormState extends State<TrialExamForm>
                       // Class Level
                       Expanded(
                         child: DropdownButtonFormField<String>(
-                          value: _selectedClassLevel,
+                          initialValue: _selectedClassLevel,
                           decoration: InputDecoration(
                             labelText: 'Sınıf Seviyesi',
                             border: OutlineInputBorder(
@@ -1220,7 +1242,7 @@ class _TrialExamFormState extends State<TrialExamForm>
                   ),
                   SizedBox(height: 16),
                   DropdownButtonFormField<String>(
-                    value: _selectedExamTypeId,
+                    initialValue: _selectedExamTypeId,
                     items: _examTypes
                         .map(
                           (e) => DropdownMenuItem(
@@ -1456,6 +1478,7 @@ class _TrialExamFormState extends State<TrialExamForm>
                                       fileName: session.fileName,
                                       fileUrl: session.fileUrl,
                                       uploadedAt: session.uploadedAt,
+                                      lineEdits: session.lineEdits,
                                     );
                                   });
                                 },
@@ -1464,7 +1487,7 @@ class _TrialExamFormState extends State<TrialExamForm>
                           ),
                           SizedBox(height: 16),
                           DropdownButtonFormField<String>(
-                            value:
+                            initialValue:
                                 _opticalForms.any(
                                   (f) => f.id == session.opticalFormId,
                                 )
@@ -1515,6 +1538,7 @@ class _TrialExamFormState extends State<TrialExamForm>
                                         fileName: session.fileName,
                                         fileUrl: session.fileUrl,
                                         uploadedAt: session.uploadedAt,
+                                        lineEdits: session.lineEdits,
                                       );
                                     });
                                   },
@@ -1577,6 +1601,39 @@ class _TrialExamFormState extends State<TrialExamForm>
                               ],
                             ],
                           ),
+                          if (session.fileName != null &&
+                              session.opticalFormId != null) ...[
+                            SizedBox(height: 8),
+                            SizedBox(
+                              width: double.infinity,
+                              child: TextButton.icon(
+                                onPressed: () => _openDataEditor(index),
+                                icon: Badge(
+                                  isLabelVisible: session.lineEdits.isNotEmpty,
+                                  label: Text('${session.lineEdits.length}'),
+                                  backgroundColor: Colors.orange,
+                                  child: Icon(Icons.fact_check, size: 18),
+                                ),
+                                label: Text(
+                                  session.lineEdits.isEmpty
+                                      ? 'Okunan Veriyi Gör / Düzenle'
+                                      : 'Okunan Veri (${session.lineEdits.length} düzeltme)',
+                                  style: TextStyle(fontSize: 12),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: session.lineEdits.isEmpty
+                                      ? Colors.indigo
+                                      : Colors.orange.shade800,
+                                  backgroundColor: (session.lineEdits.isEmpty
+                                          ? Colors.indigo
+                                          : Colors.orange)
+                                      .withValues(alpha: 0.06),
+                                  padding: EdgeInsets.symmetric(vertical: 12),
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -1673,12 +1730,13 @@ class _TrialExamFormState extends State<TrialExamForm>
   }
 
   void _showAbsentStudentsDialog() {
-    showDialog(
+    showStatsBottomSheet(
       context: context,
       builder: (context) => AbsentStudentsDialog(
         systemStudentsMap: _systemStudentsMap,
         results: _currentResults,
         sessions: _sessions,
+        examName: _nameController.text,
       ),
     );
   }
@@ -1692,9 +1750,9 @@ class _TrialExamFormState extends State<TrialExamForm>
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.5)),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
       ),
       child: Column(
         children: [
@@ -1712,7 +1770,7 @@ class _TrialExamFormState extends State<TrialExamForm>
             children: [
               Text(
                 label,
-                style: TextStyle(fontSize: 12, color: color.withOpacity(0.8)),
+                style: TextStyle(fontSize: 12, color: color.withValues(alpha: 0.8)),
               ),
               if (isClickable) ...[
                 SizedBox(width: 4),
@@ -1844,11 +1902,13 @@ class _TrialExamFormState extends State<TrialExamForm>
       return;
     }
 
-    showDialog(
+    showStatsBottomSheet(
       context: context,
       builder: (context) => UnmatchedStudentsDialog(
         results: _currentResults,
-        allSystemStudents: _systemStudentsMap.values.toList(),
+        allSystemStudents: _allSchoolStudentsMap.isNotEmpty
+            ? _allSchoolStudentsMap.values.toList()
+            : _systemStudentsMap.values.toList(),
         sessions: _sessions,
         onMatch: (original, systemStudent) async {
           // 1. Update the original unmatched result to become matched
@@ -1938,7 +1998,7 @@ class _TrialExamFormState extends State<TrialExamForm>
   }
 
   void _showMatchedStudentsDialog() {
-    showDialog(
+    showStatsBottomSheet(
       context: context,
       builder: (context) => MatchedStudentsDialog(
         results: _currentResults,
@@ -1976,69 +2036,132 @@ class _TrialExamFormState extends State<TrialExamForm>
     try {
       if (_selectedClassLevel == null) return;
 
-      // OPTIMIZATION: Try to fetch only relevant students first
-      Query query = FirebaseFirestore.instance
-          .collection('students')
-          .where('institutionId', isEqualTo: widget.institutionId)
-          .where('classLevel', isEqualTo: _selectedClassLevel);
+      final instVariants = UserPermissionService.getInstitutionIdVariants(widget.institutionId);
+      final targetInstId = instVariants.isNotEmpty ? instVariants.first : widget.institutionId;
 
-      var snapshot = await query.get();
-
-      // FALLBACK: If strict classLevel filter returns nothing, it might be due to data mismatch
-      if (snapshot.docs.isEmpty) {
-        query = FirebaseFirestore.instance
-            .collection('students')
-            .where('institutionId', isEqualTo: widget.institutionId);
-        snapshot = await query.get();
+      // 1. Sınıfları çek (classId eşleştirmesi için)
+      QuerySnapshot<Map<String, dynamic>> classesSnap;
+      if (instVariants.length > 1) {
+        classesSnap = await FirebaseFirestore.instance
+            .collection('classes')
+            .where('institutionId', whereIn: instVariants)
+            .where('isActive', isEqualTo: true)
+            .get();
+      } else {
+        classesSnap = await FirebaseFirestore.instance
+            .collection('classes')
+            .where('institutionId', isEqualTo: targetInstId)
+            .where('isActive', isEqualTo: true)
+            .get();
       }
 
-      final Map<String, Map<String, dynamic>> tempMap = {};
       final String selectedLevelDigits = _selectedClassLevel!.replaceAll(
         RegExp(r'[^0-9]'),
         '',
       );
 
-      for (var doc in snapshot.docs) {
-        final data = doc.data() as Map<String, dynamic>;
+      final Set<String> targetClassIds = {};
+      final Map<String, String> classIdToName = {};
+      final Map<String, String> classIdToLevel = {};
+
+      for (var cDoc in classesSnap.docs) {
+        final cData = cDoc.data();
+        final cLevel = (cData['classLevel'] ?? '').toString();
+        final cName = (cData['className'] ?? '').toString();
+        classIdToName[cDoc.id] = cName;
+        classIdToLevel[cDoc.id] = cLevel;
+
+        final cLevelDigits = cLevel.replaceAll(RegExp(r'[^0-9]'), '');
+        final cNameDigits = RegExp(r'^\d+').firstMatch(cName)?.group(0) ?? '';
+        if ((cLevelDigits == selectedLevelDigits && selectedLevelDigits.isNotEmpty) ||
+            (cNameDigits == selectedLevelDigits && selectedLevelDigits.isNotEmpty)) {
+          targetClassIds.add(cDoc.id);
+        }
+      }
+
+      // 2. Kurumun tüm öğrencilerini çek
+      QuerySnapshot<Map<String, dynamic>> studentSnapshot;
+      if (instVariants.length > 1) {
+        studentSnapshot = await FirebaseFirestore.instance
+            .collection('students')
+            .where('institutionId', whereIn: instVariants)
+            .get();
+      } else {
+        studentSnapshot = await FirebaseFirestore.instance
+            .collection('students')
+            .where('institutionId', isEqualTo: targetInstId)
+            .get();
+      }
+
+      // Kurum ID ile bulunamazsa okul türüne göre dene
+      if (studentSnapshot.docs.isEmpty && widget.schoolTypeId.isNotEmpty) {
+        studentSnapshot = await FirebaseFirestore.instance
+            .collection('students')
+            .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+            .get();
+      }
+
+      final Map<String, Map<String, dynamic>> allSchoolMap = {};
+      final Map<String, Map<String, dynamic>> targetGradeMap = {};
+
+      for (var doc in studentSnapshot.docs) {
+        var data = doc.data();
         if (data['isActive'] == false) continue;
-
         data['id'] = doc.id;
-        final sLevelStr = (data['classLevel'] ?? '').toString();
-        if (sLevelStr.isEmpty) continue;
 
-        // Perform fast check
-        if (sLevelStr == _selectedClassLevel) {
-          if (_selectedBranches.isNotEmpty) {
-            final sBranch = (data['className'] ?? data['branch'] ?? '')
-                .toString();
-            if (!_selectedBranches.contains(sBranch)) continue;
+        // TC Kimlik ve Telefon gibi şifreli verileri çöz
+        data = CryptoService.decryptMap(data, institutionId: widget.institutionId);
+
+        // classId varsa eksik className veya classLevel alanlarını doldur
+        final cid = data['classId']?.toString();
+        if (cid != null && cid.isNotEmpty) {
+          if ((data['className'] == null || data['className'].toString().isEmpty) &&
+              classIdToName.containsKey(cid)) {
+            data['className'] = classIdToName[cid];
           }
-          tempMap[doc.id] = data;
-          continue;
+          if ((data['classLevel'] == null || data['classLevel'].toString().isEmpty) &&
+              classIdToLevel.containsKey(cid)) {
+            data['classLevel'] = classIdToLevel[cid];
+          }
         }
 
-        // Regex check only if exact match fails
-        final studentLevelDigits = sLevelStr.replaceAll(RegExp(r'[^0-9]'), '');
-        if (studentLevelDigits == selectedLevelDigits &&
-            selectedLevelDigits.isNotEmpty) {
+        allSchoolMap[doc.id] = data;
+
+        // Hedef sınıf seviyesine ait mi kontrol et
+        final sLevelStr = (data['classLevel'] ?? data['level'] ?? data['grade'] ?? '').toString();
+        final sLevelDigits = sLevelStr.replaceAll(RegExp(r'[^0-9]'), '');
+
+        final sClassName = (data['className'] ?? data['branch'] ?? '').toString().trim();
+        final sClassDigits = RegExp(r'^\d+').firstMatch(sClassName)?.group(0) ?? '';
+
+        final bool isTargetGrade = (sLevelDigits == selectedLevelDigits && selectedLevelDigits.isNotEmpty) ||
+            (sClassDigits == selectedLevelDigits && selectedLevelDigits.isNotEmpty) ||
+            (cid != null && targetClassIds.contains(cid));
+
+        if (isTargetGrade) {
           if (_selectedBranches.isNotEmpty) {
-            final sBranch = (data['className'] ?? data['branch'] ?? '')
-                .toString();
-            if (!_selectedBranches.contains(sBranch)) continue;
+            final sBranch = sClassName;
+            final matchesSelectedBranch = _selectedBranches.any((b) {
+              final bClean = b.trim().toLowerCase();
+              final sClean = sBranch.toLowerCase();
+              return bClean == sClean || bClean.contains(sClean) || sClean.contains(bClean);
+            });
+            if (!matchesSelectedBranch) continue;
           }
-          tempMap[doc.id] = data;
+          targetGradeMap[doc.id] = data;
         }
       }
 
       if (mounted) {
         setState(() {
-          _systemStudentsMap = tempMap;
+          _allSchoolStudentsMap = allSchoolMap;
+          _systemStudentsMap = targetGradeMap.isNotEmpty ? targetGradeMap : allSchoolMap;
           _totalSystemStudents = _systemStudentsMap.length;
           _recalculateStats();
         });
       }
     } catch (e) {
-      print('Error fetching system students: $e');
+      debugPrint('Error fetching system students: $e');
     }
   }
 
@@ -2089,7 +2212,7 @@ class _TrialExamFormState extends State<TrialExamForm>
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
+                    color: Colors.black.withValues(alpha: 0.1),
                     blurRadius: 20,
                     offset: const Offset(0, 10),
                   ),
@@ -2187,13 +2310,13 @@ class _TrialExamFormState extends State<TrialExamForm>
       Navigator.pop(context); // Close Dialog
 
       if (resultsList.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Hiçbir öğrenci okunamadı veya eşleştirilemedi.'),
           ),
         );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Sınav başarıyla değerlendirildi ve kaydedildi.'),
             backgroundColor: Colors.green,
@@ -2202,7 +2325,7 @@ class _TrialExamFormState extends State<TrialExamForm>
       }
     } catch (e) {
       Navigator.pop(context); // Close Dialog on Error
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
       );
     } finally {
@@ -2219,20 +2342,11 @@ class _TrialExamFormState extends State<TrialExamForm>
     await _fetchSystemStudents();
     onProgress(0.15, "Öğrenci listesi alındı.");
 
-    // Prepare fast lookup maps
-    Map<String, Map<String, dynamic>> sysByTc = {};
-    Map<String, Map<String, dynamic>> sysByNo = {};
-
-    _systemStudentsMap.forEach((id, data) {
-      String t = (data['tcNo'] ?? '').toString().trim();
-      String n = (data['studentNo'] ?? '').toString().trim();
-      if (t.isNotEmpty) sysByTc[t] = data;
-      if (n.isNotEmpty) {
-        String cleanN = n.replaceFirst(RegExp(r'^0+'), '');
-        if (cleanN.isNotEmpty) sysByNo[cleanN] = data;
-        sysByNo[n] = data;
-      }
-    });
+    final matcher = StudentMatcher(
+      _allSchoolStudentsMap.isNotEmpty
+          ? _allSchoolStudentsMap.values
+          : _systemStudentsMap.values,
+    );
 
     Map<String, StudentResult> mergedStudents = {};
     onProgress(0.20, "Oturumlar hazırlanıyor...");
@@ -2266,29 +2380,38 @@ class _TrialExamFormState extends State<TrialExamForm>
     if (_selectedExamTypeId != null) {
       try {
         currentExamType = _examTypes.firstWhere((e) => e.id == _selectedExamTypeId);
-      } catch (_) {}
+      } catch (silentError) { debugPrint('[trial_exam_form] hata yutuldu: $silentError'); }
     }
 
+    // Düzeltme yapılmış satırların öğrenci anahtarları (eski sonuçları silinecek)
+    final touched = <String>{};
     for (int i = 0; i < _sessions.length; i++) {
       sessionTasks.add(
         _processSessionSingle(
           _sessions[i],
           i,
-          sysByTc,
-          sysByNo,
+          matcher,
           currentExamType,
           (sessionP) {
             sessionProgress[i] = sessionP;
             // Calculate total progress in 20-80 range
             double totalP = 0;
-            sessionProgress.values.forEach((v) => totalP += v);
+            for (var v in sessionProgress.values) {
+              totalP += v;
+            }
             double weightedP = 0.2 + (totalP / _sessions.length) * 0.6;
             onProgress(weightedP, "${i + 1}. Oturum işleniyor...");
           },
+          touchedKeys: touched,
         ),
       );
     }
     final results = await Future.wait(sessionTasks);
+    // Düzeltilen öğrencilerin havuzdaki eski sonuçları temizlenir; dosyası olan
+    // tüm oturumlar zaten yeniden işlendiği için güncel veri aşağıda eklenir.
+    for (final k in touched) {
+      mergedStudents.remove(k);
+    }
 
     // Merge results from all sessions
     onProgress(0.8, "Sonuçlar birleştiriliyor...");
@@ -2334,7 +2457,7 @@ class _TrialExamFormState extends State<TrialExamForm>
     if (_selectedExamTypeId != null) {
       try {
         examType = _examTypes.firstWhere((e) => e.id == _selectedExamTypeId);
-      } catch (_) {}
+      } catch (silentError) { debugPrint('[trial_exam_form] hata yutuldu: $silentError'); }
     }
 
     // Calculate Scores
@@ -2364,17 +2487,17 @@ class _TrialExamFormState extends State<TrialExamForm>
     // Sort by Score Descending
     allList.sort((a, b) => b.score.compareTo(a.score));
 
-    // Assign General & Institution Ranks with Tie Handling
+    // Aynı puanı alanlar aynı sırayı alır; sonraki farklı puan bir artar (1,1,1,2,2,3).
+    int currentRank = 0;
     for (int i = 0; i < allList.length; i++) {
-      if (i > 0 && (allList[i].score - allList[i - 1].score).abs() < 0.001) {
-        allList[i].rankGeneral = allList[i - 1].rankGeneral;
-      } else {
-        allList[i].rankGeneral = i + 1;
+      if (i == 0 || (allList[i].score - allList[i - 1].score).abs() >= 0.001) {
+        currentRank++;
       }
-      allList[i].rankInstitution = allList[i].rankGeneral;
+      allList[i].rankGeneral = currentRank;
+      allList[i].rankInstitution = currentRank;
     }
 
-    // Assign Branch Ranks with Tie Handling
+    // Şube sıraları (aynı mantık)
     Map<String, List<StudentResult>> byBranch = {};
     for (var s in allList) {
       if (!byBranch.containsKey(s.branch)) byBranch[s.branch] = [];
@@ -2382,26 +2505,218 @@ class _TrialExamFormState extends State<TrialExamForm>
     }
     byBranch.forEach((branch, list) {
       // List is already sorted by score desc because allList was sorted
+      int branchRank = 0;
       for (int i = 0; i < list.length; i++) {
-        if (i > 0 && (list[i].score - list[i - 1].score).abs() < 0.001) {
-          list[i].rankBranch = list[i - 1].rankBranch;
-        } else {
-          list[i].rankBranch = i + 1;
+        if (i == 0 || (list[i].score - list[i - 1].score).abs() >= 0.001) {
+          branchRank++;
         }
+        list[i].rankBranch = branchRank;
       }
     });
 
+
     return mergedStudents;
+  }
+
+  /// Okunan optik veriyi görüntüleme / düzeltme ekranı. Orijinal dosyaya
+  /// dokunulmaz; düzeltmeler oturumun `lineEdits` alanında saklanır.
+  Future<void> _openDataEditor(int index) async {
+    final session = _sessions[index];
+    OpticalForm? form;
+    for (final f in _opticalForms) {
+      if (f.id == session.opticalFormId) {
+        form = f;
+        break;
+      }
+    }
+    if (form == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Bu oturumun optik formu bulunamadı.')),
+      );
+      return;
+    }
+
+    var content = await _readSessionContent(index);
+    if (!mounted) return;
+    if (content.isEmpty) {
+      // Dosya sunucuda yok (arka plan yüklemesi tamamlanmamış) veya indirilemedi.
+      final noUrl = _sessions[index].fileUrl == null;
+      final pick = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('Dosya bulunamadı'),
+          content: Text(
+            noUrl
+                ? '"${session.fileName ?? ''}" dosyası sunucuya yüklenmemiş görünüyor, '
+                    'bu yüzden okunamadı.\n\nAynı dosyayı bilgisayarınızdan seçerseniz '
+                    'veriyi görüntüleyip düzeltebilirsiniz. Mevcut sonuçlar değişmez.'
+                : '"${session.fileName ?? ''}" dosyası sunucudan indirilemedi.\n\n'
+                    'Aynı dosyayı bilgisayarınızdan seçerek devam edebilirsiniz. '
+                    'Mevcut sonuçlar değişmez.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text('Vazgeç'),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.pop(ctx, true),
+              icon: Icon(Icons.folder_open, size: 18),
+              label: Text('Dosyayı Seç'),
+            ),
+          ],
+        ),
+      );
+      if (pick != true || !mounted) return;
+      final picked = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['txt', 'dat'],
+        withData: true,
+      );
+      final file = picked?.files.single;
+      if (file == null || file.bytes == null || !mounted) return;
+      setState(() {
+        _selectedFiles[index] = file;
+        if (_sessions[index].fileName != file.name) {
+          _sessions[index] = _sessions[index].copyWith(fileName: file.name);
+        }
+      });
+      content = await _readSessionContent(index);
+      if (!mounted) return;
+      if (content.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Seçilen dosya boş veya okunamadı.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+    }
+
+    final result = await Navigator.of(context).push<List<OpticalLineEdit>>(
+      MaterialPageRoute(
+        builder: (_) => OpticalDataEditorScreen(
+          title: '${session.sessionNumber}. Oturum • ${session.fileName ?? ''}',
+          rawLines: content.split('\n'),
+          form: form!,
+          initialEdits: session.lineEdits,
+          booklets: _answerKeys.keys.toList()..sort(),
+          sessionSubjects: session.selectedSubjects,
+        ),
+      ),
+    );
+    if (result == null || !mounted) return;
+
+    setState(() {
+      _sessions[index] = _sessions[index].copyWith(lineEdits: result);
+    });
+    if (_examId != null) {
+      await _saveData(showFeedback: false, silent: true);
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          _examId != null
+              ? "Düzeltmeler kaydedildi. Sonuçlara yansıması için 'Sınavı Değerlendir'e basın."
+              : "Düzeltmeler alındı; sınav kaydedilince saklanacak. Sonuçlara yansıması için 'Sınavı Değerlendir'e basın.",
+        ),
+        backgroundColor: Colors.green,
+        duration: Duration(seconds: 5),
+      ),
+    );
+  }
+
+  /// Oturum dosyasının ham içeriğini okur (önce yerel seçilen dosya, yoksa
+  /// Storage URL'si). Dosyaya hiçbir şekilde yazılmaz.
+  Future<String> _readSessionContent(int sessionIndex) async {
+    final fileData = _selectedFiles[sessionIndex];
+    if (fileData is PlatformFile && fileData.bytes != null) {
+      try {
+        return utf8.decode(fileData.bytes!);
+      } catch (_) {
+        return latin1.decode(fileData.bytes!);
+      }
+    }
+    final url = _sessions[sessionIndex].fileUrl;
+    if (url != null) {
+      try {
+        final response = await http.get(Uri.parse(url));
+        if (response.statusCode == 200) {
+          try {
+            return utf8.decode(response.bodyBytes);
+          } catch (_) {
+            return latin1.decode(response.bodyBytes);
+          }
+        }
+        debugPrint('[trial_exam_form] dosya indirilemedi: HTTP ${response.statusCode}');
+      } catch (e) {
+        debugPrint('[trial_exam_form] dosya indirilemedi: $e');
+      }
+    }
+    return '';
+  }
+
+  /// Bir optik satırdan öğrenci kimliğini çıkarır ve sistemle eşleştirir.
+  ({
+    String key,
+    Map<String, dynamic>? data,
+    String tc,
+    String no,
+    String name,
+    String cls,
+    String branch,
+  })? _identifyLine(String line, OpticalForm opticalForm, StudentMatcher matcher) {
+    final fileTc = _extract(line, opticalForm.identityNo).trim();
+    String fileNo = _extract(line, opticalForm.studentNo).trim();
+    if (fileNo.isNotEmpty) fileNo = fileNo.replaceFirst(RegExp(r'^0+'), '');
+    final fileName = _extract(line, opticalForm.studentNameField);
+    final fileCls = _extract(line, opticalForm.classLevel);
+    final fileBranch = _extract(line, opticalForm.branch);
+
+    final systemData = matcher.match(
+      fileTc: fileTc,
+      fileNo: fileNo,
+      fileName: fileName,
+      fileBranch: fileBranch,
+      fileCls: fileCls,
+    );
+
+    String key;
+    if (systemData != null && systemData['id'] != null) {
+      key = systemData['id'].toString();
+    } else if (fileTc.isNotEmpty) {
+      key = 'UNMATCHED_TC_$fileTc';
+    } else if (fileNo.isNotEmpty) {
+      key = 'UNMATCHED_NO_$fileNo';
+    } else {
+      final n = StudentMatcher.normalizeTurkishForSearch(
+          StudentMatcher.fixWindows1254(fileName)).trim();
+      if (n.isEmpty) return null;
+      key = 'UNMATCHED_NAME_$n';
+    }
+    return (
+      key: key,
+      data: systemData,
+      tc: fileTc,
+      no: fileNo,
+      name: fileName,
+      cls: fileCls,
+      branch: fileBranch,
+    );
   }
 
   Future<Map<String, StudentResult>> _processSessionSingle(
     TrialExamSession session,
     int sessionIndex,
-    Map<String, Map<String, dynamic>> sysByTc,
-    Map<String, Map<String, dynamic>> sysByNo,
+    StudentMatcher matcher,
     ExamType? examType,
-    Function(double) onProgressCallback,
-  ) async {
+    Function(double) onProgressCallback, {
+    /// Verilirse: düzeltilen satırların (düzeltme öncesi ve sonrası) öğrenci
+    /// anahtarları eklenir; çağıran, havuzdaki eski sonuçları bunlarla temizler.
+    Set<String>? touchedKeys,
+  }) async {
     Map<String, StudentResult> localResults = {};
 
     final hasLocalFile = _selectedFiles.containsKey(sessionIndex);
@@ -2418,30 +2733,24 @@ class _TrialExamFormState extends State<TrialExamForm>
       return {};
     }
 
-    String content = '';
-
-    // Read File
-    if (_selectedFiles.containsKey(sessionIndex)) {
-      final fileData = _selectedFiles[sessionIndex];
-      if (fileData is PlatformFile && fileData.bytes != null) {
-        try {
-          content = utf8.decode(fileData.bytes!);
-        } catch (_) {
-          content = latin1.decode(fileData.bytes!);
-        }
-      }
-    } else if (session.fileUrl != null) {
-      try {
-        final response = await http.get(Uri.parse(session.fileUrl!));
-        if (response.statusCode == 200) content = response.body;
-      } catch (e) {
-        // Ignore download errors
-      }
-    }
-
+    final content = await _readSessionContent(sessionIndex);
     if (content.isEmpty) return {};
 
-    final lines = content.split('\n');
+    final rawLines = content.split('\n');
+    // Okuma ekranında yapılan düzeltmeler (dosyaya dokunmadan) uygulanır.
+    final lines =
+        OpticalLineEdits.apply(rawLines, opticalForm, session.lineEdits);
+    if (touchedKeys != null && session.lineEdits.isNotEmpty) {
+      final valid = OpticalLineEdits.validEdits(rawLines, session.lineEdits);
+      for (final li in valid.keys) {
+        final before = _identifyLine(rawLines[li], opticalForm, matcher);
+        if (before != null) touchedKeys.add(before.key);
+        if (lines[li].trim().isNotEmpty) {
+          final after = _identifyLine(lines[li], opticalForm, matcher);
+          if (after != null) touchedKeys.add(after.key);
+        }
+      }
+    }
     int lineCount = lines.length;
     int processedLines = 0;
 
@@ -2458,45 +2767,21 @@ class _TrialExamFormState extends State<TrialExamForm>
 
       if (line.trim().isEmpty) continue;
 
-      String fileTc = _extract(line, opticalForm.identityNo);
-      String fileNo = _extract(line, opticalForm.studentNo);
-
-      if (fileNo.isNotEmpty) {
-        fileNo = fileNo.replaceFirst(RegExp(r'^0+'), '');
-      }
-
-      String fileName = _extract(line, opticalForm.studentNameField);
-      String fileCls = _extract(line, opticalForm.classLevel);
-      String fileBranch = _extract(line, opticalForm.branch);
-
-      Map<String, dynamic>? systemData;
-      bool matched = false;
-
-      if (fileNo.isNotEmpty && sysByNo.containsKey(fileNo)) {
-        systemData = sysByNo[fileNo];
-        matched = true;
-      } else if (fileTc.isNotEmpty && sysByTc.containsKey(fileTc)) {
-        systemData = sysByTc[fileTc];
-        matched = true;
-      }
-
-      String key = "";
-      if (matched && systemData != null) {
-        key = systemData['id'];
-      } else {
-        if (fileTc.isNotEmpty)
-          key = "UNMATCHED_TC_$fileTc";
-        else if (fileNo.isNotEmpty)
-          key = "UNMATCHED_NO_$fileNo";
-        else
-          continue;
-      }
+      final ident = _identifyLine(line, opticalForm, matcher);
+      if (ident == null) continue;
+      final fileTc = ident.tc;
+      final fileNo = ident.no;
+      final fileName = ident.name;
+      final fileCls = ident.cls;
+      final fileBranch = ident.branch;
+      final systemData = ident.data;
+      final key = ident.key;
 
       if (!localResults.containsKey(key)) {
-        if (matched && systemData != null) {
+        if (systemData != null) {
           localResults[key] = StudentResult(
-            tcNo: systemData['tcNo'] ?? fileTc,
-            studentNo: systemData['studentNo'] ?? fileNo,
+            tcNo: (systemData['tcNo'] ?? fileTc).toString(),
+            studentNo: (systemData['studentNo'] ?? systemData['studentNumber'] ?? fileNo).toString(),
             name: (systemData['fullName'] ?? systemData['name'] ?? fileName)
                 .toString(),
             classLevel: (systemData['classLevel'] ?? fileCls).toString(),
@@ -2510,7 +2795,7 @@ class _TrialExamFormState extends State<TrialExamForm>
           localResults[key] = StudentResult(
             tcNo: fileTc,
             studentNo: fileNo,
-            name: fileName,
+            name: StudentMatcher.fixWindows1254(fileName),
             classLevel: fileCls,
             branch: fileBranch,
             isMatched: false,
@@ -2738,7 +3023,7 @@ class _TrialExamFormState extends State<TrialExamForm>
     bool shareWithTeacher = false;
     bool shareWithParent = false;
     bool shareWithStudent = false;
-    bool rankVisible = true;
+    bool showRanking = _sharingSettings['isRankingVisible'] == true;
     DateTime scheduleDate = DateTime.now();
     TimeOfDay scheduleTime = TimeOfDay.now();
 
@@ -2753,7 +3038,6 @@ class _TrialExamFormState extends State<TrialExamForm>
       shareWithTeacher = sharedWith.contains('teacher');
       shareWithParent = sharedWith.contains('parent');
       shareWithStudent = sharedWith.contains('student');
-      rankVisible = settings['isRankingVisible'] ?? true;
       if (settings['shareDate'] != null) {
         DateTime d = (settings['shareDate'] as Timestamp).toDate();
         scheduleDate = d;
@@ -2840,15 +3124,16 @@ class _TrialExamFormState extends State<TrialExamForm>
                       'Görünürlük Ayarları:',
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
-                    CheckboxListTile(
-                      title: Text('Derecelendirme Yapılsın'),
+                    SwitchListTile(
+                      title: Text('Derecelendirme göster'),
                       subtitle: Text(
-                        'Seçili değilse; veli ve öğrenciler sıralamaları göremez.',
-                        style: TextStyle(fontSize: 11),
+                        'Açıksa karnelerde genel/kurum/şube dereceleri görünür.',
+                        style: TextStyle(fontSize: 12),
                       ),
-                      value: rankVisible,
-                      onChanged: (v) => setDialogState(() => rankVisible = v!),
+                      value: showRanking,
+                      onChanged: (v) => setDialogState(() => showRanking = v),
                       dense: true,
+                      contentPadding: EdgeInsets.zero,
                     ),
                     Divider(),
                     Text(
@@ -2913,7 +3198,7 @@ class _TrialExamFormState extends State<TrialExamForm>
                       });
                       await _saveData(showFeedback: false, onlySettings: true);
                       if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(content: Text('Sınav yayından kaldırıldı.')),
                         );
                       }
@@ -2939,7 +3224,7 @@ class _TrialExamFormState extends State<TrialExamForm>
                     Navigator.pop(context); // Close dialog
 
                     // Update local sharing settings
-                    _sharingSettings['isRankingVisible'] = rankVisible;
+                    _sharingSettings['isRankingVisible'] = showRanking;
                     _sharingSettings['sharedWith'] = [
                       if (shareWithTeacher) 'teacher',
                       if (shareWithParent) 'parent',
@@ -2974,27 +3259,38 @@ class _TrialExamFormState extends State<TrialExamForm>
                       scheduleTime.minute,
                     );
 
+                    // AnnouncementService'in tanıdığı alıcı biçimleri:
+                    // 'TEACHER' (tüm öğretmenler), kullanıcı ID'leri (öğrenci/veli).
                     List<String> recipients = [];
-                    if (shareWithTeacher)
-                      recipients.add('ROLE:ogretmen'); // Better mapping
-                    if (shareWithParent) recipients.add('ROLE:parent');
-                    if (shareWithStudent) recipients.add('ROLE:student');
-
-                    // Map internal roles to generic ones if needed by AnnouncementService
-                    // Actually, the AnnouncementService handles strings.
-                    // Let's use simpler strings that are likely handled by the system's global recipient logic.
-                    recipients = [
-                      if (shareWithTeacher) 'ALL_TEACHERS',
-                      if (shareWithParent) 'ALL_PARENTS',
-                      if (shareWithStudent) 'ALL_STUDENTS',
-                    ];
+                    final Set<String> studentIds = _currentResults
+                        .where(
+                          (r) =>
+                              r.isMatched &&
+                              r.systemStudentId != null &&
+                              r.systemStudentId!.isNotEmpty,
+                        )
+                        .map((r) => r.systemStudentId!)
+                        .toSet();
 
                     try {
                       final service = AnnouncementService();
+                      if (shareWithTeacher) recipients.add('TEACHER');
+                      if (shareWithStudent) recipients.addAll(studentIds);
+                      if (shareWithParent && studentIds.isNotEmpty) {
+                        final parents = await service.getParentsByStudents(
+                          studentIds.toList(),
+                        );
+                        for (final p in parents) {
+                          final pid = p['id']?.toString();
+                          if (pid != null && pid.isNotEmpty) recipients.add(pid);
+                        }
+                      }
+                      recipients = recipients.toSet().toList();
+
                       await service.saveAnnouncement(
-                        title: _nameController.text,
+                        title: "${_nameController.text} Sonuçları",
                         content:
-                            "${DateFormat('dd.MM.yyyy').format(_selectedDate)} tarihinde gerçekleştirilen ${_nameController.text} sonuçları açıklanmıştır. Portfolyo kısmında bulunan Deneme Sınavları kısmından sonuçları görüntüleyebilirsiniz.",
+                            "${DateFormat('dd.MM.yyyy').format(_selectedDate)} tarihinde uygulanan ${_nameController.text} sonuçları değerlendirilmiş ve sisteme yüklenmiştir.",
                         recipients: recipients,
                         publishDate: scheduledDateTime,
                         publishTime: scheduleTime.format(context),
@@ -3005,7 +3301,7 @@ class _TrialExamFormState extends State<TrialExamForm>
                       );
 
                       if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(
                               'Sınav paylaşıldı ve duyuru oluşturuldu.',
@@ -3016,7 +3312,7 @@ class _TrialExamFormState extends State<TrialExamForm>
                       }
                     } catch (e) {
                       if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text('Duyuru oluşturulamadı: $e'),
                             backgroundColor: Colors.red,
@@ -3039,7 +3335,7 @@ class _TrialExamFormState extends State<TrialExamForm>
 
   Widget _buildBookletCountSelector() {
     return DropdownButtonFormField<int>(
-      value: _bookletCount,
+      initialValue: _bookletCount,
       isExpanded: true,
       decoration: InputDecoration(
         labelText: 'Kitapçık Sayısı',
@@ -3062,7 +3358,7 @@ class _TrialExamFormState extends State<TrialExamForm>
 
   Widget _buildSessionCountSelector() {
     return DropdownButtonFormField<int>(
-      value: _sessionCount,
+      initialValue: _sessionCount,
       isExpanded: true,
       decoration: InputDecoration(
         labelText: 'Oturum Sayısı',
@@ -3292,10 +3588,9 @@ class _ResultsTableDialogState extends State<ResultsTableDialog> {
                   Container(height: 1, color: Colors.grey.shade300),
                   Expanded(
                     child: ListView.builder(
-                      itemCount: _sortedResults.length,
+                      cacheExtent: 500, itemCount: _sortedResults.length,
                       itemExtent:
-                          45, // Fixed height slightly larger for modern look
-                      cacheExtent: 500, // Pre-render more pixels
+                          45, // Pre-render more pixels
                       addAutomaticKeepAlives: false,
                       addRepaintBoundaries: true,
                       itemBuilder: (context, index) {
@@ -3562,7 +3857,7 @@ class _ResultsTableDialogState extends State<ResultsTableDialog> {
                 border: Border(
                   left: BorderSide(color: Colors.grey.shade300, width: 2),
                 ),
-                color: Colors.indigo.withOpacity(0.02),
+                color: Colors.indigo.withValues(alpha: 0.02),
               ),
               child: Row(
                 children: [

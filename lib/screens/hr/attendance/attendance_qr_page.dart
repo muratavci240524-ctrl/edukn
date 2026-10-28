@@ -1,4 +1,4 @@
-﻿import 'package:edukn/services/user_permission_service.dart';
+import 'package:edukn/services/user_permission_service.dart';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -77,7 +77,7 @@ class _AttendanceQrPageState extends State<AttendanceQrPage> {
             end: Alignment.bottomCenter,
             colors: [
               const Color(0xFF1E2661),
-              const Color(0xFF1E2661).withOpacity(0.8),
+              const Color(0xFF1E2661).withValues(alpha: 0.8),
               Colors.indigo.shade900,
             ],
           ),
@@ -93,7 +93,7 @@ class _AttendanceQrPageState extends State<AttendanceQrPage> {
                 Container(
                   padding: EdgeInsets.all(isShortScreen ? 12 : 20),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.1),
+                    color: Colors.white.withValues(alpha: 0.1),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
@@ -118,7 +118,7 @@ class _AttendanceQrPageState extends State<AttendanceQrPage> {
                   'Lütfen mobil uygulamadan kodu taratınız.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.7),
+                    color: Colors.white.withValues(alpha: 0.7),
                     fontSize: isShortScreen ? 13 : 16,
                   ),
                 ),
@@ -133,7 +133,7 @@ class _AttendanceQrPageState extends State<AttendanceQrPage> {
                     borderRadius: BorderRadius.circular(isShortScreen ? 24 : 40),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.cyanAccent.withOpacity(0.2),
+                        color: Colors.cyanAccent.withValues(alpha: 0.2),
                         blurRadius: 60,
                         spreadRadius: 5,
                       ),
@@ -177,7 +177,7 @@ class _AttendanceQrPageState extends State<AttendanceQrPage> {
                           height: isShortScreen ? 6 : 10,
                           child: LinearProgressIndicator(
                             value: (_secondsLeft / 30).clamp(0.0, 1.0),
-                            backgroundColor: Colors.white.withOpacity(0.1),
+                            backgroundColor: Colors.white.withValues(alpha: 0.1),
                             valueColor: const AlwaysStoppedAnimation<Color>(Colors.cyanAccent),
                           ),
                         ),
@@ -192,7 +192,7 @@ class _AttendanceQrPageState extends State<AttendanceQrPage> {
                 Text(
                   'eduKN Cloud Attendance System v2.0',
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.3),
+                    color: Colors.white.withValues(alpha: 0.3),
                     fontSize: 10,
                     letterSpacing: 1.2,
                   ),

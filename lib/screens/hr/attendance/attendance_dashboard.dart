@@ -1,11 +1,10 @@
-﻿import 'package:edukn/services/user_permission_service.dart';
+import 'package:edukn/services/user_permission_service.dart';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'dart:async';
-import 'dart:ui';
 import '../../../services/attendance_service.dart';
 import 'attendance_qr_page.dart';
 import 'manual_attendance_screen.dart';
@@ -136,7 +135,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with SingleTi
       );
       setState(() => _historyRecords = records);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e')));
     } finally {
       setState(() => _loadingHistory = false);
     }
@@ -168,7 +167,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with SingleTi
             Container(
               margin: const EdgeInsets.only(right: 8),
               decoration: BoxDecoration(
-                color: Colors.indigo.withOpacity(0.1),
+                color: Colors.indigo.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
               child: IconButton(
@@ -207,7 +206,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with SingleTi
                       borderRadius: BorderRadius.circular(12),
                       boxShadow: [
                         BoxShadow(
-                          color: const Color(0xFF6366F1).withOpacity(0.08),
+                          color: const Color(0xFF6366F1).withValues(alpha: 0.08),
                           blurRadius: 8,
                           offset: const Offset(0, 4),
                         ),
@@ -443,9 +442,9 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with SingleTi
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.05),
+          color: color.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: color.withOpacity(0.1)),
+          border: Border.all(color: color.withValues(alpha: 0.1)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -473,7 +472,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with SingleTi
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: isActive ? const Color(0xFF6366F1).withOpacity(0.1) : Colors.white,
+          color: isActive ? const Color(0xFF6366F1).withValues(alpha: 0.1) : Colors.white,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: isActive ? const Color(0xFF6366F1) : const Color(0xFFE2E8F0)),
         ),
@@ -532,7 +531,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with SingleTi
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4)),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4)),
         ],
         border: Border.all(color: const Color(0xFFF1F5F9)),
       ),
@@ -544,7 +543,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with SingleTi
           height: 48,
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [const Color(0xFF6366F1).withOpacity(0.8), const Color(0xFF6366F1)],
+              colors: [const Color(0xFF6366F1).withValues(alpha: 0.8), const Color(0xFF6366F1)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -583,7 +582,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with SingleTi
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
-                color: statusColor.withOpacity(0.12),
+                color: statusColor.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(100),
               ),
               child: Text(
@@ -773,12 +772,12 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with SingleTi
                       note: noteController.text,
                     );
                     if (mounted) {
-                      Navigator.pop(context);
+                      if (mounted) Navigator.pop(context);
                       _initDailyStream();
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Kayıt güncellendi')));
+                      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Kayıt güncellendi')));
                     }
                   } catch (e) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e')));
+                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e')));
                   }
                 },
                 child: const Text('Güncelle'),
@@ -873,7 +872,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with SingleTi
                           borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
                         ),
                       ),
-                      value: _selectedStaffId,
+                      initialValue: _selectedStaffId,
                       items: [
                         const DropdownMenuItem<String>(
                           value: null,
@@ -945,7 +944,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with SingleTi
                               width: 44,
                               height: 44,
                               decoration: BoxDecoration(
-                                color: const Color(0xFF6366F1).withOpacity(0.1),
+                                color: const Color(0xFF6366F1).withValues(alpha: 0.1),
                                 shape: BoxShape.circle,
                               ),
                               child: Center(

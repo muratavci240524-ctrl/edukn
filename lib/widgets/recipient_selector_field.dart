@@ -126,7 +126,7 @@ class _RecipientSelectorFieldState extends State<RecipientSelectorField> {
         ),
       ),
       backgroundColor: chipColor,
-      side: BorderSide(color: textColor.withOpacity(0.3)),
+      side: BorderSide(color: textColor.withValues(alpha: 0.3)),
       deleteIcon: Icon(Icons.close, size: 16, color: textColor),
       onDeleted: () {
         final newList = List<String>.from(widget.selectedRecipients);
@@ -170,7 +170,7 @@ class _RecipientSelectorFieldState extends State<RecipientSelectorField> {
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.05),
+                color: Colors.black.withValues(alpha: 0.05),
                 blurRadius: 10,
                 offset: Offset(0, 4),
               ),

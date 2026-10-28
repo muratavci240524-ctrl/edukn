@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import '../../../../services/guidance_service.dart';
 import 'study_program_printing_helper.dart';
@@ -122,7 +122,7 @@ class _SavedStudyProgramsScreenState extends State<SavedStudyProgramsScreen> {
     } catch (e) {
       setState(() => _isLoading = false);
       if (context.mounted) {
-        ScaffoldMessenger.of(
+        if (mounted) ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Hata: $e')));
       }
@@ -312,14 +312,14 @@ class _SavedStudyProgramsScreenState extends State<SavedStudyProgramsScreen> {
       await _fetchPrograms();
 
       if (context.mounted) {
-        ScaffoldMessenger.of(
+        if (mounted) ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Seçilen programlar silindi.')));
       }
     } catch (e) {
       setState(() => _isLoading = false);
       if (context.mounted) {
-        ScaffoldMessenger.of(
+        if (mounted) ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Silme Hatası: $e')));
       }
@@ -360,12 +360,12 @@ class _SavedStudyProgramsScreenState extends State<SavedStudyProgramsScreen> {
       await _fetchPrograms();
 
       if (context.mounted) {
-        ScaffoldMessenger.of(
+        if (mounted) ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Program silindi.')));
       }
     } catch (e) {
-      print('Error deleting program: $e');
+      debugPrint('Error deleting program: $e');
     } finally {
       setState(() => _isLoading = false);
     }
@@ -416,14 +416,14 @@ class _SavedStudyProgramsScreenState extends State<SavedStudyProgramsScreen> {
       await _fetchPrograms();
 
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('$count adet program başarıyla silindi.')),
         );
       }
     } catch (e) {
-      print('Error deleting filtered programs: $e');
+      debugPrint('Error deleting filtered programs: $e');
       if (context.mounted) {
-        ScaffoldMessenger.of(
+        if (mounted) ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Hata: $e')));
       }
@@ -1193,7 +1193,7 @@ class _SavedStudyProgramsScreenState extends State<SavedStudyProgramsScreen> {
                         borderRadius: BorderRadius.circular(12),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.05),
+                            color: Colors.black.withValues(alpha: 0.05),
                             blurRadius: 8,
                             offset: Offset(0, 2),
                           ),
@@ -1323,18 +1323,18 @@ class _SavedStudyProgramsScreenState extends State<SavedStudyProgramsScreen> {
                         ),
                         decoration: BoxDecoration(
                           color: isSelected
-                              ? Colors.indigo.withOpacity(0.05)
+                              ? Colors.indigo.withValues(alpha: 0.05)
                               : Colors.white,
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(
                             color: isSelected
                                 ? Colors.indigo
-                                : Colors.grey.withOpacity(0.1),
+                                : Colors.grey.withValues(alpha: 0.1),
                             width: isSelected ? 2 : 1,
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.03),
+                              color: Colors.black.withValues(alpha: 0.03),
                               blurRadius: 10,
                               offset: const Offset(0, 4),
                             ),

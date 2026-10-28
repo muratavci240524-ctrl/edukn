@@ -224,7 +224,7 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 20, offset: const Offset(0, 4))],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 20, offset: const Offset(0, 4))],
       ),
       padding: const EdgeInsets.all(32),
       child: Column(
@@ -232,7 +232,7 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
         children: [
           Container(
             padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: Colors.indigo.withOpacity(0.05), shape: BoxShape.circle),
+            decoration: BoxDecoration(color: Colors.indigo.withValues(alpha: 0.05), shape: BoxShape.circle),
             child: const Icon(Icons.library_books_rounded, color: Colors.indigo, size: 24),
           ),
           const SizedBox(height: 24),
@@ -328,7 +328,7 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(24),
-        boxShadow: [BoxShadow(color: Colors.indigo.withOpacity(0.3), blurRadius: 20, offset: const Offset(0, 8))],
+        boxShadow: [BoxShadow(color: Colors.indigo.withValues(alpha: 0.3), blurRadius: 20, offset: const Offset(0, 8))],
       ),
       padding: const EdgeInsets.all(32),
       child: Column(
@@ -336,7 +336,7 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
         children: [
           Container(
             padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), shape: BoxShape.circle),
+            decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), shape: BoxShape.circle),
             child: const Icon(Icons.bar_chart_rounded, color: Colors.white, size: 24),
           ),
           const SizedBox(height: 24),
@@ -344,7 +344,7 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
           const SizedBox(height: 8),
           Text(
             'Sınav sonuçlarını, öğrenci gelişim grafiklerini ve kurumsal başarı metriklerini detaylıca inceleyin.',
-            style: GoogleFonts.inter(fontSize: 14, color: Colors.white.withOpacity(0.8), height: 1.5),
+            style: GoogleFonts.inter(fontSize: 14, color: Colors.white.withValues(alpha: 0.8), height: 1.5),
           ),
           const SizedBox(height: 48),
           ElevatedButton(
@@ -381,7 +381,7 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(24),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 20, offset: const Offset(0, 4))],
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 20, offset: const Offset(0, 4))],
         ),
         padding: const EdgeInsets.all(24),
         child: Column(
@@ -391,7 +391,7 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
               children: [
                 Container(
                   padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: iconColor.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                  decoration: BoxDecoration(color: iconColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
                   child: Icon(icon, color: iconColor, size: 24),
                 ),
                 const SizedBox(width: 16),
@@ -460,7 +460,7 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.orange.withOpacity(0.3),
+              color: Colors.orange.withValues(alpha: 0.3),
               blurRadius: 20,
               offset: const Offset(0, 8),
             ),
@@ -476,7 +476,7 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
+                      color: Colors.white.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Icon(
@@ -499,7 +499,7 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
                     'Bursluluk, prova ve deneme sınavları için başvuru yönetimi, salon planlaması ve giriş belgesi oluşturun.',
                     style: GoogleFonts.inter(
                       fontSize: 13,
-                      color: Colors.white.withOpacity(0.85),
+                      color: Colors.white.withValues(alpha: 0.85),
                       height: 1.5,
                     ),
                   ),
@@ -527,9 +527,9 @@ class _AssessmentDashboardScreenState extends State<AssessmentDashboardScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.2),
+        color: Colors.white.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.3)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
       ),
       child: Text(
         label,

@@ -5,7 +5,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
-import '../../../../widgets/edukn_logo.dart';
 import '../../../../models/guidance/demand_model.dart';
 import '../../../../services/guidance/demand_service.dart';
 import 'create_demand_dialog.dart';
@@ -40,7 +39,7 @@ class _DemandDashboardScreenState extends State<DemandDashboardScreen> with Sing
   
   String? _statusFilter;
   String? _priorityFilter;
-  String _searchQuery = '';
+  final String _searchQuery = '';
 
   // Okul türü filtresi (showAllSchoolTypes=true olduğunda)
   String? _selectedSchoolTypeId; // null = tümü
@@ -303,7 +302,7 @@ class _DemandDashboardScreenState extends State<DemandDashboardScreen> with Sing
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: isUrgent ? Colors.red.withOpacity(0.2) : Colors.transparent, width: 1.5)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: isUrgent ? Colors.red.withValues(alpha: 0.2) : Colors.transparent, width: 1.5)),
       elevation: 0,
       child: InkWell(
         onTap: () => _showDemandDetail(demand),
@@ -318,7 +317,7 @@ class _DemandDashboardScreenState extends State<DemandDashboardScreen> with Sing
                 children: [
                   Container(
                     padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(color: _getPriorityColor(demand.priority).withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                    decoration: BoxDecoration(color: _getPriorityColor(demand.priority).withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
                     child: Icon(_getCategoryIcon(demand.category), color: _getPriorityColor(demand.priority), size: 24),
                   ),
                   const SizedBox(width: 16),
@@ -385,7 +384,7 @@ class _DemandDashboardScreenState extends State<DemandDashboardScreen> with Sing
       case DemandStatus.completed: color = Colors.blueGrey; label = 'Tamamlandı'; break;
       case DemandStatus.cancelled: color = Colors.red; label = 'İptal Edildi'; break;
     }
-    return Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(6)), child: Text(label, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold)));
+    return Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(6)), child: Text(label, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold)));
   }
 
   Color _getPriorityColor(DemandPriority priority) {
@@ -506,7 +505,7 @@ class _DemandDetailSheetState extends State<_DemandDetailSheet> {
     setState(() => _isSaving = true);
     try {
       await DemandService().closeDemand(docId: widget.demand.id, closingNote: _noteController.text, closerUid: widget.currentUid, closerName: widget.currentUserName);
-      Navigator.pop(context);
+      if (mounted) Navigator.pop(context);
       widget.onUpdate();
     } catch (e) { setState(() => _isSaving = false); }
   }
@@ -516,7 +515,7 @@ class _DemandDetailSheetState extends State<_DemandDetailSheet> {
   Widget _buildPriorityBadge(DemandPriority p) {
     Color c = p == DemandPriority.urgent ? Colors.red : (p == DemandPriority.high ? Colors.deepOrange : Colors.blue);
     String label = p == DemandPriority.low ? 'DÜŞÜK' : p == DemandPriority.medium ? 'NORMAL' : p == DemandPriority.high ? 'YÜKSEK' : 'ACİL';
-    return Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: c.withOpacity(0.1), borderRadius: BorderRadius.circular(20)), child: Text(label, style: TextStyle(color: c, fontWeight: FontWeight.bold, fontSize: 11)));
+    return Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: c.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(20)), child: Text(label, style: TextStyle(color: c, fontWeight: FontWeight.bold, fontSize: 11)));
   }
 }
 

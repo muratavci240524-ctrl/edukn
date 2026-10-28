@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/custom_date_range_picker.dart';
-import 'package:intl/intl.dart';
-import 'package:syncfusion_flutter_datepicker/datepicker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -37,7 +35,7 @@ class _TeacherAnnouncementsScreenState extends State<TeacherAnnouncementsScreen>
   Set<String> _assignedClassIds = {};
   Set<String> _assignedStudentIds = {};
   bool _isLoadingClasses = true;
-  bool _showFilters = false;
+  final bool _showFilters = false;
 
   @override
   void initState() {
@@ -210,7 +208,7 @@ class _TeacherAnnouncementsScreenState extends State<TeacherAnnouncementsScreen>
                   Text(
                     'Duyurular',
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.8),
+                      color: Colors.white.withValues(alpha: 0.8),
                       fontSize: 12,
                     ),
                   ),
@@ -329,7 +327,7 @@ class _TeacherAnnouncementsScreenState extends State<TeacherAnnouncementsScreen>
                             onTap: () async {
                               final schoolId = await _announcementService.getSchoolId();
                               if (schoolId != null && mounted) {
-                                Navigator.push(
+                                if (mounted) Navigator.push(
                                   context,
                                   MaterialPageRoute(
                                     builder: (ctx) => AnnouncementDetailScreen(
@@ -454,7 +452,7 @@ class _TeacherAnnouncementsScreenState extends State<TeacherAnnouncementsScreen>
               // Calendar Button
               Material(
                 color: _range != null
-                    ? Colors.indigo.withOpacity(0.1)
+                    ? Colors.indigo.withValues(alpha: 0.1)
                     : const Color(0xFFF1F5F9),
                 borderRadius: BorderRadius.circular(12),
                 child: InkWell(
@@ -553,7 +551,7 @@ class _TeacherAnnouncementsScreenState extends State<TeacherAnnouncementsScreen>
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? primaryColor.withOpacity(0.1) : Colors.white,
+          color: isSelected ? primaryColor.withValues(alpha: 0.1) : Colors.white,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: isSelected ? primaryColor : const Color(0xFFE2E8F0),

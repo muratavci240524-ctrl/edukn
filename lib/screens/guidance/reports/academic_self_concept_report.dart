@@ -130,7 +130,7 @@ class _AcademicSelfConceptReportState extends State<AcademicSelfConceptReport>
                   labelText: 'Şube Seçin',
                   isDense: true,
                 ),
-                value: _selectedBranch,
+                initialValue: _selectedBranch,
                 items: _getBranches()
                     .map((b) => DropdownMenuItem(value: b, child: Text(b)))
                     .toList(),
@@ -142,7 +142,7 @@ class _AcademicSelfConceptReportState extends State<AcademicSelfConceptReport>
                   labelText: 'Öğrenci Seçin',
                   isDense: true,
                 ),
-                value: _selectedStudent,
+                initialValue: _selectedStudent,
                 items: widget.responses.map((r) {
                   final uid = r['userId'].toString();
                   return DropdownMenuItem(
@@ -252,7 +252,7 @@ class _AcademicSelfConceptReportState extends State<AcademicSelfConceptReport>
           RadarChartData(
             dataSets: [
               RadarDataSet(
-                fillColor: Colors.indigo.withOpacity(0.3),
+                fillColor: Colors.indigo.withValues(alpha: 0.3),
                 borderColor: Colors.indigo,
                 entryRadius: 3,
                 dataEntries: subscales
@@ -316,9 +316,9 @@ class _AcademicSelfConceptReportState extends State<AcademicSelfConceptReport>
       margin: EdgeInsets.only(bottom: 12),
       padding: EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.05),
+        color: color.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -343,7 +343,7 @@ class _AcademicSelfConceptReportState extends State<AcademicSelfConceptReport>
                       '${_subscaleNames[e.key]} (%${e.value.toStringAsFixed(0)})',
                     ),
                     backgroundColor: Colors.white,
-                    side: BorderSide(color: color.withOpacity(0.3)),
+                    side: BorderSide(color: color.withValues(alpha: 0.3)),
                     visualDensity: VisualDensity.compact,
                   ),
                 )

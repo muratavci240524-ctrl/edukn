@@ -178,7 +178,7 @@ class _SeatingAnalyticsScreenState extends State<SeatingAnalyticsScreen> {
                       Container(
                         padding: const EdgeInsets.all(6),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF2E7D32).withOpacity(0.12),
+                          color: const Color(0xFF2E7D32).withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: const Icon(Icons.table_chart_rounded, size: 18, color: Color(0xFF2E7D32)),
@@ -195,7 +195,7 @@ class _SeatingAnalyticsScreenState extends State<SeatingAnalyticsScreen> {
                     Container(
                       padding: const EdgeInsets.all(6),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF5C6BC0).withOpacity(0.12),
+                        color: const Color(0xFF5C6BC0).withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: const Icon(Icons.refresh_rounded, size: 18, color: Color(0xFF5C6BC0)),
@@ -256,7 +256,7 @@ class _SeatingAnalyticsScreenState extends State<SeatingAnalyticsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   DropdownButtonFormField<String>(
-                    value: _selectedClassId,
+                    initialValue: _selectedClassId,
                     decoration: InputDecoration(
                       labelText: 'Analiz Edilecek Şube',
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
@@ -293,7 +293,7 @@ class _SeatingAnalyticsScreenState extends State<SeatingAnalyticsScreen> {
                   Expanded(
                     flex: 2,
                     child: DropdownButtonFormField<String>(
-                      value: _selectedClassId,
+                      initialValue: _selectedClassId,
                       decoration: InputDecoration(
                         labelText: 'Analiz Edilecek Şube',
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
@@ -417,7 +417,7 @@ class _SeatingAnalyticsScreenState extends State<SeatingAnalyticsScreen> {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: color.withOpacity(0.12),
+                color: color.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(icon, color: color, size: 22),
@@ -613,14 +613,14 @@ class _SeatingAnalyticsScreenState extends State<SeatingAnalyticsScreen> {
       decoration: BoxDecoration(
         color: bgColor,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.black.withOpacity(0.06)),
+        border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Text(
             'Masa ${row + 1}-${col + 1}',
-            style: GoogleFonts.inter(fontSize: 9.5, fontWeight: FontWeight.w600, color: textColor.withOpacity(0.85)),
+            style: GoogleFonts.inter(fontSize: 9.5, fontWeight: FontWeight.w600, color: textColor.withValues(alpha: 0.85)),
           ),
           const SizedBox(height: 2),
           Text(
@@ -767,7 +767,7 @@ class _SeatingAnalyticsScreenState extends State<SeatingAnalyticsScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF5C6BC0).withOpacity(0.1),
+                  color: const Color(0xFF5C6BC0).withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(

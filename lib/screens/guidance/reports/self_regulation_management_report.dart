@@ -57,7 +57,7 @@ class _SelfRegulationManagementReportState
   ];
 
   List<Map<String, dynamic>> _branches = [];
-  Map<String, Map<String, dynamic>> _userDetails = {};
+  final Map<String, Map<String, dynamic>> _userDetails = {};
   bool _isLoadingFilters = false;
 
   @override
@@ -89,7 +89,7 @@ class _SelfRegulationManagementReportState
         _userDetails[d.id] = d.data();
       }
     } catch (e) {
-      print('Load filters error: $e');
+      debugPrint('Load filters error: $e');
     }
     if (mounted) setState(() => _isLoadingFilters = false);
   }
@@ -267,7 +267,7 @@ class _SelfRegulationManagementReportState
     return Container(
       width: double.infinity,
       child: DropdownButtonFormField(
-        value: value,
+        initialValue: value,
         decoration: InputDecoration(
           labelText: label,
           labelStyle: TextStyle(color: Colors.grey.shade600, fontSize: 14),
@@ -450,7 +450,7 @@ class _SelfRegulationManagementReportState
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10),
         ],
       ),
       child: Column(
@@ -465,7 +465,7 @@ class _SelfRegulationManagementReportState
               RadarChartData(
                 dataSets: [
                   RadarDataSet(
-                    fillColor: Colors.indigo.withOpacity(0.2),
+                    fillColor: Colors.indigo.withValues(alpha: 0.2),
                     borderColor: Colors.indigo,
                     entryRadius: 3,
                     dataEntries: data.map((d) => RadarEntry(value: d)).toList(),
@@ -710,7 +710,7 @@ class _SelfRegulationManagementReportState
         mimeType: MimeType.pdf,
       );
     } catch (e) {
-      print('PDF error: $e');
+      debugPrint('PDF error: $e');
     }
   }
 
@@ -746,7 +746,7 @@ class _SelfRegulationManagementReportState
           mimeType: MimeType.microsoftExcel,
         );
     } catch (e) {
-      print('Excel error: $e');
+      debugPrint('Excel error: $e');
     }
   }
 }

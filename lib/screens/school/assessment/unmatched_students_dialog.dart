@@ -72,16 +72,14 @@ class _UnmatchedStudentsDialogState extends State<UnmatchedStudentsDialog>
       }
     }
 
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      backgroundColor: Colors.white,
-      insetPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+    // Alttan açılan menü (bottom sheet) içeriği
+    return Material(
+      color: Colors.white,
       child: Column(
-        mainAxisSize: MainAxisSize.min,
         children: [
           // Premium Header
           Container(
-            padding: EdgeInsets.fromLTRB(24, 20, 24, 0),
+            padding: EdgeInsets.fromLTRB(24, 8, 24, 0),
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
@@ -137,12 +135,9 @@ class _UnmatchedStudentsDialogState extends State<UnmatchedStudentsDialog>
           ),
 
           // Content
-          Flexible(
+          Expanded(
             child: Container(
               color: Colors.grey.shade50,
-              constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(context).size.height * 0.65,
-              ),
               child: TabBarView(controller: _tabController, children: tabViews),
             ),
           ),
@@ -301,6 +296,7 @@ class _UnmatchedStudentsDialogState extends State<UnmatchedStudentsDialog>
     showDialog(
       context: context,
       builder: (context) => _SystemStudentSearchDialog(
+        targetStudent: student,
         candidates: widget.allSystemStudents,
         matchedIds: matchedIds,
         onSelect: (selectedSystemStudent) {
@@ -316,12 +312,14 @@ class _UnmatchedStudentsDialogState extends State<UnmatchedStudentsDialog>
 }
 
 class _SystemStudentSearchDialog extends StatefulWidget {
+  final StudentResult? targetStudent;
   final List<Map<String, dynamic>> candidates;
   final Set<String> matchedIds;
   final Function(Map<String, dynamic>) onSelect;
 
   const _SystemStudentSearchDialog({
     Key? key,
+    this.targetStudent,
     required this.candidates,
     required this.matchedIds,
     required this.onSelect,
@@ -346,6 +344,13 @@ class __SystemStudentSearchDialogState
 
   void _sortList() {
     _filteredList.sort((a, b) {
+      if (widget.targetStudent != null) {
+        final scoreA = StudentMatcher.scoreCandidate(a, widget.targetStudent!);
+        final scoreB = StudentMatcher.scoreCandidate(b, widget.targetStudent!);
+        if (scoreA != scoreB) {
+          return scoreB.compareTo(scoreA); // En yüksek eşleşme skoru en üstte
+        }
+      }
       final nameA = (a['fullName'] ?? a['name'] ?? '').toString();
       final nameB = (b['fullName'] ?? b['name'] ?? '').toString();
       return nameA.compareTo(nameB);
@@ -354,19 +359,25 @@ class __SystemStudentSearchDialogState
 
   void _search(String query) {
     setState(() {
-      _searchQuery = query.toLowerCase();
+      _searchQuery = StudentMatcher.normalizeTurkishForSearch(query);
       if (_searchQuery.isEmpty) {
         _filteredList = List.from(widget.candidates);
       } else {
         _filteredList = widget.candidates.where((s) {
-          final name = (s['fullName'] ?? s['name'] ?? '')
+          final name = StudentMatcher.normalizeTurkishForSearch(
+            (s['fullName'] ?? s['name'] ?? '').toString(),
+          );
+          final no = (s['studentNo'] ?? s['studentNumber'] ?? '')
               .toString()
               .toLowerCase();
-          final no = (s['studentNo'] ?? '').toString();
           final tc = (s['tcNo'] ?? '').toString();
+          final branch = (s['className'] ?? s['branch'] ?? '')
+              .toString()
+              .toLowerCase();
           return name.contains(_searchQuery) ||
               no.contains(_searchQuery) ||
-              tc.contains(_searchQuery);
+              tc.contains(_searchQuery) ||
+              branch.contains(_searchQuery);
         }).toList();
       }
       _sortList();
@@ -385,14 +396,59 @@ class __SystemStudentSearchDialogState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  "Öğrenci Seç",
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                  ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      "Öğrenci Seç",
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    Text(
+                      "${_filteredList.length} Öğrenci",
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
                 ),
+                if (widget.targetStudent != null) ...[
+                  SizedBox(height: 10),
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.indigo.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.indigo.shade100),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.person_search,
+                          size: 20,
+                          color: Colors.indigo.shade700,
+                        ),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            "Optik Kayıt: ${widget.targetStudent!.name} (No: ${widget.targetStudent!.studentNo.isNotEmpty ? widget.targetStudent!.studentNo : '-'}, Şube: ${widget.targetStudent!.branch.isNotEmpty ? widget.targetStudent!.branch : '-'})",
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.indigo.shade900,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 SizedBox(height: 12),
                 TextField(
                   autofocus: true,
@@ -421,7 +477,7 @@ class __SystemStudentSearchDialogState
           ),
           Flexible(
             child: Container(
-              height: 400, // Fixed height for consistency
+              height: 420, // Fixed height for consistency
               decoration: BoxDecoration(
                 border: Border(
                   top: BorderSide(color: Colors.grey.shade100),
@@ -430,9 +486,16 @@ class __SystemStudentSearchDialogState
               ),
               child: _filteredList.isEmpty
                   ? Center(
-                      child: Text(
-                        "Sonuç bulunamadı",
-                        style: TextStyle(color: Colors.grey),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.search_off, size: 40, color: Colors.grey.shade300),
+                          SizedBox(height: 8),
+                          Text(
+                            "Sonuç bulunamadı",
+                            style: TextStyle(color: Colors.grey.shade600),
+                          ),
+                        ],
                       ),
                     )
                   : ListView.separated(
@@ -443,21 +506,73 @@ class __SystemStudentSearchDialogState
                       itemBuilder: (context, index) {
                         final s = _filteredList[index];
                         final isMatched = widget.matchedIds.contains(s['id']);
+                        final isRecommended = widget.targetStudent != null &&
+                            StudentMatcher.scoreCandidate(s, widget.targetStudent!) >= 100;
+
+                        final branchText = (s['className'] ?? s['branch'] ?? s['classLevel'] ?? '').toString();
+                        final noText = (s['studentNo'] ?? s['studentNumber'] ?? '').toString();
+                        final tcText = (s['tcNo'] ?? '').toString();
 
                         return ListTile(
+                          tileColor: isRecommended ? Colors.amber.shade50.withValues(alpha: 0.3) : null,
                           contentPadding: EdgeInsets.symmetric(
-                            horizontal: 24,
+                            horizontal: 20,
                             vertical: 4,
                           ),
-                          title: Text(
-                            s['fullName'] ?? s['name'] ?? 'İsimsiz',
-                            style: TextStyle(fontWeight: FontWeight.w600),
+                          title: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  s['fullName'] ?? s['name'] ?? 'İsimsiz',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                              ),
+                              if (isRecommended)
+                                Container(
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 2,
+                                  ),
+                                  margin: EdgeInsets.only(left: 6),
+                                  decoration: BoxDecoration(
+                                    color: Colors.amber.shade100,
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(
+                                      color: Colors.amber.shade300,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.star,
+                                        size: 12,
+                                        color: Colors.amber.shade900,
+                                      ),
+                                      SizedBox(width: 3),
+                                      Text(
+                                        "Önerilen",
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.amber.shade900,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                            ],
                           ),
                           subtitle: Text(
-                            "No: ${s['studentNo']} | Şube: ${s['classLevel']}-${s['className'] ?? s['branch'] ?? 'Misafir'}",
+                            "No: ${noText.isNotEmpty ? noText : '-'}"
+                            "${branchText.isNotEmpty ? ' | Şube: $branchText' : ''}"
+                            "${tcText.isNotEmpty && !tcText.startsWith('ENC:') ? ' | TC: $tcText' : ''}",
                             style: TextStyle(
                               color: Colors.grey.shade600,
-                              fontSize: 13,
+                              fontSize: 12,
                             ),
                           ),
                           trailing: isMatched
@@ -484,10 +599,9 @@ class __SystemStudentSearchDialogState
                                 )
                               : Icon(
                                   Icons.chevron_right,
-                                  color: Colors.grey.shade300,
+                                  color: Colors.grey.shade400,
                                 ),
                           onTap: () {
-                            // If matched, user wants to merge specific session into this existing student
                             widget.onSelect(s);
                           },
                         );
@@ -515,3 +629,4 @@ class __SystemStudentSearchDialogState
     );
   }
 }
+

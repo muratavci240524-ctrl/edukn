@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -115,7 +115,7 @@ class _ClassLessonPlanEntryDialogState
         }
       });
     } catch (e) {
-      print('Error loading yearly plans: $e');
+      debugPrint('Error loading yearly plans: $e');
     } finally {
       if (mounted) setState(() => _isLoadingPlans = false);
     }
@@ -135,7 +135,7 @@ class _ClassLessonPlanEntryDialogState
         _availableWeeks = snapshot.docs;
       });
     } catch (e) {
-      print('Error loading weeks: $e');
+      debugPrint('Error loading weeks: $e');
     } finally {
       if (mounted) setState(() => _isLoadingPlans = false);
     }
@@ -231,8 +231,8 @@ class _ClassLessonPlanEntryDialogState
         });
       }
     } catch (e) {
-      print('File picker error: $e');
-      ScaffoldMessenger.of(
+      debugPrint('File picker error: $e');
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Dosya seççimi başarırsız: $e')));
     }
@@ -252,7 +252,7 @@ class _ClassLessonPlanEntryDialogState
       await ref.putData(fileData['bytes'] as Uint8List);
       return await ref.getDownloadURL();
     } catch (e) {
-      print('Upload error: $e');
+      debugPrint('Upload error: $e');
       return null;
     }
   }
@@ -548,13 +548,13 @@ class _ClassLessonPlanEntryDialogState
                 }
               });
             },
-            activeColor: Colors.blue,
+            activeThumbColor: Colors.blue,
           ),
 
         if (_useYearlyPlan) ...[
           if (_availableYearlyPlans.length > 1)
             DropdownButtonFormField<String>(
-              value: _selectedYearlyPlanId,
+              initialValue: _selectedYearlyPlanId,
               isExpanded: true,
               decoration: InputDecoration(
                 labelText: 'Yıllık Plan Seçiniz',
@@ -591,7 +591,7 @@ class _ClassLessonPlanEntryDialogState
             Center(child: CircularProgressIndicator())
           else if (_selectedYearlyPlanId != null)
             DropdownButtonFormField<String>(
-              value: _selectedWeekId,
+              initialValue: _selectedWeekId,
               isExpanded: true,
               decoration: InputDecoration(
                 labelText: 'Hafta Seçiniz',
@@ -779,8 +779,8 @@ class _ClassLessonPlanEntryDialogState
                       padding: EdgeInsets.all(8),
                       decoration: BoxDecoration(
                         color: isLink
-                            ? Colors.blue.withOpacity(0.1)
-                            : Colors.orange.withOpacity(0.1),
+                            ? Colors.blue.withValues(alpha: 0.1)
+                            : Colors.orange.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Icon(

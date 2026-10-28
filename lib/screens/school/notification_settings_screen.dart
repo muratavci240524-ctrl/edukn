@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -18,7 +18,7 @@ class _NotificationSettingsScreenState
   bool _isSaving = false;
   String? _userId;
 
-  Map<String, bool> _settings = {
+  final Map<String, bool> _settings = {
     'announcements': true,
     'studies': true,
     'homeworks': true,
@@ -244,7 +244,7 @@ class _NotificationSettingsScreenState
                           borderRadius: BorderRadius.circular(20),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.06),
+                              color: Colors.black.withValues(alpha: 0.06),
                               blurRadius: 12,
                               offset: const Offset(0, 4),
                             ),
@@ -335,7 +335,7 @@ class _NotificationSettingsScreenState
             width: 42,
             height: 42,
             decoration: BoxDecoration(
-              color: item.color.withOpacity(0.12),
+              color: item.color.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(item.icon, color: item.color, size: 22),
@@ -366,8 +366,8 @@ class _NotificationSettingsScreenState
           Switch(
             value: isOn,
             onChanged: (v) => _toggleSetting(item.key, v),
-            activeColor: item.color,
-            activeTrackColor: item.color.withOpacity(0.25),
+            activeThumbColor: item.color,
+            activeTrackColor: item.color.withValues(alpha: 0.25),
             inactiveThumbColor: Colors.grey.shade400,
             inactiveTrackColor: Colors.grey.shade200,
           ),

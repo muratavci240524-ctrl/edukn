@@ -1,7 +1,6 @@
-﻿import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
-import 'package:flutter/foundation.dart';
 import '../models/agm_cycle_model.dart';
 import '../models/agm_group_model.dart';
 import '../models/agm_assignment_model.dart';
@@ -11,8 +10,6 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:excel/excel.dart' hide Border;
 
-/// Haftalık Derslik Takvim Ekranı
-/// Seçilen dersliğin programını gösterir, akordeon içinde öğretmen ve konu detayları sunar.
 class AgmClassroomTimetableScreen extends StatefulWidget {
   final AgmCycle cycle;
   final List<AgmGroup> groups;
@@ -26,76 +23,43 @@ class AgmClassroomTimetableScreen extends StatefulWidget {
   }) : super(key: key);
 
   @override
-  State<AgmClassroomTimetableScreen> createState() =>
-      _AgmClassroomTimetableScreenState();
+  State<AgmClassroomTimetableScreen> createState() => _AgmClassroomTimetableScreenState();
 }
 
-class _AgmClassroomTimetableScreenState
-    extends State<AgmClassroomTimetableScreen> {
-  String? _selectedClassroomId;
-  String? _selectedClassroomName;
+class _AgmClassroomTimetableScreenState extends State<AgmClassroomTimetableScreen> {
+  String? _selectedRoomId;
+  String? _selectedRoomName;
   String _searchQuery = '';
+  List<Map<String, dynamic>> _rooms = [];
+  List<AgmGroup> _roomGroups = [];
 
-  List<Map<String, dynamic>> _classrooms = [];
-  List<AgmGroup> _classroomGroups = [];
-
-  final List<String> _gunler = [
-    'Pazartesi',
-    'Salı',
-    'Çarşamba',
-    'Perşembe',
-    'Cuma',
-    'Cumartesi',
-  ];
+  final List<String> _gunler = ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar'];
 
   @override
   void initState() {
     super.initState();
-    _buildClassroomList();
+    _buildRoomList();
   }
 
-  void _buildClassroomList() {
-    final Map<String, String> classroomMap = {};
-    bool hasUndefined = false;
+  void _buildRoomList() {
+    final Map<String, Map<String, dynamic>> roomMap = {};
     for (final g in widget.groups) {
-      final hasStudents = (widget.assignmentsByGroup[g.id] ?? []).isNotEmpty;
-      if (!hasStudents) continue;
-
-      if (g.derslikId != null && g.derslikId!.isNotEmpty) {
-        classroomMap[g.derslikId!] = g.derslikAdi ?? 'İsimsiz Derslik';
+      if (g.derslikId == null || g.derslikId!.isEmpty) continue;
+      if (!roomMap.containsKey(g.derslikId)) {
+        roomMap[g.derslikId!] = {'id': g.derslikId, 'name': g.derslikAdi, 'count': 1};
       } else {
-        hasUndefined = true;
+        roomMap[g.derslikId!]!['count']++;
       }
     }
-    _classrooms =
-        classroomMap.entries.map((e) => {'id': e.key, 'name': e.value}).toList()
-          ..sort((a, b) => _compareNatural(a['name']!, b['name']!));
-
-    if (hasUndefined) {
-      _classrooms.add({'id': 'undefined', 'name': 'Derslik Tanımlanmamış'});
-    }
+    _rooms = roomMap.values.toList()..sort((a, b) => a['name'].toString().compareTo(b['name'].toString()));
   }
 
-  void _loadClassroomTimetable(String classroomId, String classroomName) {
+  void _loadRoomTimetable(String roomId) {
     setState(() {
-      _selectedClassroomId = classroomId;
-      _selectedClassroomName = classroomName;
-      _classroomGroups = widget.groups.where((g) {
-        bool matchesRoom;
-        if (classroomId == 'undefined') {
-          matchesRoom = g.derslikId == null || g.derslikId!.isEmpty;
-        } else {
-          matchesRoom = g.derslikId == classroomId;
-        }
-        final hasStudents = (widget.assignmentsByGroup[g.id] ?? []).isNotEmpty;
-        return matchesRoom && hasStudents;
-      }).toList()
-        ..sort((a, b) {
-          int dayCompare =
-              _gunler.indexOf(a.gun).compareTo(_gunler.indexOf(b.gun));
-          if (dayCompare != 0) return dayCompare;
-          return a.baslangicSaat.compareTo(b.baslangicSaat);
-        });
+      _selectedRoomId = roomId;
+      _selectedRoomName = _rooms.firstWhere((r) => r['id'] == roomId)['name'];
+      _roomGroups = widget.groups.where((g) => g.derslikId == roomId).toList()
+        ..sort((a, b) => _gunler.indexOf(a.gun).compareTo(_gunler.indexOf(b.gun)));
     });
   }
 
@@ -109,7 +73,7 @@ class _AgmClassroomTimetableScreenState
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert, color: Colors.white),
             onSelected: (value) {
-              final allSelected = _selectedClassroomId == null;
+              final allSelected = _selectedRoomId == null;
               switch (value) {
                 case 'excel':
                   _exportExcel(allClassrooms: allSelected);
@@ -126,285 +90,184 @@ class _AgmClassroomTimetableScreenState
               const PopupMenuItem(
                 value: 'excel',
                 child: Row(
-                  children: [
-                    Icon(Icons.description, color: Colors.green, size: 20),
-                    SizedBox(width: 12),
-                    Text('Excel İndir'),
-                  ],
+                  children: [Icon(Icons.description, color: Colors.green, size: 20), SizedBox(width: 12), Text('Excel İndir')],
                 ),
               ),
               const PopupMenuItem(
                 value: 'print',
                 child: Row(
-                  children: [
-                    Icon(Icons.print, color: Colors.blue, size: 20),
-                    SizedBox(width: 12),
-                    Text('Yazdır (PDF)'),
-                  ],
+                  children: [Icon(Icons.print, color: Colors.blue, size: 20), SizedBox(width: 12), Text('Yazdır (PDF)')],
                 ),
               ),
               const PopupMenuItem(
                 value: 'share',
                 child: Row(
-                  children: [
-                    Icon(Icons.share, color: Colors.deepOrange, size: 20),
-                    SizedBox(width: 12),
-                    Text('Paylaş'),
-                  ],
+                  children: [Icon(Icons.share, color: Colors.deepOrange, size: 20), SizedBox(width: 12), Text('Paylaş')],
                 ),
               ),
             ],
           ),
         ],
       ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1200),
-          child: Column(
-            children: [
-              _buildSearchAndSelector(),
-              Expanded(
-                child: _selectedClassroomId == null
-                    ? _buildNoSelectionState()
-                    : _buildTimetable(),
-              ),
-            ],
-          ),
-        ),
-      ),
+      body: Column(children: [_buildSelector(), Expanded(child: _selectedRoomId == null ? _buildNoState() : _buildTimetable())]),
     );
   }
 
-  Widget _buildSearchAndSelector() {
+  Widget _buildSelector() {
     return Container(
-      padding: const EdgeInsets.all(16),
-      color: Colors.white,
+      padding: const EdgeInsets.all(16), color: Colors.white,
       child: InkWell(
-        onTap: _showClassroomSearchSheet,
+        onTap: _showSearchSheet,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            color: Colors.grey.shade50,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey.shade200),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.meeting_room, color: Colors.deepOrange.shade400),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  _selectedClassroomId == null
-                      ? 'Derslik Seçin...'
-                      : _selectedClassroomName!,
-                  style: TextStyle(
-                    color: _selectedClassroomId == null
-                        ? Colors.grey.shade600
-                        : Colors.black87,
-                    fontWeight: _selectedClassroomId == null
-                        ? FontWeight.normal
-                        : FontWeight.bold,
-                  ),
-                ),
-              ),
-              Icon(Icons.arrow_drop_down, color: Colors.grey.shade400),
-            ],
-          ),
+          decoration: BoxDecoration(color: Colors.grey.shade50, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade200)),
+          child: Row(children: [
+            Icon(Icons.meeting_room, color: Colors.orange.shade400),
+            const SizedBox(width: 12),
+            Expanded(child: Text(_selectedRoomId == null ? 'Derslik Ara ve Seç...' : '$_selectedRoomName (${_roomGroups.length} grup)', style: TextStyle(color: _selectedRoomId == null ? Colors.grey.shade600 : Colors.black87, fontWeight: _selectedRoomId == null ? FontWeight.normal : FontWeight.bold))),
+            Icon(Icons.arrow_drop_down, color: Colors.grey.shade400),
+          ]),
         ),
       ),
     );
   }
 
-  void _showClassroomSearchSheet() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.8,
-        builder: (context, scrollController) {
-          return StatefulBuilder(
-            builder: (context, setSheetState) {
-              final filtered = _classrooms
-                  .where(
-                    (t) => t['name'].toString().toLowerCase().contains(
-                      _searchQuery.toLowerCase(),
-                    ),
-                  )
-                  .toList();
-              return Container(
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                ),
-                child: Column(
-                  children: [
-                    const SizedBox(height: 12),
-                    Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: TextField(
-                        autofocus: true,
-                        onChanged: (v) => setSheetState(() => _searchQuery = v),
-                        decoration: InputDecoration(
-                          hintText: 'Derslik ismi...',
-                          prefixIcon: const Icon(Icons.search),
-                          filled: true,
-                          fillColor: Colors.grey.shade50,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide.none,
-                          ),
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: ListView.builder(
-                        controller: scrollController,
-                        itemCount: filtered.length,
-                        itemBuilder: (context, index) {
-                          final t = filtered[index];
-                          return ListTile(
-                            title: Text(t['name']),
-                            onTap: () {
-                              _loadClassroomTimetable(t['id'], t['name']);
-                              Navigator.pop(context);
-                            },
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          );
-        },
-      ),
-    );
+  void _showSearchSheet() {
+    showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (ctx) => DraggableScrollableSheet(initialChildSize: 0.8, builder: (ctx, ctrl) => StatefulBuilder(builder: (ctx, setSS) {
+      final filtered = _rooms.where((r) => r['name'].toString().toLowerCase().contains(_searchQuery.toLowerCase())).toList();
+      return Container(
+        decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        child: Column(children: [
+          const SizedBox(height: 12), Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+          Padding(padding: const EdgeInsets.all(16), child: TextField(autofocus: true, onChanged: (v) => setSS(() => _searchQuery = v), decoration: InputDecoration(hintText: 'Derslik ara...', prefixIcon: const Icon(Icons.search, color: Colors.orange), filled: true, fillColor: Colors.grey.shade50, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none)))),
+          Expanded(child: ListView.builder(controller: ctrl, itemCount: filtered.length, itemBuilder: (ctx, i) {
+            final r = filtered[i];
+            return ListTile(leading: CircleAvatar(backgroundColor: Colors.orange.shade50, child: const Icon(Icons.meeting_room, color: Colors.orange)), title: Text(r['name']), subtitle: Text('${r['count']} grup'), onTap: () { _loadRoomTimetable(r['id']); Navigator.pop(ctx); });
+          })),
+        ]),
+      );
+    })));
   }
 
-  Widget _buildNoSelectionState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.meeting_room_outlined,
-            size: 64,
-            color: Colors.grey.shade300,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Lütfen bir derslik seçin',
-            style: TextStyle(color: Colors.grey.shade500),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _buildNoState() => Center(child: Text('Derslik seçin', style: TextStyle(color: Colors.grey.shade500)));
 
   Widget _buildTimetable() {
-    if (_classroomGroups.isEmpty) {
-      return const Center(child: Text('Bu dersliğe ait program bulunamadı.'));
-    }
-
     return ListView.builder(
       padding: const EdgeInsets.all(16),
-      itemCount: _classroomGroups.length,
-      itemBuilder: (context, index) {
-        final group = _classroomGroups[index];
-        final students = widget.assignmentsByGroup[group.id] ?? [];
+      itemCount: _roomGroups.length,
+      itemBuilder: (ctx, i) {
+        final g = _roomGroups[i];
+        final assignments = widget.assignmentsByGroup[g.id] ?? [];
+        
+        final sortedAssignments = assignments.toList()
+          ..sort((a, b) => b.basariOrani.compareTo(a.basariOrani));
+          
+        double avgSuccess = 0.0;
+        if (assignments.isNotEmpty) {
+          avgSuccess = assignments.map((a) => a.basariOrani).reduce((a, b) => a + b) / assignments.length;
+        }
 
         return Card(
-          margin: const EdgeInsets.only(bottom: 12),
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.grey.shade200),
-          ),
+          clipBehavior: Clip.antiAlias,
+          elevation: 2,
+          margin: const EdgeInsets.only(bottom: 16),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           child: ExpansionTile(
-            title: Text(
-              '${group.gun} | ${group.baslangicSaat}-${group.bitisSaat}',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            subtitle: Text('${group.dersAdi} - ${group.ogretmenAdi}'),
-            leading: CircleAvatar(
-              backgroundColor: Colors.deepOrange.shade50,
-              child: const Icon(
-                Icons.meeting_room,
-                color: Colors.deepOrange,
-                size: 20,
-              ),
+            shape: const Border(),
+            collapsedShape: const Border(),
+            backgroundColor: Colors.orange.shade50.withValues(alpha: 0.4),
+            collapsedBackgroundColor: Colors.white,
+            iconColor: Colors.orange.shade700,
+            collapsedIconColor: Colors.grey.shade600,
+            tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            title: Row(
+               crossAxisAlignment: CrossAxisAlignment.center,
+               children: [
+                 Expanded(
+                   child: Column(
+                     crossAxisAlignment: CrossAxisAlignment.start,
+                     children: [
+                       Text(
+                         '${g.gun} • ${g.baslangicSaat}-${g.bitisSaat}', 
+                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.black87)
+                       ),
+                       const SizedBox(height: 4),
+                       Text('${g.dersAdi} • ${g.ogretmenAdi} (${assignments.length}/${g.kapasite})', style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                     ],
+                   ),
+                 ),
+                 if (assignments.isNotEmpty)
+                   Container(
+                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                     decoration: BoxDecoration(
+                       color: avgSuccess >= 0.7 ? Colors.green.shade50 : (avgSuccess >= 0.5 ? Colors.orange.shade50 : Colors.red.shade50),
+                       borderRadius: BorderRadius.circular(20),
+                       border: Border.all(color: avgSuccess >= 0.7 ? Colors.green.shade200 : (avgSuccess >= 0.5 ? Colors.orange.shade200 : Colors.red.shade200)),
+                     ),
+                     child: Row(
+                       mainAxisSize: MainAxisSize.min,
+                       children: [
+                         Icon(
+                           avgSuccess >= 0.7 ? Icons.trending_up : (avgSuccess >= 0.5 ? Icons.trending_flat : Icons.trending_down),
+                           size: 14, 
+                           color: avgSuccess >= 0.7 ? Colors.green.shade700 : (avgSuccess >= 0.5 ? Colors.orange.shade700 : Colors.red.shade700)
+                         ),
+                         const SizedBox(width: 4),
+                         Text(
+                           '%${(avgSuccess * 100).toStringAsFixed(0)} Ort.', 
+                           style: TextStyle(
+                             fontSize: 12, 
+                             fontWeight: FontWeight.bold,
+                             color: avgSuccess >= 0.7 ? Colors.green.shade700 : (avgSuccess >= 0.5 ? Colors.orange.shade700 : Colors.red.shade700),
+                           )
+                         ),
+                       ],
+                     ),
+                   )
+               ]
             ),
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Divider(),
-                    const Text(
-                      'PROGRAM DETAYLARI:',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey,
+              const Divider(height: 1, thickness: 1),
+              if (assignments.isEmpty) 
+                Padding(
+                  padding: const EdgeInsets.all(24), 
+                  child: Center(child: Text('Bu derse kayıtlı öğrenci bulunmuyor.', style: TextStyle(color: Colors.grey.shade500)))
+                )
+              else 
+                ...sortedAssignments.map((a) {
+                  final successPercent = (a.basariOrani * 100).round();
+                  return Container(
+                    decoration: BoxDecoration(
+                      border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+                      color: Colors.white,
+                    ),
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                      leading: CircleAvatar(
+                        radius: 18,
+                        backgroundColor: Colors.orange.shade100,
+                        child: Icon(Icons.person_outline, size: 20, color: Colors.orange.shade800),
+                      ), 
+                      title: Text(a.ogrenciAdi, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.black87)), 
+                      subtitle: Text('Şube: ${a.sube ?? '-'}', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                      trailing: Container(
+                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                         decoration: BoxDecoration(
+                           color: successPercent >= 70 ? Colors.green.shade50 : (successPercent >= 50 ? Colors.orange.shade50 : Colors.red.shade50),
+                           borderRadius: BorderRadius.circular(8),
+                         ),
+                         child: Text(
+                           '%$successPercent', 
+                           style: TextStyle(
+                             fontSize: 13, 
+                             fontWeight: FontWeight.bold,
+                             color: successPercent >= 70 ? Colors.green.shade700 : (successPercent >= 50 ? Colors.orange.shade700 : Colors.red.shade700),
+                           )
+                         ),
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    _detailRow(Icons.person, 'Öğretmen:', group.ogretmenAdi),
-                    _detailRow(Icons.book, 'Ders:', group.dersAdi),
-                    if (group.kazanimlar.isNotEmpty)
-                      _detailRow(
-                        Icons.label_important,
-                        'Kazanımlar:',
-                        group.kazanimlar.join(', '),
-                      ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'ÖĞRENCİ LİSTESİ (${students.length}):',
-                      style: const TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    if (students.isEmpty)
-                      const Text(
-                        'Bu grupta öğrenci yok.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontStyle: FontStyle.italic,
-                        ),
-                      )
-                    else
-                      Column(
-                        children: students
-                            .map(
-                              (s) => Padding(
-                                padding: const EdgeInsets.only(bottom: 4),
-                                child: Row(
-                                  children: [
-                                    const Icon(
-                                      Icons.check_circle_outline,
-                                      size: 14,
-                                      color: Colors.green,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      '${s.ogrenciAdi} (${s.subeAdi})',
-                                      style: const TextStyle(fontSize: 12),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            )
-                            .toList(),
-                      ),
-                  ],
-                ),
-              ),
+                  );
+                }),
             ],
           ),
         );
@@ -412,101 +275,178 @@ class _AgmClassroomTimetableScreenState
     );
   }
 
-  Widget _detailRow(IconData icon, String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 14, color: Colors.deepOrange.shade300),
-          const SizedBox(width: 8),
-          Text(
-            label,
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(width: 4),
-          Expanded(child: Text(value, style: const TextStyle(fontSize: 12))),
-        ],
-      ),
-    );
-  }
-
   String _norm(String t) {
     if (t.isEmpty) return t;
-    return t
-        .replaceAll('u\u0308', 'ü')
-        .replaceAll('U\u0308', 'Ü')
-        .replaceAll('o\u0308', 'ö')
-        .replaceAll('O\u0308', 'Ö')
-        .replaceAll('c\u0327', 'ç')
-        .replaceAll('C\u0327', 'Ç')
-        .replaceAll('s\u0327', 'ş')
-        .replaceAll('S\u0327', 'Ş')
-        .replaceAll('g\u0306', 'ğ')
-        .replaceAll('G\u0306', 'Ğ')
-        .replaceAll('I\u0307', 'İ')
-        .replaceAll('i\u0307', 'i');
+    return t.replaceAll('u\u0308', 'ü').replaceAll('U\u0308', 'Ü').replaceAll('o\u0308', 'ö').replaceAll('O\u0308', 'Ö').replaceAll('c\u0327', 'ç').replaceAll('C\u0327', 'Ç').replaceAll('s\u0327', 'ş').replaceAll('S\u0327', 'Ş').replaceAll('g\u0306', 'ğ').replaceAll('G\u0306', 'Ğ').replaceAll('I\u0307', 'İ').replaceAll('i\u0307', 'i');
   }
 
-  Future<void> _printPDF({
-    bool allClassrooms = false,
-    bool isShare = false,
-  }) async {
+  String _getActualDateString(String gunString) {
+    int? targetWeekday;
+    final normalized = gunString.toUpperCase();
+    if (normalized.contains('PZT') || normalized.contains('PAZARTESİ')) targetWeekday = 1;
+    else if (normalized.contains('SAL')) targetWeekday = 2;
+    else if (normalized.contains('ÇAR')) targetWeekday = 3;
+    else if (normalized.contains('PER')) targetWeekday = 4;
+    else if (normalized.contains('CUM') && !normalized.contains('CUMARTESİ')) targetWeekday = 5;
+    else if (normalized.contains('CMT') || normalized.contains('CUMARTESİ')) targetWeekday = 6;
+    else if (normalized.contains('PAZ') && !normalized.contains('PAZARTESİ')) targetWeekday = 7;
+    
+    if (targetWeekday == null) return '';
+    
+    final start = widget.cycle.baslangicTarihi;
+    final end = widget.cycle.bitisTarihi;
+    
+    // Find the date between start and end that has the targetWeekday
+    for (int i = 0; i <= end.difference(start).inDays + 1; i++) {
+      final d = start.add(Duration(days: i));
+      if (d.weekday == targetWeekday) {
+        return '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year}';
+      }
+    }
+    return '';
+  }
+
+  String _getActualDayName(String gunString) {
+    final normalized = gunString.toUpperCase();
+    if (normalized.contains('PZT') || normalized.contains('PAZARTESİ')) return 'Pazartesi';
+    if (normalized.contains('SAL')) return 'Salı';
+    if (normalized.contains('ÇAR') || normalized.contains('ÇARŞAMBA')) return 'Çarşamba';
+    if (normalized.contains('PER') || normalized.contains('PERŞEMBE')) return 'Perşembe';
+    if (normalized.contains('CUM') && !normalized.contains('CUMARTESİ')) return 'Cuma';
+    if (normalized.contains('CMT') || normalized.contains('CUMARTESİ')) return 'Cumartesi';
+    if (normalized.contains('PAZ') && !normalized.contains('PAZARTESİ')) return 'Pazar';
+    return gunString;
+  }
+
+  Future<void> _printPDF({bool allClassrooms = false, bool isShare = false}) async {
     final doc = pw.Document();
     final font = await PdfGoogleFonts.robotoRegular();
     final fontBold = await PdfGoogleFonts.robotoBold();
 
-    final roomsToPrint = allClassrooms
-        ? _classrooms
-        : [
-            {'id': _selectedClassroomId, 'name': _selectedClassroomName},
-          ];
+    final roomsToPrint = allClassrooms ? _rooms : [{'id': _selectedRoomId, 'name': _selectedRoomName}];
+
+    // Prepare Classroom Summary Page
+    final allRoomGroups = <AgmGroup>[];
+    for (final room in roomsToPrint) {
+      final rId = room['id'];
+      if (rId == null) continue;
+      final rGroups = widget.groups.where((g) => g.derslikId == rId).toList();
+      allRoomGroups.addAll(rGroups);
+    }
+
+    allRoomGroups.sort((a, b) {
+      int dayCompare = _gunler.indexOf(_getActualDayName(a.gun)).compareTo(_gunler.indexOf(_getActualDayName(b.gun)));
+      if (dayCompare != 0) return dayCompare;
+      int timeCompare = a.baslangicSaat.compareTo(b.baslangicSaat);
+      if (timeCompare != 0) return timeCompare;
+      return (a.derslikAdi ?? '').compareTo(b.derslikAdi ?? '');
+    });
+
+    if (allRoomGroups.isNotEmpty) {
+      doc.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(32),
+          header: (pw.Context context) {
+            return pw.Container(
+              width: double.infinity,
+              padding: const pw.EdgeInsets.all(12),
+              margin: const pw.EdgeInsets.only(bottom: 12),
+              decoration: const pw.BoxDecoration(color: PdfColors.orange800),
+              child: pw.Text('AGM DERSLİK PROGRAMLARI ÖZETİ', style: pw.TextStyle(font: fontBold, color: PdfColors.white, fontSize: 16)),
+            );
+          },
+          footer: (pw.Context context) {
+            return pw.Align(
+              alignment: pw.Alignment.centerRight,
+              child: pw.Text('Rapor Tarihi: ${DateTime.now().day}.${DateTime.now().month}.${DateTime.now().year} | Özet Sayfa ${context.pageNumber}', style: pw.TextStyle(font: font, fontSize: 8, color: PdfColors.grey500)),
+            );
+          },
+          build: (context) {
+            return [
+              pw.Text('Tüm dersliklerin haftalık AGM seans planlaması ve öğrenci katılım özet tablosu aşağıda listelenmiştir:', style: pw.TextStyle(font: font, fontSize: 10, color: PdfColors.grey800)),
+              pw.SizedBox(height: 12),
+              pw.Table(
+                border: const pw.TableBorder(
+                  horizontalInside: pw.BorderSide(color: PdfColors.grey200, width: 0.5),
+                  bottom: pw.BorderSide(color: PdfColors.grey400, width: 0.5),
+                  top: pw.BorderSide(color: PdfColors.grey400, width: 0.5),
+                ),
+                columnWidths: {
+                  0: const pw.FlexColumnWidth(2),
+                  1: const pw.FlexColumnWidth(1.2),
+                  2: const pw.FlexColumnWidth(1.5),
+                  3: const pw.FixedColumnWidth(75),
+                },
+                defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
+                children: [
+                  pw.TableRow(
+                    decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+                    children: [
+                      _tableHeaderSummary('Seans', fontBold),
+                      _tableHeaderSummary('Derslik Adı', fontBold),
+                      _tableHeaderSummary('Öğretmen Adı', fontBold),
+                      _tableHeaderSummary('Öğrenci Sayısı', fontBold, align: pw.Alignment.center),
+                    ],
+                  ),
+                  ...List.generate(allRoomGroups.length, (idx) {
+                    final g = allRoomGroups[idx];
+                    final isEven = idx % 2 == 0;
+                    return pw.TableRow(
+                      decoration: pw.BoxDecoration(color: isEven ? PdfColors.white : PdfColors.grey50),
+                      children: [
+                        _tableCellSummary('${_getActualDayName(g.gun)} (${g.baslangicSaat}-${g.bitisSaat})', font),
+                        _tableCellSummary(_norm(g.derslikAdi ?? ''), font),
+                        _tableCellSummary(_norm(g.ogretmenAdi), font),
+                        _tableCellSummary('${g.mevcutOgrenciSayisi} Öğrenci', fontBold, align: pw.Alignment.center),
+                      ],
+                    );
+                  }),
+                ],
+              ),
+            ];
+          },
+        ),
+      );
+    }
 
     for (final room in roomsToPrint) {
       final rId = room['id'];
       final rName = room['name'];
       if (rId == null) continue;
 
-      final rGroups = widget.groups.where((g) {
-        bool matchesRoom;
-        if (rId == 'undefined') {
-          matchesRoom = g.derslikId == null || g.derslikId!.isEmpty;
-        } else {
-          matchesRoom = g.derslikId == rId;
-        }
-        final hasStudents = (widget.assignmentsByGroup[g.id] ?? []).isNotEmpty;
-        return matchesRoom && hasStudents;
-      }).toList()
+      final rGroups = widget.groups.where((g) => g.derslikId == rId).toList()
         ..sort((a, b) {
-          int dayCompare =
-              _gunler.indexOf(a.gun).compareTo(_gunler.indexOf(b.gun));
+          int dayCompare = _gunler.indexOf(a.gun).compareTo(_gunler.indexOf(b.gun));
           if (dayCompare != 0) return dayCompare;
           return a.baslangicSaat.compareTo(b.baslangicSaat);
         });
 
-      // Eğer derslik tanımlanmamışsa, her grubu ayrı sayfaya bas (Kullanıcı talebi: Boş olanlar her sayfada tek tek olsun)
-      // Normal dersliklerde ise o dersliğin tüm programını bir arada tut (MultiPage içinde).
-      final bool isUndefined = rId == 'undefined';
-
-      if (isUndefined) {
-        // Her grup için yeni bir sayfa (tekli grup raporu)
-        for (final g in rGroups) {
-          doc.addPage(
-            pw.Page(
-              pageFormat: PdfPageFormat.a4,
-              build: (context) => _buildGroupReport(g, rName!, font, fontBold),
-            ),
-          );
-        }
-      } else {
-        // Normal derslik: MultiPage (tüm slotları listele)
+      for (int i = 0; i < rGroups.length; i += 2) {
+        final currentPair = rGroups.skip(i).take(2).toList();
         doc.addPage(
-          pw.MultiPage(
+          pw.Page(
             pageFormat: PdfPageFormat.a4,
-            header: (context) => _buildHeader(rName!, fontBold),
-            footer: (context) => _buildFooter(context, font),
-            build: (pw.Context context) {
-              return rGroups.map((g) => _buildGroupCardInPdf(g, rName!, font, fontBold)).toList();
+            margin: const pw.EdgeInsets.all(32),
+            build: (context) {
+              return pw.Column(
+                children: [
+                  _buildHeader(rName!, fontBold),
+                  pw.SizedBox(height: 10),
+                  pw.Expanded(
+                    child: _buildGroupCardInPdf(currentPair[0], rName!, font, fontBold),
+                  ),
+                  if (currentPair.length > 1) ...[
+                    pw.SizedBox(height: 20),
+                    pw.Expanded(
+                      child: _buildGroupCardInPdf(currentPair[1], rName!, font, fontBold),
+                    ),
+                  ] else
+                    pw.Expanded(child: pw.Container()),
+                  pw.SizedBox(height: 10),
+                  _buildFooter(context, font),
+                ],
+              );
             },
           ),
         );
@@ -515,43 +455,146 @@ class _AgmClassroomTimetableScreenState
 
     final bytes = await doc.save();
     if (isShare) {
-      if (kIsWeb && !allClassrooms && _selectedClassroomId != null) {
+      if (kIsWeb && !allClassrooms && _selectedRoomId != null) {
         _showWebShareDialog(bytes);
       } else {
-        await Printing.sharePdf(
-          bytes: bytes,
-          filename: 'agm_derslik_programlari.pdf',
-        );
+        await Printing.sharePdf(bytes: bytes, filename: 'agm_derslik_programlari.pdf');
       }
     } else {
       await Printing.layoutPdf(onLayout: (PdfPageFormat format) async => bytes);
     }
   }
 
-  void _showWebShareDialog(Uint8List pdfBytes) {
-    // Derslik programında bir öğretmenin kimliğini bul (ilgili derslikteki herhangi bir grup)
-    final rGroups = widget.groups
-        .where((g) => g.derslikId == _selectedClassroomId)
-        .toList();
-    if (rGroups.isEmpty || rGroups.first.ogretmenId.isEmpty) {
-      // Öğretmen bilgisi yoksa sadece indir
-      Printing.sharePdf(
-        bytes: pdfBytes,
-        filename: 'agm_derslik_programlari.pdf',
+  pw.Widget _buildHeader(String rName, pw.Font fontBold) {
+    return pw.Container(
+      width: double.infinity, padding: const pw.EdgeInsets.all(12), margin: const pw.EdgeInsets.only(bottom: 12),
+      decoration: const pw.BoxDecoration(color: PdfColors.orange800),
+      child: pw.Text('AGM DERSLİK PROGRAMI: ${_norm(rName)}', style: pw.TextStyle(font: fontBold, color: PdfColors.white, fontSize: 16)),
+    );
+  }
+
+  pw.Widget _buildFooter(pw.Context context, pw.Font font) {
+    return pw.Align(
+      alignment: pw.Alignment.centerRight,
+      child: pw.Text('Rapor Tarihi: ${DateTime.now().day}.${DateTime.now().month}.${DateTime.now().year} | Sayfa ${context.pageNumber}', style: pw.TextStyle(font: font, fontSize: 8, color: PdfColors.grey500)),
+    );
+  }
+
+  pw.Widget _tableHeaderSummary(String text, pw.Font font, {pw.Alignment align = pw.Alignment.centerLeft}) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+      child: pw.Align(
+        alignment: align,
+        child: pw.Text(text, style: pw.TextStyle(font: font, fontSize: 9, color: PdfColors.black)),
+      ),
+    );
+  }
+
+  pw.Widget _tableCellSummary(String text, pw.Font font, {pw.Alignment align = pw.Alignment.centerLeft}) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 8),
+      child: pw.Align(
+        alignment: align,
+        child: pw.Text(text, style: pw.TextStyle(font: font, fontSize: 8.5)),
+      ),
+    );
+  }
+
+  pw.Widget _buildGroupCardInPdf(AgmGroup g, String rName, pw.Font font, pw.Font fontBold) {
+    final students = widget.assignmentsByGroup[g.id] ?? [];
+    final gDersAdi = _norm(g.dersAdi);
+    final gOgretmenAdi = _norm(g.ogretmenAdi);
+    final gGun = _norm(g.gun);
+    
+    final double avg = students.isEmpty 
+        ? 0.0 
+        : students.fold(0.0, (sum, a) => sum + a.basariOrani) / students.length;
+    final bool isHighSuccess = (avg * 100).round() >= 95;
+    
+    final gKazanimlar = isHighSuccess 
+        ? ['Soru Çözümü'] 
+        : g.kazanimlar.map((k) => _norm(k)).toList();
+
+    return pw.Container(
+      padding: const pw.EdgeInsets.all(12),
+      decoration: pw.BoxDecoration(
+        border: pw.Border.all(color: PdfColors.grey300, width: 1),
+        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(12)),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
+            pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+              pw.Text('Derslik: ${_norm(rName)}', style: pw.TextStyle(font: fontBold, fontSize: 13, color: PdfColors.orange800)),
+              if (_getActualDateString(g.gun).isNotEmpty)
+                pw.Text('Tarih: ${_getActualDateString(g.gun)}', style: pw.TextStyle(font: font, fontSize: 11)),
+              pw.Text('Gün: ${_getActualDayName(g.gun)}', style: pw.TextStyle(font: font, fontSize: 11)),
+            ]),
+            pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.end, children: [
+              pw.Text('Öğretmen: $gOgretmenAdi', style: pw.TextStyle(font: fontBold, fontSize: 11)),
+              pw.Text('Ders: $gDersAdi', style: pw.TextStyle(font: font, fontSize: 11)),
+              pw.Text('Saat: ${g.baslangicSaat}-${g.bitisSaat}', style: pw.TextStyle(font: fontBold, fontSize: 11)),
+            ]),
+          ]),
+          pw.Divider(color: PdfColors.orange200, thickness: 1, height: 15),
+          if (gKazanimlar.isNotEmpty) ...[
+            pw.Text('Kazanımlar: ${gKazanimlar.join(", ")}', style: pw.TextStyle(font: font, fontSize: 9, color: PdfColors.grey700), maxLines: 2),
+            pw.SizedBox(height: 10),
+          ],
+          pw.Text('Öğrenci Listesi (${students.length}):', style: pw.TextStyle(font: fontBold, fontSize: 10, color: PdfColors.grey800)),
+          pw.SizedBox(height: 5),
+          pw.Expanded(child: _build3ColumnStudentTable(students, font)),
+        ],
+      ),
+    );
+  }
+
+  pw.Widget _build3ColumnStudentTable(List<AgmAssignment> students, pw.Font font) {
+    if (students.isEmpty) return pw.Text('• Bu grupta öğrenci yok.', style: pw.TextStyle(font: font, fontSize: 8));
+    final sortedStudents = students.toList()..sort((a, b) => a.ogrenciAdi.compareTo(b.ogrenciAdi));
+    
+    final List<pw.TableRow> rows = [];
+    for (int i = 0; i < sortedStudents.length; i += 3) {
+      final bool isEven = (i / 3).floor() % 2 == 0;
+      rows.add(
+        pw.TableRow(
+          decoration: pw.BoxDecoration(color: isEven ? PdfColors.white : PdfColors.grey50),
+          children: [
+            for (int j = 0; j < 3; j++)
+              if (i + j < sortedStudents.length)
+                pw.Padding(
+                  padding: const pw.EdgeInsets.symmetric(vertical: 3, horizontal: 4),
+                  child: pw.Text(
+                    '${i + j + 1}. ${_norm(sortedStudents[i + j].ogrenciAdi)} (${_norm(sortedStudents[i + j].sube ?? '')})',
+                    style: pw.TextStyle(font: font, fontSize: 8, color: PdfColors.grey900),
+                  ),
+                )
+              else
+                pw.Container(),
+          ],
+        ),
       );
+    }
+    return pw.Table(
+      border: pw.TableBorder.all(color: PdfColors.grey100, width: 0.5),
+      children: rows,
+    );
+  }
+
+  void _showWebShareDialog(Uint8List pdfBytes) {
+    final rGroups = widget.groups.where((g) => g.derslikId == _selectedRoomId).toList();
+    if (rGroups.isEmpty || rGroups.first.ogretmenId.isEmpty) {
+      Printing.sharePdf(bytes: pdfBytes, filename: 'agm_derslik_programlari.pdf');
       return;
     }
-
     final teacherId = rGroups.first.ogretmenId;
-
     showDialog(
       context: context,
       builder: (context) {
         return AgmWebShareDialog(
-          pdfBytes: pdfBytes,
-          fileName: 'agm_derslik_programlari.pdf',
-          targetUserId: teacherId,
-          title: 'Derslik Programı Paylaşımı',
+          pdfBytes: pdfBytes, fileName: 'agm_derslik_programlari.pdf',
+          targetUserId: teacherId, title: 'Derslik Programı Paylaşımı',
           messageBody: 'Haftalık AGM derslik programı ektedir.',
         );
       },
@@ -561,300 +604,31 @@ class _AgmClassroomTimetableScreenState
   Future<void> _exportExcel({bool allClassrooms = false}) async {
     final excel = Excel.createExcel();
     final sheet = excel['Rapor'];
-
-    final roomsToExport = allClassrooms
-        ? _classrooms
-        : [
-            {'id': _selectedClassroomId, 'name': _selectedClassroomName},
-          ];
+    final roomsToExport = allClassrooms ? _rooms : [{'id': _selectedRoomId, 'name': _selectedRoomName}];
 
     for (final room in roomsToExport) {
       final rId = room['id'];
       final rName = room['name'];
       if (rId == null) continue;
-
-      final rGroups = widget.groups.where((g) {
-        bool matchesRoom;
-        if (rId == 'undefined') {
-          matchesRoom = g.derslikId == null || g.derslikId!.isEmpty;
-        } else {
-          matchesRoom = g.derslikId == rId;
-        }
-        final hasStudents = (widget.assignmentsByGroup[g.id] ?? []).isNotEmpty;
-        return matchesRoom && hasStudents;
-      }).toList();
-
-      sheet.appendRow([
-        TextCellValue('AGM DERSLİK PROGRAMI - ${_norm(rName!)}'),
-      ]);
+      final rGroups = widget.groups.where((g) => g.derslikId == rId).toList();
+      sheet.appendRow([TextCellValue('AGM DERSLİK PROGRAMI - ${_norm(rName!)}')]);
       sheet.appendRow([TextCellValue('')]);
-      sheet.appendRow([
-        TextCellValue('Gün'),
-        TextCellValue('Saat'),
-        TextCellValue('Öğretmen'),
-        TextCellValue('Ders'),
-        TextCellValue('Konu/Kazanım'),
-        TextCellValue('Öğrenci Adı Soyadı'),
-        TextCellValue('Şubesi'),
-      ]);
-
+      sheet.appendRow([TextCellValue('Gün'), TextCellValue('Saat'), TextCellValue('Öğretmen'), TextCellValue('Ders'), TextCellValue('Öğrenci Adı Soyadı'), TextCellValue('Şubesi')]);
       for (final group in rGroups) {
         final students = widget.assignmentsByGroup[group.id] ?? [];
-        final gDersAdi = _norm(group.dersAdi);
-        final gOgretmenAdi = _norm(group.ogretmenAdi);
-        final gGun = _norm(group.gun);
-        final gKazanimlar = group.kazanimlar.map((k) => _norm(k)).toList();
-        final kazanimStr = gKazanimlar.join(', ');
-
         if (students.isEmpty) {
-          sheet.appendRow([
-            TextCellValue(gGun),
-            TextCellValue('${group.baslangicSaat}-${group.bitisSaat}'),
-            TextCellValue(gOgretmenAdi),
-            TextCellValue(gDersAdi),
-            TextCellValue(kazanimStr),
-            TextCellValue('-'),
-            TextCellValue('-'),
-          ]);
+          sheet.appendRow([TextCellValue(group.gun), TextCellValue('${group.baslangicSaat}-${group.bitisSaat}'), TextCellValue(group.ogretmenAdi), TextCellValue(group.dersAdi), TextCellValue('-'), TextCellValue('-')]);
         } else {
           for (final s in students) {
-            sheet.appendRow([
-              TextCellValue(gGun),
-              TextCellValue('${group.baslangicSaat}-${group.bitisSaat}'),
-              TextCellValue(gOgretmenAdi),
-              TextCellValue(gDersAdi),
-              TextCellValue(kazanimStr),
-              TextCellValue(_norm(s.ogrenciAdi)),
-              TextCellValue(_norm(s.subeAdi)),
-            ]);
+            sheet.appendRow([TextCellValue(group.gun), TextCellValue('${group.baslangicSaat}-${group.bitisSaat}'), TextCellValue(group.ogretmenAdi), TextCellValue(group.dersAdi), TextCellValue(_norm(s.ogrenciAdi)), TextCellValue(_norm(s.sube ?? ''))]);
           }
         }
       }
       sheet.appendRow([TextCellValue('')]);
-      sheet.appendRow([TextCellValue('')]);
     }
-
     final bytes = excel.save();
     if (bytes != null) {
-      await Printing.sharePdf(
-        bytes: Uint8List.fromList(bytes),
-        filename: 'agm_derslik_raporlari.xlsx',
-      );
+      await Printing.sharePdf(bytes: Uint8List.fromList(bytes), filename: 'agm_derslik_raporlari.xlsx');
     }
-  }
-
-  pw.Widget _buildHeader(String rName, pw.Font fontBold) {
-    return pw.Container(
-      width: double.infinity,
-      padding: const pw.EdgeInsets.all(12),
-      margin: const pw.EdgeInsets.only(bottom: 12),
-      decoration: const pw.BoxDecoration(color: PdfColors.deepOrange800),
-      child: pw.Text(
-        'AGM DERSLİK PROGRAMI: ${_norm(rName)}',
-        style: pw.TextStyle(
-          font: fontBold,
-          color: PdfColors.white,
-          fontSize: 16,
-        ),
-      ),
-    );
-  }
-
-  pw.Widget _buildFooter(pw.Context context, pw.Font font) {
-    return pw.Align(
-      alignment: pw.Alignment.centerRight,
-      child: pw.Text(
-        'Rapor Tarihi: ${DateTime.now().day}.${DateTime.now().month}.${DateTime.now().year} | Sayfa ${context.pageNumber}',
-        style: pw.TextStyle(
-          font: font,
-          fontSize: 8,
-          color: PdfColors.grey500,
-        ),
-      ),
-    );
-  }
-
-  pw.Widget _buildGroupReport(
-    AgmGroup g,
-    String rName,
-    pw.Font font,
-    pw.Font fontBold,
-  ) {
-    return pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
-      children: [
-        _buildHeader(rName, fontBold),
-        pw.SizedBox(height: 10),
-        _buildGroupCardInPdf(g, rName, font, fontBold),
-      ],
-    );
-  }
-
-  pw.Widget _buildGroupCardInPdf(
-    AgmGroup g,
-    String rName,
-    pw.Font font,
-    pw.Font fontBold,
-  ) {
-    final students = widget.assignmentsByGroup[g.id] ?? [];
-    final gDersAdi = _norm(g.dersAdi);
-    final gOgretmenAdi = _norm(g.ogretmenAdi);
-    final gGun = _norm(g.gun);
-    final gKazanimlar = g.kazanimlar.map((k) => _norm(k)).toList();
-
-    return pw.Container(
-      margin: const pw.EdgeInsets.only(bottom: 20),
-      padding: const pw.EdgeInsets.all(10),
-      decoration: pw.BoxDecoration(
-        border: pw.Border.all(color: PdfColors.grey300),
-        borderRadius: const pw.BorderRadius.all(
-          pw.Radius.circular(8),
-        ),
-      ),
-      child: pw.Column(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
-        children: [
-          pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-            children: [
-              pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text(
-                    'Derslik: ${_norm(rName)}',
-                    style: pw.TextStyle(font: fontBold, fontSize: 13),
-                  ),
-                  pw.Text(
-                    'Gün: $gGun',
-                    style: pw.TextStyle(font: font, fontSize: 11),
-                  ),
-                ],
-              ),
-              pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.end,
-                children: [
-                  pw.Text(
-                    'Öğretmen: $gOgretmenAdi',
-                    style: pw.TextStyle(font: fontBold, fontSize: 11),
-                  ),
-                  pw.Text(
-                    'Ders: $gDersAdi',
-                    style: pw.TextStyle(font: font, fontSize: 11),
-                  ),
-                  pw.Text(
-                    'Saat: ${g.baslangicSaat}-${g.bitisSaat}',
-                    style: pw.TextStyle(font: fontBold, fontSize: 11),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          pw.Divider(color: PdfColors.orange200),
-          pw.Text(
-            'Kazanım: ${gKazanimlar.isNotEmpty ? gKazanimlar.join(", ") : "-"}',
-            style: pw.TextStyle(
-              font: fontBold,
-              fontSize: 10,
-              color: PdfColors.deepOrange800,
-            ),
-          ),
-          pw.SizedBox(height: 10),
-          pw.Text(
-            'Öğrenci Listesi (${students.length}):',
-            style: pw.TextStyle(font: fontBold, fontSize: 10),
-          ),
-          pw.SizedBox(height: 5),
-          // Öğrenci listesini 3 sütuna böl ve şube sırasına göre sırala
-          _build3ColumnStudentTable(students, font),
-        ],
-      ),
-    );
-  }
-
-  pw.Widget _build3ColumnStudentTable(List<AgmAssignment> students, pw.Font font) {
-    if (students.isEmpty) {
-      return pw.Text('• Bu grupta öğrenci yok.', style: pw.TextStyle(font: font, fontSize: 8));
-    }
-
-    final sortedStudents = students.toList()
-      ..sort((a, b) {
-        final sc = a.subeAdi.compareTo(b.subeAdi);
-        if (sc != 0) return sc;
-        return a.ogrenciAdi.compareTo(b.ogrenciAdi);
-      });
-
-    final List<pw.TableRow> rows = [];
-    for (int i = 0; i < sortedStudents.length; i += 3) {
-      rows.add(
-        pw.TableRow(
-          children: [
-            pw.Padding(
-              padding: const pw.EdgeInsets.symmetric(vertical: 2),
-              child: pw.Text(
-                '• ${_norm(sortedStudents[i].ogrenciAdi)} (${_norm(sortedStudents[i].subeAdi)})',
-                style: pw.TextStyle(font: font, fontSize: 8),
-              ),
-            ),
-            if (i + 1 < sortedStudents.length)
-              pw.Padding(
-                padding: const pw.EdgeInsets.symmetric(vertical: 2),
-                child: pw.Text(
-                   '• ${_norm(sortedStudents[i + 1].ogrenciAdi)} (${_norm(sortedStudents[i + 1].subeAdi)})',
-                   style: pw.TextStyle(font: font, fontSize: 8),
-                ),
-              )
-            else
-              pw.SizedBox(),
-            if (i + 2 < sortedStudents.length)
-              pw.Padding(
-                padding: const pw.EdgeInsets.symmetric(vertical: 2),
-                child: pw.Text(
-                   '• ${_norm(sortedStudents[i + 2].ogrenciAdi)} (${_norm(sortedStudents[i + 2].subeAdi)})',
-                   style: pw.TextStyle(font: font, fontSize: 8),
-                ),
-              )
-            else
-              pw.SizedBox(),
-          ],
-        ),
-      );
-    }
-
-    return pw.Table(
-      columnWidths: {
-        0: const pw.FlexColumnWidth(1),
-        1: const pw.FlexColumnWidth(1),
-        2: const pw.FlexColumnWidth(1),
-      },
-      children: rows,
-    );
-  }
-
-  /// Alfanümerik metinleri "doğal" sırada karşılaştırır.
-  int _compareNatural(String a, String b) {
-    if (a == 'Derslik Tanımlanmamış') return 1; // Tanımlanmamış olan en sonda olsun
-    if (b == 'Derslik Tanımlanmamış') return -1;
-    
-    final RegExp re = RegExp(r'(\d+)|\D+');
-    final Iterable<Match> aMatch = re.allMatches(a.toLowerCase());
-    final Iterable<Match> bMatch = re.allMatches(b.toLowerCase());
-
-    final itA = aMatch.iterator;
-    final itB = bMatch.iterator;
-
-    while (itA.moveNext() && itB.moveNext()) {
-      final aStr = itA.current.group(0)!;
-      final bStr = itB.current.group(0)!;
-
-      if (itA.current.group(1) != null && itB.current.group(1) != null) {
-        final aNum = int.parse(aStr);
-        final bNum = int.parse(bStr);
-        if (aNum != bNum) return aNum.compareTo(bNum);
-      } else {
-        final cmp = aStr.compareTo(bStr);
-        if (cmp != 0) return cmp;
-      }
-    }
-    return a.length.compareTo(b.length);
   }
 }

@@ -648,7 +648,7 @@ class _RandomStudentPickerHubScreenState extends State<RandomStudentPickerHubScr
     return DropdownButtonFormField<int>(
       isExpanded: true,
       isDense: true,
-      value: _selectedClassLevel,
+      initialValue: _selectedClassLevel,
       decoration: InputDecoration(
         labelText: 'Seviye',
         filled: true,
@@ -677,7 +677,7 @@ class _RandomStudentPickerHubScreenState extends State<RandomStudentPickerHubScr
     return DropdownButtonFormField<String>(
       isExpanded: true,
       isDense: true,
-      value: _selectedBranchId,
+      initialValue: _selectedBranchId,
       decoration: InputDecoration(
         labelText: 'Şube',
         filled: true,

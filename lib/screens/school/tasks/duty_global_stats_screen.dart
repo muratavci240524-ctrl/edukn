@@ -402,7 +402,7 @@ class _DutyGlobalStatsScreenState extends State<DutyGlobalStatsScreen> {
             if (pDoc.exists && pDoc.data()?['dutyLocationConfigs'] is Map) {
               configs[pid] = Map<String, dynamic>.from(pDoc.data()!['dutyLocationConfigs'] as Map);
             }
-          } catch (_) {}
+          } catch (silentError) { debugPrint('[duty_global_stats_screen] hata yutuldu: $silentError'); }
         }
       }
       _periodLocationConfigs = configs;
@@ -722,7 +722,7 @@ class _DutyGlobalStatsScreenState extends State<DutyGlobalStatsScreen> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
@@ -899,10 +899,10 @@ class _DutyGlobalStatsScreenState extends State<DutyGlobalStatsScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.18)),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
         boxShadow: [
           BoxShadow(
-            color: color.withOpacity(0.06),
+            color: color.withValues(alpha: 0.06),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -914,7 +914,7 @@ class _DutyGlobalStatsScreenState extends State<DutyGlobalStatsScreen> {
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              color: color.withOpacity(0.12),
+              color: color.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(icon, color: color, size: 22),
@@ -986,7 +986,7 @@ class _DutyGlobalStatsScreenState extends State<DutyGlobalStatsScreen> {
             border: Border.all(color: Colors.grey.shade200),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.03),
+                color: Colors.black.withValues(alpha: 0.03),
                 blurRadius: 12,
                 offset: const Offset(0, 2),
               ),
@@ -1016,7 +1016,7 @@ class _DutyGlobalStatsScreenState extends State<DutyGlobalStatsScreen> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF4F46E5).withOpacity(0.08),
+                          color: const Color(0xFF4F46E5).withValues(alpha: 0.08),
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
@@ -1106,7 +1106,7 @@ class _DutyGlobalStatsScreenState extends State<DutyGlobalStatsScreen> {
                           return Container(
                             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                             decoration: BoxDecoration(
-                              color: isEven ? Colors.white : const Color(0xFFF8FAFC).withOpacity(0.5),
+                              color: isEven ? Colors.white : const Color(0xFFF8FAFC).withValues(alpha: 0.5),
                               border: const Border(
                                 bottom: BorderSide(color: Color(0xFFF1F5F9)),
                               ),
@@ -1124,7 +1124,7 @@ class _DutyGlobalStatsScreenState extends State<DutyGlobalStatsScreen> {
                                       alignment: Alignment.center,
                                       decoration: BoxDecoration(
                                         color: index < 3
-                                            ? const Color(0xFF4F46E5).withOpacity(0.1)
+                                            ? const Color(0xFF4F46E5).withValues(alpha: 0.1)
                                             : Colors.grey.shade100,
                                         shape: BoxShape.circle,
                                       ),
@@ -1213,7 +1213,7 @@ class _DutyGlobalStatsScreenState extends State<DutyGlobalStatsScreen> {
                                           ? Container(
                                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                               decoration: BoxDecoration(
-                                                color: const Color(0xFF4F46E5).withOpacity(0.08),
+                                                color: const Color(0xFF4F46E5).withValues(alpha: 0.08),
                                                 borderRadius: BorderRadius.circular(6),
                                               ),
                                               child: Text(

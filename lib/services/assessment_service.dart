@@ -120,6 +120,31 @@ class AssessmentService {
     });
   }
 
+  // Dönem aralığı önbelleği (termId -> [başlangıç, bitiş]); eğitim yılı 1 Eylül - 31 Ağustos
+  final Map<String, List<DateTime>?> _termRangeCache = {};
+
+  Future<List<DateTime>?> _termDateRange(String termId) async {
+    if (_termRangeCache.containsKey(termId)) return _termRangeCache[termId];
+    try {
+      final doc = await _firestore.collection('terms').doc(termId).get();
+      final data = doc.data();
+      final startYear = int.tryParse('${data?['startYear']}');
+      final endYear = int.tryParse('${data?['endYear']}');
+      if (startYear == null || endYear == null) {
+        _termRangeCache[termId] = null;
+        return null;
+      }
+      final range = [
+        DateTime(startYear, 9, 1),
+        DateTime(endYear, 8, 31, 23, 59, 59),
+      ];
+      _termRangeCache[termId] = range;
+      return range;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Stream<List<TrialExam>> getTrialExams(String institutionId, {List<String>? classLevels, String? termId}) {
     return _firestore
         .collection('trial_exams')
@@ -127,15 +152,22 @@ class AssessmentService {
         .where('isActive', isEqualTo: true)
         .orderBy('date', descending: true)
         .snapshots()
-        .map(
-          (snapshot) {
+        .asyncMap(
+          (snapshot) async {
             var exams = snapshot.docs
-                .map((doc) => TrialExam.fromMap(doc.data() as Map<String, dynamic>, doc.id))
+                .map((doc) => TrialExam.fromMap(doc.data(), doc.id))
                 .toList();
             
             // Client-side termId filtreleme (composite index gerektirmez)
             if (termId != null && termId.isNotEmpty) {
-              exams = exams.where((exam) => exam.termId == termId).toList();
+              final range = await _termDateRange(termId);
+              exams = exams.where((exam) {
+                final t = exam.termId;
+                if (t != null && t.isNotEmpty) return t == termId;
+                // Dönemi hiç atanmamış (eski) sınavlar: sınav tarihine göre dönemi belirle
+                if (range == null) return false;
+                return !exam.date.isBefore(range[0]) && !exam.date.isAfter(range[1]);
+              }).toList();
             }
             
             if (classLevels != null && classLevels.isNotEmpty) {
@@ -146,6 +178,7 @@ class AssessmentService {
           },
         );
   }
+
 
   Future<void> deleteTrialExam(String id) async {
     await _firestore.collection('trial_exams').doc(id).update({
@@ -270,7 +303,17 @@ class AssessmentService {
 
   // --- Assessment Action Plans ---
 
-  Future<void> saveAssessmentActionPlan(AssessmentActionPlan plan) async {
+  /// Updates only the given nested fields (path -> value) so concurrent edits
+  /// by different users on other keys are not overwritten.
+  Future<void> updateActionPlanFields(String id, Map<List<String>, dynamic> fields) async {
+    final Map<Object, Object?> data = {};
+    fields.forEach((path, value) {
+      data[FieldPath(path)] = value;
+    });
+    await _firestore.collection('assessment_action_plans').doc(id).update(data);
+  }
+
+  Future<String> saveAssessmentActionPlan(AssessmentActionPlan plan) async {
     print('Saving Action Plan: ID=${plan.id}, Title=${plan.title}, Institution=${plan.institutionId}, SchoolType=${plan.schoolTypeId}');
     final docRef = _firestore
         .collection('assessment_action_plans')
@@ -283,6 +326,7 @@ class AssessmentService {
     
     await docRef.set(data, SetOptions(merge: true));
     print('Action Plan saved successfully with ID: ${data['id']}');
+    return docRef.id;
   }
 
   Stream<List<AssessmentActionPlan>> getAssessmentActionPlans(String institutionId, String schoolTypeId) {
@@ -293,10 +337,13 @@ class AssessmentService {
     return _firestore
         .collection('assessment_action_plans')
         .where('institutionId', isEqualTo: institutionId)
-        .snapshots()
+        .snapshots(includeMetadataChanges: true)
+        // Boş ve sadece önbellekten gelen ilk anlık görüntüyü atla: sunucudan
+        // gerçek veri gelene kadar ekran yükleniyor durumunda kalsın.
+        .where((snapshot) => !(snapshot.docs.isEmpty && snapshot.metadata.isFromCache))
         .map((snapshot) {
           List<AssessmentActionPlan> plans = snapshot.docs
-              .map((doc) => AssessmentActionPlan.fromMap(doc.data() as Map<String, dynamic>, doc.id))
+              .map((doc) => AssessmentActionPlan.fromMap(doc.data(), doc.id))
               .where((plan) => plan.isActive)
               .toList();
 

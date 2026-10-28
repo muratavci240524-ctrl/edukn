@@ -1,0 +1,209 @@
+  /// ===========================================================================
+  /// 5. SINAV DAVRANIŞLARI GÖZLEM FORMU (A4 YATAY - SALON BAŞINA 25 ÖĞRENCİ)
+  /// ===========================================================================
+  static const List<String> _observationBehaviors = [
+    'Süreyi yetiştiremiyor.',
+    'Kopyaya yeltiyor.',
+    'Dikkati çabuk dağılıyor.',
+    'Kodlamayı sona bırakıyor.',
+    'Blok kodlama yapıyor.',
+    'Hatalı kodlama (taşırarak, silik vb.) yapıyor.',
+    'Aşırı endişeli, telaşlı bir hali var.',
+    'Sınav sırasında fiziksel rahatsızlıklar yaşıyor. (Baş ağrısı, mide bulantısı vb.)',
+    'Etrafla çok ilgileniyor.',
+    'Sınav gereçleri eksik.',
+    'Dalgın, düşünceli bir hali var.',
+    'İşlem yapmıyor.',
+    'Sınavı erken bitiriyor.',
+    'Sık sık süreyi soruyor.',
+  ];
+
+  static Future<Uint8List> generateObservationFormPdf({
+    required ExamDistribution distribution,
+    required ExamRoom room,
+  }) async {
+    final pdf = pw.Document();
+    final font = await PdfGoogleFonts.robotoRegular();
+    final fontBold = await PdfGoogleFonts.robotoBold();
+    _addObservationPages(pdf, distribution, room, font, fontBold);
+    return pdf.save();
+  }
+
+  static Future<Uint8List> generateAllObservationFormsPdf({
+    required ExamDistribution distribution,
+  }) async {
+    final pdf = pw.Document();
+    final font = await PdfGoogleFonts.robotoRegular();
+    final fontBold = await PdfGoogleFonts.robotoBold();
+    for (final room in distribution.rooms) {
+      _addObservationPages(pdf, distribution, room, font, fontBold);
+    }
+    return pdf.save();
+  }
+
+  static void _addObservationPages(
+    pw.Document pdf,
+    ExamDistribution distribution,
+    ExamRoom room,
+    pw.Font font,
+    pw.Font fontBold,
+  ) {
+    const rowsPerPage = 25;
+    final seated = room.seats.where((s) => s.student != null).toList()
+      ..sort((a, b) => a.seatNumber.compareTo(b.seatNumber));
+    final pageCount = (seated.length / rowsPerPage).ceil().clamp(1, 99);
+    final dateStr = DateFormat('dd.MM.yyyy').format(distribution.examDate);
+    final examTitle = _getExamTitle(distribution);
+
+    pw.Widget cell(pw.Widget child, {double? h, pw.Alignment align = pw.Alignment.center, PdfColor? bg}) =>
+        pw.Container(
+          height: h,
+          alignment: align,
+          color: bg,
+          padding: const pw.EdgeInsets.symmetric(horizontal: 3),
+          child: child,
+        );
+
+    for (int p = 0; p < pageCount; p++) {
+      final chunk = seated.skip(p * rowsPerPage).take(rowsPerPage).toList();
+
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4.landscape,
+          margin: const pw.EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          build: (ctx) {
+            return pw.Container(
+              decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey800, width: 0.9)),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+                children: [
+                  // Başlık
+                  pw.Container(
+                    height: 40,
+                    alignment: pw.Alignment.center,
+                    decoration: const pw.BoxDecoration(
+                      border: pw.Border(bottom: pw.BorderSide(color: PdfColors.grey800, width: 0.9)),
+                    ),
+                    child: pw.Column(
+                      mainAxisAlignment: pw.MainAxisAlignment.center,
+                      children: [
+                        pw.Text('Sınav Davranışları Gözlem Formu',
+                            style: pw.TextStyle(font: fontBold, fontSize: 14)),
+                        pw.SizedBox(height: 3),
+                        pw.Text(
+                          'Salon: ${room.classroomName}   •   Sınav: $examTitle   •   Tarih: $dateStr   •   Saat: ${distribution.examTime}',
+                          style: pw.TextStyle(font: font, fontSize: 8.5, color: PdfColors.grey800),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Tablo
+                  pw.Table(
+                    border: pw.TableBorder.all(color: PdfColors.grey700, width: 0.5),
+                    columnWidths: {
+                      0: const pw.FixedColumnWidth(24),
+                      1: const pw.FixedColumnWidth(150),
+                      for (int i = 0; i < _observationBehaviors.length; i++) 2 + i: const pw.FixedColumnWidth(33),
+                      2 + _observationBehaviors.length: const pw.FlexColumnWidth(1),
+                    },
+                    children: [
+                      pw.TableRow(
+                        decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+                        children: [
+                          cell(pw.Text('SR', style: pw.TextStyle(font: fontBold, fontSize: 8)), h: 98),
+                          cell(
+                            pw.Text('ÖĞRENCİNİN ADI / SOYADI',
+                                textAlign: pw.TextAlign.center,
+                                style: pw.TextStyle(font: fontBold, fontSize: 8.5)),
+                            h: 98,
+                          ),
+                          for (final b in _observationBehaviors)
+                            pw.Container(
+                              height: 98,
+                              alignment: pw.Alignment.center,
+                              child: pw.Transform.rotateBox(
+                                angle: 3.14159265 / 2,
+                                child: pw.SizedBox(
+                                  width: 90,
+                                  child: pw.Text(
+                                    b,
+                                    textAlign: pw.TextAlign.center,
+                                    style: pw.TextStyle(font: fontBold, fontSize: 7),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          cell(
+                            pw.Text('VARSA SINAVDA GÖZLEMLENEN DİĞER DAVRANIŞLAR:',
+                                textAlign: pw.TextAlign.center,
+                                style: pw.TextStyle(font: fontBold, fontSize: 8.5)),
+                            h: 98,
+                          ),
+                        ],
+                      ),
+                      for (int i = 0; i < rowsPerPage; i++)
+                        pw.TableRow(
+                          decoration: pw.BoxDecoration(
+                            color: i.isOdd ? PdfColors.grey50 : PdfColors.white,
+                          ),
+                          children: [
+                            cell(
+                              pw.Text('${p * rowsPerPage + i + 1}',
+                                  style: pw.TextStyle(font: font, fontSize: 7.5)),
+                              h: 15.2,
+                            ),
+                            cell(
+                              pw.Text(
+                                i < chunk.length ? chunk[i].student!.fullName : '',
+                                maxLines: 1,
+                                overflow: pw.TextOverflow.clip,
+                                style: pw.TextStyle(font: fontBold, fontSize: 8),
+                              ),
+                              h: 15.2,
+                              align: pw.Alignment.centerLeft,
+                            ),
+                            for (int k = 0; k < _observationBehaviors.length; k++) pw.SizedBox(height: 15.2),
+                            pw.SizedBox(height: 15.2),
+                          ],
+                        ),
+                    ],
+                  ),
+                  pw.Spacer(),
+                  pw.Container(
+                    padding: const pw.EdgeInsets.fromLTRB(6, 4, 6, 4),
+                    decoration: const pw.BoxDecoration(
+                      border: pw.Border(top: pw.BorderSide(color: PdfColors.grey800, width: 0.9)),
+                    ),
+                    child: pw.Text(
+                      'Öğrencilerimizin sınav sırasındaki gözlemlenebilen davranışları başarılarını önemli derecede etkileyen ipuçları taşır. '
+                      'Daha etkili bir rehberlik için; öğrencilerimizin sınav sonuçlarının değerlendirilmesinde katkısı olacak değerli gözlemlerinizi '
+                      'titizlikle paylaşacağınıza inanıyor, şimdiden çok teşekkür ediyoruz.',
+                      style: pw.TextStyle(font: fontBold, fontSize: 8),
+                    ),
+                  ),
+                  pw.Container(
+                    padding: const pw.EdgeInsets.fromLTRB(6, 5, 6, 5),
+                    decoration: const pw.BoxDecoration(
+                      border: pw.Border(top: pw.BorderSide(color: PdfColors.grey800, width: 0.9)),
+                    ),
+                    child: pw.Row(
+                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                      children: [
+                        pw.Text(
+                          'GÖZETMEN ÖĞRETMENİN ADI SOYADI - İMZASI: ${(room.supervisorName ?? '').trim() == 'Gözetmen Öğretmen' ? '' : (room.supervisorName ?? '').trim()}',
+                          style: pw.TextStyle(font: fontBold, fontSize: 8.5),
+                        ),
+                        if (pageCount > 1)
+                          pw.Text('Sayfa ${p + 1}/$pageCount', style: pw.TextStyle(font: font, fontSize: 8)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      );
+    }
+  }
+

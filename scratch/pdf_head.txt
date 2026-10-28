@@ -1,0 +1,154 @@
+  static const List<PdfColor> _classPalette = [
+    PdfColors.indigo600,
+    PdfColors.teal600,
+    PdfColors.deepOrange500,
+    PdfColors.purple500,
+    PdfColors.blue600,
+    PdfColors.green700,
+    PdfColors.pink500,
+    PdfColors.amber800,
+    PdfColors.cyan700,
+    PdfColors.brown500,
+  ];
+
+  /// Şube adından her zaman aynı rengi üretir (kroki üzerinde şubeleri ayırt etmek için).
+  static PdfColor _classColor(String className) {
+    var h = 0;
+    for (final u in className.codeUnits) {
+      h = (h * 31 + u) & 0x7fffffff;
+    }
+    return _classPalette[h % _classPalette.length];
+  }
+
+  static pw.Widget _buildSupervisorHeader(
+    ExamDistribution distribution,
+    ExamRoom room,
+    pw.Font font,
+    pw.Font fontBold,
+  ) {
+    final dateStr = DateFormat('dd.MM.yyyy').format(distribution.examDate);
+    final examTitle = _getExamTitle(distribution);
+    final pct = room.totalCapacity == 0 ? 0.0 : (room.seatedStudentCount / room.totalCapacity).clamp(0.0, 1.0);
+
+    pw.Widget chip(String label, String value) => pw.Container(
+          padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: pw.BoxDecoration(
+            color: PdfColor.fromInt(0x26FFFFFF),
+            borderRadius: pw.BorderRadius.circular(10),
+          ),
+          child: pw.RichText(
+            text: pw.TextSpan(children: [
+              pw.TextSpan(text: '$label ', style: pw.TextStyle(font: font, fontSize: 8, color: PdfColors.indigo100)),
+              pw.TextSpan(text: value, style: pw.TextStyle(font: fontBold, fontSize: 8.5, color: PdfColors.white)),
+            ]),
+          ),
+        );
+
+    return pw.Container(
+      padding: const pw.EdgeInsets.fromLTRB(14, 9, 14, 9),
+      decoration: pw.BoxDecoration(
+        gradient: const pw.LinearGradient(colors: [PdfColors.indigo900, PdfColors.indigo600]),
+        borderRadius: pw.BorderRadius.circular(10),
+      ),
+      child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.center,
+        children: [
+          pw.Container(
+            width: 58,
+            height: 44,
+            alignment: pw.Alignment.center,
+            decoration: pw.BoxDecoration(
+              color: PdfColors.amber400,
+              borderRadius: pw.BorderRadius.circular(8),
+            ),
+            child: pw.Text(
+              room.classroomName,
+              maxLines: 1,
+              style: pw.TextStyle(font: fontBold, fontSize: 16, color: PdfColors.indigo900),
+            ),
+          ),
+          pw.SizedBox(width: 12),
+          pw.Expanded(
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text(
+                  'SALON OTURMA KROKİSİ',
+                  style: pw.TextStyle(font: fontBold, fontSize: 8, color: PdfColors.amber300, letterSpacing: 1.2),
+                ),
+                pw.SizedBox(height: 2),
+                pw.Text(
+                  '${distribution.schoolTypeName} • $examTitle',
+                  maxLines: 1,
+                  style: pw.TextStyle(font: fontBold, fontSize: 13.5, color: PdfColors.white),
+                ),
+                pw.SizedBox(height: 4),
+                pw.Row(children: [
+                  chip('Ders', distribution.lessonName),
+                  pw.SizedBox(width: 5),
+                  chip('Tarih', dateStr),
+                  pw.SizedBox(width: 5),
+                  chip('Saat', distribution.examTime),
+                ]),
+              ],
+            ),
+          ),
+          pw.SizedBox(width: 10),
+          pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.end,
+            children: [
+              pw.Text(
+                '${room.seatedStudentCount}',
+                style: pw.TextStyle(font: fontBold, fontSize: 22, color: PdfColors.white),
+              ),
+              pw.Text(
+                'öğrenci / ${room.totalCapacity} kapasite',
+                style: pw.TextStyle(font: font, fontSize: 7.5, color: PdfColors.indigo100),
+              ),
+              pw.SizedBox(height: 3),
+              pw.Container(
+                width: 90,
+                height: 4,
+                decoration: pw.BoxDecoration(
+                  color: PdfColor.fromInt(0x40FFFFFF),
+                  borderRadius: pw.BorderRadius.circular(2),
+                ),
+                child: pw.Align(
+                  alignment: pw.Alignment.centerLeft,
+                  child: pw.Container(
+                    width: 90 * pct,
+                    height: 4,
+                    decoration: pw.BoxDecoration(
+                      color: PdfColors.amber400,
+                      borderRadius: pw.BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  static pw.Widget _buildTeacherBoard(pw.Font fontBold) {
+    return pw.Container(
+      padding: const pw.EdgeInsets.symmetric(vertical: 5),
+      alignment: pw.Alignment.center,
+      margin: const pw.EdgeInsets.symmetric(horizontal: 60),
+      decoration: pw.BoxDecoration(
+        gradient: const pw.LinearGradient(colors: [PdfColors.grey800, PdfColors.grey700, PdfColors.grey800]),
+        borderRadius: const pw.BorderRadius.only(
+          bottomLeft: pw.Radius.circular(14),
+          bottomRight: pw.Radius.circular(14),
+          topLeft: pw.Radius.circular(3),
+          topRight: pw.Radius.circular(3),
+        ),
+      ),
+      child: pw.Text(
+        'ÖĞRETMEN KÜRSÜSÜ  •  YAZI TAHTASI',
+        style: pw.TextStyle(font: fontBold, fontSize: 8.5, color: PdfColors.white, letterSpacing: 1.5),
+      ),
+    );
+  }

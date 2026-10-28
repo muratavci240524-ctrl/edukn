@@ -331,7 +331,7 @@ class _ProjectAssignmentDashboardScreenState
                                 .expand((s) => s.topics)
                                 .firstWhere((t) => t.id == allocation.topicId);
                             topicName = topic.name;
-                          } catch (_) {}
+                          } catch (silentError) { debugPrint('[project_assignment_dashboard_screen] hata yutuldu: $silentError'); }
 
                           return Text('$topicName ($tName)');
                         },
@@ -507,7 +507,7 @@ class _ProjectAssignmentDashboardScreenState
                       Navigator.pop(context); // Close loading
 
                       if (survey != null) {
-                        Navigator.push(
+                        if (mounted) Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (context) =>
@@ -515,7 +515,7 @@ class _ProjectAssignmentDashboardScreenState
                           ),
                         );
                       } else {
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text('Anket verisi bulunamadı.'),
                           ),
@@ -525,7 +525,7 @@ class _ProjectAssignmentDashboardScreenState
                   } catch (e) {
                     if (mounted) {
                       Navigator.pop(context); // Close loading
-                      ScaffoldMessenger.of(
+                      if (mounted) ScaffoldMessenger.of(
                         context,
                       ).showSnackBar(SnackBar(content: Text('Hata: $e')));
                     }
@@ -800,7 +800,7 @@ Son Katılım Tarihi: ${DateFormat('dd.MM.yyyy').format(_assignment.surveyDeadli
 
     if (_assignment.targetStudentIds.isNotEmpty) {
       final firstStudentId = _assignment.targetStudentIds.first;
-      print('🔍 Determining schoolTypeId from student: $firstStudentId');
+      debugPrint('🔍 Determining schoolTypeId from student: $firstStudentId');
 
       try {
         // Try students collection first
@@ -813,10 +813,10 @@ Son Katılım Tarihi: ${DateFormat('dd.MM.yyyy').format(_assignment.surveyDeadli
           final studentData = studentDoc.data();
           schoolTypeId =
               studentData?['schoolTypeId'] ?? studentData?['schoolType'];
-          print('✅ SchoolTypeId from students collection: $schoolTypeId');
+          debugPrint('✅ SchoolTypeId from students collection: $schoolTypeId');
         } else {
           // Fallback: try users collection
-          print('⚠️ Student not in students collection, trying users...');
+          debugPrint('⚠️ Student not in students collection, trying users...');
           studentDoc = await FirebaseFirestore.instance
               .collection('users')
               .doc(firstStudentId)
@@ -825,18 +825,18 @@ Son Katılım Tarihi: ${DateFormat('dd.MM.yyyy').format(_assignment.surveyDeadli
           if (studentDoc.exists) {
             final userData = studentDoc.data();
             schoolTypeId = userData?['schoolTypeId'] ?? userData?['schoolType'];
-            print('✅ SchoolTypeId from users collection: $schoolTypeId');
+            debugPrint('✅ SchoolTypeId from users collection: $schoolTypeId');
           } else {
-            print(
+            debugPrint(
               '❌ Student document not found in both collections: $firstStudentId',
             );
           }
         }
       } catch (e) {
-        print('❌ Error fetching student data: $e');
+        debugPrint('❌ Error fetching student data: $e');
       }
     } else {
-      print('❌ No targetStudentIds in assignment');
+      debugPrint('❌ No targetStudentIds in assignment');
     }
 
     // CRITICAL: SchoolTypeId must exist for announcement to appear in school type screen
@@ -854,7 +854,7 @@ Son Katılım Tarihi: ${DateFormat('dd.MM.yyyy').format(_assignment.surveyDeadli
       return;
     }
 
-    print('📝 Creating survey with schoolTypeId: $schoolTypeId');
+    debugPrint('📝 Creating survey with schoolTypeId: $schoolTypeId');
 
     final survey = Survey(
       id: '',
@@ -903,7 +903,7 @@ Son Katılım Tarihi: ${DateFormat('dd.MM.yyyy').format(_assignment.surveyDeadli
             currentUserId = currentUser.uid;
           }
         } catch (e) {
-          print('Error finding admin user doc: $e');
+          debugPrint('Error finding admin user doc: $e');
           currentUserId = currentUser!.uid;
         }
       }
@@ -941,7 +941,7 @@ Son Katılım Tarihi: ${DateFormat('dd.MM.yyyy').format(_assignment.surveyDeadli
 
       final isPublishedNow =
           scheduleDate.difference(DateTime.now()).inMinutes < 1;
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             isPublishedNow
@@ -951,7 +951,7 @@ Son Katılım Tarihi: ${DateFormat('dd.MM.yyyy').format(_assignment.surveyDeadli
         ),
       );
     } catch (e) {
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata: $e')));
     }
@@ -1072,7 +1072,7 @@ Son Katılım Tarihi: ${DateFormat('dd.MM.yyyy').format(_assignment.surveyDeadli
         final teacherId = teacherMap?[subject.lessonName];
 
         if (teacherId == null) {
-          print('No teacher found for ${subject.lessonName} in class $classId');
+          debugPrint('No teacher found for ${subject.lessonName} in class $classId');
           continue;
         }
 
@@ -1108,11 +1108,11 @@ Son Katılım Tarihi: ${DateFormat('dd.MM.yyyy').format(_assignment.surveyDeadli
         _assignment.allocations.addAll(newAllocations);
       });
       await _service.updateProjectAssignment(_assignment);
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('${newAllocations.length} atama yapıldı.')),
       );
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
             'Yeni atama yapılamadı (Kontenjan dolu veya veri eksik).',
@@ -1228,7 +1228,7 @@ class _ProjectSubjectDialogState extends State<_ProjectSubjectDialog> {
         });
       }
     } catch (e) {
-      print('Error fetching lessons: $e');
+      debugPrint('Error fetching lessons: $e');
     } finally {
       if (mounted) setState(() => _isLoadingLessons = false);
     }
@@ -1292,7 +1292,7 @@ class _ProjectSubjectDialogState extends State<_ProjectSubjectDialog> {
                 )
               else
                 DropdownButtonFormField<String>(
-                  value: _lessonList.contains(_selectedLesson)
+                  initialValue: _lessonList.contains(_selectedLesson)
                       ? _selectedLesson
                       : null,
                   items: _lessonList

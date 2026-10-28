@@ -7,7 +7,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'package:excel/excel.dart' as ex;
-import 'package:share_plus/share_plus.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -117,7 +116,7 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
           _cachedMyBalance = bal;
         }
       }
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[leave_management_screen] hata yutuldu: $silentError'); }
   }
 
   @override
@@ -331,7 +330,7 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
         try {
           final parsed = DateTime.parse(date.substring(0, 10));
           return DateFormat('dd/MM/yyyy').format(parsed);
-        } catch (_) {}
+        } catch (silentError) { debugPrint('[leave_management_screen] hata yutuldu: $silentError'); }
       }
       return date;
     }
@@ -922,7 +921,7 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
                 itemBuilder: (c, i) => Container(
                   margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
                   padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                  decoration: BoxDecoration(color: const Color(0xFF6366F1).withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
+                  decoration: BoxDecoration(color: const Color(0xFF6366F1).withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4)),
                   child: Text(_getStaffName(leavesOnDay[i]['staffId'] ?? leavesOnDay[i]['userId']).split(' ')[0], style: const TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Color(0xFF6366F1)), overflow: TextOverflow.ellipsis),
                 ),
               )),
@@ -964,9 +963,9 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4))
+          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 10, offset: const Offset(0, 4))
         ],
-        border: Border.all(color: Colors.grey.withOpacity(0.1)),
+        border: Border.all(color: Colors.grey.withValues(alpha: 0.1)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(18),
@@ -978,7 +977,7 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
               children: [
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(color: statusColor.withOpacity(0.1), borderRadius: BorderRadius.circular(20)),
+                  decoration: BoxDecoration(color: statusColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(20)),
                   child: Text(statusText.toUpperCase(), style: TextStyle(color: statusColor, fontWeight: FontWeight.bold, fontSize: 10)),
                 ),
                 Text(leaveType, style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF6366F1), fontSize: 11)),
@@ -1006,7 +1005,7 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
               children: [
                 Container(
                   padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(color: const Color(0xFF6366F1).withOpacity(0.05), borderRadius: BorderRadius.circular(10)),
+                  decoration: BoxDecoration(color: const Color(0xFF6366F1).withValues(alpha: 0.05), borderRadius: BorderRadius.circular(10)),
                   child: const Icon(Icons.event_note_rounded, size: 20, color: Color(0xFF6366F1)),
                 ),
                 const SizedBox(width: 12),
@@ -1021,7 +1020,7 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  decoration: BoxDecoration(gradient: LinearGradient(colors: [const Color(0xFF6366F1).withOpacity(0.8), const Color(0xFF6366F1)]), borderRadius: BorderRadius.circular(12), boxShadow: [BoxShadow(color: const Color(0xFF6366F1).withOpacity(0.2), blurRadius: 8)]),
+                  decoration: BoxDecoration(gradient: LinearGradient(colors: [const Color(0xFF6366F1).withValues(alpha: 0.8), const Color(0xFF6366F1)]), borderRadius: BorderRadius.circular(12), boxShadow: [BoxShadow(color: const Color(0xFF6366F1).withValues(alpha: 0.2), blurRadius: 8)]),
                   child: Text('$totalDays GÜN', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14, color: Colors.white)),
                 ),
               ],
@@ -1100,7 +1099,7 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF6366F1).withOpacity(0.3),
+            color: const Color(0xFF6366F1).withValues(alpha: 0.3),
             blurRadius: 20,
             offset: const Offset(0, 10),
           )
@@ -1122,7 +1121,7 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.grey.withOpacity(0.1))),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.grey.withValues(alpha: 0.1))),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Icon(icon, color: const Color(0xFF6366F1), size: 18),
         const SizedBox(height: 12),
@@ -1253,7 +1252,7 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
                         isFullDay = v;
                         if (!v) end = start;
                       }),
-                      activeColor: const Color(0xFF6366F1),
+                      activeThumbColor: const Color(0xFF6366F1),
                     ),
                   ],
                 ),
@@ -1261,7 +1260,7 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
                 const Text('İzin Detayları', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.grey)),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
-                  value: selectedType,
+                  initialValue: selectedType,
                   decoration: InputDecoration(labelText: 'İzin Türü', filled: true, fillColor: Colors.grey.shade50, border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none)),
                   items: ['Rapor', 'Mazeret İzni', 'İdari İzin', 'Ücretsiz İzin', 'Yıllık İzin'].map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
                   onChanged: (v) => setModalState(() => selectedType = v!),
@@ -1334,7 +1333,7 @@ class _LeaveManagementScreenState extends State<LeaveManagementScreen> with Tick
                           termId: _activeTermId, // Aktif döneme kaydet
                         );
                       }
-                      Navigator.pop(ctx);
+                      if (mounted) Navigator.pop(ctx);
                       _loadData();
                     } finally {
                       if (mounted) setModalState(() => isSubmitting = false);

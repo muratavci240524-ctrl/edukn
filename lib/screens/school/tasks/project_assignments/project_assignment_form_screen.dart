@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -41,9 +41,9 @@ class _ProjectAssignmentFormScreenState
 
   List<Map<String, dynamic>> _availableStudents = [];
   List<String> _selectedStudentIds = [];
-  Map<String, Map<String, dynamic>> _selectedStudentMap = {};
+  final Map<String, Map<String, dynamic>> _selectedStudentMap = {};
   bool _isLoadingStudents = false;
-  bool _selectAllStudents = true;
+  final bool _selectAllStudents = true;
 
   @override
   void initState() {
@@ -97,7 +97,7 @@ class _ProjectAssignmentFormScreenState
       // typically we only store student IDs.
       // But we can just allow new selection.
     } catch (e) {
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata: $e')));
     } finally {
@@ -150,7 +150,7 @@ class _ProjectAssignmentFormScreenState
         }
       });
     } catch (e) {
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata: $e')));
     } finally {
@@ -201,7 +201,7 @@ class _ProjectAssignmentFormScreenState
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata: $e')));
     }

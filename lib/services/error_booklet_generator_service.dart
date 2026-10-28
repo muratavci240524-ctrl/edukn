@@ -122,7 +122,7 @@ class ErrorBookletGeneratorService {
             final exam = exams[i];
             if (i >= studentResults.length) continue;
             final result = studentResults[i];
-            if (result == null || result is! Map || result.isEmpty) continue;
+            if (result.isEmpty) continue;
             
             final String booklet = result['booklet']?.toString() ?? 'A';
             final Map<String, String> studentAnswersMap = {};
@@ -264,7 +264,7 @@ class ErrorBookletGeneratorService {
                         final res = await http.get(Uri.parse(meta['imageUrl'])).timeout(const Duration(seconds: 4));
                         if (res.statusCode == 200) bytes = res.bodyBytes;
                       }
-                    } catch (_) {}
+                    } catch (silentError) { print('[error_booklet_generator_service] hata yutuldu: $silentError'); }
                     if (bytes != null) {
                       compositeGrouped.putIfAbsent(subject, () => []).add({
                         'examName': exam.name, 
@@ -401,7 +401,7 @@ class ErrorBookletGeneratorService {
                   final res = await http.get(Uri.parse(meta['imageUrl'])).timeout(const Duration(seconds: 4));
                   if (res.statusCode == 200) bytes = res.bodyBytes;
                 }
-              } catch (_) {}
+              } catch (silentError) { print('[error_booklet_generator_service] hata yutuldu: $silentError'); }
 
               if (bytes != null) {
                 selectedQuestions.add({
@@ -874,7 +874,7 @@ class ErrorBookletGeneratorService {
         .replaceAll('ş', 's')
         .replaceAll('ç', 'c')
         .replaceAll('ğ', 'g');
-    n = n.replaceAll(RegExp(r'[.,;:\-()""\’\‘\“\”\!' + r"']"), '');
+    n = n.replaceAll(RegExp(r'[.,;:\-()""\’\‘\“\”\!' r"']"), '');
     return n.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 }

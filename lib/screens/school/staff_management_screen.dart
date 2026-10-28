@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/user_permission_service.dart';
@@ -569,8 +569,8 @@ class _StaffFormSheetState extends State<_StaffFormSheet> {
   String? _selectedRole;
   bool _isSaving = false;
 
-  List<String> _managerRoles = ['Genel Müdür', 'Müdür', 'Müdür Yardımcısı'];
-  List<String> _otherRoles = [
+  final List<String> _managerRoles = ['Genel Müdür', 'Müdür', 'Müdür Yardımcısı'];
+  final List<String> _otherRoles = [
     'Personel',
     'Hizmetli',
     'Memur',
@@ -797,7 +797,7 @@ class _StaffFormSheetState extends State<_StaffFormSheet> {
 
                 // Rol seçimi
                 DropdownButtonFormField<String>(
-                  value: _selectedRole,
+                  initialValue: _selectedRole,
                   decoration: InputDecoration(
                     labelText: 'Rol *',
                     prefixIcon: Icon(Icons.work),

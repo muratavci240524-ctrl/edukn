@@ -26,6 +26,7 @@ class TrialExam {
   final Map<String, dynamic> sharingSettings; // Sharing configuration
   final Map<String, Map<String, String>> bookletMapping; // NEW: Booklet -> Subject -> MappingString (e.g. "4,3,2,1")
   final String? termId; // Dönem ID'si
+  final int durationMinutes; // Sınav süresi (dakika, 0 = tanımlanmamış)
 
   static AnswerStatus evaluateAnswer(String studentChar, String refChar) {
     studentChar = studentChar.toUpperCase();
@@ -73,6 +74,7 @@ class TrialExam {
     this.sharingSettings = const {},
     this.bookletMapping = const {},
     this.termId,
+    this.durationMinutes = 0,
   });
 
   Map<String, dynamic> toMap() {
@@ -98,6 +100,7 @@ class TrialExam {
       'sharingSettings': sharingSettings,
       'bookletMapping': bookletMapping,
       'termId': termId,
+      'durationMinutes': durationMinutes,
     };
   }
 
@@ -181,6 +184,7 @@ class TrialExam {
       sharingSettings: map['sharingSettings'] ?? {},
       bookletMapping: parsedMapping,
       termId: map['termId'],
+      durationMinutes: (map['durationMinutes'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -205,6 +209,7 @@ class TrialExam {
     String? resultsJson,
     Map<String, dynamic>? sharingSettings,
     String? termId,
+    int? durationMinutes,
   }) {
     return TrialExam(
       id: id ?? this.id,
@@ -227,6 +232,7 @@ class TrialExam {
       resultsJson: resultsJson ?? this.resultsJson,
       sharingSettings: sharingSettings ?? this.sharingSettings,
       termId: termId ?? this.termId,
+      durationMinutes: durationMinutes ?? this.durationMinutes,
     );
   }
 }
@@ -242,6 +248,10 @@ class TrialExamSession {
   final String? fileUrl; // Path or URL
   final DateTime? uploadedAt;
 
+  /// Okunan dosyaya (TXT/DAT) DOKUNMADAN yapılan satır düzeltmeleri.
+  /// Değerlendirme sırasında dosya satırlarına uygulanır.
+  final List<OpticalLineEdit> lineEdits;
+
   TrialExamSession({
     required this.sessionNumber,
     this.selectedSubjects = const [],
@@ -250,6 +260,7 @@ class TrialExamSession {
     this.fileName,
     this.fileUrl,
     this.uploadedAt,
+    this.lineEdits = const [],
   });
 
   Map<String, dynamic> toMap() {
@@ -261,6 +272,7 @@ class TrialExamSession {
       'fileName': fileName,
       'fileUrl': fileUrl,
       'uploadedAt': uploadedAt != null ? Timestamp.fromDate(uploadedAt!) : null,
+      'lineEdits': lineEdits.map((e) => e.toMap()).toList(),
     };
   }
 
@@ -275,6 +287,10 @@ class TrialExamSession {
       fileName: map['fileName'],
       fileUrl: map['fileUrl'],
       uploadedAt: (map['uploadedAt'] as Timestamp?)?.toDate(),
+      lineEdits: (map['lineEdits'] as List<dynamic>? ?? [])
+          .whereType<Map>()
+          .map((e) => OpticalLineEdit.fromMap(Map<String, dynamic>.from(e)))
+          .toList(),
     );
   }
 
@@ -286,6 +302,7 @@ class TrialExamSession {
     String? fileName,
     String? fileUrl,
     DateTime? uploadedAt,
+    List<OpticalLineEdit>? lineEdits,
   }) {
     return TrialExamSession(
       sessionNumber: sessionNumber ?? this.sessionNumber,
@@ -295,6 +312,49 @@ class TrialExamSession {
       fileName: fileName ?? this.fileName,
       fileUrl: fileUrl ?? this.fileUrl,
       uploadedAt: uploadedAt ?? this.uploadedAt,
+      lineEdits: lineEdits ?? this.lineEdits,
     );
   }
+}
+
+/// Okunan optik dosyadaki TEK satırın (bir öğrenci kâğıdı) düzeltmesi.
+/// Orijinal dosya değişmez; düzeltme değerlendirme anında uygulanır.
+class OpticalLineEdit {
+  /// Dosyadaki satır sırası (0'dan başlar; `content.split('\n')` indeksi).
+  final int line;
+
+  /// Orijinal satırın parmak izi. Dosya değişirse düzeltme uygulanmaz.
+  final String fingerprint;
+
+  /// Alan anahtarı -> yeni değer. Anahtarlar: identityNo, studentNo,
+  /// studentName, classLevel, branch, institutionCode, session, bookletType,
+  /// 'subj:<Ders Adı>'.
+  final Map<String, String> fields;
+
+  /// true: bu kâğıt değerlendirmeye alınmaz (çift okunan / hatalı kâğıt).
+  final bool excluded;
+
+  const OpticalLineEdit({
+    required this.line,
+    required this.fingerprint,
+    this.fields = const {},
+    this.excluded = false,
+  });
+
+  bool get isEmpty => fields.isEmpty && !excluded;
+
+  Map<String, dynamic> toMap() => {
+        'line': line,
+        'fp': fingerprint,
+        'fields': fields,
+        'excluded': excluded,
+      };
+
+  factory OpticalLineEdit.fromMap(Map<String, dynamic> map) => OpticalLineEdit(
+        line: (map['line'] as num?)?.toInt() ?? -1,
+        fingerprint: (map['fp'] ?? '').toString(),
+        fields: (map['fields'] as Map? ?? {})
+            .map((k, v) => MapEntry(k.toString(), v.toString())),
+        excluded: map['excluded'] == true,
+      );
 }

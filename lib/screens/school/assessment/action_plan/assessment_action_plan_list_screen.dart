@@ -1,14 +1,18 @@
-﻿import 'package:flutter/material.dart';
+import 'dart:typed_data';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:printing/printing.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:intl/intl.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'assessment_action_plan_screen.dart';
 import 'assessment_action_plan_selection_dialog.dart';
 import 'assessment_action_plan_stats_screen.dart';
 import '../../../../models/assessment/assessment_action_plan_model.dart';
 import '../../../../services/assessment_service.dart';
+import '../../../../services/user_permission_service.dart';
 import '../../../../widgets/edukn_logo.dart';
 import 'package:edukn/widgets/safe_stream_builder.dart';
+import '../../../../services/action_plan_report_pdf_service.dart';
 
 class AssessmentActionPlanListScreen extends StatefulWidget {
   final String institutionId;
@@ -29,9 +33,12 @@ class _AssessmentActionPlanListScreenState extends State<AssessmentActionPlanLis
   String _selectedClassFilter = 'Tümü';
   String? _userRole;
 
+  late final Stream<List<AssessmentActionPlan>> _plansStream;
+
   @override
   void initState() {
     super.initState();
+    _plansStream = _service.getAssessmentActionPlans(widget.institutionId, widget.schoolTypeId);
     _loadUserRole();
   }
 
@@ -41,7 +48,7 @@ class _AssessmentActionPlanListScreenState extends State<AssessmentActionPlanLis
 
   // Helper to get consistent class level across UI and filters
   String _getResolvedLevel(AssessmentActionPlan plan) {
-    String level = plan.classLevel;
+    String level = plan.classLevel.trim();
     if (level == 'Tümü' || level.isEmpty || level == 'GENEL') {
       if (plan.branchActionPlans.isNotEmpty) {
         for (var branchKey in plan.branchActionPlans.keys) {
@@ -57,13 +64,17 @@ class _AssessmentActionPlanListScreenState extends State<AssessmentActionPlanLis
       }
       return 'GENEL';
     }
-    return level;
+    final match = RegExp(r'^(\d+)').firstMatch(level);
+    if (match != null) {
+      return match.group(1)!;
+    }
+    return level.replaceAll(RegExp(r'\.?\s*sınıf', caseSensitive: false), '').trim();
   }
 
   @override
   Widget build(BuildContext context) {
     return SafeStreamBuilder<List<AssessmentActionPlan>>(
-      stream: _service.getAssessmentActionPlans(widget.institutionId, widget.schoolTypeId),
+      stream: _plansStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(body: Center(child: EduKnLoader(size: 60)));
@@ -87,10 +98,9 @@ class _AssessmentActionPlanListScreenState extends State<AssessmentActionPlanLis
           backgroundColor: const Color(0xFFF8F9FE),
           appBar: EduknAppBar(
             title: 'Eylem Planları Geçmişi',
-            leading: const BackButton(color: Colors.white),
             actions: [
               IconButton(
-                icon: const Icon(Icons.bar_chart_rounded, color: Colors.white),
+                icon: Icon(Icons.bar_chart_rounded, color: Colors.indigo.shade700),
                 tooltip: 'İstatistikler',
                 onPressed: () {
                   Navigator.push(
@@ -144,7 +154,9 @@ class _AssessmentActionPlanListScreenState extends State<AssessmentActionPlanLis
         itemBuilder: (context, index) {
           final level = sortedLevels[index];
           final isSelected = _selectedClassFilter == level;
-          final displayLabel = level == 'Tümü' ? 'Tüm Planlar' : '$level. Sınıf';
+          final displayLabel = level == 'Tümü'
+              ? 'Tüm Planlar'
+              : (level.toLowerCase().contains('sınıf') ? level : '$level. Sınıf');
 
           return AnimatedContainer(
             duration: const Duration(milliseconds: 300),
@@ -166,7 +178,7 @@ class _AssessmentActionPlanListScreenState extends State<AssessmentActionPlanLis
                   ),
                   boxShadow: isSelected ? [
                     BoxShadow(
-                      color: Colors.indigo.withOpacity(0.3),
+                      color: Colors.indigo.withValues(alpha: 0.3),
                       blurRadius: 8,
                       offset: const Offset(0, 4),
                     )
@@ -195,7 +207,7 @@ class _AssessmentActionPlanListScreenState extends State<AssessmentActionPlanLis
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 12, offset: const Offset(0, 4))],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 12, offset: const Offset(0, 4))],
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(20),
@@ -247,7 +259,7 @@ class _AssessmentActionPlanListScreenState extends State<AssessmentActionPlanLis
                     const SizedBox(width: 16),
                     Icon(Icons.person_outline, size: 14, color: Colors.grey.shade500),
                     const SizedBox(width: 6),
-                    Text(plan.creatorName, style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+                    _buildCreatorText(plan),
                   ],
                 ),
                 const Divider(height: 32),
@@ -258,15 +270,17 @@ class _AssessmentActionPlanListScreenState extends State<AssessmentActionPlanLis
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
+                Wrap(
+                  alignment: WrapAlignment.end,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
                     TextButton.icon(
                       onPressed: () => _showDeleteConfirm(plan.id),
                       icon: const Icon(Icons.delete_outline, color: Colors.red, size: 18),
                       label: const Text('Sil', style: TextStyle(color: Colors.red)),
                     ),
-                    const SizedBox(width: 12),
                     ElevatedButton.icon(
                       onPressed: () => _showStatusUpdateDialog(plan),
                       icon: Icon(plan.isRealized ? Icons.check_circle : Icons.pending_actions, size: 18),
@@ -274,6 +288,18 @@ class _AssessmentActionPlanListScreenState extends State<AssessmentActionPlanLis
                       style: ElevatedButton.styleFrom(
                         backgroundColor: plan.isRealized ? Colors.green.shade50 : Colors.orange.shade50,
                         foregroundColor: plan.isRealized ? Colors.green : Colors.orange,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: () => _generateReport(plan),
+                      icon: const Icon(Icons.picture_as_pdf_rounded, size: 18),
+                      label: const Text('Rapor Al'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.indigo.shade50,
+                        foregroundColor: Colors.indigo.shade800,
                         elevation: 0,
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -289,11 +315,125 @@ class _AssessmentActionPlanListScreenState extends State<AssessmentActionPlanLis
     );
   }
 
+  Widget _buildCreatorText(AssessmentActionPlan plan) {
+    if (plan.creatorName.isNotEmpty &&
+        plan.creatorName != 'Kullanıcı' &&
+        plan.creatorName != 'Sistem Yöneticisi' &&
+        plan.creatorName != 'anon') {
+      return Text(plan.creatorName,
+          style: TextStyle(color: Colors.grey.shade500, fontSize: 12));
+    }
+
+    final cached = UserPermissionService.getCachedUserFullName(plan.createdBy);
+    if (cached != null && cached != 'Sistem Yöneticisi') {
+      return Text(cached,
+          style: TextStyle(color: Colors.grey.shade500, fontSize: 12));
+    }
+
+    return FutureBuilder<String>(
+      future: UserPermissionService.resolveUserFullName(plan.createdBy, institutionId: plan.institutionId, fallback: ''),
+      builder: (context, snapshot) {
+        final name = (snapshot.data != null &&
+                snapshot.data!.isNotEmpty &&
+                snapshot.data != 'Kullanıcı' &&
+                snapshot.data != 'Sistem Yöneticisi')
+            ? snapshot.data!
+            : (plan.creatorName.isNotEmpty && plan.creatorName != 'Kullanıcı' && plan.creatorName != 'Sistem Yöneticisi'
+                ? plan.creatorName
+                : '');
+
+        if (snapshot.hasData &&
+            snapshot.data != null &&
+            snapshot.data!.isNotEmpty &&
+            snapshot.data != 'Kullanıcı' &&
+            snapshot.data != 'Sistem Yöneticisi' &&
+            (plan.creatorName == 'Kullanıcı' || plan.creatorName == 'Sistem Yöneticisi' || plan.creatorName.isEmpty)) {
+          FirebaseFirestore.instance
+              .collection('assessment_action_plans')
+              .doc(plan.id)
+              .update({'creatorName': snapshot.data})
+              .catchError((_) {});
+        }
+        return Text(name.isNotEmpty ? name : 'Yönetici',
+            style: TextStyle(color: Colors.grey.shade500, fontSize: 12));
+      },
+    );
+  }
+
+  Future<ActionPlanReportMode?> _chooseReportMode() {
+    Widget option(BuildContext ctx, IconData icon, String title, String sub, ActionPlanReportMode m) {
+      return ListTile(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        leading: CircleAvatar(
+          backgroundColor: Colors.indigo.shade50,
+          child: Icon(icon, color: Colors.indigo.shade700, size: 20),
+        ),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+        subtitle: Text(sub, style: const TextStyle(fontSize: 12)),
+        onTap: () => Navigator.pop(ctx, m),
+      );
+    }
+
+    return showModalBottomSheet<ActionPlanReportMode>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.only(left: 8, bottom: 8),
+                child: Text('Rapor Türünü Seçin', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              ),
+              option(ctx, Icons.groups_rounded, 'Sınıf (Şube) Bazlı Rapor',
+                  'Her şube ayrı sayfada: kritik kazanımlar ve eylem planları', ActionPlanReportMode.classOnly),
+              option(ctx, Icons.person_search_rounded, 'Öğrenci Bazlı Rapor',
+                  'Barajın altındaki öğrenciler, görevler ve veli bilgilendirme durumu', ActionPlanReportMode.studentOnly),
+              option(ctx, Icons.picture_as_pdf_rounded, 'Tam Rapor',
+                  'Sınıf ve öğrenci bazlı bölümlerin ikisi birlikte', ActionPlanReportMode.full),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _generateReport(AssessmentActionPlan plan) async {
+    final mode = await _chooseReportMode();
+    if (mode == null || !mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+    Uint8List? bytes;
+    try {
+      bytes = await ActionPlanReportPdfService.generate(plan, mode: mode);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Rapor oluşturulamadı: $e')));
+      }
+    } finally {
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+    }
+    if (bytes != null) {
+      final data = bytes;
+      await Printing.layoutPdf(
+        name: 'Eylem_Plani_Raporu.pdf',
+        onLayout: (_) async => data,
+      );
+    }
+  }
+
   Widget _buildStatusChip(bool isRealized) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: isRealized ? Colors.green.withOpacity(0.1) : Colors.orange.withOpacity(0.1),
+        color: isRealized ? Colors.green.withValues(alpha: 0.1) : Colors.orange.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
@@ -304,7 +444,14 @@ class _AssessmentActionPlanListScreenState extends State<AssessmentActionPlanLis
   }
 
   Widget _buildClassBadge(String level) {
-    String display = level == 'GENEL' ? 'GENEL' : '$level. SINIF';
+    String display;
+    if (level == 'GENEL') {
+      display = 'GENEL';
+    } else if (level.toUpperCase().contains('SINIF')) {
+      display = level.toUpperCase();
+    } else {
+      display = '$level. SINIF';
+    }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
@@ -358,7 +505,7 @@ class _AssessmentActionPlanListScreenState extends State<AssessmentActionPlanLis
           TextButton(
             onPressed: () async {
               await _service.deleteAssessmentActionPlan(id);
-              Navigator.pop(c);
+              if (mounted) Navigator.pop(c);
             },
             child: const Text('Sil', style: TextStyle(color: Colors.red)),
           ),
@@ -395,7 +542,7 @@ class _AssessmentActionPlanListScreenState extends State<AssessmentActionPlanLis
                 child: ElevatedButton(
                   onPressed: () async {
                     await _service.updateActionPlanRealization(plan.id, true, notesController.text);
-                    Navigator.pop(context);
+                    if (mounted) Navigator.pop(context);
                   },
                   style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
                   child: const Text('Gerçekleşti İşaretle'),

@@ -130,7 +130,7 @@ class _HomeworkOperationsScreenState extends State<HomeworkOperationsScreen>
           _cachedHomeworks = list;
         }
       }
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[homework_operations_screen] hata yutuldu: $silentError'); }
   }
 
   @override
@@ -1014,7 +1014,7 @@ class _HomeworkOperationsScreenState extends State<HomeworkOperationsScreen>
               border: Border.all(color: Colors.deepPurple.shade100),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.deepPurple.withOpacity(0.05),
+                  color: Colors.deepPurple.withValues(alpha: 0.05),
                   blurRadius: 4,
                   offset: const Offset(0, 2),
                 ),
@@ -1096,7 +1096,7 @@ class _HomeworkOperationsScreenState extends State<HomeworkOperationsScreen>
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10),
+            BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10),
           ],
         ),
         child: Column(

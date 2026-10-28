@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -396,7 +396,7 @@ class _StudyProgramDetailScreenState extends State<StudyProgramDetailScreen> {
       backgroundColor: Colors.white,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
-        side: BorderSide(color: color.withOpacity(0.5)),
+        side: BorderSide(color: color.withValues(alpha: 0.5)),
       ),
       onSelected: (val) {
         if (val) {
@@ -453,12 +453,12 @@ class _StudyProgramDetailScreenState extends State<StudyProgramDetailScreen> {
     int incomplete = 0;
     int missed = 0;
 
-    _executionStatus.values.forEach((list) {
+    for (var list in _executionStatus.values) {
       total += list.length;
       done += list.where((s) => s == 1).length;
       incomplete += list.where((s) => s == 2).length;
       missed += list.where((s) => s == 3).length;
-    });
+    }
 
     return {
       'total': total,
@@ -761,7 +761,7 @@ class _StudyProgramDetailScreenState extends State<StudyProgramDetailScreen> {
                   duration: const Duration(milliseconds: 200),
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
-                    color: isPriority ? Colors.red.shade50.withOpacity(0.3) : color,
+                    color: isPriority ? Colors.red.shade50.withValues(alpha: 0.3) : color,
                     border: Border.all(
                       color: isPriority ? Colors.red.shade300 : borderColor,
                       width: isPriority ? 1.8 : 1.5,
@@ -769,7 +769,7 @@ class _StudyProgramDetailScreenState extends State<StudyProgramDetailScreen> {
                     borderRadius: BorderRadius.circular(10),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.04),
+                        color: Colors.black.withValues(alpha: 0.04),
                         blurRadius: 2,
                         offset: const Offset(0, 1),
                       ),

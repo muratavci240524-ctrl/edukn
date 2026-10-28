@@ -3,7 +3,6 @@ import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
-import 'dart:ui';
 import 'package:google_fonts/google_fonts.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
 
 
@@ -110,7 +109,7 @@ class _PersonalNotesScreenState extends State<PersonalNotesScreen> {
                           ),
                           TextButton(
                             onPressed: () => Navigator.pop(context, true),
-                            child: const Text('Sil', style: const TextStyle(color: Colors.red)),
+                            child: const Text('Sil', style: TextStyle(color: Colors.red)),
                           ),
                         ],
                       ),
@@ -135,7 +134,7 @@ class _PersonalNotesScreenState extends State<PersonalNotesScreen> {
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(20),
                         boxShadow: [
-                          BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4)),
+                          BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4)),
                         ],
                       ),
                       child: ClipRRect(
@@ -466,7 +465,7 @@ class _PersonalNotesScreenState extends State<PersonalNotesScreen> {
                       content: const Text('Bu notu silmek istediğinize emin misiniz?'),
                       actions: [
                         TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('İptal')),
-                        TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Sil', style: const TextStyle(color: Colors.red))),
+                        TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Sil', style: TextStyle(color: Colors.red))),
                       ],
                     ),
                   );
@@ -478,7 +477,7 @@ class _PersonalNotesScreenState extends State<PersonalNotesScreen> {
                         .doc(docId)
                         .delete();
                     Navigator.pop(context); // Close form
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Not silindi!')));
+                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Not silindi!')));
                   }
                 },
                 style: ElevatedButton.styleFrom(
@@ -529,7 +528,7 @@ class _PersonalNotesScreenState extends State<PersonalNotesScreen> {
       'title': _titleController.text.trim(),
       'content': _contentController.text.trim(),
       'category': _selectedCategory,
-      'color': _selectedColor.value,
+      'color': _selectedColor.toARGB32(),
       'reminder': reminderDateTime != null ? Timestamp.fromDate(reminderDateTime) : null,
       'isCompleted': false,
     };
@@ -544,7 +543,7 @@ class _PersonalNotesScreenState extends State<PersonalNotesScreen> {
         ...data,
         'createdAt': FieldValue.serverTimestamp(),
       });
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Not başarıyla kaydedildi!')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Not başarıyla kaydedildi!')));
     } else {
       // Update existing note
       await FirebaseFirestore.instance
@@ -553,9 +552,9 @@ class _PersonalNotesScreenState extends State<PersonalNotesScreen> {
           .collection('personal_notes')
           .doc(docId)
           .update(data);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Not başarıyla güncellendi!')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Not başarıyla güncellendi!')));
     }
 
-    Navigator.pop(context);
+    if (mounted) Navigator.pop(context);
   }
 }

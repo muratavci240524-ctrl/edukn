@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -156,9 +156,9 @@ class _DemandAnalyticsScreenState extends State<DemandAnalyticsScreen> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
-          BoxShadow(color: color.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4)),
+          BoxShadow(color: color.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 4)),
         ],
-        border: Border.all(color: color.withOpacity(0.1)),
+        border: Border.all(color: color.withValues(alpha: 0.1)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -167,7 +167,7 @@ class _DemandAnalyticsScreenState extends State<DemandAnalyticsScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(title, style: TextStyle(fontSize: 12, color: Colors.blueGrey.shade400, fontWeight: FontWeight.bold)),
-              Icon(icon, color: color.withOpacity(0.5), size: 16),
+              Icon(icon, color: color.withValues(alpha: 0.5), size: 16),
             ],
           ),
           const SizedBox(height: 12),
@@ -204,7 +204,7 @@ class _DemandAnalyticsScreenState extends State<DemandAnalyticsScreen> {
                   child: LinearProgressIndicator(
                     value: percent,
                     minHeight: 8,
-                    backgroundColor: Colors.indigo.withOpacity(0.05),
+                    backgroundColor: Colors.indigo.withValues(alpha: 0.05),
                     valueColor: const AlwaysStoppedAnimation<Color>(Colors.indigo),
                   ),
                 ),
@@ -236,7 +236,7 @@ class _DemandAnalyticsScreenState extends State<DemandAnalyticsScreen> {
         children: [
           Container(
             padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
+            decoration: BoxDecoration(color: color.withValues(alpha: 0.1), shape: BoxShape.circle),
             child: Text(count.toString(), style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 16)),
           ),
           const SizedBox(height: 8),
@@ -274,7 +274,7 @@ class _DemandAnalyticsScreenState extends State<DemandAnalyticsScreen> {
         selected: isSelected,
         onSelected: (_) => setState(() => _selectedSchoolTypeId = id),
         selectedColor: Colors.indigo,
-        backgroundColor: Colors.indigo.withOpacity(0.05),
+        backgroundColor: Colors.indigo.withValues(alpha: 0.05),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         showCheckmark: false,
       ),

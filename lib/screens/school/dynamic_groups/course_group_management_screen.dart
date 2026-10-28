@@ -1,3 +1,4 @@
+import 'dart:ui' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:printing/printing.dart';
@@ -683,7 +684,7 @@ class _CourseGroupManagementScreenState extends State<CourseGroupManagementScree
               Icon(
                 isClub ? Icons.sports_soccer_outlined : Icons.layers_outlined,
                 size: 48,
-                color: primaryColor.withOpacity(0.4),
+                color: primaryColor.withValues(alpha: 0.4),
               ),
               const SizedBox(height: 12),
               Text(
@@ -724,16 +725,16 @@ class _CourseGroupManagementScreenState extends State<CourseGroupManagementScree
         duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: isSelected ? primaryColor.withOpacity(0.09) : Colors.white,
+          color: isSelected ? primaryColor.withValues(alpha: 0.09) : Colors.white,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isSelected ? primaryColor.withOpacity(0.5) : Colors.grey.shade200,
+            color: isSelected ? primaryColor.withValues(alpha: 0.5) : Colors.grey.shade200,
             width: isSelected ? 1.5 : 1,
           ),
           boxShadow: isSelected
               ? [
                   BoxShadow(
-                    color: primaryColor.withOpacity(0.12),
+                    color: primaryColor.withValues(alpha: 0.12),
                     blurRadius: 8,
                     offset: const Offset(0, 2),
                   )
@@ -748,8 +749,8 @@ class _CourseGroupManagementScreenState extends State<CourseGroupManagementScree
               height: 38,
               decoration: BoxDecoration(
                 color: isSelected
-                    ? primaryColor.withOpacity(0.18)
-                    : primaryColor.withOpacity(0.08),
+                    ? primaryColor.withValues(alpha: 0.18)
+                    : primaryColor.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(
@@ -771,7 +772,7 @@ class _CourseGroupManagementScreenState extends State<CourseGroupManagementScree
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 13.5,
-                      color: isSelected ? primaryColor.withOpacity(0.9) : const Color(0xFF0F172A),
+                      color: isSelected ? primaryColor.withValues(alpha: 0.9) : const Color(0xFF0F172A),
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -804,7 +805,7 @@ class _CourseGroupManagementScreenState extends State<CourseGroupManagementScree
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: isSelected ? primaryColor : primaryColor.withOpacity(0.1),
+                color: isSelected ? primaryColor : primaryColor.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Text(
@@ -841,8 +842,8 @@ class _CourseGroupManagementScreenState extends State<CourseGroupManagementScree
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [
-                  primaryColor.withOpacity(0.12),
-                  primaryColor.withOpacity(0.05),
+                  primaryColor.withValues(alpha: 0.12),
+                  primaryColor.withValues(alpha: 0.05),
                 ],
               ),
               shape: BoxShape.circle,
@@ -850,7 +851,7 @@ class _CourseGroupManagementScreenState extends State<CourseGroupManagementScree
             child: Icon(
               isTrack ? Icons.layers_outlined : Icons.sports_soccer_outlined,
               size: 40,
-              color: primaryColor.withOpacity(0.6),
+              color: primaryColor.withValues(alpha: 0.6),
             ),
           ),
           const SizedBox(height: 20),
@@ -894,7 +895,7 @@ class _CourseGroupManagementScreenState extends State<CourseGroupManagementScree
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: primaryColor.withOpacity(0.1),
+                  color: primaryColor.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
@@ -969,12 +970,12 @@ class _CourseGroupManagementScreenState extends State<CourseGroupManagementScree
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
-                      colors: [primaryColor.withOpacity(0.07), primaryColor.withOpacity(0.02)],
+                      colors: [primaryColor.withValues(alpha: 0.07), primaryColor.withValues(alpha: 0.02)],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: primaryColor.withOpacity(0.15)),
+                    border: Border.all(color: primaryColor.withValues(alpha: 0.15)),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1004,7 +1005,7 @@ class _CourseGroupManagementScreenState extends State<CourseGroupManagementScree
                                             decoration: BoxDecoration(
                                               color: Colors.white,
                                               borderRadius: BorderRadius.circular(8),
-                                              border: Border.all(color: primaryColor.withOpacity(0.25)),
+                                              border: Border.all(color: primaryColor.withValues(alpha: 0.25)),
                                             ),
                                             child: Text(
                                               cn,
@@ -1038,7 +1039,7 @@ class _CourseGroupManagementScreenState extends State<CourseGroupManagementScree
                                 ),
                                 Text(
                                   'öğrenci',
-                                  style: TextStyle(color: Colors.white.withOpacity(0.85), fontSize: 11),
+                                  style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 11),
                                 ),
                               ],
                             ),
@@ -1112,7 +1113,7 @@ class _CourseGroupManagementScreenState extends State<CourseGroupManagementScree
                       border: Border.all(color: Colors.grey.shade200),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.03),
+                          color: Colors.black.withValues(alpha: 0.03),
                           blurRadius: 8,
                           offset: const Offset(0, 3),
                         ),
@@ -1125,7 +1126,7 @@ class _CourseGroupManagementScreenState extends State<CourseGroupManagementScree
                           children: [
                             CircleAvatar(
                               radius: 18,
-                              backgroundColor: primaryColor.withOpacity(0.12),
+                              backgroundColor: primaryColor.withValues(alpha: 0.12),
                               child: Text(
                                 '${sub.studentIds.length}',
                                 style: TextStyle(
@@ -1155,7 +1156,7 @@ class _CourseGroupManagementScreenState extends State<CourseGroupManagementScree
                                         Container(
                                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
                                           decoration: BoxDecoration(
-                                            color: primaryColor.withOpacity(0.12),
+                                            color: primaryColor.withValues(alpha: 0.12),
                                             borderRadius: BorderRadius.circular(5),
                                           ),
                                           child: Text(
@@ -1187,8 +1188,14 @@ class _CourseGroupManagementScreenState extends State<CourseGroupManagementScree
                             children: [
                               Icon(Icons.room_outlined, size: 12, color: Colors.grey.shade500),
                               const SizedBox(width: 3),
-                              Text(sub.classroomName,
-                                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                              Expanded(
+                                child: Text(
+                                  sub.classroomName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                                ),
+                              ),
                             ],
                           ),
                         ],
@@ -1219,7 +1226,7 @@ class _CourseGroupManagementScreenState extends State<CourseGroupManagementScree
                                           ? Colors.red.shade400
                                           : fillRatio >= 0.8
                                               ? Colors.orange.shade400
-                                              : primaryColor.withOpacity(0.7),
+                                              : primaryColor.withValues(alpha: 0.7),
                                     ),
                                   ),
                                 ),
@@ -1387,7 +1394,7 @@ class _CourseGroupManagementScreenState extends State<CourseGroupManagementScree
                   : cId;
               return ListTile(
                 leading: CircleAvatar(
-                  backgroundColor: primaryColor.withOpacity(0.12),
+                  backgroundColor: primaryColor.withValues(alpha: 0.12),
                   child:
                       Icon(Icons.school_outlined, color: primaryColor, size: 18),
                 ),
@@ -1835,7 +1842,7 @@ class _CourseGroupDetailScreen extends StatelessWidget {
     ).then((result) {
       if (result == true) {
         onRefresh();
-        Navigator.pop(context);
+        if (context.mounted) Navigator.pop(context);
       }
     });
   }
@@ -2263,7 +2270,14 @@ class _CourseGroupDetailScreen extends StatelessWidget {
                               children: [
                                 Icon(Icons.room_outlined, size: 12, color: Colors.grey.shade500),
                                 const SizedBox(width: 3),
-                                Text(sub.classroomName, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                                Expanded(
+                                  child: Text(
+                                    sub.classroomName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                                  ),
+                                ),
                               ],
                             ),
                           ],
@@ -2507,10 +2521,18 @@ class _StudentAssignmentTableScreenState extends State<_StudentAssignmentTableSc
   }
 
   String _normalize(String input) {
+    // Büyük harfler toLowerCase'den ÖNCE çevrilmeli (İ.toLowerCase() = i + U+0307)
     return input
-        .toLowerCase()
-        .replaceAll('ı', 'i')
         .replaceAll('İ', 'i')
+        .replaceAll('I', 'i')
+        .replaceAll('ı', 'i')
+        .replaceAll('Ğ', 'g')
+        .replaceAll('Ü', 'u')
+        .replaceAll('Ş', 's')
+        .replaceAll('Ö', 'o')
+        .replaceAll('Ç', 'c')
+        .toLowerCase()
+        .replaceAll(RegExp(r'[\u0300-\u036f]'), '')
         .replaceAll('ğ', 'g')
         .replaceAll('ü', 'u')
         .replaceAll('ş', 's')
@@ -2701,6 +2723,7 @@ class _StudentAssignmentTableScreenState extends State<_StudentAssignmentTableSc
           }
           _selectedStudentIds.clear();
         });
+        _autoSave();
       } else {
         setState(() {
           _selectedStudentIds.addAll(matchedIds);
@@ -2853,7 +2876,7 @@ class _StudentAssignmentTableScreenState extends State<_StudentAssignmentTableSc
                       Navigator.pop(ctx);
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                          content: Text('ğŸ‰ $count öğrenci başarıyla ${activeSub.name} grubuna atandı!'),
+                          content: Text('$count öğrenci başarıyla ${activeSub.name} grubuna atandı!'),
                           backgroundColor: Colors.green.shade700,
                           behavior: SnackBarBehavior.floating,
                         ),
@@ -2873,7 +2896,7 @@ class _StudentAssignmentTableScreenState extends State<_StudentAssignmentTableSc
                     Navigator.pop(ctx);
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text('âœ… $count öğrenci eşleşti ve seçildi.'),
+                        content: Text('$count öğrenci eşleşti ve seçildi.'),
                         backgroundColor: Colors.indigo.shade700,
                         behavior: SnackBarBehavior.floating,
                       ),
@@ -3001,7 +3024,7 @@ class _StudentAssignmentTableScreenState extends State<_StudentAssignmentTableSc
               Navigator.pop(ctx);
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text('âœ… $count öğrenci eşleşti ve seçildi.'),
+                  content: Text('$count öğrenci eşleşti ve seçildi.'),
                   backgroundColor: Colors.indigo.shade700,
                   behavior: SnackBarBehavior.floating,
                 ),
@@ -3018,7 +3041,7 @@ class _StudentAssignmentTableScreenState extends State<_StudentAssignmentTableSc
                 Navigator.pop(ctx);
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text('ğŸ‰ $count öğrenci başarıyla ${activeSub.name} grubuna atandı!'),
+                    content: Text('$count öğrenci başarıyla ${activeSub.name} grubuna atandı!'),
                     backgroundColor: Colors.green.shade700,
                     behavior: SnackBarBehavior.floating,
                   ),
@@ -3189,7 +3212,7 @@ class _StudentAssignmentTableScreenState extends State<_StudentAssignmentTableSc
                             borderRadius: BorderRadius.circular(16),
                           ),
                           child: Text(
-                            'Toplam: ${_allStudents.length}  â€¢  Atanan: $totalEnrolled  â€¢  Atanmamış: $unassignedCount',
+                            'Toplam: ${_allStudents.length}  •  Atanan: $totalEnrolled  •  Atanmamış: $unassignedCount',
                             style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
                           ),
                         ),
@@ -3199,11 +3222,15 @@ class _StudentAssignmentTableScreenState extends State<_StudentAssignmentTableSc
                             Icon(isClub ? Icons.sports_soccer_rounded : Icons.auto_stories_rounded,
                                 size: 18, color: Colors.indigo.shade700),
                             const SizedBox(width: 8),
-                            Text(
-                              isClub ? 'Hedef Kulüp Seçin (Tıklayarak Aktifleştirin):' : 'Hedef Seviye Kuru Seçin (Tıklayarak Aktifleştirin):',
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1E293B)),
+                            Expanded(
+                              child: Text(
+                                isClub ? 'Hedef Kulüp Seçin (Tıklayarak Aktifleştirin):' : 'Hedef Seviye Kuru Seçin (Tıklayarak Aktifleştirin):',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1E293B)),
+                              ),
                             ),
-                            const Spacer(),
+                            const SizedBox(width: 12),
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                               decoration: BoxDecoration(
@@ -3219,108 +3246,132 @@ class _StudentAssignmentTableScreenState extends State<_StudentAssignmentTableSc
                         ),
                       ],
                       const SizedBox(height: 10),
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: _subGroups.map((sub) {
-                            final isActive = _activeSubGroupId == sub.id;
-                            final currentCount = sub.studentIds.length;
-                            final isFull = sub.capacity != null && sub.capacity! > 0 && currentCount >= sub.capacity!;
+                      ScrollConfiguration(
+                        behavior: ScrollConfiguration.of(context).copyWith(
+                          dragDevices: {
+                            PointerDeviceKind.touch,
+                            PointerDeviceKind.mouse,
+                            PointerDeviceKind.trackpad,
+                          },
+                        ),
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          physics: const BouncingScrollPhysics(
+                            parent: AlwaysScrollableScrollPhysics(),
+                          ),
+                          child: Row(
+                            children: _subGroups.map((sub) {
+                              final isActive = _activeSubGroupId == sub.id;
+                              final currentCount = sub.studentIds.length;
+                              final isFull = sub.capacity != null && sub.capacity! > 0 && currentCount >= sub.capacity!;
 
-                            return Padding(
-                              padding: const EdgeInsets.only(right: 10),
-                              child: InkWell(
-                                onTap: () {
-                                  setState(() {
-                                    _activeSubGroupId = sub.id;
-                                  });
-                                },
-                                borderRadius: BorderRadius.circular(12),
-                                child: AnimatedContainer(
-                                  duration: const Duration(milliseconds: 200),
-                                  width: isMobile ? 180 : 220,
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: isActive
-                                        ? (isClub ? const Color(0xFFFAF5FF) : const Color(0xFFEEF2FF))
-                                        : Colors.white,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
+                              return Padding(
+                                padding: const EdgeInsets.only(right: 10),
+                                child: InkWell(
+                                  onTap: () {
+                                    setState(() {
+                                      _activeSubGroupId = sub.id;
+                                    });
+                                  },
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 200),
+                                    width: isMobile ? 200 : 240,
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
                                       color: isActive
-                                          ? (isClub ? Colors.purple.shade600 : Colors.indigo.shade600)
-                                          : const Color(0xFFE2E8F0),
-                                      width: isActive ? 2 : 1,
+                                          ? (isClub ? const Color(0xFFFAF5FF) : const Color(0xFFEEF2FF))
+                                          : Colors.white,
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: isActive
+                                            ? (isClub ? Colors.purple.shade600 : Colors.indigo.shade600)
+                                            : const Color(0xFFE2E8F0),
+                                        width: isActive ? 2 : 1,
+                                      ),
+                                      boxShadow: [
+                                        if (isActive)
+                                          BoxShadow(
+                                            color: (isClub ? Colors.purple : Colors.indigo).withValues(alpha: 0.12),
+                                            blurRadius: 8,
+                                            offset: const Offset(0, 3),
+                                          ),
+                                      ],
                                     ),
-                                    boxShadow: [
-                                      if (isActive)
-                                        BoxShadow(
-                                          color: (isClub ? Colors.purple : Colors.indigo).withOpacity(0.12),
-                                          blurRadius: 8,
-                                          offset: const Offset(0, 3),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                sub.name,
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 13.5,
+                                                  color: isActive
+                                                      ? (isClub ? Colors.purple.shade900 : Colors.indigo.shade900)
+                                                      : const Color(0xFF1E293B),
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                            if (isActive) ...[
+                                              const SizedBox(width: 6),
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                decoration: BoxDecoration(
+                                                  color: isClub ? Colors.purple.shade600 : Colors.indigo.shade600,
+                                                  borderRadius: BorderRadius.circular(10),
+                                                ),
+                                                child: const Text(
+                                                  'SEÇİLİ',
+                                                  style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white),
+                                                ),
+                                              ),
+                                            ],
+                                          ],
                                         ),
-                                    ],
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: Text(
-                                              sub.name,
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.bold,
-                                                fontSize: 13.5,
-                                                color: isActive
-                                                    ? (isClub ? Colors.purple.shade900 : Colors.indigo.shade900)
-                                                    : const Color(0xFF1E293B),
-                                              ),
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ),
-                                          if (isActive)
-                                            Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                              decoration: BoxDecoration(
-                                                color: isClub ? Colors.purple.shade600 : Colors.indigo.shade600,
-                                                borderRadius: BorderRadius.circular(10),
-                                              ),
-                                              child: const Text(
-                                                'SEÇİLİ',
-                                                style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white),
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 6),
-                                      Row(
-                                        children: [
-                                          Icon(Icons.people_outline_rounded,
-                                              size: 14,
-                                              color: isFull ? Colors.red.shade600 : Colors.grey.shade600),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            '$currentCount ${sub.capacity != null && sub.capacity! > 0 ? "/ ${sub.capacity}" : ""} Öğrenci',
-                                            style: TextStyle(
-                                              fontSize: 11.5,
-                                              fontWeight: FontWeight.bold,
-                                              color: isFull ? Colors.red.shade700 : const Color(0xFF334155),
-                                            ),
-                                          ),
-                                          const Spacer(),
-                                          if (sub.classroomName.isNotEmpty)
+                                        const SizedBox(height: 6),
+                                        Row(
+                                          children: [
+                                            Icon(Icons.people_outline_rounded,
+                                                size: 14,
+                                                color: isFull ? Colors.red.shade600 : Colors.grey.shade600),
+                                            const SizedBox(width: 4),
                                             Text(
-                                              sub.classroomName,
-                                              style: TextStyle(fontSize: 10.5, color: Colors.grey.shade600),
+                                              '$currentCount ${sub.capacity != null && sub.capacity! > 0 ? "/ ${sub.capacity}" : ""} Öğrenci',
+                                              style: TextStyle(
+                                                fontSize: 11.5,
+                                                fontWeight: FontWeight.bold,
+                                                color: isFull ? Colors.red.shade700 : const Color(0xFF334155),
+                                              ),
                                             ),
-                                        ],
-                                      ),
-                                    ],
+                                            if (sub.classroomName.isNotEmpty) ...[
+                                              const SizedBox(width: 8),
+                                              Expanded(
+                                                child: Tooltip(
+                                                  message: sub.classroomName,
+                                                  child: Text(
+                                                    sub.classroomName,
+                                                    textAlign: TextAlign.right,
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                    style: TextStyle(fontSize: 10.5, color: Colors.grey.shade600),
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
-                              ),
-                            );
-                          }).toList(),
+                              );
+                            }).toList(),
+                          ),
                         ),
                       ),
                     ],
@@ -3348,7 +3399,7 @@ class _StudentAssignmentTableScreenState extends State<_StudentAssignmentTableSc
                               setState(() => _searchQuery = '');
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
-                                  content: Text('âœ… Excel listesinden $count öğrenci otomatik seçildi!'),
+                                  content: Text('Excel listesinden $count öğrenci otomatik seçildi!'),
                                   backgroundColor: Colors.indigo.shade700,
                                   behavior: SnackBarBehavior.floating,
                                 ),
@@ -3461,7 +3512,7 @@ class _StudentAssignmentTableScreenState extends State<_StudentAssignmentTableSc
                                     setState(() => _searchQuery = '');
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
-                                        content: Text('âœ… Excel listesinden $count öğrenci otomatik bulundu ve seçildi!'),
+                                        content: Text('Excel listesinden $count öğrenci otomatik bulundu ve seçildi!'),
                                         backgroundColor: Colors.indigo.shade700,
                                         behavior: SnackBarBehavior.floating,
                                       ),
@@ -3514,7 +3565,7 @@ class _StudentAssignmentTableScreenState extends State<_StudentAssignmentTableSc
                                 elevation: 0,
                               ),
                               icon: const Icon(Icons.table_chart_rounded, size: 18),
-                              label: const Text('ğŸ“‹ Excel\'den Toplu Seç', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                              label: const Text('Excel\'den Toplu Seç', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                               onPressed: _showExcelPasteDialog,
                             ),
                             const SizedBox(width: 10),
@@ -3552,38 +3603,53 @@ class _StudentAssignmentTableScreenState extends State<_StudentAssignmentTableSc
                       const SizedBox(height: 8),
 
                       // Durum Filtresi Çipleri (Yatay Kaydırılabilir)
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: [
-                            ChoiceChip(
-                              label: Text('Tümü (${_allStudents.length})', style: const TextStyle(fontSize: 11.5)),
-                              selected: _statusFilter == 'all',
-                              onSelected: (_) => setState(() => _statusFilter = 'all'),
-                            ),
-                            const SizedBox(width: 8),
-                            if (activeSub != null) ...[
+                      ScrollConfiguration(
+                        behavior: ScrollConfiguration.of(context).copyWith(
+                          dragDevices: {
+                            PointerDeviceKind.touch,
+                            PointerDeviceKind.mouse,
+                            PointerDeviceKind.trackpad,
+                          },
+                        ),
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          physics: const BouncingScrollPhysics(
+                            parent: AlwaysScrollableScrollPhysics(),
+                          ),
+                          child: Row(
+                            children: [
                               ChoiceChip(
-                                label: Text('Sadece ${activeSub.name} (${activeSub.studentIds.length})', style: const TextStyle(fontSize: 11.5)),
-                                selected: _statusFilter == 'active_kur',
-                                selectedColor: isClub ? _clubLightColor : Colors.indigo.shade100,
-                                onSelected: (_) => setState(() => _statusFilter = 'active_kur'),
+                                label: Text('Tümü (${_allStudents.length})', style: const TextStyle(fontSize: 11.5)),
+                                selected: _statusFilter == 'all',
+                                onSelected: (_) => setState(() => _statusFilter = 'all'),
                               ),
                               const SizedBox(width: 8),
+                              if (activeSub != null) ...[
+                                ChoiceChip(
+                                  label: Text('Sadece ${activeSub.name} (${activeSub.studentIds.length})', style: const TextStyle(fontSize: 11.5)),
+                                  selected: _statusFilter == 'active_kur',
+                                  selectedColor: isClub ? _clubLightColor : Colors.indigo.shade100,
+                                  onSelected: (_) => setState(() => _statusFilter = 'active_kur'),
+                                ),
+                                const SizedBox(width: 8),
+                              ],
+                              ChoiceChip(
+                                label: Text('Henüz Atanmayanlar ($unassignedCount)', style: const TextStyle(fontSize: 11.5)),
+                                selected: _statusFilter == 'unassigned',
+                                selectedColor: Colors.orange.shade100,
+                                onSelected: (_) => setState(() => _statusFilter = 'unassigned'),
+                              ),
+                              const SizedBox(width: 8),
+                              ChoiceChip(
+                                label: Text(
+                                  isClub ? 'Diğer Kulüplere Atananlar' : 'Diğer Kurlara Atananlar',
+                                  style: const TextStyle(fontSize: 11.5),
+                                ),
+                                selected: _statusFilter == 'other_kur',
+                                onSelected: (_) => setState(() => _statusFilter = 'other_kur'),
+                              ),
                             ],
-                            ChoiceChip(
-                              label: Text('Henüz Atanmayanlar ($unassignedCount)', style: const TextStyle(fontSize: 11.5)),
-                              selected: _statusFilter == 'unassigned',
-                              selectedColor: Colors.orange.shade100,
-                              onSelected: (_) => setState(() => _statusFilter = 'unassigned'),
-                            ),
-                            const SizedBox(width: 8),
-                            ChoiceChip(
-                              label: const Text('Diğer Kurlara Atananlar', style: TextStyle(fontSize: 11.5)),
-                              selected: _statusFilter == 'other_kur',
-                              onSelected: (_) => setState(() => _statusFilter = 'other_kur'),
-                            ),
-                          ],
+                          ),
                         ),
                       ),
                     ],
@@ -3712,7 +3778,7 @@ class _StudentAssignmentTableScreenState extends State<_StudentAssignmentTableSc
                                 ),
                                 decoration: BoxDecoration(
                                   color: isChecked
-                                      ? (isClub ? Colors.purple.shade50.withOpacity(0.5) : Colors.indigo.shade50.withOpacity(0.6))
+                                      ? (isClub ? Colors.purple.shade50.withValues(alpha: 0.5) : Colors.indigo.shade50.withValues(alpha: 0.6))
                                       : Colors.white,
                                   borderRadius: BorderRadius.circular(12),
                                   border: Border.all(
@@ -3725,7 +3791,7 @@ class _StudentAssignmentTableScreenState extends State<_StudentAssignmentTableSc
                                   ),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: Colors.black.withOpacity(isChecked ? 0.04 : 0.02),
+                                      color: Colors.black.withValues(alpha: isChecked ? 0.04 : 0.02),
                                       blurRadius: 6,
                                       offset: const Offset(0, 2),
                                     ),
@@ -3791,27 +3857,33 @@ class _StudentAssignmentTableScreenState extends State<_StudentAssignmentTableSc
                                                 style: TextStyle(fontSize: 11.5, color: Colors.grey.shade600),
                                               ),
                                               const SizedBox(width: 8),
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                                                decoration: BoxDecoration(
-                                                  color: assignedSub != null
-                                                      ? (isAssignedToActive ? const Color(0xFFECFDF5) : const Color(0xFFEEF2FF))
-                                                      : const Color(0xFFFFF7ED),
-                                                  borderRadius: BorderRadius.circular(6),
-                                                  border: Border.all(
+                                              Flexible(
+                                                child: Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                                  decoration: BoxDecoration(
                                                     color: assignedSub != null
-                                                        ? (isAssignedToActive ? const Color(0xFFA7F3D0) : const Color(0xFFC7D2FE))
-                                                        : const Color(0xFFFED7AA),
+                                                        ? (isAssignedToActive ? const Color(0xFFECFDF5) : const Color(0xFFEEF2FF))
+                                                        : const Color(0xFFFFF7ED),
+                                                    borderRadius: BorderRadius.circular(6),
+                                                    border: Border.all(
+                                                      color: assignedSub != null
+                                                          ? (isAssignedToActive ? const Color(0xFFA7F3D0) : const Color(0xFFC7D2FE))
+                                                          : const Color(0xFFFED7AA),
+                                                    ),
                                                   ),
-                                                ),
-                                                child: Text(
-                                                  assignedSub != null ? 'Kur: ${assignedSub.name}' : 'Henüz Atanmadı',
-                                                  style: TextStyle(
-                                                    fontSize: 10.5,
-                                                    fontWeight: FontWeight.w600,
-                                                    color: assignedSub != null
-                                                        ? (isAssignedToActive ? const Color(0xFF047857) : Colors.indigo.shade800)
-                                                        : const Color(0xFFC2410C),
+                                                  child: Text(
+                                                    assignedSub != null
+                                                        ? '${isClub ? "Kulüp" : "Kur"}: ${assignedSub.name}'
+                                                        : 'Henüz Atanmadı',
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                    style: TextStyle(
+                                                      fontSize: 10.5,
+                                                      fontWeight: FontWeight.w600,
+                                                      color: assignedSub != null
+                                                          ? (isAssignedToActive ? const Color(0xFF047857) : Colors.indigo.shade800)
+                                                          : const Color(0xFFC2410C),
+                                                    ),
                                                   ),
                                                 ),
                                               ),
@@ -3847,7 +3919,7 @@ class _StudentAssignmentTableScreenState extends State<_StudentAssignmentTableSc
                 color: Colors.white,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.08),
+                    color: Colors.black.withValues(alpha: 0.08),
                     blurRadius: 16,
                     offset: const Offset(0, -4),
                   ),

@@ -975,7 +975,7 @@ class _SectionCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 10,
             offset: Offset(0, 4),
           ),
@@ -1081,9 +1081,9 @@ class _TopicTile extends StatelessWidget {
     return Container(
       padding: EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.07),
+        color: color.withValues(alpha: 0.07),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withOpacity(0.25)),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1188,7 +1188,7 @@ class _SimpleBarChart extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   Text(
-                    '${e.value.toStringAsFixed(2)}',
+                    e.value.toStringAsFixed(2),
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w800,

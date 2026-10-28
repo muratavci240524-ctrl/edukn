@@ -34,7 +34,7 @@ class _MentorAssignmentDialogState extends State<MentorAssignmentDialog> with Si
   
   String? _selectedLevel;
   String? _selectedClass;
-  Set<String> _selectedStudentIds = {};
+  final Set<String> _selectedStudentIds = {};
   String _studentSearchQuery = '';
   String? _expandedTeacherId;
 
@@ -437,22 +437,22 @@ class _MentorAssignmentDialogState extends State<MentorAssignmentDialog> with Si
                   ),
                 ),
                 menuStyle: MenuStyle(
-                  backgroundColor: MaterialStateProperty.all(Colors.white),
-                  elevation: MaterialStateProperty.all(8),
-                  shape: MaterialStateProperty.all(
+                  backgroundColor: WidgetStateProperty.all(Colors.white),
+                  elevation: WidgetStateProperty.all(8),
+                  shape: WidgetStateProperty.all(
                     RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                       side: BorderSide(color: Colors.grey.shade200),
                     ),
                   ),
-                  maximumSize: MaterialStateProperty.all(const Size.fromHeight(300)),
+                  maximumSize: WidgetStateProperty.all(const Size.fromHeight(300)),
                 ),
                 dropdownMenuEntries: _teachers.map((t) {
                   return DropdownMenuEntry<String>(
                     value: t['id'] as String,
                     label: t['name'] as String,
                     style: ButtonStyle(
-                      textStyle: MaterialStateProperty.all(
+                      textStyle: WidgetStateProperty.all(
                         GoogleFonts.inter(fontSize: 14),
                       ),
                     ),

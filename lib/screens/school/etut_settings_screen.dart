@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:edukn/services/term_service.dart';
@@ -33,7 +33,7 @@ class _EtutSettingsScreenState extends State<EtutSettingsScreen>
   // Teacher Settings
   List<Map<String, dynamic>> _teachers = [];
   String? _selectedTeacherId;
-  Set<String> _teacherUnavailableSlots = {}; // Format: "dayIndex-hour-minute"
+  final Set<String> _teacherUnavailableSlots = {}; // Format: "dayIndex-hour-minute"
   bool _isTeacherListExpanded = false;
   String _teacherSearchQuery = '';
 
@@ -494,7 +494,7 @@ class _EtutSettingsScreenState extends State<EtutSettingsScreen>
                           boxShadow: isSelected
                               ? [
                                   BoxShadow(
-                                    color: Colors.indigo.withOpacity(0.3),
+                                    color: Colors.indigo.withValues(alpha: 0.3),
                                     blurRadius: 6,
                                     offset: const Offset(0, 3),
                                   ),
@@ -623,7 +623,7 @@ class _EtutSettingsScreenState extends State<EtutSettingsScreen>
                 backgroundColor: Colors.indigo,
                 foregroundColor: Colors.white,
                 elevation: 8,
-                shadowColor: Colors.indigo.withOpacity(0.4),
+                shadowColor: Colors.indigo.withValues(alpha: 0.4),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
                 ),
@@ -660,7 +660,7 @@ class _EtutSettingsScreenState extends State<EtutSettingsScreen>
             color: Colors.white,
             boxShadow: [
               BoxShadow(
-                color: Colors.grey.withOpacity(0.1),
+                color: Colors.grey.withValues(alpha: 0.1),
                 blurRadius: 10,
                 offset: const Offset(0, 5),
               ),
@@ -736,7 +736,7 @@ class _EtutSettingsScreenState extends State<EtutSettingsScreen>
                     border: Border.all(color: Colors.indigo.shade100, width: 1.5),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
+                        color: Colors.black.withValues(alpha: 0.05),
                         blurRadius: 8,
                         offset: const Offset(0, 4),
                       ),
@@ -784,7 +784,7 @@ class _EtutSettingsScreenState extends State<EtutSettingsScreen>
                                   return ListTile(
                                     dense: true,
                                     selected: isSelected,
-                                    selectedTileColor: Colors.indigo.shade50.withOpacity(0.5),
+                                    selectedTileColor: Colors.indigo.shade50.withValues(alpha: 0.5),
                                     leading: CircleAvatar(
                                       radius: 14,
                                       backgroundColor: isSelected ? Colors.indigo : Colors.indigo.shade50,
@@ -873,7 +873,7 @@ class _EtutSettingsScreenState extends State<EtutSettingsScreen>
                   style: ButtonStyle(
                     visualDensity: VisualDensity.compact,
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    side: MaterialStateProperty.all(
+                    side: WidgetStateProperty.all(
                       BorderSide(color: Colors.indigo.shade200),
                     ),
                   ),
@@ -943,7 +943,7 @@ class _EtutSettingsScreenState extends State<EtutSettingsScreen>
                   Icon(
                     Icons.touch_app_outlined,
                     size: 64,
-                    color: Colors.indigo.withOpacity(0.2),
+                    color: Colors.indigo.withValues(alpha: 0.2),
                   ),
                   const SizedBox(height: 16),
                   Text(
@@ -996,7 +996,7 @@ class _EtutSettingsScreenState extends State<EtutSettingsScreen>
             filled: true,
             fillColor: Colors.grey.shade50,
           ),
-          value: value,
+          initialValue: value,
           items: List.generate(24, (index) => index).map((hour) {
             return DropdownMenuItem(
               value: hour,

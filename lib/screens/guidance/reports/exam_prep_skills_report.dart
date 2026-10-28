@@ -74,7 +74,7 @@ class _ExamPrepSkillsReportState extends State<ExamPrepSkillsReport>
   ];
 
   List<Map<String, dynamic>> _branches = [];
-  Map<String, Map<String, dynamic>> _userDetails = {};
+  final Map<String, Map<String, dynamic>> _userDetails = {};
   bool _isLoadingFilters = false;
 
   @override
@@ -118,7 +118,7 @@ class _ExamPrepSkillsReportState extends State<ExamPrepSkillsReport>
           .where((b) => respondentBranches.contains(b['id']))
           .toList();
     } catch (e) {
-      print('Load filters error: $e');
+      debugPrint('Load filters error: $e');
     }
     if (mounted) setState(() => _isLoadingFilters = false);
   }
@@ -303,7 +303,7 @@ class _ExamPrepSkillsReportState extends State<ExamPrepSkillsReport>
     return Container(
       width: double.infinity,
       child: DropdownButtonFormField(
-        value: value,
+        initialValue: value,
         decoration: InputDecoration(
           labelText: label,
           labelStyle: TextStyle(color: Colors.grey.shade600, fontSize: 14),
@@ -485,7 +485,7 @@ class _ExamPrepSkillsReportState extends State<ExamPrepSkillsReport>
                 child: const Row(
                   children: [
                     Icon(Icons.warning_amber_rounded, color: Colors.amber),
-                    const SizedBox(width: 8),
+                    SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         'Yüksek Kararsızlık Oranı: Hazırlık becerileri henüz istikrarlı değil veya ders bazlı değişkenlik gösteriyor.',
@@ -535,7 +535,7 @@ class _ExamPrepSkillsReportState extends State<ExamPrepSkillsReport>
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10),
         ],
       ),
       child: Column(
@@ -550,7 +550,7 @@ class _ExamPrepSkillsReportState extends State<ExamPrepSkillsReport>
               RadarChartData(
                 dataSets: [
                   RadarDataSet(
-                    fillColor: Colors.blue.withOpacity(0.2),
+                    fillColor: Colors.blue.withValues(alpha: 0.2),
                     borderColor: Colors.blue,
                     entryRadius: 3,
                     dataEntries: data.map((d) => RadarEntry(value: d)).toList(),
@@ -808,7 +808,7 @@ class _ExamPrepSkillsReportState extends State<ExamPrepSkillsReport>
         mimeType: MimeType.pdf,
       );
     } catch (e) {
-      print('PDF error: $e');
+      debugPrint('PDF error: $e');
     }
   }
 
@@ -852,7 +852,7 @@ class _ExamPrepSkillsReportState extends State<ExamPrepSkillsReport>
         );
       }
     } catch (e) {
-      print('Excel error: $e');
+      debugPrint('Excel error: $e');
     }
   }
 }

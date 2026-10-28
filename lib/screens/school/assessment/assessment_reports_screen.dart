@@ -3,11 +3,11 @@ import 'package:edukn/widgets/edukn_app_bar.dart';
 
 import 'single_exam_results_screen.dart';
 import 'combined_exam_results_screen.dart';
-import 'reinforcement/reinforcement_dashboard_screen.dart';
+import 'performance/performance_summary_screen.dart';
 import 'agm/screens/agm_dashboard_screen.dart';
+import 'odak64/screens/odak64_dashboard_screen.dart';
 import '../guidance/guidance_study_program_screen.dart';
 import 'action_plan/assessment_action_plan_list_screen.dart';
-import 'camp/screens/camp_dashboard_screen.dart';
 import 'parent_report/parent_report_dashboard.dart';
 import '../../../services/user_permission_service.dart';
 
@@ -52,10 +52,6 @@ class AssessmentReportsScreen extends StatelessWidget {
         (UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'sinav_raporlari') &&
          UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'sinav_aksiyon_plani'));
 
-    final canViewCamp = !isTeacher || 
-        (UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'sinav_raporlari') &&
-         UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'sinav_kamp_programi'));
-
     final canViewParent = !isTeacher || 
         (UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'sinav_raporlari') &&
          UserPermissionService.hasTeacherModuleAccess('egitim_islemleri', subModuleKey: 'sinav_veli_raporu'));
@@ -94,6 +90,7 @@ class AssessmentReportsScreen extends StatelessWidget {
                                 builder: (context) => SingleExamResultsScreen(
                                   institutionId: institutionId,
                                   schoolTypeId: schoolTypeId,
+                                  schoolTypeName: schoolTypeName,
                                 ),
                               ),
                             );
@@ -145,7 +142,7 @@ class AssessmentReportsScreen extends StatelessWidget {
                         _buildHubCard(
                           context,
                           title: 'AGM – Akademik Güçlendirme',
-                          subtitle: 'Otomatik etüt grubu yerleştirme sistemi.',
+                          subtitle: 'Otomatik etüt grubu, özel sınıf ve yoğunlaştırılmış çalışma planları.',
                           icon: Icons.auto_awesome_rounded,
                           color: Colors.deepPurple.shade600,
                           actionLabel: 'Yönet',
@@ -222,11 +219,9 @@ class AssessmentReportsScreen extends StatelessWidget {
                   },
                 ),
 
-                if (canViewCamp) ...[
-                  const SizedBox(height: 24),
-                  // Full-width Kamp Programı Card
-                  _buildCampBanner(context),
-                ],
+                const SizedBox(height: 24),
+                // Full-width ODAK-64 Card
+                _buildOdak64Banner(context),
 
                 if (canViewParent) ...[
                   const SizedBox(height: 24),
@@ -235,106 +230,6 @@ class AssessmentReportsScreen extends StatelessWidget {
                 ],
               ],
             ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCampBanner(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.orange.shade600, Colors.deepOrange.shade500],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.orange.withOpacity(0.2),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => CampDashboardScreen(
-                  institutionId: institutionId,
-                  schoolTypeId: schoolTypeId,
-                ),
-              ),
-            );
-          },
-          borderRadius: BorderRadius.circular(24),
-          child: Stack(
-            children: [
-              Positioned(
-                right: -20,
-                bottom: -20,
-                child: Opacity(
-                  opacity: 0.1,
-                  child: Icon(Icons.campaign_rounded, size: 180, color: Colors.white),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.campaign_rounded, color: Colors.white, size: 24),
-                        ),
-                        const SizedBox(width: 12),
-                        Text(
-                          'Kamp Programı',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: MediaQuery.of(context).size.width < 360 ? 20 : 24,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Öğrenci başarı grafiklerine göre özel gruplar ve yoğunlaştırılmış çalışma planları oluşturun.',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: MediaQuery.of(context).size.width < 360 ? 12 : 14,
-                        height: 1.5,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(30),
-                      ),
-                      child: Text(
-                        'Kamp Planla',
-                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange.shade900),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
           ),
         ),
       ),
@@ -364,7 +259,7 @@ class AssessmentReportsScreen extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: color.withOpacity(0.08),
+            color: color.withValues(alpha: 0.08),
             blurRadius: 20,
             offset: const Offset(0, 10),
           ),
@@ -391,7 +286,7 @@ class AssessmentReportsScreen extends StatelessWidget {
                       Container(
                         padding: EdgeInsets.all(iconPadding),
                         decoration: BoxDecoration(
-                          color: color.withOpacity(0.1),
+                          color: color.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(isMobile ? 12 : 16),
                         ),
                         child: Icon(icon, color: color, size: iconSize),
@@ -460,7 +355,7 @@ class AssessmentReportsScreen extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: Colors.indigo.withOpacity(0.2),
+            color: Colors.indigo.withValues(alpha: 0.2),
             blurRadius: 20,
             offset: const Offset(0, 10),
           ),
@@ -473,9 +368,10 @@ class AssessmentReportsScreen extends StatelessWidget {
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => ReinforcementDashboardScreen(
+                builder: (context) => PerformanceSummaryScreen(
                   institutionId: institutionId,
                   schoolTypeId: schoolTypeId,
+                  schoolTypeName: schoolTypeName,
                 ),
               ),
             );
@@ -497,7 +393,7 @@ class AssessmentReportsScreen extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Haftalık Performans Özeti',
+                      'Performans Özeti',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: MediaQuery.of(context).size.width < 360 ? 20 : 24,
@@ -506,7 +402,7 @@ class AssessmentReportsScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'Kurum genelindeki başarı oranlarını ve gelişim grafiklerini anlık olarak takip edin.',
+                      'Sınavı seçin, öğrencileri kendi şubelerinde ders ders analiz edin; ders öğretmenleri için ayrıntılı raporları PDF olarak alın.',
                       style: TextStyle(
                         color: Colors.white70,
                         fontSize: MediaQuery.of(context).size.width < 360 ? 12 : 14,
@@ -572,7 +468,7 @@ class AssessmentReportsScreen extends StatelessWidget {
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
+                        color: Colors.black.withValues(alpha: 0.05),
                         blurRadius: 10,
                       ),
                     ],
@@ -615,6 +511,109 @@ class AssessmentReportsScreen extends StatelessWidget {
     );
   }
 
+  Widget _buildOdak64Banner(BuildContext context) {
+    final isSmall = MediaQuery.of(context).size.width < 500;
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.teal.shade700, Colors.cyan.shade800, Colors.blue.shade900],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.teal.withValues(alpha: 0.25),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(24),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => Odak64DashboardScreen(
+                  institutionId: institutionId,
+                  schoolTypeId: schoolTypeId,
+                  schoolTypeName: schoolTypeName,
+                ),
+              ),
+            );
+          },
+          child: Stack(
+            children: [
+              Positioned(
+                right: -20,
+                bottom: -30,
+                child: Opacity(
+                  opacity: 0.12,
+                  child: const Icon(Icons.center_focus_strong_rounded, size: 200, color: Colors.white),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.2),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.center_focus_strong_rounded, color: Colors.white, size: 24),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          'ODAK-64',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: isSmall ? 20 : 24,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Sınıflar, dersler ve planlama modülü.',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: isSmall ? 12 : 14,
+                        height: 1.5,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(30),
+                      ),
+                      child: Text(
+                        'Giriş Yap',
+                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.teal.shade800),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildParentReportBanner(BuildContext context) {
     return Container(
       width: double.infinity,
@@ -627,7 +626,7 @@ class AssessmentReportsScreen extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: Colors.indigo.withOpacity(0.2),
+            color: Colors.indigo.withValues(alpha: 0.2),
             blurRadius: 20,
             offset: const Offset(0, 10),
           ),
@@ -668,7 +667,7 @@ class AssessmentReportsScreen extends StatelessWidget {
                         Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
+                            color: Colors.white.withValues(alpha: 0.2),
                             shape: BoxShape.circle,
                           ),
                           child: const Icon(Icons.family_restroom_rounded, color: Colors.white, size: 24),
@@ -686,7 +685,7 @@ class AssessmentReportsScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'Öğrencinin haftalık sınav sonuçlarını, AGM ve Kamp ders katılımlarını tek bir sayfada şık ve kurumsal PDF mektubu olarak derleyin.',
+                      'Öğrencinin haftalık sınav sonuçlarını ve AGM ders katılımlarını tek bir sayfada şık ve kurumsal PDF mektubu olarak derleyin.',
                       style: TextStyle(
                         color: Colors.white70,
                         fontSize: MediaQuery.of(context).size.width < 360 ? 12 : 14,

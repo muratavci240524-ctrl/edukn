@@ -86,7 +86,7 @@ class _FieldTripDetailScreenState extends State<FieldTripDetailScreen> {
       }
     } catch (e) {
       if (mounted) setState(() => _isLoading = false);
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata: $e')));
     }
@@ -131,7 +131,7 @@ class _FieldTripDetailScreenState extends State<FieldTripDetailScreen> {
     try {
       await _service.updateFieldTrip(updatedTrip);
     } catch (e) {
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata: $e')));
     }
@@ -175,7 +175,7 @@ class _FieldTripDetailScreenState extends State<FieldTripDetailScreen> {
       await _service.togglePaymentStatus(_trip.id, studentId, value);
     } catch (e) {
       _loadData();
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('İşlem başarısız')));
     }
@@ -272,11 +272,11 @@ class _FieldTripDetailScreenState extends State<FieldTripDetailScreen> {
       setState(() {
         _trip = updatedTrip;
       });
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Anket oluşturuldu')));
     } catch (e) {
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata: $e')));
     }
@@ -381,7 +381,7 @@ class _FieldTripDetailScreenState extends State<FieldTripDetailScreen> {
                         Container(
                           padding: const EdgeInsets.all(4),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
+                            color: Colors.white.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: const Icon(
@@ -411,7 +411,7 @@ class _FieldTripDetailScreenState extends State<FieldTripDetailScreen> {
                         vertical: 4,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.2),
+                        color: Colors.black.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
@@ -538,7 +538,7 @@ class _FieldTripDetailScreenState extends State<FieldTripDetailScreen> {
               borderRadius: BorderRadius.circular(16),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
+                  color: Colors.black.withValues(alpha: 0.05),
                   blurRadius: 10,
                 ),
               ],
@@ -555,7 +555,7 @@ class _FieldTripDetailScreenState extends State<FieldTripDetailScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${NumberFormat.currency(locale: 'tr_TR', symbol: '₺').format(paid * _trip.amount)}',
+                      NumberFormat.currency(locale: 'tr_TR', symbol: '₺').format(paid * _trip.amount),
                       style: const TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
@@ -592,7 +592,7 @@ class _FieldTripDetailScreenState extends State<FieldTripDetailScreen> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10),
         ],
       ),
       child: Column(
@@ -845,7 +845,7 @@ class _FieldTripDetailScreenState extends State<FieldTripDetailScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(4),
       ),
       child: Text(

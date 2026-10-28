@@ -961,8 +961,8 @@ class _ClassroomManagementScreenState extends State<ClassroomManagementScreen>
                   .collection('classroomLessons')
                   .doc(assignmentId)
                   .update({'isActive': false});
-              Navigator.pop(context);
-              ScaffoldMessenger.of(
+              if (mounted) Navigator.pop(context);
+              if (mounted) ScaffoldMessenger.of(
                 context,
               ).showSnackBar(SnackBar(content: Text('Atama silindi')));
             },
@@ -1264,7 +1264,7 @@ class _ClassroomFormDialogState extends State<_ClassroomFormDialog> {
               SizedBox(height: 16),
 
               DropdownButtonFormField<String>(
-                value: _selectedType,
+                initialValue: _selectedType,
                 decoration: InputDecoration(
                   labelText: 'Derslik Tipi',
                   prefixIcon: Icon(Icons.category_outlined),
@@ -1410,10 +1410,10 @@ class _LessonAssignmentDialog extends StatefulWidget {
 
 class _LessonAssignmentDialogState extends State<_LessonAssignmentDialog> {
   int _currentStep = 0; // 0: Ders seçimi, 1: Sınıf seçimi
-  List<Map<String, dynamic>> _selectedLessons = [];
-  Map<String, List<Map<String, dynamic>>> _lessonClasses =
+  final List<Map<String, dynamic>> _selectedLessons = [];
+  final Map<String, List<Map<String, dynamic>>> _lessonClasses =
       {}; // lessonId -> classes
-  Map<String, List<String>> _selectedClassesForLesson =
+  final Map<String, List<String>> _selectedClassesForLesson =
       {}; // lessonId -> [classIds] (çoklu seçim)
   bool _isLoading = false;
   bool _isSaving = false;

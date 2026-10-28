@@ -440,15 +440,15 @@ class _ExternalExamFormScreenState extends State<ExternalExamFormScreen> {
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
-                      _primaryColor.withOpacity(0.06),
-                      _primaryColor.withOpacity(0.01),
+                      _primaryColor.withValues(alpha: 0.06),
+                      _primaryColor.withValues(alpha: 0.01),
                     ],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
-                    color: _primaryColor.withOpacity(0.35),
+                    color: _primaryColor.withValues(alpha: 0.35),
                     width: 1.5,
                   ),
                 ),
@@ -457,8 +457,8 @@ class _ExternalExamFormScreenState extends State<ExternalExamFormScreen> {
                   child: InkWell(
                     onTap: _addSession,
                     borderRadius: BorderRadius.circular(16),
-                    splashColor: _primaryColor.withOpacity(0.1),
-                    highlightColor: _primaryColor.withOpacity(0.05),
+                    splashColor: _primaryColor.withValues(alpha: 0.1),
+                    highlightColor: _primaryColor.withValues(alpha: 0.05),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
                       child: Row(
@@ -471,7 +471,7 @@ class _ExternalExamFormScreenState extends State<ExternalExamFormScreen> {
                               shape: BoxShape.circle,
                               boxShadow: [
                                 BoxShadow(
-                                  color: _primaryColor.withOpacity(0.3),
+                                  color: _primaryColor.withValues(alpha: 0.3),
                                   blurRadius: 6,
                                   offset: const Offset(0, 2),
                                 )
@@ -526,13 +526,13 @@ class _ExternalExamFormScreenState extends State<ExternalExamFormScreen> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isExpanded ? _primaryColor.withOpacity(0.3) : Colors.grey.shade200,
+          color: isExpanded ? _primaryColor.withValues(alpha: 0.3) : Colors.grey.shade200,
           width: isExpanded ? 1.5 : 1,
         ),
         boxShadow: isExpanded
             ? [
                 BoxShadow(
-                  color: _primaryColor.withOpacity(0.04),
+                  color: _primaryColor.withValues(alpha: 0.04),
                   blurRadius: 10,
                   offset: const Offset(0, 4),
                 )
@@ -716,10 +716,10 @@ class _ExternalExamFormScreenState extends State<ExternalExamFormScreen> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: isChecked ? Colors.orange.shade50.withOpacity(0.15) : const Color(0xFFF8FAFC),
+        color: isChecked ? Colors.orange.shade50.withValues(alpha: 0.15) : const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: isChecked ? _primaryColor.withOpacity(0.25) : Colors.grey.shade200,
+          color: isChecked ? _primaryColor.withValues(alpha: 0.25) : Colors.grey.shade200,
           width: isChecked ? 1.5 : 1,
         ),
       ),
@@ -1262,7 +1262,7 @@ class _ExternalExamFormScreenState extends State<ExternalExamFormScreen> {
                     'Sınav sonucunda burs kademesi hesaplanır.',
                     style: GoogleFonts.inter(
                         fontSize: 12, color: Colors.grey.shade500)),
-                activeColor: _primaryColor,
+                activeThumbColor: _primaryColor,
                 contentPadding: EdgeInsets.zero,
               ),
 
@@ -1602,7 +1602,7 @@ class _ExternalExamFormScreenState extends State<ExternalExamFormScreen> {
                       onChanged: (v) => setState(() => _showRegister = v),
                       title: Text('Yeni Başvuru Butonu', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
                       subtitle: Text('Öğrencilerin yeni başvuru yapabilmesini sağlar.', style: GoogleFonts.inter(fontSize: 11)),
-                      activeColor: _primaryColor,
+                      activeThumbColor: _primaryColor,
                     ),
                     const Divider(height: 1),
                     SwitchListTile(
@@ -1610,7 +1610,7 @@ class _ExternalExamFormScreenState extends State<ExternalExamFormScreen> {
                       onChanged: (v) => setState(() => _showEdit = v),
                       title: Text('Başvuruyu Düzenle Butonu', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
                       subtitle: Text('Adayların bilgilerini güncelleyebilmesini sağlar.', style: GoogleFonts.inter(fontSize: 11)),
-                      activeColor: _primaryColor,
+                      activeThumbColor: _primaryColor,
                     ),
                     const Divider(height: 1),
                     SwitchListTile(
@@ -1618,7 +1618,7 @@ class _ExternalExamFormScreenState extends State<ExternalExamFormScreen> {
                       onChanged: (v) => setState(() => _showTicket = v),
                       title: Text('Sınav Giriş Belgesi Butonu', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
                       subtitle: Text('Giriş belgesi sorgulama ve indirmeyi aktif eder.', style: GoogleFonts.inter(fontSize: 11)),
-                      activeColor: _primaryColor,
+                      activeThumbColor: _primaryColor,
                     ),
                     const Divider(height: 1),
                     SwitchListTile(
@@ -1626,7 +1626,7 @@ class _ExternalExamFormScreenState extends State<ExternalExamFormScreen> {
                       onChanged: (v) => setState(() => _showRegulation = v),
                       title: Text('Sınav Yönergesi Butonu', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
                       subtitle: Text('Varsa yüklenen kılavuz linkini ana sayfada gösterir.', style: GoogleFonts.inter(fontSize: 11)),
-                      activeColor: _primaryColor,
+                      activeThumbColor: _primaryColor,
                     ),
                     const Divider(height: 1),
                     SwitchListTile(
@@ -1634,7 +1634,7 @@ class _ExternalExamFormScreenState extends State<ExternalExamFormScreen> {
                       onChanged: (v) => setState(() => _showResults = v),
                       title: Text('Sınav Sonuçları Butonu', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
                       subtitle: Text('Sonuç sorgulama veya duyuru butonunu aktif eder.', style: GoogleFonts.inter(fontSize: 11)),
-                      activeColor: _primaryColor,
+                      activeThumbColor: _primaryColor,
                     ),
                   ],
                 ),
@@ -1683,7 +1683,7 @@ class _ExternalExamFormScreenState extends State<ExternalExamFormScreen> {
         color: Colors.white,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 10,
             offset: const Offset(0, -4),
           )

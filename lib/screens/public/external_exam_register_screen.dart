@@ -1,5 +1,4 @@
 import 'dart:js' as js;
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -10,7 +9,6 @@ import '../../services/external_exam_service.dart';
 import '../../constants/turkey_address_data.dart';
 import 'dart:ui' as ui;
 import 'dart:convert';
-import 'dart:html' as html;
 import 'package:flutter/rendering.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../../services/splash/splash_service.dart';
@@ -808,7 +806,7 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
             padding: const EdgeInsets.all(24),
             child: content,
           ),
-          ButtonBar(
+          OverflowBar(
             alignment: MainAxisAlignment.end,
             children: actions,
           ),
@@ -837,7 +835,7 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: gradientColors.last.withOpacity(0.25),
+            color: gradientColors.last.withValues(alpha: 0.25),
             blurRadius: 12,
             offset: const Offset(0, 6),
           ),
@@ -855,7 +853,7 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.15),
+                    color: Colors.white.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: Icon(icon, color: Colors.white, size: 28),
@@ -879,7 +877,7 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
                         subtitle,
                         style: GoogleFonts.inter(
                           fontSize: 12,
-                          color: Colors.white.withOpacity(0.85),
+                          color: Colors.white.withValues(alpha: 0.85),
                         ),
                       ),
                     ],
@@ -932,9 +930,9 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.12),
+                  color: Colors.white.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.white.withOpacity(0.2)),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -994,7 +992,7 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 16,
             offset: const Offset(0, 8),
           ),
@@ -1562,7 +1560,7 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
                     border: Border.all(color: Colors.grey.shade200, width: 2),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.06),
+                      color: Colors.black.withValues(alpha: 0.06),
                       blurRadius: 20,
                       offset: const Offset(0, 10),
                     ),
@@ -1857,7 +1855,7 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.02),
+            color: Colors.black.withValues(alpha: 0.02),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -1911,7 +1909,7 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
+              color: Colors.white.withValues(alpha: 0.2),
               shape: BoxShape.circle,
             ),
             child: const Icon(Icons.emoji_events_rounded, color: Colors.white, size: 24),
@@ -1927,7 +1925,7 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
                     style: GoogleFonts.inter(
                       fontSize: 11,
                       fontWeight: FontWeight.w800,
-                      color: Colors.white.withOpacity(0.9),
+                      color: Colors.white.withValues(alpha: 0.9),
                       letterSpacing: 1.0,
                     ),
                   ),
@@ -1945,7 +1943,7 @@ class _ExternalExamRegisterScreenState extends State<ExternalExamRegisterScreen>
                   _exam!.examTypeName,
                   style: GoogleFonts.inter(
                     fontSize: 12,
-                    color: Colors.white.withOpacity(0.8),
+                    color: Colors.white.withValues(alpha: 0.8),
                   ),
                 ),
               ],

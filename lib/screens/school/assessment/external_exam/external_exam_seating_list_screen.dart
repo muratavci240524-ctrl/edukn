@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -280,7 +280,7 @@ class _ExternalExamSeatingListScreenState
             width: 160,
             child: DropdownButtonHideUnderline(
               child: DropdownButtonFormField<String?>(
-                value: reg.assignedRoomId,
+                initialValue: reg.assignedRoomId,
                 isExpanded: true,
                 decoration: InputDecoration(
                   contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -427,7 +427,7 @@ class _ExternalExamSeatingListScreenState
         rooms.sort();
 
         if (rooms.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Yazdırılacak salon/dağıtım verisi bulunamadı.'), backgroundColor: Colors.orange),
           );
           return;
@@ -707,7 +707,7 @@ class _ExternalExamSeatingListScreenState
         name: sortByRoom ? 'Salon_Sirali_Yoklama_Listesi' : 'Isim_Sirali_Salon_Listesi',
       );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('PDF oluşturma hatası: $e'), backgroundColor: Colors.red),
       );
     }

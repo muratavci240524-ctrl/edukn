@@ -39,7 +39,7 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
   Map<String, String> _lessonNameMap = {};
 
   // Selection
-  Set<String> _selectedStudentIds = {};
+  final Set<String> _selectedStudentIds = {};
   String? _selectedTeacherId;
 
   // Filters
@@ -138,7 +138,7 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
           _cachedSchoolId = schoolId;
         }
       }
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[etut_process_screen] hata yutuldu: $silentError'); }
   }
 
   @override
@@ -282,7 +282,7 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
             }
           }
         }
-      } catch (_) {}
+      } catch (silentError) { debugPrint('[etut_process_screen] hata yutuldu: $silentError'); }
 
       // 2. Process metadata
       var newStudents = studentsSnap.docs
@@ -552,7 +552,7 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
                             border: Border.all(color: Colors.grey.shade200),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.02),
+                                color: Colors.black.withValues(alpha: 0.02),
                                 blurRadius: 10,
                                 offset: const Offset(0, 4),
                               ),
@@ -577,7 +577,7 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
                               border: Border.all(color: Colors.grey.shade200),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black.withOpacity(0.02),
+                                  color: Colors.black.withValues(alpha: 0.02),
                                   blurRadius: 10,
                                   offset: const Offset(0, 4),
                                 ),
@@ -600,7 +600,7 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
                             border: Border.all(color: Colors.grey.shade200),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.02),
+                                color: Colors.black.withValues(alpha: 0.02),
                                 blurRadius: 10,
                                 offset: const Offset(0, 4),
                               ),
@@ -630,7 +630,7 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
                         color: Colors.white,
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.05),
+                            color: Colors.black.withValues(alpha: 0.05),
                             blurRadius: 10,
                             offset: const Offset(0, 5),
                           ),
@@ -779,7 +779,7 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
                       boxShadow: !_showBranchSelection
                           ? [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.08),
+                                color: Colors.black.withValues(alpha: 0.08),
                                 blurRadius: 4,
                                 offset: const Offset(0, 2),
                               )
@@ -823,7 +823,7 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
                       boxShadow: _showBranchSelection
                           ? [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.08),
+                                color: Colors.black.withValues(alpha: 0.08),
                                 blurRadius: 4,
                                 offset: const Offset(0, 2),
                               )
@@ -973,7 +973,7 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
                   decoration: BoxDecoration(
                     color: isFullySelected
                         ? Colors.indigo.shade50
-                        : (selectedCount > 0 ? Colors.indigo.shade50.withOpacity(0.4) : Colors.transparent),
+                        : (selectedCount > 0 ? Colors.indigo.shade50.withValues(alpha: 0.4) : Colors.transparent),
                     borderRadius: BorderRadius.circular(8),
                     border: (isFullySelected || selectedCount > 0)
                         ? Border.all(color: Colors.indigo.shade100)
@@ -1996,17 +1996,17 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
           final blockHeight = (visibleEnd - visibleStart) * 20.0;
           final topOffset = (visibleStart - viewStartSlot) * 20.0;
 
-          Color blockColor = Colors.grey.withOpacity(0.4);
+          Color blockColor = Colors.grey.withValues(alpha: 0.4);
           final isEtut = details['type'] == 'Etut';
 
           if (isEtut) {
-            blockColor = Colors.teal.shade400.withOpacity(0.7);
+            blockColor = Colors.teal.shade400.withValues(alpha: 0.7);
           } else if (type == 'ST') {
-            blockColor = Colors.indigo.withOpacity(0.6);
+            blockColor = Colors.indigo.withValues(alpha: 0.6);
           } else if (type == 'TR') {
-            blockColor = Colors.orange.withOpacity(0.6);
+            blockColor = Colors.orange.withValues(alpha: 0.6);
           } else if (type == 'BOTH') {
-            blockColor = Colors.red.withOpacity(0.6);
+            blockColor = Colors.red.withValues(alpha: 0.6);
           }
 
           blocks.add(
@@ -2020,7 +2020,7 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
                 decoration: BoxDecoration(
                   color: blockColor,
                   borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: Colors.white.withOpacity(0.3)),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
                 ),
                 child: InkWell(
                   onTap: () {
@@ -2205,7 +2205,7 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
               'cancelledDates': FieldValue.arrayUnion([dateStr]),
             });
         _loadClashData();
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Bu haftalık etüt iptal edildi.')),
         );
         return true;
@@ -2522,7 +2522,7 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
                             for (var item in etutList) {
                               await _cancelEtutChoice(item);
                             }
-                            Navigator.pop(context);
+                            if (mounted) Navigator.pop(context);
                           }
                         },
                         style: TextButton.styleFrom(foregroundColor: Colors.red),
@@ -2533,7 +2533,7 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
                         onPressed: () async {
                           final ids = etutList.map((e) => e['id'] as String).toList();
                           await _updateEtutNotes(ids, notesController.text);
-                          Navigator.pop(context);
+                          if (mounted) Navigator.pop(context);
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.blue.shade600,
@@ -2888,7 +2888,7 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
               ),
               const SizedBox(height: 20),
               DropdownButtonFormField<String>(
-                value: selectedAction,
+                initialValue: selectedAction,
                 decoration: InputDecoration(
                   labelText: 'Yapılacaklar',
                   labelStyle: TextStyle(color: Colors.grey.shade700),
@@ -2926,7 +2926,7 @@ class _EtutProcessScreenState extends State<EtutProcessScreen> {
                   style: TextStyle(fontSize: 12),
                 ),
                 value: isRecurring,
-                activeColor: Colors.indigo,
+                activeThumbColor: Colors.indigo,
                 onChanged: (val) {
                   setDialogState(() {
                     isRecurring = val;

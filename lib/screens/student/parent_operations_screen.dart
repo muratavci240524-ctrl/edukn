@@ -8,7 +8,6 @@ import 'student_etut_stats_screen.dart';
 import 'student_exam_stats_screen.dart';
 import '../school/guidance/saved_study_programs_screen.dart';
 import '../portfolio/portfolio_screen.dart';
-import '../school/assessment/assessment_reports_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'parent_accounting_screen.dart';
@@ -64,7 +63,7 @@ class _ParentOperationsScreenState extends State<ParentOperationsScreen> {
           if (mounted) setState(() => _isParentUser = isParent);
         }
       }
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[parent_operations_screen] hata yutuldu: $silentError'); }
   }
 
   @override
@@ -92,7 +91,7 @@ class _ParentOperationsScreenState extends State<ParentOperationsScreen> {
               if (classDoc.exists) {
                 classLevel = classDoc.data()?['classLevel']?.toString() ?? '';
               }
-            } catch (_) {}
+            } catch (silentError) { debugPrint('[parent_operations_screen] hata yutuldu: $silentError'); }
           }
 
           setState(() {
@@ -105,7 +104,7 @@ class _ParentOperationsScreenState extends State<ParentOperationsScreen> {
             _studentData = {...data, 'id': stId};
           });
         }
-      } catch (_) {}
+      } catch (silentError) { debugPrint('[parent_operations_screen] hata yutuldu: $silentError'); }
     }
   }
 
@@ -518,10 +517,9 @@ class _ModuleCardWidget extends StatefulWidget {
     required this.onTap,
     required this.cardWidth,
     required this.isMobile,
-    this.buttonLabel,
     required this.category,
     this.showAllItems = false,
-  }) : super(key: key);
+  }) : buttonLabel = null, super(key: key);
 
   @override
   State<_ModuleCardWidget> createState() => _ModuleCardWidgetState();

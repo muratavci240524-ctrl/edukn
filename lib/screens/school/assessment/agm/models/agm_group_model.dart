@@ -1,8 +1,3 @@
-/// AGM Grubu = (cycle_id + ders_id + saat_dilimi + teacher_id)
-///
-/// HARD RULES:
-/// - Öğrenci aynı slotta sadece 1 grupta yer alabilir
-/// - Öğretmen aynı slotta sadece 1 grupta yer alabilir
 class AgmGroup {
   final String id;
   final String cycleId;
@@ -25,9 +20,12 @@ class AgmGroup {
   final String? derslikId;
   final String? derslikAdi;
 
-  // Kapasite (soft constraint)
+  // Kapasite
   final int kapasite;
   final int mevcutOgrenciSayisi;
+
+  // Özel Sınıf
+  final bool isSpecial;
 
   // Outcomes
   final List<String> kazanimlar;
@@ -49,6 +47,7 @@ class AgmGroup {
     this.derslikAdi,
     this.kapasite = 20,
     this.mevcutOgrenciSayisi = 0,
+    this.isSpecial = false,
     this.kazanimlar = const [],
   });
 
@@ -74,6 +73,7 @@ class AgmGroup {
       'derslikAdi': derslikAdi,
       'kapasite': kapasite,
       'mevcutOgrenciSayisi': mevcutOgrenciSayisi,
+      'isSpecial': isSpecial,
       'kazanimlar': kazanimlar,
     };
   }
@@ -96,6 +96,7 @@ class AgmGroup {
       derslikAdi: map['derslikAdi'],
       kapasite: map['kapasite'] ?? 20,
       mevcutOgrenciSayisi: map['mevcutOgrenciSayisi'] ?? 0,
+      isSpecial: map['isSpecial'] ?? false,
       kazanimlar: (map['kazanimlar'] as List<dynamic>? ?? [])
           .map((e) => e.toString())
           .toList(),
@@ -119,6 +120,7 @@ class AgmGroup {
     String? derslikAdi,
     int? kapasite,
     int? mevcutOgrenciSayisi,
+    bool? isSpecial,
     List<String>? kazanimlar,
   }) {
     return AgmGroup(
@@ -138,6 +140,7 @@ class AgmGroup {
       derslikAdi: derslikAdi ?? this.derslikAdi,
       kapasite: kapasite ?? this.kapasite,
       mevcutOgrenciSayisi: mevcutOgrenciSayisi ?? this.mevcutOgrenciSayisi,
+      isSpecial: isSpecial ?? this.isSpecial,
       kazanimlar: kazanimlar ?? this.kazanimlar,
     );
   }

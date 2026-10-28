@@ -1,4 +1,4 @@
-﻿import 'package:edukn/services/user_permission_service.dart';
+import 'package:edukn/services/user_permission_service.dart';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -166,7 +166,7 @@ class _HealthScreenState extends State<HealthScreen>
                 SwitchListTile(
                   title: Text('İlaç Verildi mi?'),
                   value: medicationGiven,
-                  activeColor: Colors.red,
+                  activeThumbColor: Colors.red,
                   onChanged: (val) {
                     setDialogState(() => medicationGiven = val);
                   },
@@ -215,7 +215,7 @@ class _HealthScreenState extends State<HealthScreen>
     if (result != true) return;
     if (studentNameCtrl.text.trim().isEmpty ||
         complaintCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Öğrenci adı ve şikayet zorunludur!'),
           backgroundColor: Colors.red,

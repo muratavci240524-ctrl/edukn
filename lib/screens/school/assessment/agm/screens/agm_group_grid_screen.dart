@@ -1,24 +1,22 @@
-﻿import 'dart:convert';
-
+import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 
-import '../../../../../screens/school/assessment/evaluation_models.dart';
-import '../models/agm_assignment_model.dart';
+import '../../evaluation_models.dart';
 import '../models/agm_cycle_model.dart';
 import '../models/agm_group_model.dart';
+import '../models/agm_assignment_model.dart';
 import '../repository/agm_repository.dart';
-import '../services/agm_assignment_engine.dart';
 import '../services/agm_service.dart';
+import '../services/agm_assignment_engine.dart';
 import 'agm_reports_screen.dart';
 import 'agm_student_timetable_screen.dart';
 import 'agm_teacher_timetable_screen.dart';
 import 'agm_classroom_timetable_screen.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../models/agm_assignment_log_model.dart';
 
-/// AGM Grup Grid Ekranı
-/// Cycle'daki tüm grupları gösterir – ders/gün bazlı.
-/// Öğrenci manuel taşıma, taslak oluşturma ve Publish işlemi buradan yapılır.
 class AgmGroupGridScreen extends StatefulWidget {
   final AgmCycle cycle;
 
@@ -33,184 +31,216 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
   final _service = AgmService();
   final _repo = AgmRepository();
   final _db = FirebaseFirestore.instance;
+  final _auth = FirebaseAuth.instance;
   late TabController _tabController;
+  AgmCycle? _currentCycle;
+  AgmCycle get effectiveCycle => _currentCycle ?? widget.cycle;
 
   List<AgmGroup> _groups = [];
   Map<String, List<AgmAssignment>> _assignmentsByGroup = {};
-  bool _loading = true;
-  bool _publishing = false;
-  bool _generating = false;
-  String? _expandedStudentId;
-
-  // Şube öğrencileri
   List<Map<String, dynamic>> _allBranchStudents = [];
-
-  // Sınava girmeyen öğrenciler
-  List<Map<String, dynamic>> _absentStudents = [];
+  int _totalPotentialStudents = 0;
 
   List<String> _unassignedStudents = [];
   List<String> _underAssignedStudents = [];
+  List<Map<String, dynamic>> _absentStudents = [];
+  List<String> _excludedStudents = [];
   Map<String, List<String>> _unassignedReasons = {};
-  int _yerlesmeyenFilterIndex = 0;
-  String? _groupFilterBranch;
+
   final Set<String> _selectedStudentIds = {};
+
+  bool _loading = true;
+  bool _generating = false;
+  bool _publishing = false;
+  String? _groupFilterBranch;
   Set<String>? _selectedTimeSlots;
-  Map<String, StudentResult>? _cachedResults;
-  Map<String, Map<String, Set<String>>>? _cachedWeakOutcomes;
+  String? _selectedSlotFilter;
+  int _yerlesmeyenFilterIndex = 0;
 
   @override
   void initState() {
     super.initState();
+    _currentCycle = widget.cycle;
     _tabController = TabController(length: 3, vsync: this);
     _loadData();
   }
 
+  String _loadingMessage = 'AGM verileri hazırlanıyor...';
+
   Future<void> _loadData() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _loadingMessage = 'AGM durumu ve gruplar getiriliyor...';
+    });
 
-    // Cycle'ı yeniden çek (güncel stats için)
-    final cycleDoc = await _db
-        .collection('agm_cycles')
-        .doc(widget.cycle.id)
-        .get();
-    AgmCycle? currentCycle;
-    if (cycleDoc.exists) {
-      currentCycle = AgmCycle.fromMap(cycleDoc.data()!, cycleDoc.id);
-    }
-
-    final groups = await _repo.getGroupsByCycle(widget.cycle.id);
-    final assignments = await _repo.getAssignmentsByCycle(widget.cycle.id);
-
-    final Map<String, List<AgmAssignment>> byGroup = {};
-    for (final g in groups) {
-      byGroup[g.id] = [];
-    }
-    for (final a in assignments) {
-      byGroup.putIfAbsent(a.groupId, () => []).add(a);
-    }
-
-    if (mounted) {
-      setState(() {
-        _groups = groups;
-        _assignmentsByGroup = byGroup;
-        _unassignedStudents = currentCycle?.unassignedStudentIds ?? [];
-        _underAssignedStudents = currentCycle?.underAssignedStudentIds ?? [];
-        _unassignedReasons = currentCycle?.unassignedReasons ?? {};
-        _loading = false;
-      });
-
-      // Şube öğrencilerini ve persisted istatistikleri yükle
-      _restorePersistedStats(currentCycle);
-    }
-  }
-
-  Future<void> _restorePersistedStats(AgmCycle? cycle) async {
-    if (cycle == null) return;
-
-    // Şube öğrencilerini yükle (isimleri göstermek için lazım)
-    await _loadBranchStudentsForCycle(cycle);
-
-    if (mounted) {
-      setState(() {
-        // IDs -> List<String>
-        _unassignedStudents = cycle.unassignedStudentIds;
-        _underAssignedStudents = cycle.underAssignedStudentIds;
-        _unassignedReasons = cycle.unassignedReasons;
-
-        // IDs -> List<Map<String, dynamic>>
-        _absentStudents = _allBranchStudents
-            .where((s) => cycle.absentStudentIds.contains(s['id']))
-            .map(
-              (s) => {
-                'id': s['id'],
-                'name': (s['fullName'] ?? s['name'] ?? 'İsimsiz').toString(),
-                'branch': (s['className'] ?? s['branch'] ?? '').toString(),
-                'subeId': s['branchId'] ?? '',
-              },
-            )
-            .toList();
-      });
-
-      // Öğrenci listeleri doldurulduktan sonra tüm statusleri doğrula.
-      // Eger önceden atanan/manuel müdahale edilen vb olduysa ve firebase listelerinde yanlış kaldıysa (Eksik listesine düşmeme durumu vb).
-      await _recalculateAndSyncStudentStatuses();
-    }
-  }
-
-  Future<void> _recalculateAndSyncStudentStatuses() async {
-    final int minDers = widget.cycle.minimumDersSayisi ?? 1;
-    bool changed = false;
-
-    // Tüm takip edilen öğrencilerin ID'leri
-    final Set<String> targetIds = {
-      ..._unassignedReasons.keys,
-      ..._unassignedStudents,
-      ..._underAssignedStudents,
-      ..._absentStudents.map((s) => s['id'].toString()),
-    };
-
-    final List<String> newUnassigned = [];
-    final List<String> newUnderAssigned = [];
-    final List<Map<String, dynamic>> newAbsent = [];
-
-    for (final studentId in targetIds) {
-      // O anki toplam atanmış ders sayısını bulalım
-      int atamaSayisi = 0;
-      for (final list in _assignmentsByGroup.values) {
-        if (list.any((a) => a.ogrenciId == studentId)) atamaSayisi++;
+    try {
+      final cycleDoc = await _db
+          .collection('agm_cycles')
+          .doc(widget.cycle.id)
+          .get();
+      AgmCycle currentCycle = widget.cycle;
+      if (cycleDoc.exists) {
+        currentCycle = AgmCycle.fromMap(cycleDoc.data()!, cycleDoc.id);
       }
 
-      final bool isAbsentRaw = _absentStudents.any((s) => s['id'] == studentId);
+      final groups = await _repo.getGroupsByCycle(widget.cycle.id);
 
-      // Eğer absent ise ve ataması varsa, o artık absent değildir
-      if (isAbsentRaw && atamaSayisi == 0) {
-        final absentStudentInfo = _absentStudents.firstWhere(
-          (s) => s['id'] == studentId,
-        );
-        newAbsent.add(absentStudentInfo);
-      } else if (atamaSayisi == 0) {
-        newUnassigned.add(studentId);
-      } else if (atamaSayisi < minDers) {
-        newUnderAssigned.add(studentId);
-      }
-    }
+      if (mounted)
+        setState(() => _loadingMessage = 'Öğrenci atamaları yükleniyor...');
+      final snap = await _db
+          .collection('agm_assignments')
+          .where('cycleId', isEqualTo: widget.cycle.id)
+          .get();
+      final assignments = snap.docs
+          .map((d) => AgmAssignment.fromMap(d.data(), d.id))
+          .toList();
 
-    // Değişiklik oldu mu?
-    if (newUnassigned.length != _unassignedStudents.length ||
-        newUnderAssigned.length != _underAssignedStudents.length ||
-        newAbsent.length != _absentStudents.length ||
-        newUnassigned.any((id) => !_unassignedStudents.contains(id)) ||
-        newUnderAssigned.any((id) => !_underAssignedStudents.contains(id)) ||
-        newAbsent.any((s) => !_absentStudents.any((a) => a['id'] == s['id']))) {
-      changed = true;
-    }
+      final Map<String, List<AgmAssignment>> byGroup = {};
+      for (var g in groups) byGroup[g.id] = [];
+      for (var a in assignments)
+        byGroup.putIfAbsent(a.groupId, () => []).add(a);
 
-    if (changed) {
       if (mounted) {
         setState(() {
-          _unassignedStudents = newUnassigned;
-          _underAssignedStudents = newUnderAssigned;
-          _absentStudents = newAbsent;
+          _currentCycle = currentCycle;
+          _groups = groups;
+          _assignmentsByGroup = byGroup;
+          _unassignedStudents = currentCycle.unassignedStudentIds;
+          _underAssignedStudents = currentCycle.underAssignedStudentIds;
+          _unassignedReasons = currentCycle.unassignedReasons;
+          _excludedStudents = currentCycle.excludedStudentIds;
+          _loadingMessage = 'Şube ve öğrenci listeleri oluşturuluyor...';
         });
+        await _loadBranchStudentsForCycle(currentCycle);
+        _calculateAbsentStudents(currentCycle);
+
+        if (mounted) {
+          setState(() => _loading = false);
+        }
+
+        // Sadece draft modda ve gerekli koşullar sağlanıyorsa özel sınıf ata
+        final bool isDraft = currentCycle.status == AgmCycleStatus.draft;
+        if (isDraft &&
+            currentCycle.isSpecialClassActive &&
+            !currentCycle.specialClassGenerated &&
+            _allBranchStudents.isNotEmpty) {
+          final specialGroups = _groups.where((g) => g.isSpecial).toList();
+          if (specialGroups.isNotEmpty) {
+            await _autoAssignSpecialClassSilent(
+              currentCycle,
+              _groups,
+              _allBranchStudents,
+            );
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('AGM verileri yüklenirken hata: $e');
+      if (mounted) {
+        setState(() => _loading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Veriler yüklenirken hata oluştu: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _autoAssignSpecialClassSilent(
+    AgmCycle cycle,
+    List<AgmGroup> groups,
+    List<Map<String, dynamic>> branchStudents,
+  ) async {
+    try {
+      setState(
+        () => _loadingMessage = 'Özel sınıf otomatik yerleştiriliyor...',
+      );
+      final profiles = await _createStudentNeedProfiles(branchStudents, (s) {});
+      final engine = AgmAssignmentEngine(
+        cycleId: cycle.id,
+        institutionId: cycle.institutionId,
+      );
+      final atamalar = engine.generateSpecialClassOnly(
+        ogrenciProfiller: profiles,
+        gruplar: groups,
+        specialClassCriteria: cycle.specialClassCriteria,
+      );
+      if (atamalar.isNotEmpty) {
+        final specialGroupIds = groups
+            .where((g) => g.isSpecial)
+            .map((e) => e.id)
+            .toSet();
+        final snap = await _db
+            .collection('agm_assignments')
+            .where('cycleId', isEqualTo: cycle.id)
+            .get();
+        final refsToDelete = snap.docs
+            .where(
+              (d) => specialGroupIds.contains(d.data()['groupId'] as String),
+            )
+            .map((d) => d.reference)
+            .toList();
+        if (refsToDelete.isNotEmpty) {
+          await _repo.batchDeleteByRefs(refsToDelete);
+        }
+
+        await _repo.batchWriteAssignments(atamalar);
+        final List<AgmGroup> updatedGroups = [];
+        for (var g in groups) {
+          if (g.isSpecial) {
+            final assignedCount = atamalar
+                .where((a) => a.groupId == g.id)
+                .length;
+            updatedGroups.add(
+              g.copyWith(
+                mevcutOgrenciSayisi: assignedCount,
+                kazanimlar: ['Soru Çözüm'],
+              ),
+            );
+          } else {
+            updatedGroups.add(g);
+          }
+        }
+        await _repo.batchUpdateGroups(
+          updatedGroups.where((g) => g.isSpecial).toList(),
+        );
       }
 
-      await _db.collection('agm_cycles').doc(widget.cycle.id).update({
-        'unassignedStudentIds': newUnassigned,
-        'underAssignedStudentIds': newUnderAssigned,
-        'absentStudentIds': newAbsent.map((s) => s['id'].toString()).toList(),
+      // Atama olsun olmasın, specialClassGenerated'ı true yap (sonsuz döngüyü önle)
+      await _db.collection('agm_cycles').doc(cycle.id).update({
+        'specialClassGenerated': true,
       });
+
+      await _loadData(); // reload again
+    } catch (e) {
+      debugPrint('Özel sınıf atama hatası: $e');
+      if (mounted) setState(() => _loading = false);
     }
+  }
+
+  void _calculateAbsentStudents(AgmCycle cycle) {
+    setState(() {
+      _absentStudents = _allBranchStudents
+          .where((s) => cycle.absentStudentIds.contains(s['id']))
+          .map(
+            (s) => <String, dynamic>{
+              'id': s['id'],
+              'name': (s['fullName'] ?? s['name'] ?? 'İsimsiz').toString(),
+              'branch': (s['className'] ?? s['branch'] ?? '').toString(),
+              'subeId': s['branchId'] ?? '',
+            },
+          )
+          .toList();
+    });
   }
 
   Future<void> _loadBranchStudentsForCycle(AgmCycle cycle) async {
-    if (_allBranchStudents.isNotEmpty) return;
-
     try {
-      final List<String> examIds =
-          widget.cycle.referansDenemeSinavIds.isNotEmpty
-          ? widget.cycle.referansDenemeSinavIds
-          : [widget.cycle.referansDenemeSinavId];
-
+      final List<String> examIds = cycle.referansDenemeSinavIds.isNotEmpty
+          ? cycle.referansDenemeSinavIds
+          : [cycle.referansDenemeSinavId];
       final List<Map<String, dynamic>> branchStudents = [];
       final Set<String> processedStudentIds = {};
 
@@ -225,137 +255,122 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
                 .toList();
         final classLevel = examData['classLevel']?.toString() ?? '';
 
-        if (selectedBranches.isNotEmpty && classLevel.isNotEmpty) {
-          for (final branch in selectedBranches) {
-            final snap = await _db
+        if (selectedBranches.isNotEmpty) {
+          final futures = selectedBranches.map(
+            (branch) => _db
                 .collection('students')
-                .where('institutionId', isEqualTo: widget.cycle.institutionId)
+                .where('institutionId', isEqualTo: cycle.institutionId)
                 .where('className', isEqualTo: branch)
                 .where('isActive', isEqualTo: true)
-                .get();
+                .get(),
+          );
+          final snaps = await Future.wait(futures);
+          for (final snap in snaps) {
             for (final doc in snap.docs) {
               if (processedStudentIds.contains(doc.id)) continue;
-              final data = Map<String, dynamic>.from(doc.data());
-              data['id'] = doc.id;
-              branchStudents.add(data);
               processedStudentIds.add(doc.id);
+              branchStudents.add({'id': doc.id, ...doc.data()});
             }
           }
         } else if (classLevel.isNotEmpty) {
           final snap = await _db
               .collection('students')
-              .where('institutionId', isEqualTo: widget.cycle.institutionId)
+              .where('institutionId', isEqualTo: cycle.institutionId)
               .where('classLevel', isEqualTo: classLevel)
               .where('isActive', isEqualTo: true)
               .get();
           for (final doc in snap.docs) {
             if (processedStudentIds.contains(doc.id)) continue;
-            final data = Map<String, dynamic>.from(doc.data());
-            data['id'] = doc.id;
-            branchStudents.add(data);
             processedStudentIds.add(doc.id);
+            branchStudents.add({'id': doc.id, ...doc.data()});
           }
         }
       }
-
       if (mounted) {
-        setState(() => _allBranchStudents = branchStudents);
+        setState(() {
+          _allBranchStudents = branchStudents;
+          _totalPotentialStudents = branchStudents.length;
+        });
       }
     } catch (e) {
-      print('Şube öğrencilerini yüklerken hata: $e');
+      debugPrint('Öğrenci yükleme hatası: $e');
     }
   }
 
   @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final bool canPublish =
-        widget.cycle.status == AgmCycleStatus.draft ||
-        widget.cycle.status == AgmCycleStatus.locked;
+    final cycle = effectiveCycle;
+    final bool isDraft = cycle.status == AgmCycleStatus.draft;
+    final bool isPublished = cycle.status == AgmCycleStatus.published;
 
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
       appBar: EduknAppBar(
-        title: (widget.cycle.title != null && widget.cycle.title!.isNotEmpty)
-              ? widget.cycle.title!
-              : widget.cycle.referansDenemeSinavAdi,
+        title: cycle.title ?? 'AGM Grupları',
         actions: [
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _loadData),
           PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert, color: Colors.white),
+            icon: const Icon(Icons.more_vert),
             onSelected: (val) {
-              if (val == 'refresh') _loadData();
               if (val == 'reset') _confirmResetDraft();
               if (val == 'publish') _publish();
               if (val == 'unpublish') _unpublish();
             },
-            itemBuilder: (ctx) => [
-              const PopupMenuItem(
-                value: 'refresh',
-                child: Row(
-                  children: [
-                    Icon(Icons.refresh, size: 20, color: Colors.black87),
-                    SizedBox(width: 12),
-                    Text('Yenile'),
-                  ],
-                ),
-              ),
-              if (widget.cycle.status == AgmCycleStatus.draft ||
-                  widget.cycle.status == AgmCycleStatus.locked)
-                const PopupMenuItem(
-                  value: 'reset',
-                  child: Row(
-                    children: [
-                      Icon(Icons.restart_alt, size: 20, color: Colors.black87),
-                      SizedBox(width: 12),
-                      Text('Taslağı Sıfırla'),
-                    ],
-                  ),
-                ),
-              if (canPublish)
+            itemBuilder: (context) => [
+              if (isDraft)
                 PopupMenuItem(
                   value: 'publish',
-                  enabled: !_publishing,
                   child: Row(
                     children: [
                       Icon(
                         Icons.publish,
                         size: 20,
-                        color: _publishing ? Colors.grey : Colors.deepOrange,
+                        color: Colors.green.shade700,
                       ),
                       const SizedBox(width: 12),
-                      const Text('Yayınla'),
+                      const Text('Yayınla (Etüt Oluştur)'),
                     ],
                   ),
                 ),
-              if (widget.cycle.status == AgmCycleStatus.published)
+              if (isPublished)
                 PopupMenuItem(
                   value: 'unpublish',
-                  enabled: !_publishing,
                   child: Row(
                     children: [
                       Icon(
                         Icons.cancel_presentation,
                         size: 20,
-                        color: _publishing ? Colors.grey : Colors.red.shade700,
+                        color: Colors.red.shade700,
                       ),
                       const SizedBox(width: 12),
                       const Text('Yayından Kaldır'),
                     ],
                   ),
                 ),
+              PopupMenuItem(
+                value: 'reset',
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.delete_sweep,
+                      size: 20,
+                      color: Colors.red.shade400,
+                    ),
+                    const SizedBox(width: 12),
+                    const Text('Dağıtımı Sıfırla'),
+                  ],
+                ),
+              ),
             ],
           ),
         ],
         bottom: TabBar(
           controller: _tabController,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white60,
-          indicatorColor: Colors.white,
+          labelColor: Colors.orange.shade800,
+          unselectedLabelColor: Colors.grey.shade600,
+          indicatorColor: Colors.orange.shade700,
+          indicatorWeight: 3.5,
+          indicatorSize: TabBarIndicatorSize.tab,
           labelStyle: const TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.bold,
@@ -370,9 +385,10 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const Text('Yerleşemeyenler'),
-                    if ((_absentStudents.length +
-                            _unassignedStudents.length +
-                            _underAssignedStudents.length) >
+                    if ((_unassignedStudents.length +
+                            _underAssignedStudents.length +
+                            _absentStudents.length +
+                            _excludedStudents.length) >
                         0) ...[
                       const SizedBox(width: 4),
                       Container(
@@ -385,7 +401,7 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
-                          '${_absentStudents.length + _unassignedStudents.length + _underAssignedStudents.length}',
+                          '${_unassignedStudents.length + _underAssignedStudents.length + _absentStudents.length + _excludedStudents.length}',
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 9,
@@ -402,21 +418,62 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
           ],
         ),
       ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1200),
-          child: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : TabBarView(
-                  controller: _tabController,
-                  children: [
-                    _buildGroupsTab(),
-                    _buildAbsentTab(),
-                    _buildReportsTab(),
-                  ],
-                ),
-        ),
-      ),
+      body: _loading
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      SizedBox(
+                        width: 70,
+                        height: 70,
+                        child: CircularProgressIndicator(
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Colors.orange.shade700,
+                          ),
+                          strokeWidth: 4,
+                          backgroundColor: Colors.orange.shade100,
+                        ),
+                      ),
+                      Icon(
+                        Icons.auto_awesome,
+                        color: Colors.orange.shade700,
+                        size: 28,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 300),
+                    child: Text(
+                      _loadingMessage,
+                      key: ValueKey<String>(_loadingMessage),
+                      style: TextStyle(
+                        fontSize: 15,
+                        color: Colors.grey.shade800,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Lütfen bekleyin, verileriniz hazırlanıyor...',
+                    style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+                  ),
+                ],
+              ),
+            )
+          : TabBarView(
+              controller: _tabController,
+              children: [
+                _buildGroupsTab(),
+                _buildYerlesmeyenTab(),
+                _buildReportsTab(),
+              ],
+            ),
       bottomNavigationBar: _selectedStudentIds.isNotEmpty
           ? _buildBulkActionBar()
           : null,
@@ -426,944 +483,1578 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
           if (_selectedStudentIds.isNotEmpty) return const SizedBox.shrink();
 
           if (_tabController.index == 0) {
-            return widget.cycle.status == AgmCycleStatus.draft
-                ? FloatingActionButton.extended(
-                    onPressed: _generating ? null : _showGenerateDraftSheet,
-                    label: Text(
-                      _generating ? 'Oluşturuluyor...' : 'Taslak Oluştur',
-                    ),
-                    icon: _generating
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Icon(Icons.auto_fix_high),
-                    backgroundColor: Colors.deepOrange,
-                    foregroundColor: Colors.white,
-                  )
-                : const SizedBox.shrink();
+            return FloatingActionButton.extended(
+              heroTag: 'agm_dagitim_fab',
+              onPressed: _generating ? null : _showGenerateDraftSheet,
+              label: Text(_generating ? 'Dağıtılıyor...' : 'Dağıtım Yap'),
+              icon: _generating
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.auto_awesome),
+              backgroundColor: Colors.orange.shade700,
+              foregroundColor: Colors.white,
+            );
           }
 
           if (_tabController.index == 1) {
             String filterName = 'Sınava Girmeyenleri';
             if (_yerlesmeyenFilterIndex == 1) filterName = 'Atanamayanları';
             if (_yerlesmeyenFilterIndex == 2) filterName = 'Eksik Atananları';
+            if (_yerlesmeyenFilterIndex == 3) filterName = 'Hariç Tutulanları';
 
             final isMobile = MediaQuery.of(context).size.width < 600;
 
             if (isMobile) {
-              return FloatingActionButton(
-                onPressed: _loading ? null : _confirmAutoAssign,
-                backgroundColor: Colors.teal,
-                child: const Icon(Icons.bolt, color: Colors.white),
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (_yerlesmeyenFilterIndex == 3)
+                    FloatingActionButton(
+                      heroTag: 'edit_excludes_fab_mobile',
+                      onPressed: () => _goToSetupToEditExcludes(),
+                      backgroundColor: Colors.orange.shade700,
+                      child: const Icon(Icons.edit_note, color: Colors.white),
+                    )
+                  else
+                    FloatingActionButton(
+                      heroTag: 'auto_assign_fab_mobile',
+                      onPressed: _loading ? null : _confirmAutoAssign,
+                      backgroundColor: Colors.teal,
+                      child: const Icon(Icons.bolt, color: Colors.white),
+                    ),
+                ],
               );
             }
 
-            return FloatingActionButton.extended(
-              onPressed: _loading ? null : _confirmAutoAssign,
-              label: Text('$filterName Otomatik Ata'),
-              icon: const Icon(Icons.bolt),
-              backgroundColor: Colors.teal,
-              foregroundColor: Colors.white,
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                if (_yerlesmeyenFilterIndex == 3)
+                  FloatingActionButton.extended(
+                    heroTag: 'edit_excludes_fab',
+                    onPressed: () => _goToSetupToEditExcludes(),
+                    label: const Text('Hariç Listesini Düzenle'),
+                    icon: const Icon(Icons.edit_note),
+                    backgroundColor: Colors.orange.shade700,
+                    foregroundColor: Colors.white,
+                  )
+                else
+                  FloatingActionButton.extended(
+                    heroTag: 'auto_assign_fab',
+                    onPressed: _loading ? null : _confirmAutoAssign,
+                    label: Text('$filterName Otomatik Ata'),
+                    icon: const Icon(Icons.bolt),
+                    backgroundColor: Colors.teal,
+                    foregroundColor: Colors.white,
+                  ),
+              ],
             );
           }
-
           return const SizedBox.shrink();
         },
       ),
     );
   }
 
-  // ─── GRUPLAR TAB ─────────────────────────────────────────────────────────
+  // ═══ MANUEL İŞLEMLER ═══════════════════════════════════════════════════
 
-  Widget _buildGroupsTab() {
-    if (_groups.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.group_outlined, size: 56, color: Colors.grey.shade300),
-            const SizedBox(height: 12),
-            Text(
-              'Grup yok',
-              style: TextStyle(color: Colors.grey.shade500, fontSize: 16),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '"Taslak Oluştur" butonuna basarak\nalgoritmanın çalışmasını sağlayın.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
-            ),
-          ],
-        ),
-      );
+  void _goToSetupToEditExcludes() {
+    _showStudentSelectionDialog();
+  }
+
+  void _showStudentSelectionDialog() {
+    final Set<String> tempExcluded = Set<String>.from(_excludedStudents);
+    final searchCtrl = TextEditingController();
+    String searchQuery = '';
+    String? filterClassLevel;
+    String? filterBranch;
+
+    final Set<String> classLevels = {};
+    final Set<String> branches = {};
+    for (final s in _allBranchStudents) {
+      final cl = (s['classLevel'] ?? s['sinifSeviyesi'] ?? '').toString();
+      final br = (s['className'] ?? s['sube'] ?? '').toString();
+      if (cl.isNotEmpty) classLevels.add(cl);
+      if (br.isNotEmpty) branches.add(br);
     }
+    final sortedClassLevels = classLevels.toList()..sort();
+    final sortedBranches = branches.toList()..sort();
 
-    // Gruplama: Branş bazlı (dersAdi)
-    final Map<String, List<AgmGroup>> byBranch = {};
-    final Set<String> allGroupBranches = _groups.map((g) => g.dersAdi).toSet();
-
-    // Benzersiz tüm slotları bulup sırala (filtreleme butonları için)
-    final allPossibleSlots = _groups
-        .map((g) => '${g.baslangicSaat}-${g.bitisSaat}')
-        .toSet()
-        .toList()
-      ..sort();
-
-    // Default: tümü seçili
-    if (_selectedTimeSlots == null) {
-      _selectedTimeSlots = Set<String>.from(allPossibleSlots);
-    }
-
-    for (final g in _groups) {
-      if (_groupFilterBranch != null && g.dersAdi != _groupFilterBranch) {
-        continue;
-      }
-      final slotKey = '${g.baslangicSaat}-${g.bitisSaat}';
-      if (!_selectedTimeSlots!.contains(slotKey)) {
-        continue;
-      }
-      byBranch.putIfAbsent(g.dersAdi, () => []).add(g);
-    }
-
-    // Her branş içinde ortalama başarıya göre sırala (Büyükten küçüğe)
-    byBranch.forEach((branch, groups) {
-      groups.sort((a, b) {
-        final avgA = _getGroupAvgSuccess(a);
-        final avgB = _getGroupAvgSuccess(b);
-        return avgB.compareTo(avgA);
-      });
-    });
-
-    // Branşları alfabetik sırala
-    final sortedBranches = byBranch.keys.toList()..sort();
-
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        _buildCycleSummaryBar(),
-        const SizedBox(height: 16),
-        _buildGroupFilterRow(
-          allGroupBranches.toList()..sort(),
-          allPossibleSlots,
-        ),
-        const SizedBox(height: 12),
-        ...sortedBranches.map((branch) {
-          final groups = byBranch[branch]!;
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildBranchHeader(branch),
-              const SizedBox(height: 8),
-              ...groups.map((g) => _buildGroupCard(g)),
-              const SizedBox(height: 12),
-            ],
-          );
-        }),
-        const SizedBox(height: 80),
-      ],
-    );
-  }
-
-  Widget _buildBranchHeader(String branch) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
-        children: [
-          Icon(Icons.label_important_outline, size: 16, color: Colors.deepOrange.shade700),
-          const SizedBox(width: 6),
-          Text(
-            branch,
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 14,
-              color: Colors.deepOrange.shade700,
-            ),
-          ),
-        ],
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black54,
+      transitionDuration: const Duration(milliseconds: 300),
+      transitionBuilder: (ctx, anim, _, child) => SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0, 0.06),
+          end: Offset.zero,
+        ).animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+        child: FadeTransition(opacity: anim, child: child),
       ),
-    );
-  }
+      pageBuilder: (ctx, _, __) => StatefulBuilder(
+        builder: (ctx, setSt) {
+          final filtered = _allBranchStudents.where((s) {
+            final name = (s['fullName'] ?? s['name'] ?? '')
+                .toString()
+                .toLowerCase();
+            final cl = (s['classLevel'] ?? s['sinifSeviyesi'] ?? '').toString();
+            final br = (s['className'] ?? s['sube'] ?? '').toString();
+            if (searchQuery.isNotEmpty &&
+                !name.contains(searchQuery.toLowerCase()))
+              return false;
+            if (filterClassLevel != null && cl != filterClassLevel)
+              return false;
+            if (filterBranch != null && br != filterBranch) return false;
+            return true;
+          }).toList();
 
-  double _getGroupAvgSuccess(AgmGroup group) {
-    final assignments = _assignmentsByGroup[group.id] ?? [];
-    if (assignments.isEmpty) return 0.0;
+          final activeCount = _allBranchStudents.length - tempExcluded.length;
+          final excludedInFiltered = filtered
+              .where((s) => tempExcluded.contains(s['id']))
+              .length;
+          final allFilteredSelected =
+              filtered.isNotEmpty && excludedInFiltered == 0;
 
-    double total = 0;
-    for (final a in assignments) {
-      total += (1.0 - a.ihtiyacSkoru).clamp(0.0, 1.0);
-    }
-    return total / assignments.length;
-  }
-
-  Widget _buildCycleSummaryBar() {
-    final totalAssignments = _assignmentsByGroup.values.fold(
-      0,
-      (sum, list) => sum + list.length,
-    );
-    final totalUnplaced =
-        _unassignedStudents.length +
-        _underAssignedStudents.length +
-        _absentStudents.length;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.deepOrange.shade400, Colors.deepOrange.shade700],
-        ),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          _statItem('${_groups.length}', 'Grup'),
-          _divider(),
-          _statItem('${_allBranchStudents.length}', 'Öğrenci'),
-          _divider(),
-          _statItem('$totalAssignments', 'Atama'),
-          _divider(),
-          _statItem('$totalUnplaced', 'Yerleşmedi'),
-        ],
-      ),
-    );
-  }
-
-  Widget _statItem(String value, String label) {
-    return Expanded(
-      child: Column(
-        children: [
-          Text(
-            value,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          Text(
-            label,
-            style: const TextStyle(color: Colors.white70, fontSize: 10),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _divider() {
-    return Container(
-      height: 30,
-      width: 1,
-      color: Colors.white30,
-      margin: const EdgeInsets.symmetric(horizontal: 8),
-    );
-  }
-
-  Widget _buildGroupFilterRow(List<String> branches, List<String> allSlots) {
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: Colors.deepOrange.shade50,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(
-            'Cumartesi',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: Colors.deepOrange.shade700,
-              fontSize: 12,
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-
-        // Saat Dilimi Filtreleri (1, 2, 3...)
-        ...allSlots.asMap().entries.map((entry) {
-          final index = entry.key + 1;
-          final slotKey = entry.value;
-          final isSelected = _selectedTimeSlots?.contains(slotKey) ?? true;
-
-          return Padding(
-            padding: const EdgeInsets.only(right: 6),
-            child: InkWell(
-              onTap: () {
-                setState(() {
-                  if (_selectedTimeSlots == null) {
-                    _selectedTimeSlots = Set<String>.from(allSlots);
-                  }
-                  if (_selectedTimeSlots!.contains(slotKey)) {
-                    _selectedTimeSlots!.remove(slotKey);
-                  } else {
-                    _selectedTimeSlots!.add(slotKey);
-                  }
-                });
-              },
-              borderRadius: BorderRadius.circular(4),
-              child: Container(
-                width: 26,
-                height: 26,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: isSelected ? Colors.deepOrange : Colors.white,
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(
-                    color: isSelected
-                        ? Colors.deepOrange
-                        : Colors.grey.shade300,
+          return Scaffold(
+            backgroundColor: const Color(0xFFF5F6FA),
+            body: Column(
+              children: [
+                // ══ Premium Başlık ══
+                Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Colors.orange.shade800, Colors.orange.shade600],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.orange.shade900.withValues(alpha: 0.3),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: SafeArea(
+                    bottom: false,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 8, 16, 20),
+                      child: Row(
+                        children: [
+                          IconButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            icon: const Icon(
+                              Icons.arrow_back_ios_new,
+                              color: Colors.white,
+                              size: 20,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Kapsanan Öğrenciler',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 0.3,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '$activeCount / ${_allBranchStudents.length} öğrenci seçili',
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.85),
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (tempExcluded.isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.4),
+                                ),
+                              ),
+                              child: Text(
+                                '${tempExcluded.length} hariç',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-                child: Text(
-                  '$index',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: isSelected ? Colors.white : Colors.grey.shade600,
+
+                // ══ Arama & Filtreler ══
+                Container(
+                  color: Colors.white,
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                  child: Column(
+                    children: [
+                      Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF5F6FA),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: Colors.grey.shade200),
+                        ),
+                        child: TextField(
+                          controller: searchCtrl,
+                          onChanged: (v) => setSt(() => searchQuery = v),
+                          style: const TextStyle(fontSize: 14),
+                          decoration: InputDecoration(
+                            hintText: 'Öğrenci adı ara...',
+                            hintStyle: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey.shade400,
+                            ),
+                            prefixIcon: Icon(
+                              Icons.search,
+                              size: 20,
+                              color: Colors.grey.shade400,
+                            ),
+                            suffixIcon: searchQuery.isNotEmpty
+                                ? IconButton(
+                                    icon: Icon(
+                                      Icons.close,
+                                      size: 18,
+                                      color: Colors.grey.shade400,
+                                    ),
+                                    onPressed: () {
+                                      searchCtrl.clear();
+                                      setSt(() => searchQuery = '');
+                                    },
+                                  )
+                                : null,
+                            border: InputBorder.none,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 14,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _premiumDropdown<String>(
+                              value: filterClassLevel,
+                              hint: 'Sınıf Seviyesi',
+                              icon: Icons.school_outlined,
+                              items: [
+                                const DropdownMenuItem(
+                                  value: null,
+                                  child: Text(
+                                    'Tüm Seviyeler',
+                                    style: TextStyle(fontSize: 13),
+                                  ),
+                                ),
+                                ...sortedClassLevels.map(
+                                  (cl) => DropdownMenuItem(
+                                    value: cl,
+                                    child: Text(
+                                      '$cl. Sınıf',
+                                      style: const TextStyle(fontSize: 13),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                              onChanged: (v) => setSt(() {
+                                filterClassLevel = v;
+                                filterBranch = null;
+                              }),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _premiumDropdown<String>(
+                              value: filterBranch,
+                              hint: 'Şube',
+                              icon: Icons.door_front_door_outlined,
+                              items: [
+                                const DropdownMenuItem(
+                                  value: null,
+                                  child: Text(
+                                    'Tüm Şubeler',
+                                    style: TextStyle(fontSize: 13),
+                                  ),
+                                ),
+                                ...sortedBranches
+                                    .where(
+                                      (br) =>
+                                          filterClassLevel == null ||
+                                          _allBranchStudents.any(
+                                            (s) =>
+                                                (s['className'] ??
+                                                        s['sube'] ??
+                                                        '') ==
+                                                    br &&
+                                                (s['classLevel'] ??
+                                                        s['sinifSeviyesi'] ??
+                                                        '') ==
+                                                    filterClassLevel,
+                                          ),
+                                    )
+                                    .map(
+                                      (br) => DropdownMenuItem(
+                                        value: br,
+                                        child: Text(
+                                          br,
+                                          style: const TextStyle(fontSize: 13),
+                                        ),
+                                      ),
+                                    ),
+                              ],
+                              onChanged: (v) => setSt(() => filterBranch = v),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
-              ),
-            ),
-          );
-        }),
 
-        const Spacer(),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: Colors.grey.shade300),
-          ),
-          child: DropdownButton<String>(
-            value: _groupFilterBranch,
-            underline: const SizedBox(),
-            hint: const Text('Tüm Branşlar', style: TextStyle(fontSize: 12)),
-            style: const TextStyle(fontSize: 12, color: Colors.black87),
-            items: [
-              const DropdownMenuItem<String>(
-                value: null,
-                child: Text('Tüm Branşlar'),
-              ),
-              ...branches.map(
-                (b) => DropdownMenuItem<String>(value: b, child: Text(b)),
-              ),
-            ],
-            onChanged: (v) => setState(() => _groupFilterBranch = v),
-          ),
-        ),
-      ],
-    );
-  }
-
-
-
-  Widget _buildGroupCard(AgmGroup group) {
-    final assignments = _assignmentsByGroup[group.id] ?? [];
-    final doluluk = group.kapasite > 0
-        ? assignments.length / group.kapasite
-        : 0.0;
-
-    Color dolulukRenk = Colors.green;
-    if (doluluk >= 1.0) {
-      dolulukRenk = Colors.red;
-    } else if (doluluk >= 0.8) {
-      dolulukRenk = Colors.orange;
-    }
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      clipBehavior: Clip.antiAlias,
-      child: ExpansionTile(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-          side: BorderSide.none,
-        ),
-        collapsedShape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-          side: BorderSide.none,
-        ),
-        leading: Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: Colors.deepOrange.shade50,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Icon(Icons.book_outlined, color: Colors.deepOrange, size: 22),
-        ),
-        title: Text(
-          group.dersAdi,
-          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '${group.baslangicSaat}-${group.bitisSaat} • ${group.ogretmenAdi}${group.derslikAdi != null ? ' (${group.derslikAdi})' : ''}',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-            ),
-            if (group.kazanimlar.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Text(
-                  'Ana Kazanım: ${group.kazanimlar.first}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Colors.deepOrange.shade700,
-                    fontWeight: FontWeight.bold,
+                // ══ Toplu İşlem Çubuğu ══
+                Container(
+                  color: Colors.white,
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                  child: Row(
+                    children: [
+                      InkWell(
+                        borderRadius: BorderRadius.circular(8),
+                        onTap: () => setSt(() {
+                          if (allFilteredSelected) {
+                            for (final s in filtered) tempExcluded.add(s['id']);
+                          } else {
+                            for (final s in filtered)
+                              tempExcluded.remove(s['id']);
+                          }
+                        }),
+                        child: Row(
+                          children: [
+                            AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              width: 22,
+                              height: 22,
+                              decoration: BoxDecoration(
+                                color: allFilteredSelected
+                                    ? Colors.orange.shade700
+                                    : Colors.transparent,
+                                border: Border.all(
+                                  color: allFilteredSelected
+                                      ? Colors.orange.shade700
+                                      : Colors.grey.shade400,
+                                  width: 2,
+                                ),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: allFilteredSelected
+                                  ? const Icon(
+                                      Icons.check,
+                                      size: 14,
+                                      color: Colors.white,
+                                    )
+                                  : null,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              allFilteredSelected
+                                  ? 'Tümünü Kaldır'
+                                  : 'Tümünü Seç',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey.shade700,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          '${filtered.length} öğrenci',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade600,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ),
-          ],
-        ),
-        trailing: SizedBox(
-          width: 72,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                '${assignments.length}/${group.kapasite}',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: dolulukRenk,
-                  fontSize: 13,
+
+                const Divider(height: 1, color: Color(0xFFEEEEEE)),
+
+                // ══ Öğrenci Listesi ══
+                Expanded(
+                  child: filtered.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.search_off,
+                                size: 48,
+                                color: Colors.grey.shade300,
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                'Öğrenci bulunamadı',
+                                style: TextStyle(
+                                  color: Colors.grey.shade400,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+                          itemCount: filtered.length,
+                          itemBuilder: (_, i) {
+                            final s = filtered[i];
+                            final id = s['id'] as String;
+                            final name =
+                                (s['fullName'] ?? s['name'] ?? 'İsimsiz')
+                                    .toString();
+                            final cl =
+                                (s['classLevel'] ?? s['sinifSeviyesi'] ?? '')
+                                    .toString();
+                            final br = (s['className'] ?? s['sube'] ?? '')
+                                .toString();
+                            final isIncluded = !tempExcluded.contains(id);
+
+                            return AnimatedOpacity(
+                              opacity: isIncluded ? 1.0 : 0.5,
+                              duration: const Duration(milliseconds: 200),
+                              child: Container(
+                                margin: const EdgeInsets.only(bottom: 8),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(
+                                    color: isIncluded
+                                        ? Colors.transparent
+                                        : Colors.grey.shade200,
+                                    width: 1,
+                                  ),
+                                  boxShadow: isIncluded
+                                      ? [
+                                          BoxShadow(
+                                            color: Colors.black.withValues(
+                                              alpha: 0.04,
+                                            ),
+                                            blurRadius: 6,
+                                            offset: const Offset(0, 2),
+                                          ),
+                                        ]
+                                      : [],
+                                ),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(14),
+                                  onTap: () => setSt(() {
+                                    if (isIncluded)
+                                      tempExcluded.add(id);
+                                    else
+                                      tempExcluded.remove(id);
+                                  }),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 12,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          width: 40,
+                                          height: 40,
+                                          decoration: BoxDecoration(
+                                            color: isIncluded
+                                                ? Colors.orange.shade50
+                                                : Colors.grey.shade100,
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
+                                          ),
+                                          child: Center(
+                                            child: Text(
+                                              name.isNotEmpty
+                                                  ? name[0].toUpperCase()
+                                                  : '?',
+                                              style: TextStyle(
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.bold,
+                                                color: isIncluded
+                                                    ? Colors.orange.shade700
+                                                    : Colors.grey.shade400,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                name,
+                                                style: TextStyle(
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: isIncluded
+                                                      ? const Color(0xFF1A1A2E)
+                                                      : Colors.grey.shade400,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 3),
+                                              Row(
+                                                children: [
+                                                  Icon(
+                                                    Icons.class_outlined,
+                                                    size: 12,
+                                                    color: isIncluded
+                                                        ? Colors.orange.shade400
+                                                        : Colors.grey.shade300,
+                                                  ),
+                                                  const SizedBox(width: 4),
+                                                  Text(
+                                                    '$cl. Sınıf  •  $br',
+                                                    style: TextStyle(
+                                                      fontSize: 11,
+                                                      color: isIncluded
+                                                          ? Colors.grey.shade500
+                                                          : Colors
+                                                                .grey
+                                                                .shade300,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        AnimatedContainer(
+                                          duration: const Duration(
+                                            milliseconds: 200,
+                                          ),
+                                          width: 24,
+                                          height: 24,
+                                          decoration: BoxDecoration(
+                                            color: isIncluded
+                                                ? Colors.orange.shade700
+                                                : Colors.transparent,
+                                            border: Border.all(
+                                              color: isIncluded
+                                                  ? Colors.orange.shade700
+                                                  : Colors.grey.shade300,
+                                              width: 2,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                          ),
+                                          child: isIncluded
+                                              ? const Icon(
+                                                  Icons.check,
+                                                  size: 16,
+                                                  color: Colors.white,
+                                                )
+                                              : null,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
                 ),
-              ),
-              const SizedBox(height: 3),
-              SizedBox(
-                width: 48,
-                height: 4,
-                child: LinearProgressIndicator(
-                  value: doluluk.clamp(0.0, 1.0),
-                  backgroundColor: Colors.grey.shade200,
-                  valueColor: AlwaysStoppedAnimation<Color>(dolulukRenk),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              if (_selectedStudentIds.isEmpty) ...[
-                const SizedBox(height: 3),
-                _buildGroupAvgBadge(group),
-              ] else if (assignments.any(
-                (a) => _selectedStudentIds.contains(a.ogrenciId),
-              )) ...[
-                const SizedBox(height: 3),
-                // Küçük "temizle" ikonu — overflow yaratmaz
-                GestureDetector(
-                  onTap: () => setState(() => _selectedStudentIds.clear()),
-                  child: Tooltip(
-                    message: 'Seçimleri Temizle',
-                    child: Icon(
-                      Icons.cancel,
-                      size: 16,
-                      color: Colors.deepOrange.shade400,
+
+                // ══ Kaydet Butonu ══
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, -4),
+                      ),
+                    ],
+                  ),
+                  child: SafeArea(
+                    top: false,
+                    child: SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton(
+                        onPressed: () async {
+                          Navigator.pop(ctx);
+                          setState(() => _loading = true);
+                          try {
+                            if (widget.cycle.isSpecialClassActive) {
+                              final specialGroupIds = _groups
+                                  .where((g) => g.isSpecial)
+                                  .map((g) => g.id)
+                                  .toSet();
+                              final specialAssignments = _assignmentsByGroup
+                                  .values
+                                  .expand((list) => list)
+                                  .where(
+                                    (a) => specialGroupIds.contains(a.groupId),
+                                  )
+                                  .toList();
+                              if (specialAssignments.isNotEmpty) {
+                                await _service.removeAssignments(
+                                  specialAssignments,
+                                );
+                              }
+
+                              final List<AgmGroup> updatedGroups = [];
+                              for (var g in _groups) {
+                                if (g.isSpecial) {
+                                  updatedGroups.add(
+                                    g.copyWith(
+                                      mevcutOgrenciSayisi: 0,
+                                      kazanimlar: [],
+                                    ),
+                                  );
+                                }
+                              }
+                              if (updatedGroups.isNotEmpty) {
+                                await _repo.batchUpdateGroups(updatedGroups);
+                              }
+                            } else {
+                              final excludedAssignments = _assignmentsByGroup
+                                  .values
+                                  .expand((list) => list)
+                                  .where(
+                                    (a) => tempExcluded.contains(a.ogrenciId),
+                                  )
+                                  .toList();
+                              if (excludedAssignments.isNotEmpty) {
+                                await _service.removeAssignments(
+                                  excludedAssignments,
+                                );
+                              }
+                            }
+
+                            await _db
+                                .collection('agm_cycles')
+                                .doc(widget.cycle.id)
+                                .update({
+                                  'excludedStudentIds': tempExcluded.toList(),
+                                  'specialClassGenerated': false,
+                                });
+
+                            await _loadData();
+
+                            if (widget.cycle.isSpecialClassActive) {
+                              final cycleDoc = await _db
+                                  .collection('agm_cycles')
+                                  .doc(widget.cycle.id)
+                                  .get();
+                              final currentCycle = AgmCycle.fromMap(
+                                cycleDoc.data()!,
+                                cycleDoc.id,
+                              );
+
+                              final freshGroups = await _repo.getGroupsByCycle(
+                                widget.cycle.id,
+                              );
+                              final filteredBranchStudents = _allBranchStudents
+                                  .where((s) => !tempExcluded.contains(s['id']))
+                                  .toList();
+                              await _autoAssignSpecialClassSilent(
+                                currentCycle,
+                                freshGroups,
+                                filteredBranchStudents,
+                              );
+                            }
+                          } catch (e) {
+                            debugPrint('Hariç listesini güncellerken hata: $e');
+                          } finally {
+                            if (mounted) setState(() => _loading = false);
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.orange.shade700,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 0,
+                        ),
+                        child: const Text(
+                          'Seçimleri Kaydet',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),
               ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _premiumDropdown<T>({
+    required T? value,
+    required String hint,
+    required IconData icon,
+    required List<DropdownMenuItem<T>> items,
+    required ValueChanged<T?> onChanged,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5F6FA),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<T>(
+          value: value,
+          isExpanded: true,
+          icon: Icon(
+            Icons.keyboard_arrow_down,
+            size: 18,
+            color: Colors.grey.shade500,
+          ),
+          hint: Row(
+            children: [
+              Icon(icon, size: 14, color: Colors.grey.shade400),
+              const SizedBox(width: 6),
+              Text(
+                hint,
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
+              ),
             ],
           ),
+          items: items,
+          onChanged: onChanged,
+          menuMaxHeight: 300,
+          style: TextStyle(fontSize: 13, color: Colors.grey.shade800),
         ),
-        children: [
-          if (group.kazanimlar.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Kazanımlar (1 Ana + 2 Yardımcı)',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                      color: Colors.deepOrange,
+      ),
+    );
+  }
+
+  void _confirmResetDraft() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: EdgeInsets.fromLTRB(
+          24,
+          24,
+          24,
+          24 + MediaQuery.of(ctx).padding.bottom,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.delete_sweep_rounded,
+                color: Colors.red.shade600,
+                size: 32,
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Dağıtımı Sıfırla',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Mevcut tüm öğrenci atamaları, grup dolulukları ve istatistikler kalıcı olarak silinecektir. Bu işlem geri alınamaz.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 13, color: Colors.grey, height: 1.5),
+            ),
+            const SizedBox(height: 32),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      side: BorderSide(color: Colors.grey.shade300),
+                    ),
+                    child: const Text(
+                      'Vazgeç',
+                      style: TextStyle(
+                        color: Colors.black87,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
-                      ...group.kazanimlar.take(3).toList().asMap().entries.map((
-                        entry,
-                      ) {
-                        final index = entry.key;
-                        final k = entry.value;
-                        return ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 280),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.deepOrange.shade50,
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(
-                                color: Colors.deepOrange.shade100,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () async {
+                      Navigator.pop(ctx);
+                      setState(() => _loading = true);
+                      try {
+                        await _repo.rollbackAssignments(widget.cycle.id);
+                        final groups = await _repo.getGroupsByCycle(
+                          widget.cycle.id,
+                        );
+                        final resetGroups = groups
+                            .map(
+                              (g) => g.copyWith(
+                                mevcutOgrenciSayisi: 0,
+                                kazanimlar: [],
                               ),
-                            ),
-                            child: Text(
-                              index == 0 ? 'Ana: $k' : 'Yard: $k',
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: index == 0
-                                    ? Colors.deepOrange.shade900
-                                    : Colors.grey.shade700,
-                                fontWeight: index == 0
-                                    ? FontWeight.bold
-                                    : FontWeight.w500,
-                              ),
-                            ),
+                            )
+                            .toList();
+                        await _repo.batchUpdateGroups(resetGroups);
+                        await _db
+                            .collection('agm_cycles')
+                            .doc(widget.cycle.id)
+                            .update({
+                              'specialClassGenerated': false,
+                              'unassignedStudentIds': [],
+                              'underAssignedStudentIds': [],
+                              'absentStudentIds': [],
+                              'unassignedReasons': {},
+                            });
+
+                        if (widget.cycle.isSpecialClassActive) {
+                          final filteredStudents = _allBranchStudents
+                              .where(
+                                (s) => !_excludedStudents.contains(s['id']),
+                              )
+                              .toList();
+                          await _autoAssignSpecialClassSilent(
+                            widget.cycle,
+                            resetGroups,
+                            filteredStudents,
+                          );
+                        } else {
+                          await _loadData();
+                        }
+
+                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Tüm atamalar sıfırlandı.'),
+                            backgroundColor: Colors.green,
                           ),
                         );
-                      }),
-                      if (group.kazanimlar.length > 3)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
+                      } catch (e) {
+                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Hata: $e'),
+                            backgroundColor: Colors.red,
                           ),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade100,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            '+${group.kazanimlar.length - 3}',
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                    ],
+                        );
+                        setState(() => _loading = false);
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red.shade600,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text(
+                      'Sıfırla ve Temizle',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
                   ),
-                  const SizedBox(height: 8),
-                  Divider(color: Colors.grey.shade200),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _publish() async {
+    final assignments = _assignmentsByGroup.values
+        .expand((element) => element)
+        .toList();
+    if (assignments.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Atama yapılmamış bir döngü yayınlanamaz.'),
+        ),
+      );
+      return;
+    }
+
+    final totalStudents = assignments.map((a) => a.ogrenciId).toSet().length;
+    final activeGroups = _groups.where((g) => g.mevcutOgrenciSayisi > 0).length;
+
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: EdgeInsets.fromLTRB(
+          24,
+          24,
+          24,
+          24 + MediaQuery.of(ctx).padding.bottom,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.green.shade50,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.publish_rounded,
+                color: Colors.green.shade700,
+                size: 32,
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'AGM Programını Yayınla',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Bu işlem $totalStudents öğrenci için $activeGroups aktif grupta etüt oluşturacak ve bildirim gönderecektir.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 13,
+                color: Colors.grey,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.orange.shade100),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.info_outline,
+                    color: Colors.orange.shade700,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Yayınlanan program etüt modülünde görünür hale gelir.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.orange.shade800,
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
-          if (assignments.isEmpty)
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text('Bu grupta öğrenci yok.'),
-            )
-          else
-            ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: assignments.length,
-              itemBuilder: (context, i) {
-                final a = assignments[i];
-                final isSelected = _selectedStudentIds.contains(a.id);
-
-                return InkWell(
-                  onTap: () {
-                    setState(() {
-                      if (isSelected) {
-                        _selectedStudentIds.remove(a.id);
-                      } else {
-                        _selectedStudentIds.add(a.id);
-                      }
-                    });
-                  },
-                  child: Container(
-                    color: isSelected
-                        ? Colors.deepOrange.shade50.withOpacity(0.5)
-                        : null,
-                    child: ListTile(
-                      dense: true,
-                      leading: CircleAvatar(
-                        radius: 12,
-                        backgroundColor: isSelected
-                            ? Colors.deepOrange
-                            : Colors.deepOrange.shade50,
-                        child: isSelected
-                            ? const Icon(
-                                Icons.check,
-                                size: 12,
-                                color: Colors.white,
-                              )
-                            : Text(
-                                '${i + 1}',
-                                style: const TextStyle(
-                                  color: Colors.deepOrange,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 11,
-                                ),
-                              ),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                      title: Row(
-                        children: [
-                          CircleAvatar(
-                            radius: 10,
-                            backgroundColor: Colors.grey.shade200,
-                            child: Text(
-                              a.ogrenciAdi.isNotEmpty
-                                  ? a.ogrenciAdi[0].toUpperCase()
-                                  : '?',
-                              style: TextStyle(
-                                color: Colors.grey.shade700,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 9,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              a.ogrenciAdi,
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: isSelected
-                                    ? FontWeight.bold
-                                    : FontWeight.normal,
-                              ),
-                            ),
-                          ),
-                          // Öğrencinin bu gruptaki kazanım başarı %si
-                          _buildStudentScoreBadge(a, group),
-                        ],
-                      ),
-                      subtitle: Text(
-                        a.subeAdi,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.grey.shade500,
-                        ),
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (a.atamaTipi == AgmAssignmentType.manual)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.blue.shade50,
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                'Manuel',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: Colors.blue.shade700,
-                                ),
-                              ),
-                            ),
-                          IconButton(
-                            icon: Icon(
-                              isSelected ? Icons.close : Icons.swap_horiz,
-                              size: 18,
-                              color: isSelected
-                                  ? Colors.red.shade400
-                                  : Colors.grey.shade500,
-                            ),
-                            onPressed: () {
-                              if (isSelected) {
-                                _removeStudentsFromGroup([a]);
-                              } else {
-                                _showMoveDialog([a], group);
-                              }
-                            },
-                            tooltip: isSelected
-                                ? 'Gruptan Çıkar'
-                                : 'Grubu değiştir',
-                          ),
-                        ],
+                      side: BorderSide(color: Colors.grey.shade300),
+                    ),
+                    child: const Text(
+                      'Vazgeç',
+                      style: TextStyle(
+                        color: Colors.black87,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
-                );
-              },
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green.shade700,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text(
+                      'Yayınla',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+              ],
             ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    setState(() => _publishing = true);
+    try {
+      await _service.publishCycle(
+        cycle: widget.cycle,
+        gruplar: _groups,
+        atamalar: assignments,
+      );
+      if (context.mounted) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'AGM programı başarıyla yayınlandı ve etütler oluşturuldu!',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+      await _loadData();
+    } catch (e) {
+      if (context.mounted) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Yayınlama hatası: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() => _publishing = false);
+    }
+  }
+
+  Future<void> _unpublish() async {
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: EdgeInsets.fromLTRB(
+          24,
+          24,
+          24,
+          24 + MediaQuery.of(ctx).padding.bottom,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.cancel_presentation_rounded,
+                color: Colors.red.shade600,
+                size: 32,
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Yayından Kaldır',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Bu işlem yayınlanmış tüm etüt kayıtlarını silecektir. AGM programı taslak durumuna geri dönecektir.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 13, color: Colors.grey, height: 1.5),
+            ),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      side: BorderSide(color: Colors.grey.shade300),
+                    ),
+                    child: const Text(
+                      'Vazgeç',
+                      style: TextStyle(
+                        color: Colors.black87,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red.shade600,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text(
+                      'Yayından Kaldır',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    setState(() => _publishing = true);
+    try {
+      await _service.unpublishCycle(widget.cycle.id);
+      if (context.mounted) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'AGM programı yayından kaldırıldı ve ilgili etütler silindi.',
+            ),
+          ),
+        );
+      }
+      await _loadData();
+    } catch (e) {
+      if (context.mounted) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Yayından kaldırma hatası: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() => _publishing = false);
+    }
+  }
+
+  void _removeAssignments(List<AgmAssignment> list) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Gruptan çıkar'),
+        content: Text(
+          '${list.length} öğrenciyi gruptan çıkarmak istediğinize emin misiniz?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Vazgeç'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              setState(() => _loading = true);
+              await _service.removeAssignments(list);
+              _selectedStudentIds.clear();
+              await _loadData();
+            },
+            child: const Text('Çıkar', style: TextStyle(color: Colors.red)),
+          ),
         ],
       ),
     );
   }
 
-  // ─── YARDIMCI WIDGETLAR ────────────────────────────────────────────────────
-
-  /// Grubun ortalama başarı yüzdesi (ihtiyacSkoru'ndan hesapla)
-  Widget _buildGroupAvgBadge(AgmGroup group) {
-    final assignments = _assignmentsByGroup[group.id] ?? [];
-    final validAssignments = assignments.where((a) => !a.isAbsent).toList();
-    if (validAssignments.isEmpty) return const SizedBox.shrink();
-
-    double total = 0;
-    for (final a in validAssignments) {
-      total += (1.0 - a.ihtiyacSkoru).clamp(0.0, 1.0);
-    }
-    final avg = total / validAssignments.length;
-    final pct = (avg * 100).toStringAsFixed(0);
-    final color = avg < 0.4
-        ? Colors.red.shade600
-        : avg < 0.7
-        ? Colors.orange.shade700
-        : Colors.green.shade600;
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          'Ort. %$pct',
-          style: TextStyle(
-            fontSize: 10,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
-        ),
-        const SizedBox(width: 2),
-        GestureDetector(
-          onTap: () => _showSwapGroupDialog(group),
-          child: Tooltip(
-            message: 'Bu grubu başka öğretmenle takas et',
-            child: Icon(
-              Icons.compare_arrows,
-              size: 13,
-              color: Colors.grey.shade500,
-            ),
-          ),
-        ),
-      ],
+  void _showMoveDialog(List<AgmAssignment> assignments) {
+    if (assignments.isEmpty) return;
+    final firstAssign = assignments.first;
+    final currentGroup = _groups.firstWhere(
+      (g) => g.id == firstAssign.groupId,
+      orElse: () => _groups.first,
     );
-  }
+    final otherGroupsInSlot = _groups
+        .where(
+          (g) =>
+              g.id != currentGroup.id &&
+              g.baslangicSaat == currentGroup.baslangicSaat &&
+              g.gun == currentGroup.gun,
+        )
+        .toList();
 
-  /// Öğrencinin ihtiyacSkoru'ndan hesaplanmış başarı badge'i
-  Widget _buildStudentScoreBadge(AgmAssignment a, AgmGroup group) {
-    if (a.isAbsent) return const SizedBox.shrink();
-
-    final basari = (1.0 - a.ihtiyacSkoru).clamp(0.0, 1.0);
-    final pct = (basari * 100).toStringAsFixed(0);
-    final color = basari < 0.4
-        ? Colors.red.shade400
-        : basari < 0.7
-        ? Colors.orange.shade600
-        : Colors.green.shade500;
-    return Container(
-      margin: const EdgeInsets.only(left: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.4)),
-      ),
-      child: Text(
-        '%$pct',
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.bold,
-          color: color,
-        ),
-      ),
-    );
-  }
-
-  double _getGroupSuccessAvg(String groupId) {
-    final assignments = _assignmentsByGroup[groupId] ?? [];
-    final valid = assignments.where((a) => !a.isAbsent).toList();
-    if (valid.isEmpty) return 0.0; // Assume 0% for empty groups to prioritize them if needed, or 1.0 to avoid them.
-    // User wants "en alt düşük ortalamalar", so we want groups with lowest success.
-    double total = 0;
-    for (final a in valid) {
-      total += (1.0 - a.ihtiyacSkoru).clamp(0.0, 1.0);
-    }
-    return total / valid.length;
-  }
-
-  // ─── GRUP TAKAS DİALOGU ───────────────────────────────────────────────────
-
-  void _showSwapGroupDialog(AgmGroup groupA) {
-    AgmGroup? groupB;
-
-    // Aynı branş (dersAdi) VE aynı saat diliminde olan gruplara kısıtla
-    final sameSlotGroups = _groups.where((g) {
-      return g.id != groupA.id &&
-          g.dersAdi == groupA.dersAdi && // Aynı branş zorunlu
-          g.baslangicSaat == groupA.baslangicSaat &&
-          g.bitisSaat == groupA.bitisSaat &&
-          g.gun == groupA.gun;
-    }).toList();
-
-    if (sameSlotGroups.isEmpty) {
+    if (otherGroupsInSlot.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Aynı saatte başka grup bulunamadı.'),
+          content: Text('Aynı saat diliminde başka grup bulunamadı.'),
           backgroundColor: Colors.orange,
         ),
       );
       return;
     }
 
-    showDialog(
+    final studentNames = assignments.map((a) => a.ogrenciAdi).join(', ');
+
+    showModalBottomSheet(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSt) => AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          title: Row(
-            children: [
-              Icon(Icons.compare_arrows, color: Colors.deepOrange.shade400),
-              const SizedBox(width: 10),
-              const Expanded(
-                child: Text('Grup Takası', style: TextStyle(fontSize: 16)),
-              ),
-            ],
-          ),
-          content: SizedBox(
-            width: 420,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Bu gruptaki tüm öğrenciler ve kazanımlar seçilen grupla takas edilir.',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: EdgeInsets.fromLTRB(
+          20,
+          12,
+          20,
+          MediaQuery.of(ctx).viewInsets.bottom + 24,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
                 ),
-                const SizedBox(height: 12),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: Colors.deepOrange.shade50,
-                    borderRadius: BorderRadius.circular(10),
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(12),
                   ),
+                  child: const Icon(Icons.swap_horiz, color: Colors.orange),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Grup A (Mevcut)',
+                      const Text(
+                        'Grubu Değiştir',
                         style: TextStyle(
-                          fontSize: 10,
-                          color: Colors.deepOrange.shade700,
-                        ),
-                      ),
-                      Text(
-                        groupA.dersAdi,
-                        style: const TextStyle(
+                          fontSize: 18,
                           fontWeight: FontWeight.bold,
-                          fontSize: 13,
+                          color: Colors.black87,
                         ),
                       ),
                       Text(
-                        '${groupA.baslangicSaat}-${groupA.bitisSaat} • ${groupA.ogretmenAdi}',
-                        style: const TextStyle(fontSize: 11),
-                      ),
-                      Text(
-                        '${_assignmentsByGroup[groupA.id]?.length ?? 0} öğrenci',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.grey.shade600,
+                        '${currentGroup.gun} - ${currentGroup.baslangicSaat} Seansı',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey,
                         ),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 8),
-                Center(
-                  child: Icon(
-                    Icons.swap_vert,
-                    color: Colors.grey.shade400,
-                    size: 20,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                DropdownButtonFormField<AgmGroup>(
-                  value: groupB,
-                  isExpanded: true,
-                  decoration: InputDecoration(
-                    labelText: 'Takas Edilecek Grubu Seçin',
-                    labelStyle: const TextStyle(fontSize: 12),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey.shade200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Taşınacak Öğrenci(ler):',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey,
                     ),
-                    prefixIcon: const Icon(Icons.group_outlined),
                   ),
-                  items: sameSlotGroups.map((g) {
-                    final cnt = _assignmentsByGroup[g.id]?.length ?? 0;
-                    return DropdownMenuItem<AgmGroup>(
-                      value: g,
-                      child: Text(
-                        '${g.dersAdi} • ${g.ogretmenAdi} ($cnt öğr.)',
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                    );
-                  }).toList(),
-                  onChanged: (v) => setSt(() => groupB = v),
-                ),
-                if (groupB != null) ...[
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade50,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Grup B (Hedef)',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Colors.blue.shade700,
-                          ),
-                        ),
-                        Text(
-                          groupB!.dersAdi,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                          ),
-                        ),
-                        Text(
-                          '${groupB!.baslangicSaat}-${groupB!.bitisSaat} • ${groupB!.ogretmenAdi}',
-                          style: const TextStyle(fontSize: 11),
-                        ),
-                        Text(
-                          '${_assignmentsByGroup[groupB!.id]?.length ?? 0} öğrenci',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                      ],
+                  const SizedBox(height: 4),
+                  Text(
+                    studentNames,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
                     ),
                   ),
                 ],
-              ],
+              ),
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('İptal'),
+            const SizedBox(height: 20),
+            const Text(
+              'Hedef Grup Seçin',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey,
+              ),
             ),
-            ElevatedButton.icon(
-              onPressed: groupB == null
-                  ? null
-                  : () async {
-                      Navigator.pop(ctx);
-                      await _executeSwapGroups(groupA, groupB!);
-                    },
-              icon: const Icon(Icons.compare_arrows, size: 16),
-              label: const Text('Takası Uygula'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.deepOrange,
-                foregroundColor: Colors.white,
+            const SizedBox(height: 10),
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.4,
+              ),
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: otherGroupsInSlot.length,
+                itemBuilder: (context, index) {
+                  final g = otherGroupsInSlot[index];
+                  final isFull = g.mevcutOgrenciSayisi >= g.kapasite;
+                  final badgeColor = isFull ? Colors.red : Colors.green;
+
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.grey.shade200),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.02),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(16),
+                        onTap: () async {
+                          Navigator.pop(ctx);
+                          setState(() => _loading = true);
+                          await _service.moveAssignments(
+                            assignments,
+                            g.id,
+                            '${g.dersAdi} - ${g.ogretmenAdi}',
+                          );
+                          _selectedStudentIds.clear();
+                          await _loadData();
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: Colors.orange.shade50,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Icon(
+                                  Icons.school,
+                                  color: Colors.orange,
+                                ),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      g.dersAdi,
+                                      style: const TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      g.ogretmenAdi,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: Colors.grey.shade600,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      children: [
+                                        Icon(
+                                          Icons.meeting_room_outlined,
+                                          size: 12,
+                                          color: Colors.grey.shade400,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          g.derslikAdi ??
+                                              'Derslik Belirtilmedi',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: Colors.grey.shade500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: badgeColor.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  '${g.mevcutOgrenciSayisi} / ${g.kapasite}',
+                                  style: TextStyle(
+                                    color: badgeColor,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
               ),
             ),
           ],
@@ -1372,887 +2063,322 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
     );
   }
 
-  Future<void> _executeSwapGroups(AgmGroup groupA, AgmGroup groupB) async {
-    setState(() => _loading = true);
-    try {
-      final batch = _db.batch();
-      final assignmentsA = List<AgmAssignment>.from(
-        _assignmentsByGroup[groupA.id] ?? [],
-      );
-      final assignmentsB = List<AgmAssignment>.from(
-        _assignmentsByGroup[groupB.id] ?? [],
-      );
+  void _showSwapGroupDialog(AgmGroup groupA) {
+    final sameSlotAndBranchGroups = _groups
+        .where(
+          (g) =>
+              g.id != groupA.id &&
+              g.baslangicSaat == groupA.baslangicSaat &&
+              g.gun == groupA.gun &&
+              (g.dersId == groupA.dersId || g.dersAdi == groupA.dersAdi),
+        )
+        .toList();
 
-      // 1) Öğrencileri takas et: A→B, B→A
-      for (final a in assignmentsA) {
-        batch.update(_db.collection('agm_assignments').doc(a.id), {
-          'groupId': groupB.id,
-          'groupName': '${groupB.dersAdi} - ${groupB.ogretmenAdi}',
-        });
-      }
-      for (final a in assignmentsB) {
-        batch.update(_db.collection('agm_assignments').doc(a.id), {
-          'groupId': groupA.id,
-          'groupName': '${groupA.dersAdi} - ${groupA.ogretmenAdi}',
-        });
-      }
-
-      // 2) Kazanımları da takas et:
-      //    Öğrenciler eksikliği olan kazanımla birlikte taşındığı için
-      //    hedef grup da o kazanımı almalı — mantık bozulmasın.
-      final kazanimlarA = groupA.kazanimlar;
-      final kazanimlarB = groupB.kazanimlar;
-
-      batch.update(_db.collection('agm_groups').doc(groupA.id), {
-        'kazanimlar': kazanimlarB, // A artık B'nin kazanımlarını çalışacak
-      });
-      batch.update(_db.collection('agm_groups').doc(groupB.id), {
-        'kazanimlar': kazanimlarA, // B artık A'nın kazanımlarını çalışacak
-      });
-
-      await batch.commit();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Takas tamamlandı: ${assignmentsA.length} + ${assignmentsB.length} '
-              'öğrenci ve kazanımlar yer değiştirdi.',
-            ),
-            backgroundColor: Colors.green.shade700,
+    if (sameSlotAndBranchGroups.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Aynı saatte "${groupA.dersAdi}" branşında başka grup bulunamadı.',
           ),
-        );
-        await _loadData();
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Takas sırasında hata: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        setState(() => _loading = false);
-      }
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
     }
-  }
-
-  Widget _buildAbsentTab() {
-    return Column(
-      children: [
-        // Sub-filter tabs
-        Container(
-          padding: const EdgeInsets.all(12),
-          color: Colors.white,
-          child: Row(
-            children: [
-              _filterChip(0, 'Sınava Girmeyenler', _absentStudents.length),
-              const SizedBox(width: 8),
-              _filterChip(1, 'Atanamayanlar', _unassignedStudents.length),
-              const SizedBox(width: 8),
-              _filterChip(2, 'Eksik Atananlar', _underAssignedStudents.length),
-            ],
-          ),
-        ),
-
-        Expanded(
-          child: _yerlesmeyenFilterIndex == 0
-              ? _buildStudentList(_absentStudents)
-              : _buildStudentList(_getMappedStudents(_yerlesmeyenFilterIndex)),
-        ),
-      ],
-    );
-  }
-
-  // ─── RAPORLAR TAB ────────────────────────────────────────────────────────
-
-  Widget _buildReportsTab() {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        _buildReportTile(
-            icon: Icons.history,
-            title: 'İşlem ve Değişiklik Logu',
-            subtitle: 'Yapılan manuel atama ve değişiklikler',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => AgmReportsScreen(
-                  institutionId: widget.cycle.institutionId,
-                  cycleId: widget.cycle.id,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          _buildReportTile(
-            icon: Icons.calendar_view_week,
-            title: 'Öğrenci Haftalık Takvim',
-            subtitle: 'Bir öğrencinin etüt programı',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => AgmStudentTimetableScreen(
-                  cycle: widget.cycle,
-                  groups: _groups,
-                  assignmentsByGroup: _assignmentsByGroup,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          _buildReportTile(
-            icon: Icons.badge,
-            title: 'Öğretmen Haftalık Takvim',
-            subtitle: 'Öğretmen bazlı program ve öğrenci listesi',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => AgmTeacherTimetableScreen(
-                  cycle: widget.cycle,
-                  groups: _groups,
-                  assignmentsByGroup: _assignmentsByGroup,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          _buildReportTile(
-            icon: Icons.meeting_room,
-            title: 'Derslik Haftalık Takvim',
-            subtitle: 'Derslik bazlı program ve detaylar',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => AgmClassroomTimetableScreen(
-                  cycle: widget.cycle,
-                  groups: _groups,
-                  assignmentsByGroup: _assignmentsByGroup,
-                ),
-              ),
-            ),
-          ),
-        ],
-    );
-  }
-
-  Widget _buildReportTile({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-  }) {
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-        leading: Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: Colors.deepOrange.shade50,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Icon(icon, color: Colors.deepOrange),
-        ),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: Text(subtitle),
-        trailing: const Icon(Icons.arrow_forward_ios, size: 14),
-        onTap: onTap,
-      ),
-    );
-  }
-
-  // ─── TASLAK OLUŞTURMA – BOTTOM SHEET ─────────────────────────────────────
-
-  void _showGenerateDraftSheet() {
-    final availableSubjects = _groups.map((g) => g.dersAdi).toSet().toList()
-      ..sort();
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) => _DraftGenerateSheet(
-        cycle: widget.cycle,
-        availableSubjects: availableSubjects,
-        onGenerate: _generateDraft,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: EdgeInsets.fromLTRB(
+          20,
+          12,
+          20,
+          MediaQuery.of(ctx).viewInsets.bottom + 24,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.swap_horiz, color: Colors.orange),
+                ),
+                const SizedBox(width: 16),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Grup Takası',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      Text(
+                        'Öğrenci kitlelerini karşılıklı değiştirin',
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Text(
+              '"${groupA.dersAdi}" branşında "${groupA.ogretmenAdi}" grubundaki öğrencileri kiminle takas etmek istersiniz?',
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.grey.shade700,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 20),
+            ...sameSlotAndBranchGroups
+                .map(
+                  (groupB) => Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.grey.shade200),
+                      color: Colors.grey.shade50.withValues(alpha: 0.5),
+                    ),
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 4,
+                      ),
+                      leading: CircleAvatar(
+                        backgroundColor: Colors.orange,
+                        radius: 18,
+                        child: const Icon(
+                          Icons.person,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                      ),
+                      title: Text(
+                        groupB.ogretmenAdi,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
+                      ),
+                      subtitle: Text(
+                        '${groupB.mevcutOgrenciSayisi} öğrenci | ${groupB.derslikAdi ?? "Derslik belirtilmedi"}',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      trailing: const Icon(
+                        Icons.chevron_right,
+                        color: Colors.orange,
+                      ),
+                      onTap: () async {
+                        Navigator.pop(ctx);
+                        setState(() => _loading = true);
+                        await _service.swapGroups(
+                          groupA,
+                          groupB,
+                          _assignmentsByGroup[groupA.id] ?? [],
+                          _assignmentsByGroup[groupB.id] ?? [],
+                        );
+                        await _loadData();
+                      },
+                    ),
+                  ),
+                )
+                .toList(),
+            const SizedBox(height: 8),
+          ],
+        ),
       ),
     );
   }
 
-  Future<void> _generateDraft({
-    required double esikBasariOrani,
-    required bool sadeceDusukBasari,
-    required Map<String, double> dersBazliEsikler,
-    required int minGroupSize,
-  }) async {
-    setState(() => _generating = true);
-    Navigator.pop(context); // Sheet'i kapat
-
-    // Update cycle with the selected min group size
-    final currentCycle = widget.cycle.copyWith(
-      minimumGrupOgrenciSayisi: minGroupSize,
-    );
-
-    try {
-      // 1) Sınav dökümanlarını çek (support multiple merged exams)
-      _showProgress('Sınav verileri yükleniyor...');
-      
-      final List<String> examIds = widget.cycle.referansDenemeSinavIds.isNotEmpty 
-          ? widget.cycle.referansDenemeSinavIds 
-          : [widget.cycle.referansDenemeSinavId];
-
-      _cachedResults = {};
-      _cachedWeakOutcomes = {};
-      final Map<String, StudentResult> aggregatedResults = _cachedResults!;
-      final Map<String, Map<String, Set<String>>> aggregatedWeakOutcomes = _cachedWeakOutcomes!;
-      final Set<String> allStudentsWhoEnteredExam = {};
-      final List<String> selectedBranches = [];
-      String classLevel = '';
-
-      for (String eid in examIds) {
-        final examDoc = await _db.collection('trial_exams').doc(eid).get();
-        if (!examDoc.exists) continue;
-
-        final examData = examDoc.data()!;
-        final resultsJson = examData['resultsJson'] as String?;
-        if (resultsJson == null || resultsJson.isEmpty) continue;
-
-        if (selectedBranches.isEmpty) {
-          selectedBranches.addAll((examData['selectedBranches'] as List<dynamic>? ?? []).map((e) => e.toString()));
-        }
-        if (classLevel.isEmpty) {
-          classLevel = examData['classLevel']?.toString() ?? '';
-        }
-
-        final List<dynamic> jsonList = jsonDecode(resultsJson);
-        final examResults = jsonList.map((e) => StudentResult.fromJson(e)).toList();
-
-        // Kazanımları çek (Bu sınav dökümanından)
-        final outcomesMapRaw = examData['outcomes'] as Map<String, dynamic>? ?? {};
-        final Map<String, Map<String, List<String>>> examOutcomes = {};
-        outcomesMapRaw.forEach((booklet, subjects) {
-          if (subjects is Map<String, dynamic>) {
-            examOutcomes[booklet] = subjects.map((k, v) => MapEntry(k, (v as List<dynamic>).map((e) => e.toString()).toList()));
-          }
-        });
-
-        for (final result in examResults) {
-          if (result.systemStudentId == null) continue;
-          final sid = result.systemStudentId!;
-          allStudentsWhoEnteredExam.add(sid);
-
-          // Bilgileri birleştir
-          if (!aggregatedResults.containsKey(sid)) {
-            // İlk kez karşılaşıldı, derin kopya yapalım ki orjinal mapleri bozmayalım
-            aggregatedResults[sid] = StudentResult(
-              tcNo: result.tcNo,
-              studentNo: result.studentNo,
-              name: result.name,
-              classLevel: result.classLevel,
-              branch: result.branch,
-              systemStudentId: sid,
-            );
-          }
-
-          final target = aggregatedResults[sid]!;
-          result.subjects.forEach((ders, stats) {
-            if (target.subjects.containsKey(ders)) {
-              final tStats = target.subjects[ders]!;
-              tStats.correct += stats.correct;
-              tStats.wrong += stats.wrong;
-              tStats.empty += stats.empty;
-              tStats.net += stats.net;
-            } else {
-              target.subjects[ders] = SubjectStats(
-                correct: stats.correct,
-                wrong: stats.wrong,
-                empty: stats.empty,
-                net: stats.net,
-              );
-            }
-
-            // Bu sınavdaki zayıf kazanımları tespit et ve öğrenci havuzuna ekle
-            final studentAnswers = result.answers[ders] ?? '';
-            final correctAnswers = result.correctAnswers[ders] ?? '';
-            final booklet = result.booklet.isNotEmpty ? result.booklet[0] : 'A';
-            final subjectOutcomes = examOutcomes[booklet]?[ders] ?? [];
-
-            final Set<String> currentWeak = {};
-            for (int i = 0; i < studentAnswers.length && i < correctAnswers.length; i++) {
-              if (studentAnswers[i] != correctAnswers[i] && i < subjectOutcomes.length) {
-                final kazanim = subjectOutcomes[i];
-                if (kazanim.isNotEmpty && kazanim != '-') {
-                  currentWeak.add(kazanim);
-                }
-              }
-            }
-            if (currentWeak.isNotEmpty) {
-              aggregatedWeakOutcomes.putIfAbsent(sid, () => {});
-              aggregatedWeakOutcomes[sid]!.putIfAbsent(ders, () => {}).addAll(currentWeak);
-            }
-          });
-        }
+  void _showManualAssignDialog(
+    Map<String, dynamic> student, {
+    List<AgmGroup>? slotGroups,
+  }) {
+    final studentId = student['id'] as String;
+    final assignedSlots = <String>{};
+    for (final entry in _assignmentsByGroup.entries) {
+      if (entry.value.any((a) => a.ogrenciId == studentId)) {
+        final g = _groups.firstWhere((g) => g.id == entry.key);
+        assignedSlots.add('${g.baslangicSaat}-${g.gun}');
       }
-
-      if (allStudentsWhoEnteredExam.isEmpty) {
-        _showError('Seçilen sınavlarda analiz edilecek sonuç bulunamadı.');
-        return;
-      }
-
-      // 3) Şube öğrencilerini Firestore'dan çek
-      _showProgress('Şube öğrencileri yükleniyor...');
-      final List<Map<String, dynamic>> branchStudents = [];
-
-      if (selectedBranches.isNotEmpty && classLevel.isNotEmpty) {
-        for (final branch in selectedBranches) {
-          final snap = await _db
-              .collection('students')
-              .where('institutionId', isEqualTo: widget.cycle.institutionId)
-              .where('className', isEqualTo: branch)
-              .where('isActive', isEqualTo: true)
-              .get();
-          for (final doc in snap.docs) {
-            final data = Map<String, dynamic>.from(doc.data());
-            data['id'] = doc.id;
-            branchStudents.add(data);
-          }
-        }
-      } else {
-        // Fallback: sadece kurum filtreli + classLevel
-        final snap = await _db
-            .collection('students')
-            .where('institutionId', isEqualTo: widget.cycle.institutionId)
-            .where('classLevel', isEqualTo: classLevel)
-            .where('isActive', isEqualTo: true)
-            .get();
-        for (final doc in snap.docs) {
-          final data = Map<String, dynamic>.from(doc.data());
-          data['id'] = doc.id;
-          branchStudents.add(data);
-        }
-      }
-
-      // 4) Sınava girmeyenleri bul
-      _showProgress('Sınava girmeyenler tespit ediliyor...');
-
-      final absent = branchStudents
-          .where((s) => !allStudentsWhoEnteredExam.contains(s['id']))
-          .map(
-            (s) => {
-              'id': s['id'],
-              'name': (s['fullName'] ?? s['name'] ?? 'İsimsiz').toString(),
-              'branch': (s['className'] ?? s['branch'] ?? '').toString(),
-              'subeId': s['branchId'] ?? '',
-            },
-          )
-          .toList();
-
-      // 5) StudentNeedProfile oluştur
-      _showProgress('Öğrenci ihtiyaç profilleri hesaplanıyor...');
-      final List<StudentNeedProfile> profiller = [];
-
-      for (final sid in aggregatedResults.keys) {
-        final result = aggregatedResults[sid]!;
-        if (result.subjects.isEmpty) continue;
-
-        final Map<String, double> dersIhtiyaclari = {};
-        final Map<String, Set<String>> kazanimIhtiyaclari = {};
-        final Map<String, double> dersBasariOranlari = {};
-
-        result.subjects.forEach((dersAdi, stats) {
-          final toplam = stats.correct + stats.wrong + stats.empty;
-          if (toplam <= 0) return;
-          final basariOrani = stats.correct / toplam;
-          final ihtiyac = 1.0 - basariOrani;
-
-          final aktifEsik = dersBazliEsikler.containsKey(dersAdi)
-              ? dersBazliEsikler[dersAdi]!
-              : esikBasariOrani;
-
-          if (!sadeceDusukBasari || basariOrani <= aktifEsik) {
-            dersIhtiyaclari[dersAdi] = ihtiyac;
-            dersBasariOranlari[dersAdi] = basariOrani;
-
-            // Önceden birleştirilmiş kazanım zayıflıklarını al
-            final weak = aggregatedWeakOutcomes[sid]?[dersAdi];
-            if (weak != null && weak.isNotEmpty) {
-              kazanimIhtiyaclari[dersAdi] = weak;
-            }
-          }
-        });
-
-        if (dersIhtiyaclari.isEmpty) continue;
-
-        final studentData = branchStudents.firstWhere(
-          (s) => s['id'] == sid,
-          orElse: () => {},
-        );
-
-        profiller.add(
-          StudentNeedProfile(
-            ogrenciId: sid,
-            ogrenciAdi: studentData.isNotEmpty
-                ? (studentData['fullName'] ??
-                          studentData['name'] ??
-                          result.name)
-                      .toString()
-                : result.name,
-            subeId: studentData['branchId']?.toString() ?? '',
-            subeAdi:
-                (studentData['className'] ??
-                        studentData['branch'] ??
-                        result.branch)
-                    .toString(),
-            dersIhtiyaclari: dersIhtiyaclari,
-            kazanimIhtiyaclari: kazanimIhtiyaclari,
-            dersBasariOranlari: dersBasariOranlari,
-          ),
-        );
-      }
-
-      if (profiller.isEmpty) {
-        _showError(
-          'Analiz edilecek student profili bulunamadı.\n'
-          'Sınavda en az 1 eşleşmiş öğrenci ve değerlendirilmiş ders olması gerekir.',
-        );
-        return;
-      }
-
-      // 6) Grupları yükle
-      _showProgress('Gruplar yükleniyor...');
-      if (_groups.isEmpty) {
-        _showError(
-          'Henüz grup tanımlanmamış. Lütfen önce saat dilimleri ve grupları oluşturun.',
-        );
-        return;
-      }
-
-      // 6.5) Derslik Ataması (Eğer grup dersliği yoksa otomatik tanımla)
-      _showProgress('Derslikler otomatik tanımlanıyor...');
-      await _autoAssignClassrooms();
-
-      // 7) Algoritmayı çalıştır
-      _showProgress('Algoritma çalışıyor (${profiller.length} öğrenci)...');
-      final draftResult = await _service.generateDraft(
-        cycle: currentCycle,
-        ogrenciProfiller: profiller,
-        gruplar: _groups,
-      );
-
-      // 8) State ve Firestore güncelle (Persistence için)
-      if (mounted) {
-        setState(() {
-          _allBranchStudents = branchStudents;
-          _absentStudents = absent;
-          _unassignedStudents = draftResult.yerlesmeyenOgrenciIds;
-          _underAssignedStudents = draftResult.eksikAtananOgrenciIds;
-        });
-      }
-
-      await _db.collection('agm_cycles').doc(widget.cycle.id).update({
-        'unassignedStudentIds': draftResult.yerlesmeyenOgrenciIds,
-        'underAssignedStudentIds': draftResult.eksikAtananOgrenciIds,
-        'absentStudentIds': absent.map((a) => a['id'].toString()).toList(),
-      });
-
-      // 8.1) Manuel Nedenleri Enjekte Et (Sınava Girmeyenler & Başarılılar)
-      final Map<String, List<String>> allReasons = Map.from(
-        draftResult.yerlesmemeNedenleri,
-      );
-      final List<String> yerlesmeyenIds = List<String>.from(
-        draftResult.yerlesmeyenOgrenciIds,
-      );
-
-      // Sınava girmeyenlere neden ekle
-      for (final a in absent) {
-        final id = a['id'].toString();
-        allReasons
-            .putIfAbsent(id, () => [])
-            .add('Sınava girmedi analiz verisi yok.');
-      }
-
-      // Eşik altı dersi olmadığı için profiller listesine hiç girmeyenleri bul
-      final List<String> profileIds = profiller
-          .map((p) => p.ogrenciId)
-          .toList();
-      final sinavaGirenIdsList = allStudentsWhoEnteredExam.toList();
-      for (final sid in sinavaGirenIdsList) {
-        if (!profileIds.contains(sid)) {
-          allReasons
-              .putIfAbsent(sid, () => [])
-              .add('Belirlenen başarı eşiğinin altında dersi yok.');
-          // Bu başarılı öğrencileri "Yerleşmeyenler" listesine ekleyelim ki UI'da görünsünler
-          if (!yerlesmeyenIds.contains(sid)) {
-            yerlesmeyenIds.add(sid);
-          }
-        }
-      }
-
-      if (mounted) {
-        setState(() {
-          _unassignedStudents = yerlesmeyenIds;
-          _unassignedReasons = allReasons;
-        });
-      }
-
-      await _db.collection('agm_cycles').doc(widget.cycle.id).update({
-        'unassignedStudentIds': yerlesmeyenIds,
-        'underAssignedStudentIds': draftResult.eksikAtananOgrenciIds,
-        'absentStudentIds': absent.map((a) => a['id'].toString()).toList(),
-        'unassignedReasons': allReasons,
-      });
-
-      // 9) Atamaları yeniden yükle
-      await _loadData();
-
-      // Uyarıları göster
-      if (draftResult.softUyarilar.isNotEmpty) {
-        _showSoftWarnings(draftResult.softUyarilar);
-      } else {
-        _showSuccess(
-          '✅ Taslak oluşturuldu!\n'
-          '${draftResult.atamalar.length} atama yapıldı, '
-          '${draftResult.yerlesmeyenOgrenciIds.length} öğrenci yerleşemedi, '
-          '${absent.length} öğrenci sınava girmedi.',
-        );
-      }
-    } catch (e) {
-      _showError('Taslak oluşturulurken hata: $e');
-    } finally {
-      if (mounted) setState(() => _generating = false);
     }
-  }
 
-  void _showProgress(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: Colors.white,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(child: Text(msg)),
-          ],
-        ),
-        duration: const Duration(seconds: 30),
-        backgroundColor: Colors.deepOrange.shade700,
-      ),
-    );
-  }
-
-  void _showError(String msg) {
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        backgroundColor: Colors.red.shade700,
-        duration: const Duration(seconds: 6),
-      ),
-    );
-  }
-
-  void _showSuccess(String msg) {
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        backgroundColor: Colors.green.shade700,
-        duration: const Duration(seconds: 5),
-      ),
-    );
-  }
-
-  void _showSoftWarnings(List<AgmSoftWarning> uyarilar) {
-    ScaffoldMessenger.of(context).clearSnackBars();
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(Icons.warning_amber, color: Colors.orange.shade700),
-            const SizedBox(width: 8),
-            const Text('Soft Kısıt Uyarıları'),
-          ],
-        ),
-        content: SizedBox(
-          width: 400,
-          height: 300,
-          child: ListView.builder(
-            itemCount: uyarilar.length,
-            itemBuilder: (_, i) => Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Text(
-                '• ${uyarilar[i].mesaj}',
-                style: const TextStyle(fontSize: 13),
-              ),
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Tamam'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ─── MANUEl ATAMA (SINAVA GİRMEYEN) ─────────────────────────────────────
-
-  // [x] Research current `_showManualAssignForAbsent` implementation <!-- id: 0 -->
-  // [x] Identify why the "Assign" button remains inactive <!-- id: 1 -->
-  // [x] Plan improvements for group info display <!-- id: 2 -->
-  // [x] Design branch filter for group selection <!-- id: 3 -->
-  // [x] Design confirmation step for full groups <!-- id: 4 -->
-
-  // ## Execution
-  // [/] Fix "Assign" button inactivity <!-- id: 5 -->
-  // [/] Implement enhanced group info display <!-- id: 6 -->
-  // [/] Implement branch filter <!-- id: 7 -->
-  // [/] Implement confirmation dialog for full groups <!-- id: 8 -->
-  void _showManualAssignForAbsent(Map<String, dynamic> student) {
-    if (_groups.isEmpty) {
+    if (widget.cycle.haftalikMaksimumSaat != null &&
+        assignedSlots.length >= widget.cycle.haftalikMaksimumSaat!) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Atanacak grup bulunamadı.')),
+        SnackBar(
+          content: Text(
+            'Bu öğrenci maksimum seans limitine (${widget.cycle.haftalikMaksimumSaat}) ulaştı.',
+          ),
+          backgroundColor: Colors.orange,
+        ),
       );
       return;
     }
 
-    final studentId = student['id'] as String;
-
-    // Öğrencinin atanmış olduğu grupların ID'leri
-    final assignedGroupIds = _assignmentsByGroup.entries
-        .where((e) => e.value.any((a) => a.ogrenciId == studentId))
-        .map((e) => e.key)
-        .toSet();
-
-    final assignedSubjects = <String>{};
-    final occupiedTimeSlots = <String>{};
-    for (final grup in _groups) {
-      if (assignedGroupIds.contains(grup.id)) {
-        assignedSubjects.add(grup.dersAdi);
-        occupiedTimeSlots.add(grup.saatDilimiId);
-      }
-    }
-
-    final availableGroups = _groups
-        .where(
-          (g) =>
-              !assignedSubjects.contains(g.dersAdi) &&
-              !occupiedTimeSlots.contains(g.saatDilimiId),
-        )
-        .toList();
-
-    final subjects = availableGroups.map((g) => g.dersAdi).toSet().toList()
-      ..sort();
-
-    if (subjects.isEmpty) {
+    final availableGroups =
+        slotGroups ??
+        _groups
+            .where(
+              (g) => !assignedSlots.contains('${g.baslangicSaat}-${g.gun}'),
+            )
+            .toList();
+    if (availableGroups.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'Bu öğrenci için atanabilecek uygun ders veya boş saat dilimi bulunamadı.',
-          ),
+          content: Text('Bu öğrenci için uygun grup bulunamadı.'),
         ),
       );
       return;
     }
 
-    String? selectedSubject;
+    final branches = availableGroups.map((g) => g.dersAdi).toSet().toList()
+      ..sort();
+    String? selectedBranch;
     AgmGroup? selectedGroup;
 
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (context, setSt) {
-          // Seçili derse göre grupları filtrele
-          final filteredGroups = selectedSubject == null
+        builder: (context, setDialogState) {
+          final filteredGroups = selectedBranch == null
               ? <AgmGroup>[]
               : availableGroups
-                    .where((g) => g.dersAdi == selectedSubject)
+                    .where((g) => g.dersAdi == selectedBranch)
                     .toList();
 
           return AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
-            ),
-            title: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  student['name'],
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                Text(
-                  'Sube: ${student['branch']}',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade600,
-                    fontWeight: FontWeight.normal,
-                  ),
-                ),
-              ],
+            title: Text(
+              '${student['name']?.toString() ?? "İsimsiz"} - Manuel Ata',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Ders Seçin',
+                  'Branş Seçin',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
                     color: Colors.grey,
                   ),
                 ),
-                const SizedBox(height: 4),
-                DropdownButtonFormField<String>(
-                  value: selectedSubject,
-                  isExpanded: true,
-                  hint: const Text('Ders seçin'),
-                  decoration: InputDecoration(
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.grey.shade300),
                   ),
-                  items: subjects
-                      .map((b) => DropdownMenuItem(value: b, child: Text(b)))
-                      .toList(),
-                  onChanged: (v) => setSt(() {
-                    selectedSubject = v;
-                    selectedGroup = null;
-                  }),
+                  child: DropdownButton<String>(
+                    isExpanded: true,
+                    value: selectedBranch,
+                    underline: const SizedBox(),
+                    hint: const Text('Branş Seçiniz'),
+                    items: branches
+                        .map((b) => DropdownMenuItem(value: b, child: Text(b)))
+                        .toList(),
+                    onChanged: (val) {
+                      setDialogState(() {
+                        selectedBranch = val;
+                        selectedGroup = null;
+                      });
+                    },
+                  ),
                 ),
                 const SizedBox(height: 16),
                 const Text(
-                  'Grup Seçin (Öğretmen - Saat)',
+                  'Grup Seçin',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
                     color: Colors.grey,
                   ),
                 ),
-                const SizedBox(height: 4),
-                DropdownButtonFormField<AgmGroup>(
-                  value: selectedGroup,
-                  hint: const Text('Grup seçin'),
-                  isExpanded: true,
-                  itemHeight: 70,
-                  decoration: InputDecoration(
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.grey.shade300),
+                  ),
+                  child: DropdownButton<AgmGroup>(
+                    isExpanded: true,
+                    value: selectedGroup,
+                    underline: const SizedBox(),
+                    hint: const Text('Grup Seçiniz'),
+                    items: filteredGroups.map((g) {
+                      final isFull = g.mevcutOgrenciSayisi >= g.kapasite;
+                      return DropdownMenuItem(
+                        value: g,
+                        child: Text(
+                          '${g.ogretmenAdi} (${g.mevcutOgrenciSayisi}/${g.kapasite})',
+                          style: TextStyle(
+                            color: isFull ? Colors.red : Colors.black87,
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (val) {
+                      setDialogState(() => selectedGroup = val);
+                    },
+                  ),
+                ),
+                if (selectedGroup != null &&
+                    selectedGroup!.mevcutOgrenciSayisi >=
+                        selectedGroup!.kapasite)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.warning_amber_rounded,
+                          color: Colors.red,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text(
+                            'Dikkat: Grup kapasitesi dolu! Yine de atama yapılacak.',
+                            style: TextStyle(
+                              color: Colors.red,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  selectedItemBuilder: (context) {
-                    return filteredGroups.map((g) {
-                      return Text(
-                        '${g.ogretmenAdi} • ${g.baslangicSaat}-${g.bitisSaat}',
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      );
-                    }).toList();
-                  },
-                  items: filteredGroups.map((g) {
-                    final currentCount = _assignmentsByGroup[g.id]?.length ?? 0;
-                    final isFull = currentCount >= g.kapasite;
-
-                    return DropdownMenuItem<AgmGroup>(
-                      value: g,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    g.ogretmenAdi,
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  Text(
-                                    '${g.baslangicSaat}-${g.bitisSaat} • ${g.gun}',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: Colors.grey.shade600,
-                                    ),
-                                  ),
-                                  if (g.kazanimlar.isNotEmpty)
-                                    Text(
-                                      g.kazanimlar.join(', '),
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        color: Colors.deepOrange.shade400,
-                                        fontStyle: FontStyle.italic,
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: isFull
-                                    ? Colors.red.shade50
-                                    : Colors.green.shade50,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: isFull
-                                      ? Colors.red.shade200
-                                      : Colors.green.shade200,
-                                ),
-                              ),
-                              child: Text(
-                                '$currentCount/${g.kapasite}',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                  color: isFull
-                                      ? Colors.red.shade700
-                                      : Colors.green.shade700,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                  onChanged: (v) => setSt(() => selectedGroup = v),
-                ),
               ],
             ),
             actions: [
@@ -2264,1309 +2390,72 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
                 onPressed: selectedGroup == null
                     ? null
                     : () async {
-                        Navigator.pop(ctx);
-                        setState(() => _loading = true);
-                        try {
+                        bool confirm = true;
+                        if (selectedGroup!.mevcutOgrenciSayisi >=
+                            selectedGroup!.kapasite) {
+                          confirm =
+                              await showDialog<bool>(
+                                context: context,
+                                builder: (c) => AlertDialog(
+                                  title: const Text('Kapasite Aşımı'),
+                                  content: const Text(
+                                    'Seçtiğiniz grup dolu. Yine de bu öğrenciyi bu gruba eklemek istiyor musunuz?',
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(c, false),
+                                      child: const Text('Hayır'),
+                                    ),
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(c, true),
+                                      child: const Text('Evet, Devam Et'),
+                                    ),
+                                  ],
+                                ),
+                              ) ??
+                              false;
+                        }
+
+                        if (confirm) {
+                          if (mounted) Navigator.pop(ctx);
+                          setState(() => _loading = true);
                           await _service.manualAssign(
                             cycleId: widget.cycle.id,
-                            ogrenciId: student['id'],
-                            ogrenciAdi: student['name'],
+                            ogrenciId: studentId,
+                            ogrenciAdi:
+                                student['name']?.toString() ?? 'İsimsiz',
                             subeId: student['subeId'] ?? '',
-                            subeAdi: student['branch'],
+                            subeAdi: student['branch']?.toString() ?? '',
                             yeniGrupId: selectedGroup!.id,
                             yeniGrupAdi:
-                                '${selectedGroup!.dersAdi} – ${selectedGroup!.saatDilimiAdi}',
+                                '${selectedGroup!.dersAdi} - ${selectedGroup!.ogretmenAdi}',
                             isAbsent: _yerlesmeyenFilterIndex == 0,
                           );
+
+                          // Yerel güncellemeler
+                          setState(() {
+                            _unassignedStudents.remove(studentId);
+                            _underAssignedStudents.remove(studentId);
+                            _absentStudents.removeWhere(
+                              (s) => s['id'] == studentId,
+                            );
+                            _excludedStudents.remove(studentId);
+                          });
+
                           await _loadData();
-                        } catch (e) {
-                          _showError('Manuel atama hatası: $e');
-                        } finally {
-                          if (mounted) setState(() => _loading = false);
-                        }
-                      },
-                child: const Text('Ata'),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  void _removeStudentsFromGroup(List<AgmAssignment> studentsToRemove) {
-    if (studentsToRemove.isEmpty) return;
-
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            Icon(Icons.warning_amber_rounded, color: Colors.red.shade400),
-            const SizedBox(width: 10),
-            const Text('Gruptan Çıkar', style: TextStyle(fontSize: 16)),
-          ],
-        ),
-        content: Text(
-          studentsToRemove.length == 1
-              ? '${studentsToRemove.first.ogrenciAdi} adlı öğrenciyi gruptan çıkarmak istediğinize emin misiniz? Öğrenci yerleşemeyenler listesine eklenecektir.'
-              : '${studentsToRemove.length} öğrenciyi gruptan çıkarmak istediğinize emin misiniz? Öğrenciler yerleşemeyenler listesine eklenecektir.',
-          style: const TextStyle(fontSize: 13),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('İptal'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(ctx);
-              setState(() => _loading = true);
-
-              try {
-                // Call service to persist removal
-                await _service.removeAssignments(studentsToRemove);
-
-                setState(() {
-                  for (final a in studentsToRemove) {
-                    _assignmentsByGroup[a.groupId]?.removeWhere(
-                      (x) => x.id == a.id,
-                    );
-
-                    // Yerleşemeyenlere ekle (local state sync)
-                    if (!_unassignedStudents.contains(a.ogrenciId)) {
-                      _unassignedStudents.add(a.ogrenciId);
-                    }
-
-                    // Nedenlere ekle
-                    final reasons = _unassignedReasons[a.ogrenciId] ?? [];
-                    reasons.add('Kullanıcı tarafından gruptan çıkarıldı.');
-                    _unassignedReasons[a.ogrenciId] = reasons;
-                  }
-                  _selectedStudentIds.clear();
-                });
-
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Öğrenciler başarıyla çıkarıldı.'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                }
-              } catch (e) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Hata: $e'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
-              } finally {
-                if (mounted) setState(() => _loading = false);
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-            child: const Text('Çıkar'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showMoveDialog(
-    List<AgmAssignment> studentsToMove, [
-    AgmGroup? currentGroup,
-  ]) {
-    if (studentsToMove.isEmpty) return;
-
-    String? selectedBranchId;
-    AgmGroup? selectedGroup;
-    bool override = false;
-
-    // Grupları ders (branş) bazlı ve AYNI SAAT DİLİMİNDE OLACAK ŞEKİLDE grupla
-    AgmGroup? originalGrp = currentGroup;
-    if (originalGrp == null && studentsToMove.isNotEmpty) {
-      final originId = studentsToMove.first.groupId;
-      final found = _groups.where((g) => g.id == originId).toList();
-      if (found.isNotEmpty) originalGrp = found.first;
-    }
-
-    final Map<String, List<AgmGroup>> groupsByBranch = {};
-    for (final g in _groups) {
-      // Orijinal grup bulunabiliyorsa, SADECE onunla aynı saat dilimine sahip grupları dahil et
-      if (originalGrp != null && g.saatDilimiId != originalGrp.saatDilimiId) {
-        continue;
-      }
-      groupsByBranch.putIfAbsent(g.dersAdi, () => []).add(g);
-    }
-    final sortedBranches = groupsByBranch.keys.toList()..sort();
-
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setSt) {
-          final availableGroups = selectedBranchId != null
-              ? groupsByBranch[selectedBranchId] ?? []
-              : <AgmGroup>[];
-
-          return AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
-            ),
-            title: Row(
-              children: [
-                Icon(Icons.swap_horiz, color: Colors.deepOrange.shade400),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    studentsToMove.length == 1
-                        ? '${studentsToMove.first.ogrenciAdi} – Grubu Değiştir'
-                        : '${studentsToMove.length} Öğrenciyi Taşı',
-                    style: const TextStyle(fontSize: 16),
-                  ),
-                ),
-              ],
-            ),
-            content: Container(
-              width: 400,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Ders Seçimi
-                  DropdownButtonFormField<String>(
-                    value: selectedBranchId,
-                    decoration: InputDecoration(
-                      labelText: 'Ders / Branş Seçin',
-                      labelStyle: const TextStyle(fontSize: 13),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      prefixIcon: const Icon(Icons.book_outlined),
-                    ),
-                    items: sortedBranches
-                        .map((b) => DropdownMenuItem(value: b, child: Text(b)))
-                        .toList(),
-                    onChanged: (v) {
-                      setSt(() {
-                        selectedBranchId = v;
-                        selectedGroup = null;
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Grup Seçimi
-                  DropdownButtonFormField<AgmGroup>(
-                    value: selectedGroup,
-                    isExpanded: true,
-                    decoration: InputDecoration(
-                      labelText: 'Grup Seçin',
-                      labelStyle: const TextStyle(fontSize: 13),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      prefixIcon: const Icon(Icons.group_outlined),
-                    ),
-                    items: availableGroups.map((g) {
-                      final currentCount =
-                          _assignmentsByGroup[g.id]?.length ?? 0;
-                      final isFull = currentCount >= g.kapasite;
-                      return DropdownMenuItem<AgmGroup>(
-                        value: g,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              '${g.ogretmenAdi} (${g.baslangicSaat}-${g.bitisSaat})',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: isFull ? Colors.red : Colors.black87,
-                              ),
-                            ),
-                            Text(
-                              '${g.derslikAdi ?? "-"} • $currentCount/${g.kapasite} Doluluk',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: isFull
-                                    ? Colors.red
-                                    : Colors.grey.shade600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }).toList(),
-                    onChanged: selectedBranchId == null
-                        ? null
-                        : (v) => setSt(() => selectedGroup = v),
-                  ),
-
-                  if (selectedGroup != null) ...[
-                    const SizedBox(height: 16),
-                    const Divider(),
-                    const SizedBox(height: 8),
-                    // Kapasite Aşımı Kotrolü (Seçilen grup için)
-                    () {
-                      final currentCount =
-                          _assignmentsByGroup[selectedGroup!.id]?.length ?? 0;
-                      final isFull = currentCount >= selectedGroup!.kapasite;
-
-                      if (isFull) {
-                        return CheckboxListTile(
-                          value: override,
-                          onChanged: (v) => setSt(() => override = v ?? false),
-                          title: const Text(
-                            'Kapasite aşımına onay ver',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.orange,
-                            ),
-                          ),
-                          subtitle: const Text(
-                            'Bu grup dolu, yine de atama yapılsın.',
-                            style: TextStyle(fontSize: 11),
-                          ),
-                          controlAffinity: ListTileControlAffinity.leading,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          tileColor: Colors.orange.shade50,
-                          dense: true,
-                        );
-                      }
-                      return const SizedBox.shrink();
-                    }(),
-                  ],
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('İptal'),
-              ),
-              ElevatedButton(
-                onPressed:
-                    selectedGroup == null ||
-                        ((_assignmentsByGroup[selectedGroup!.id]?.length ??
-                                    0) >=
-                                selectedGroup!.kapasite &&
-                            !override)
-                    ? null
-                    : () async {
-                        Navigator.pop(context);
-                        setState(() => _loading = true);
-
-                        try {
-                          for (final assignment in studentsToMove) {
-                            // [x] Recalculate success level for the target branch <!-- id: 11 -->
-                            double? calculatedScore;
-                            if (_cachedResults != null && _cachedResults!.containsKey(assignment.ogrenciId)) {
-                              final res = _cachedResults![assignment.ogrenciId]!;
-                              if (res.subjects.containsKey(selectedGroup!.dersAdi)) {
-                                final stats = res.subjects[selectedGroup!.dersAdi]!;
-                                final total = stats.correct + stats.wrong + stats.empty;
-                                if (total > 0) {
-                                  calculatedScore = 1.0 - (stats.correct / total);
-                                }
-                              }
-                            } else if (originalGrp?.dersAdi == selectedGroup?.dersAdi) {
-                                // If same branch, keep existing score
-                                calculatedScore = assignment.ihtiyacSkoru;
-                            }
-
-                            await _service.moveStudent(
-                              assignmentId: assignment.id,
-                              cycleId: widget.cycle.id,
-                              ogrenciId: assignment.ogrenciId,
-                              ogrenciAdi: assignment.ogrenciAdi,
-                              eskiGrupId: assignment.groupId,
-                              eskiGrupAdi: assignment.groupName ?? '',
-                              yeniGrupId: selectedGroup!.id,
-                              yeniGrupAdi:
-                                  '${selectedGroup!.dersAdi} – ${selectedGroup!.saatDilimiAdi}',
-                              isOverride: override,
-                              transferKazanimlar: originalGrp?.kazanimlar,
-                              newIhtiyacSkoru: calculatedScore,
-                            );
-                          }
-                          await _loadData();
-                          setState(() => _selectedStudentIds.clear());
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  '${studentsToMove.length} öğrenci başarıyla taşındı.',
-                                ),
-                                backgroundColor: Colors.green,
-                              ),
-                            );
-                          }
-                        } catch (e) {
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Hata: $e'),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
-                          }
-                        } finally {
-                          if (mounted) setState(() => _loading = false);
                         }
                       },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.deepOrange,
+                  backgroundColor: Colors.orange,
                   foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
                 ),
-                child: const Text('Taşı'),
+                child: const Text('Atamayı Onayla'),
               ),
             ],
           );
         },
       ),
     );
-  }
-
-  // ─── TASLAK SIFIRLAMA ────────────────────────────────────────────────────
-
-  Future<void> _confirmResetDraft() async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
-          children: [
-            Icon(Icons.restart_alt, color: Colors.orange),
-            SizedBox(width: 8),
-            Text('Taslağı Sıfırla'),
-          ],
-        ),
-        content: const Text(
-          'Bu cycle\'a ait tüm öğrenci atamaları silinecek.\n'
-          'Gruplar (ders/saat dilimleri) korunur.\n\n'
-          '"Taslak Oluştur" ile yeniden algoritmayı çalıştırabilirsiniz.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('İptal'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.orange,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Sıfırla'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true || !mounted) return;
-
-    try {
-      await _repo.rollbackAssignments(widget.cycle.id);
-      setState(() {
-        _assignmentsByGroup = {for (final g in _groups) g.id: []};
-        _absentStudents = [];
-        _unassignedStudents = [];
-        _underAssignedStudents = [];
-        // Grupları yerel state'de de sıfırla
-        _groups = _groups
-            .map((g) => g.copyWith(mevcutOgrenciSayisi: 0, kazanimlar: []))
-            .toList();
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Taslak sıfırlandı. Gruplar korundu.'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
-      );
-    }
-  }
-
-  // ─── PUBLISH ─────────────────────────────────────────────────────────────
-
-  Future<void> _publish() async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Cycle Yayınla'),
-        content: const Text(
-          'Bu işlem geri alınamaz. Tüm atamalar etüt sistemine yazılacak '
-          've bildirimler gönderilecektir. Onaylıyor musunuz?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('İptal'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.deepOrange,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Yayınla'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true) return;
-
-    setState(() => _publishing = true);
-    try {
-      final allAssignments = _assignmentsByGroup.values
-          .expand((list) => list)
-          .toList();
-
-      await _service.publishCycle(
-        cycle: widget.cycle,
-        gruplar: _groups,
-        atamalar: allAssignments,
-      );
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Cycle başarıyla yayınlandı!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        Navigator.pop(context); // Go back after publish
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Yayınlama hatası: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _publishing = false);
-    }
-  }
-
-  Future<void> _unpublish() async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Yayından Kaldır'),
-        content: const Text(
-          'Bu cycle yayından kaldırılacak. Oluşturulan tüm etütler silinecek '
-          've cycle tekrar aktif (düzenlenebilir) duruma geçecektir. Onaylıyor musunuz?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('İptal'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red.shade700,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Yayından Kaldır'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true) return;
-
-    setState(() => _publishing = true);
-    try {
-      await _service.unpublishCycle(widget.cycle.id);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Cycle yayından kaldırıldı.'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        Navigator.pop(context); // Go back after unpublish
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('İşlem sırasında hata oluştu: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _publishing = false);
-    }
-  }
-
-  Widget _filterChip(int index, String label, int count) {
-    bool selected = _yerlesmeyenFilterIndex == index;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => setState(() => _yerlesmeyenFilterIndex = index),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          decoration: BoxDecoration(
-            color: selected ? Colors.deepOrange : Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: selected ? Colors.deepOrange : Colors.grey.shade300,
-            ),
-          ),
-          child: Column(
-            children: [
-              Text(
-                count.toString(),
-                style: TextStyle(
-                  color: selected ? Colors.white : Colors.deepOrange,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                ),
-              ),
-              Text(
-                label,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: selected ? Colors.white : Colors.grey.shade600,
-                  fontSize: 9,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  List<Map<String, dynamic>> _getMappedStudents(int filterIndex) {
-    final List<String> ids = filterIndex == 1
-        ? _unassignedStudents
-        : _underAssignedStudents;
-    return _allBranchStudents
-        .where((s) => ids.contains(s['id']))
-        .map(
-          (s) => {
-            'id': s['id'],
-            'name': (s['fullName'] ?? s['name'] ?? 'İsimsiz').toString(),
-            'branch': (s['className'] ?? s['branch'] ?? '').toString(),
-            'subeId': s['branchId'] ?? '',
-          },
-        )
-        .toList();
-  }
-
-  Widget _buildStudentList(List<Map<String, dynamic>> students) {
-    if (students.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.check_circle_outline,
-              size: 56,
-              color: Colors.green.shade300,
-            ),
-            const SizedBox(height: 12),
-            const Text('Bu kategoride öğrenci yok.'),
-          ],
-        ),
-      );
-    }
-
-    return ListView.builder(
-      padding: const EdgeInsets.all(12),
-      itemCount: students.length,
-      itemBuilder: (context, i) {
-        final student = students[i];
-        final name = student['name'] ?? 'İsimsiz';
-        final branch = student['branch'] ?? '';
-        final studentId = student['id']?.toString() ?? '';
-
-        // Eksik atananlar için kaç ders aldığını gösterelim
-        int? atananSayisi;
-        if (_yerlesmeyenFilterIndex == 2) {
-          atananSayisi = _assignmentsByGroup.values.fold<int>(
-            0,
-            (sum, list) =>
-                sum + (list.any((a) => a.ogrenciId == studentId) ? 1 : 0),
-          );
-        }
-
-        final reasons = _unassignedReasons[studentId] ?? [];
-
-        return Card(
-          margin: const EdgeInsets.only(bottom: 12),
-          elevation: 0,
-          clipBehavior: Clip.antiAlias,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: BorderSide(color: Colors.grey.shade200),
-          ),
-          child: Column(
-            children: [
-              InkWell(
-                borderRadius: BorderRadius.circular(16),
-                onTap: () {
-                  setState(() {
-                    _expandedStudentId = _expandedStudentId == studentId
-                        ? null
-                        : studentId;
-                  });
-                },
-                child: ListTile(
-                  contentPadding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
-                  leading: CircleAvatar(
-                    backgroundColor: Colors.deepOrange.shade50,
-                    child: Text(
-                      name.isNotEmpty ? name[0].toUpperCase() : '?',
-                      style: TextStyle(
-                        color: Colors.deepOrange.shade700,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  title: Text(
-                    name,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(branch, style: const TextStyle(fontSize: 12)),
-                      if (reasons.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: reasons
-                                .map(
-                                  (r) => Text(
-                                    '• $r',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      color: Colors.red.shade700,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                )
-                                .toList(),
-                          ),
-                        )
-                      else if (atananSayisi != null && atananSayisi > 0)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: Text(
-                            '$atananSayisi ders atandı',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.green.shade700,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                  trailing: LayoutBuilder(
-                    builder: (context, constraints) {
-                      final isMobile = MediaQuery.of(context).size.width < 600;
-                      if (isMobile) {
-                        return PopupMenuButton<String>(
-                          icon: const Icon(Icons.more_vert),
-                          onSelected: (val) {
-                            if (val == 'manual')
-                              _showManualAssignForAbsent(student);
-                            if (val == 'auto')
-                              _autoAssignAbsentStudent(student);
-                          },
-                          itemBuilder: (ctx) => const [
-                            PopupMenuItem(
-                              value: 'manual',
-                              child: Text('Manuel Ata'),
-                            ),
-                            PopupMenuItem(
-                              value: 'auto',
-                              child: Text('Otomatik Ata'),
-                            ),
-                          ],
-                        );
-                      }
-                      return Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          TextButton(
-                            onPressed: () =>
-                                _showManualAssignForAbsent(student),
-                            style: TextButton.styleFrom(
-                              foregroundColor: Colors.deepOrange,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                              ),
-                            ),
-                            child: const Text(
-                              'Manuel Ata',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          TextButton(
-                            onPressed: () => _autoAssignAbsentStudent(student),
-                            style: TextButton.styleFrom(
-                              foregroundColor: Colors.teal,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                              ),
-                            ),
-                            child: const Text(
-                              'Otomatik Ata',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],
-                      );
-                    },
-                  ),
-                ),
-              ),
-              if (_expandedStudentId == studentId) ...[
-                const Divider(height: 1),
-                _buildStudentQuickAssignArea(studentId, student),
-              ],
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildStudentQuickAssignArea(
-    String studentId,
-    Map<String, dynamic> student,
-  ) {
-    // Tüm saat dilimleri
-    final Map<String, String> timeSlots = {};
-    for (final g in _groups) {
-      if (g.saatDilimiId.isNotEmpty) {
-        timeSlots[g.saatDilimiId] = g.saatDilimiAdi;
-      }
-    }
-
-    // Öğrencinin mevcut atamaları
-    final studentAssignments = <String, AgmAssignment>{};
-    final assignedSubjects = <String>{};
-    for (final grup in _groups) {
-      final assigns = _assignmentsByGroup[grup.id] ?? [];
-      final assign = assigns.where((a) => a.ogrenciId == studentId).firstOrNull;
-      if (assign != null) {
-        studentAssignments[grup.saatDilimiId] = assign;
-        assignedSubjects.add(grup.dersAdi);
-      }
-    }
-
-    // Sıralı saat dilimleri
-    final slotEntries = timeSlots.entries.toList()
-      ..sort((a, b) => a.value.compareTo(b.value));
-
-    if (slotEntries.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(16.0),
-        child: Text(
-          'Planlanmış saat dilimi veya grup bulunmamaktadır.',
-          style: TextStyle(color: Colors.grey),
-        ),
-      );
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade50,
-        borderRadius: const BorderRadius.only(
-          bottomLeft: Radius.circular(16),
-          bottomRight: Radius.circular(16),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: slotEntries.map((slot) {
-          final slotId = slot.key;
-          final slotName = slot.value;
-
-          final currentAssign = studentAssignments[slotId];
-          final currentGroupId = currentAssign?.groupId;
-
-          // Bu saat dilimindeki gruplar
-          final groupsInSlot =
-              _groups.where((g) => g.saatDilimiId == slotId).toList()
-                ..sort((a, b) => a.dersAdi.compareTo(b.dersAdi));
-
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                SizedBox(
-                  width: 80,
-                  child: Text(
-                    slotName,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey.shade700,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: DropdownButtonFormField<String?>(
-                    value: currentGroupId,
-                    isExpanded: true,
-                    isDense: true,
-                    itemHeight: 50, // reduced for compactness
-                    menuMaxHeight: 300, // limit dropdown height
-                    icon: const Icon(
-                      Icons.keyboard_arrow_down,
-                      color: Colors.deepOrange,
-                      size: 18,
-                    ),
-                    hint: const Text(
-                      'Boş, Seçiniz',
-                      style: TextStyle(fontSize: 11),
-                    ),
-                    decoration: InputDecoration(
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(
-                          color: Colors.deepOrange.shade100,
-                        ),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: Colors.grey.shade300),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(
-                          color: Colors.deepOrange.shade300,
-                          width: 1.5,
-                        ),
-                      ),
-                      filled: true,
-                      fillColor: Colors.white,
-                    ),
-                    items: [
-                      const DropdownMenuItem(
-                        value: null,
-                        child: Text(
-                          'Atama Yok (Boş)',
-                          style: TextStyle(
-                            color: Colors.grey,
-                            fontSize: 13,
-                            fontStyle: FontStyle.italic,
-                          ),
-                        ),
-                      ),
-                      ...() {
-                        // 1) Sort groups: available first, full/disabled last
-                        final sortedGroups = List<AgmGroup>.from(groupsInSlot);
-                        sortedGroups.sort((a, b) {
-                          final aAssigns = _assignmentsByGroup[a.id] ?? [];
-                          final aIsFull = aAssigns.length >= a.kapasite;
-                          final aIsAlreadyInSubject =
-                              assignedSubjects.contains(a.dersAdi) &&
-                              currentGroupId != a.id;
-                          final aDisabled = aIsFull || aIsAlreadyInSubject;
-
-                          final bAssigns = _assignmentsByGroup[b.id] ?? [];
-                          final bIsFull = bAssigns.length >= b.kapasite;
-                          final bIsAlreadyInSubject =
-                              assignedSubjects.contains(b.dersAdi) &&
-                              currentGroupId != b.id;
-                          final bDisabled = bIsFull || bIsAlreadyInSubject;
-
-                          if (aDisabled && !bDisabled) return 1;
-                          if (!aDisabled && bDisabled) return -1;
-                          return a.dersAdi.compareTo(b.dersAdi);
-                        });
-
-                        return sortedGroups.map((g) {
-                          final gAssigns = _assignmentsByGroup[g.id] ?? [];
-                          final count = gAssigns.length;
-                          final isFull = count >= g.kapasite;
-                          final isAlreadyInSubject =
-                              assignedSubjects.contains(g.dersAdi) &&
-                              currentGroupId != g.id;
-
-                          double totalSuccess = 0;
-                          if (count > 0) {
-                            for (final a in gAssigns) {
-                              totalSuccess += (1.0 - a.ihtiyacSkoru) * 100;
-                            }
-                            totalSuccess /= count;
-                          }
-                          final successStr = count > 0
-                              ? '(%${totalSuccess.toStringAsFixed(0)})'
-                              : '';
-
-                          Color successColor = Colors.grey.shade600;
-                          if (count > 0) {
-                            if (totalSuccess >= 70) {
-                              successColor = Colors.green.shade600;
-                            } else if (totalSuccess >= 40) {
-                              successColor = Colors.orange.shade600;
-                            } else {
-                              successColor = Colors.red.shade600;
-                            }
-                          }
-
-                          return DropdownMenuItem(
-                            value: g.id,
-                            enabled:
-                                (!isFull && !isAlreadyInSubject) ||
-                                g.id == currentGroupId,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  '${g.dersAdi} • ${g.ogretmenAdi}',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color:
-                                        ((isFull || isAlreadyInSubject) &&
-                                            g.id != currentGroupId)
-                                        ? Colors.grey.shade400
-                                        : Colors.black87,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                Row(
-                                  children: [
-                                    Text(
-                                      '$count/${g.kapasite} Dolu',
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        color: isFull
-                                            ? Colors.red.shade400
-                                            : Colors.grey.shade600,
-                                      ),
-                                    ),
-                                    if (successStr.isNotEmpty) ...[
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        successStr,
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
-                                          color: successColor,
-                                        ),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                              ],
-                            ),
-                          );
-                        });
-                      }(),
-                    ],
-                    onChanged: (newGroupId) async {
-                      if (newGroupId != currentGroupId) {
-                        await _quickAssignStudentToGroup(
-                          student,
-                          slotId,
-                          currentAssign,
-                          newGroupId,
-                        );
-                      }
-                    },
-                  ),
-                ),
-                if (currentGroupId != null) ...[
-                  const SizedBox(width: 4),
-                  IconButton(
-                    onPressed: () async {
-                      await _quickAssignStudentToGroup(
-                        student,
-                        slotId,
-                        currentAssign,
-                        null,
-                      );
-                    },
-                    icon: Icon(
-                      Icons.close,
-                      color: Colors.red.shade400,
-                      size: 20,
-                    ),
-                    tooltip: 'Gruptan Çıkar',
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
-                ] else
-                  const SizedBox(width: 24),
-              ],
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
-
-  Future<void> _quickAssignStudentToGroup(
-    Map<String, dynamic> student,
-    String slotId,
-    AgmAssignment? oldAssign,
-    String? newGroupId,
-  ) async {
-    setState(() => _loading = true);
-    try {
-      final studentId = student['id']?.toString() ?? '';
-
-      // Eski atamayı sil (Varsa)
-      if (oldAssign != null) {
-        await FirebaseFirestore.instance
-            .collection('agm_assignments')
-            .doc(oldAssign.id)
-            .delete();
-      }
-
-      // Yeni atama ekle (Varsa)
-      if (newGroupId != null) {
-        final newGroup = _groups.firstWhere((g) => g.id == newGroupId);
-        final aId = FirebaseFirestore.instance
-            .collection('agm_assignments')
-            .doc()
-            .id;
-        // [x] Recalculate success level (ihtiyacSkoru) if we have data <!-- id: 11 -->
-        double calculatedScore = 0.0;
-        if (_cachedResults != null && _cachedResults!.containsKey(studentId)) {
-          final res = _cachedResults![studentId]!;
-          if (res.subjects.containsKey(newGroup.dersAdi)) {
-            final stats = res.subjects[newGroup.dersAdi]!;
-            final total = stats.correct + stats.wrong + stats.empty;
-            if (total > 0) {
-              calculatedScore = 1.0 - (stats.correct / total);
-            }
-          }
-        } else if (oldAssign != null && oldAssign.ihtiyacSkoru > 0) {
-            // Keep existing if same branch
-            final oldGroup = _groups.firstWhere((g) => g.id == oldAssign.groupId, orElse: () => newGroup);
-            if (oldGroup.dersAdi == newGroup.dersAdi) {
-              calculatedScore = oldAssign.ihtiyacSkoru;
-            }
-        }
-
-        final assignment = AgmAssignment(
-          id: aId,
-          cycleId: widget.cycle.id,
-          groupId: newGroup.id,
-          institutionId: widget.cycle.institutionId,
-          ogrenciId: studentId,
-          ogrenciAdi: student['name'] ?? 'İsimsiz',
-          subeId: student['subeId'] ?? '',
-          subeAdi: student['branch'] ?? '',
-          ihtiyacSkoru: calculatedScore,
-          atamaTipi: AgmAssignmentType.manual,
-          groupName: newGroup.dersAdi,
-          olusturulmaZamani: DateTime.now(),
-        );
-
-        await FirebaseFirestore.instance
-            .collection('agm_assignments')
-            .doc(aId)
-            .set(assignment.toMap());
-      }
-
-      // Verileri tazelemek zorunlu; eksik listeleri, boşluklar, widget cycle vb.
-      await _loadData();
-    } catch (e) {
-      _showError('İşlem sırasında hata: $e');
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Widget _buildBulkActionBar() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, -2),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        child: Row(
-          children: [
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '${_selectedStudentIds.length} Öğrenci Seçildi',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                ),
-                Text(
-                  'Toplu işlem yapabilirsiniz.',
-                  style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
-                ),
-              ],
-            ),
-            const Spacer(),
-            TextButton(
-              onPressed: () => setState(() => _selectedStudentIds.clear()),
-              child: const Text('İptal'),
-            ),
-            const SizedBox(width: 12),
-            ElevatedButton.icon(
-              onPressed: () {
-                final selectedAssignments = _assignmentsByGroup.values
-                    .expand((list) => list)
-                    .where((a) => _selectedStudentIds.contains(a.id))
-                    .toList();
-                _showMoveDialog(selectedAssignments);
-              },
-              icon: const Icon(Icons.swap_horiz, size: 18),
-              label: const Text('Taşı'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.deepOrange,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 12,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _autoAssignAbsentStudent(Map<String, dynamic> student) async {
-    setState(() => _loading = true);
-    final studentId = student['id'] as String;
-
-    try {
-      final assignedGroupIds = _assignmentsByGroup.entries
-          .where((e) => e.value.any((a) => a.ogrenciId == studentId))
-          .map((e) => e.key)
-          .toSet();
-
-      final assignedSubjects = <String>{};
-      final occupiedTimeSlots = <String>{};
-
-      for (final grup in _groups) {
-        if (assignedGroupIds.contains(grup.id)) {
-          assignedSubjects.add(grup.dersAdi);
-          occupiedTimeSlots.add(grup.saatDilimiId);
-        }
-      }
-
-      bool atamaYapildi = false;
-
-      // Group prioritization: Active groups (count > 0) first, then Empty groups.
-      // Both subgroups are sorted by success average (ascending).
-      final activeGroups = _groups.where((g) => (_assignmentsByGroup[g.id]?.length ?? 0) > 0).toList()
-        ..sort((a, b) => _getGroupSuccessAvg(a.id).compareTo(_getGroupSuccessAvg(b.id)));
-      
-      final emptyGroups = _groups.where((g) => (_assignmentsByGroup[g.id]?.length ?? 0) == 0).toList();
-      
-      final prioritizedGroups = [...activeGroups, ...emptyGroups];
-
-      for (final grup in prioritizedGroups) {
-        if (assignedSubjects.contains(grup.dersAdi)) continue; // Zaten aldı
-        if (occupiedTimeSlots.contains(grup.saatDilimiId))
-          continue; // Bu saat dolu
-
-        final currentAssigns = _assignmentsByGroup[grup.id] ?? [];
-        if (currentAssigns.length < grup.kapasite) {
-          final aId = FirebaseFirestore.instance
-              .collection('agm_assignments')
-              .doc()
-              .id;
-          final assignment = AgmAssignment(
-            id: aId,
-            cycleId: widget.cycle.id,
-            groupId: grup.id,
-            institutionId: widget.cycle.institutionId,
-            ogrenciId: studentId,
-            ogrenciAdi: student['name'] ?? 'İsimsiz',
-            subeId: student['subeId'] ?? '',
-            subeAdi: student['branch'] ?? '',
-            ihtiyacSkoru: 0.0,
-            atamaTipi: AgmAssignmentType.manual,
-            groupName: grup.dersAdi,
-            olusturulmaZamani: DateTime.now(),
-            isAbsent: true,
-          );
-
-          await FirebaseFirestore.instance
-              .collection('agm_assignments')
-              .doc(aId)
-              .set(assignment.toMap());
-
-          setState(() {
-            _assignmentsByGroup.putIfAbsent(grup.id, () => []).add(assignment);
-            assignedSubjects.add(grup.dersAdi);
-            occupiedTimeSlots.add(grup.saatDilimiId);
-          });
-          atamaYapildi = true;
-        }
-      }
-
-      if (atamaYapildi) {
-        _showSuccess('Öğrenci uygun boş gruplara otomatik atandı.');
-        _loadData(); // İstatistikleri yenile
-      } else {
-        _showError('Uygun boş kontenjan bulunamadı.');
-        setState(() => _loading = false);
-      }
-    } catch (e) {
-      _showError('Otomatik atama sırasında hata oluştu: $e');
-      setState(() => _loading = false);
-    }
   }
 
   Future<void> _confirmAutoAssign() async {
@@ -3581,10 +2470,15 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
     } else if (_yerlesmeyenFilterIndex == 2) {
       count = _underAssignedStudents.length;
       filterName = 'eksik atanan';
+    } else if (_yerlesmeyenFilterIndex == 3) {
+      count = _excludedStudents.length;
+      filterName = 'hariç tutulan';
     }
 
     if (count == 0) {
-      _showError('Bu kategoride atanacak öğrenci yok.');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bu kategoride atanacak öğrenci yok.')),
+      );
       return;
     }
 
@@ -3620,18 +2514,26 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
     try {
       List<Map<String, dynamic>> targetStudents = [];
       if (_yerlesmeyenFilterIndex == 0) {
-        targetStudents = _absentStudents
-            .map(
-              (s) => {
-                'id': s['id']?.toString() ?? '',
-                'name': (s['fullName'] ?? s['name'] ?? 'İsimsiz').toString(),
-                'branch': (s['className'] ?? s['branch'] ?? '').toString(),
-                'subeId': s['branchId']?.toString() ?? '',
-              },
-            )
-            .toList();
-      } else {
-        targetStudents = _getMappedStudents(_yerlesmeyenFilterIndex);
+        targetStudents = _absentStudents;
+      } else if (_yerlesmeyenFilterIndex == 1 ||
+          _yerlesmeyenFilterIndex == 2 ||
+          _yerlesmeyenFilterIndex == 3) {
+        List<String> ids = _unassignedStudents;
+        if (_yerlesmeyenFilterIndex == 2) ids = _underAssignedStudents;
+        if (_yerlesmeyenFilterIndex == 3) ids = _excludedStudents;
+
+        targetStudents = ids.map((id) {
+          final s = _allBranchStudents.firstWhere(
+            (s) => s['id'] == id,
+            orElse: () => {'id': id, 'fullName': 'Yükleniyor...'},
+          );
+          return {
+            'id': id,
+            'name': (s['fullName'] ?? s['name'] ?? 'İsimsiz').toString(),
+            'branch': (s['className'] ?? s['branch'] ?? '').toString(),
+            'subeId': s['branchId'] ?? '',
+          };
+        }).toList();
       }
 
       if (targetStudents.isEmpty) {
@@ -3640,10 +2542,38 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
       }
 
       int atamaYapilanSayisi = 0;
+      final List<String> processedStudentIds = [];
+      final batch = _db.batch();
+      final cycleRef = _db.collection('agm_cycles').doc(widget.cycle.id);
+
+      // Load actual student profiles for target students
+      final allStudents = await _fetchStudentsForCycle();
+      final targetIds = targetStudents.map((s) => s['id'] as String).toSet();
+      final targetFullStudents = allStudents
+          .where((s) => targetIds.contains(s['id']))
+          .toList();
+
+      final Set<String> allStudentsWhoEnteredExam = {};
+      final profiles = await _createStudentNeedProfiles(
+        targetFullStudents,
+        (sid) => allStudentsWhoEnteredExam.add(sid),
+      );
 
       for (final student in targetStudents) {
         final studentId = student['id'] as String;
-
+        final profile = profiles.firstWhere(
+          (p) => p.ogrenciId == studentId,
+          orElse: () => StudentNeedProfile(
+            ogrenciId: studentId,
+            ogrenciAdi: student['name'] ?? 'İsimsiz',
+            subeId: student['subeId'] ?? '',
+            subeAdi: student['branch'] ?? '',
+            dersIhtiyaclari: {},
+          ),
+        );
+        final actualSube = profile.subeAdi.isNotEmpty
+            ? profile.subeAdi
+            : (student['branch'] ?? '');
         final assignedGroupIds = _assignmentsByGroup.entries
             .where((e) => e.value.any((a) => a.ogrenciId == studentId))
             .map((e) => e.key)
@@ -3655,253 +2585,2445 @@ class _AgmGroupGridScreenState extends State<AgmGroupGridScreen>
         for (final grup in _groups) {
           if (assignedGroupIds.contains(grup.id)) {
             assignedSubjects.add(grup.dersAdi);
-            occupiedTimeSlots.add(grup.saatDilimiId);
+            occupiedTimeSlots.add('${grup.baslangicSaat}-${grup.gun}');
           }
         }
 
-        bool ogrenciIcinAtamaYapildi = false;
-
-        // Group prioritization: Active groups (count > 0) first, then Empty groups.
-        final activeGroups = _groups.where((g) => (_assignmentsByGroup[g.id]?.length ?? 0) > 0).toList()
-          ..sort((a, b) => _getGroupSuccessAvg(a.id).compareTo(_getGroupSuccessAvg(b.id)));
-        
-        final emptyGroups = _groups.where((g) => (_assignmentsByGroup[g.id]?.length ?? 0) == 0).toList();
-        
-        final prioritizedGroups = [...activeGroups, ...emptyGroups];
-
-        for (final grup in prioritizedGroups) {
-          if (assignedSubjects.contains(grup.dersAdi)) continue; // Zaten aldı
-          if (occupiedTimeSlots.contains(grup.saatDilimiId))
-            continue; // Bu saat dolu
-
-          final currentAssigns = _assignmentsByGroup[grup.id] ?? [];
-          if (currentAssigns.length < grup.kapasite) {
-            final aId = FirebaseFirestore.instance
-                .collection('agm_assignments')
-                .doc()
-                .id;
-            final assignment = AgmAssignment(
-              id: aId,
-              cycleId: widget.cycle.id,
-              groupId: grup.id,
-              institutionId: widget.cycle.institutionId,
-              ogrenciId: studentId,
-              ogrenciAdi: student['name'] ?? 'İsimsiz',
-              subeId: student['subeId'] ?? '',
-              subeAdi: student['branch'] ?? '',
-              ihtiyacSkoru: 0.0,
-              atamaTipi: AgmAssignmentType.manual,
-              groupName: grup.dersAdi,
-              olusturulmaZamani: DateTime.now(),
-              isAbsent: true,
-            );
-
-            await FirebaseFirestore.instance
-                .collection('agm_assignments')
-                .doc(aId)
-                .set(assignment.toMap());
-
-            _assignmentsByGroup.putIfAbsent(grup.id, () => []).add(assignment);
-            assignedSubjects.add(grup.dersAdi);
-            occupiedTimeSlots.add(grup.saatDilimiId);
-
-            ogrenciIcinAtamaYapildi = true;
+        final subjectLimits = widget.cycle.dersBazliSaatSinirlari;
+        final Map<String, int> studentSubjectHours = {};
+        for (final grup in _groups) {
+          if (assignedGroupIds.contains(grup.id)) {
+            studentSubjectHours[grup.dersAdi] = (studentSubjectHours[grup.dersAdi] ?? 0) + 1;
+            studentSubjectHours[grup.dersId] = (studentSubjectHours[grup.dersId] ?? 0) + 1;
           }
         }
 
-        if (ogrenciIcinAtamaYapildi) {
-          atamaYapilanSayisi++;
+        final prioritizedGroups = List<AgmGroup>.from(_groups)
+          ..sort((a, b) {
+            // Kotası en eksik olan dersin gruplarına öncelik ver
+            if (subjectLimits.isNotEmpty) {
+              final minA = subjectLimits[a.dersAdi]?['min'] ?? subjectLimits[a.dersId]?['min'] ?? 0;
+              final minB = subjectLimits[b.dersAdi]?['min'] ?? subjectLimits[b.dersId]?['min'] ?? 0;
+              final currentA = studentSubjectHours[a.dersAdi] ?? studentSubjectHours[a.dersId] ?? 0;
+              final currentB = studentSubjectHours[b.dersAdi] ?? studentSubjectHours[b.dersId] ?? 0;
+              final needA = minA - currentA;
+              final needB = minB - currentB;
+              if (needA != needB) return needB.compareTo(needA);
+            }
+            return _getGroupSuccessAvg(a.id).compareTo(_getGroupSuccessAvg(b.id));
+          });
+
+        int studentAtamaSayisi = 0;
+        void attemptAssignment({required bool allowDuplicateSubject}) {
+          for (final grup in prioritizedGroups) {
+            if (grup.isSpecial)
+              continue; // Skip special classes for unassigned/absent auto-assigner
+            if (widget.cycle.haftalikMaksimumSaat != null &&
+                occupiedTimeSlots.length >= widget.cycle.haftalikMaksimumSaat!)
+              break;
+
+            // Ders bazlı saat limiti kontrolü (Max kotayı asla aşamaz!)
+            final maxSaat = subjectLimits[grup.dersAdi]?['max'] ?? subjectLimits[grup.dersId]?['max'];
+            final currentHours = studentSubjectHours[grup.dersAdi] ?? studentSubjectHours[grup.dersId] ?? 0;
+            if (maxSaat != null && currentHours >= maxSaat) {
+              continue;
+            }
+
+            if (!allowDuplicateSubject &&
+                subjectLimits.isEmpty &&
+                assignedSubjects.contains(grup.dersAdi)) {
+              continue;
+            }
+            if (occupiedTimeSlots.contains('${grup.baslangicSaat}-${grup.gun}'))
+              continue;
+
+            final currentAssigns = _assignmentsByGroup[grup.id] ?? [];
+            if (widget.cycle.minimumGrupOgrenciSayisi != null &&
+                currentAssigns.length <
+                    widget.cycle.minimumGrupOgrenciSayisi!) {
+              continue;
+            }
+            if (currentAssigns.length < grup.kapasite) {
+              if (assignedGroupIds.contains(grup.id)) continue;
+
+              final actualBasari =
+                  profile.dersBasariOranlari[grup.dersId] ??
+                  profile.dersBasariOranlari[grup.dersAdi] ??
+                  0.5;
+
+              final assignRef = _db.collection('agm_assignments').doc();
+              batch.set(
+                assignRef,
+                AgmAssignment(
+                  id: assignRef.id,
+                  cycleId: widget.cycle.id,
+                  institutionId: widget.cycle.institutionId,
+                  groupId: grup.id,
+                  ogrenciId: studentId,
+                  ogrenciAdi: student['name'] ?? 'İsimsiz',
+                  sube: actualSube,
+                  subeId: student['subeId'] ?? '',
+                  groupName: '${grup.dersAdi} - ${grup.ogretmenAdi}',
+                  basariOrani: actualBasari,
+                ).toMap(),
+              );
+
+              // Log
+              final logRef = _db.collection('agm_assignment_logs').doc();
+              batch.set(
+                logRef,
+                AgmAssignmentLog(
+                  id: logRef.id,
+                  cycleId: widget.cycle.id,
+                  institutionId: widget.cycle.institutionId,
+                  ogrenciId: studentId,
+                  ogrenciAdi: student['name'] ?? 'İsimsiz',
+                  yeniGrupId: grup.id,
+                  yeniGrupAdi: '${grup.dersAdi} - ${grup.ogretmenAdi}',
+                  yapanKullaniciId: _auth.currentUser?.uid ?? '',
+                  yapanKullaniciAdi: _auth.currentUser?.displayName ?? 'Admin',
+                  tarih: DateTime.now(),
+                ).toMap(),
+              );
+
+              atamaYapilanSayisi++;
+              studentAtamaSayisi++;
+
+              _assignmentsByGroup.putIfAbsent(grup.id, () => []);
+              _assignmentsByGroup[grup.id]!.add(
+                AgmAssignment(
+                  id: assignRef.id,
+                  cycleId: widget.cycle.id,
+                  institutionId: widget.cycle.institutionId,
+                  groupId: grup.id,
+                  ogrenciId: studentId,
+                  ogrenciAdi: student['name'] ?? 'İsimsiz',
+                  sube: actualSube,
+                  subeId: student['subeId'] ?? '',
+                  groupName: '${grup.dersAdi} - ${grup.ogretmenAdi}',
+                  basariOrani: actualBasari,
+                ),
+              );
+
+              occupiedTimeSlots.add('${grup.baslangicSaat}-${grup.gun}');
+              assignedSubjects.add(grup.dersAdi);
+              assignedGroupIds.add(grup.id);
+              studentSubjectHours[grup.dersAdi] = (studentSubjectHours[grup.dersAdi] ?? 0) + 1;
+              studentSubjectHours[grup.dersId] = (studentSubjectHours[grup.dersId] ?? 0) + 1;
+            }
+          }
+        }
+
+        attemptAssignment(allowDuplicateSubject: subjectLimits.isNotEmpty);
+        if (_yerlesmeyenFilterIndex == 2 ||
+            (widget.cycle.minimumDersSayisi != null &&
+                occupiedTimeSlots.length < widget.cycle.minimumDersSayisi!)) {
+          attemptAssignment(allowDuplicateSubject: true);
+        }
+
+        if (studentAtamaSayisi > 0) {
+          processedStudentIds.add(studentId);
+          // Firestore listelerinden kaldır
+          batch.update(cycleRef, {
+            'unassignedStudentIds': FieldValue.arrayRemove([studentId]),
+            'underAssignedStudentIds': FieldValue.arrayRemove([studentId]),
+            'absentStudentIds': FieldValue.arrayRemove([studentId]),
+            'excludedStudentIds': FieldValue.arrayRemove([studentId]),
+          });
         }
       }
 
       if (atamaYapilanSayisi > 0) {
-        _showSuccess(
-          '$atamaYapilanSayisi öğrenci uygun boş gruplara otomatik atandı.',
-        );
-        await _loadData(); // İstatistikleri yenile
-      } else {
-        _showError('Uygun boş kontenjan bulunamadı.');
-        if (mounted) setState(() => _loading = false);
+        await batch.commit();
       }
+
+      setState(() {
+        _absentStudents.removeWhere(
+          (s) => processedStudentIds.contains(s['id']),
+        );
+        _unassignedStudents.removeWhere(
+          (id) => processedStudentIds.contains(id),
+        );
+        _underAssignedStudents.removeWhere(
+          (id) => processedStudentIds.contains(id),
+        );
+        _excludedStudents.removeWhere((id) => processedStudentIds.contains(id));
+      });
+
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '$atamaYapilanSayisi yeni atama başarıyla tamamlandı.',
+          ),
+          backgroundColor: Colors.green,
+        ),
+      );
+      await Future.delayed(const Duration(milliseconds: 500));
+      await _loadData();
     } catch (e) {
-      _showError('Toplu otomatik atama sırasında hata oluştu: $e');
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Atama hatası: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  /// Dersliği olmayan gruplara otomatik derslik atar.
-  /// Kural: Aynı branş dersleri mümkünse aynı derslikte (farklı seanslarda) olur.
-  Future<void> _autoAssignClassrooms() async {
+  double _getGroupSuccessAvg(String groupId) {
+    final assigns = _assignmentsByGroup[groupId] ?? [];
+    if (assigns.isEmpty) return 0.0;
+    return assigns.fold(0.0, (sum, a) => sum + a.basariOrani) / assigns.length;
+  }
+
+  // ═══ UI BİLEŞENLERİ ═══════════════════════════════════════════════════
+
+  Widget _buildGroupsTab() {
+    if (_groups.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.group_outlined, size: 56, color: Colors.grey.shade300),
+            const SizedBox(height: 12),
+            Text(
+              'Grup yok',
+              style: TextStyle(color: Colors.grey.shade500, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '"Dağıtım Yap" butonuna basarak\nalgoritmanın çalışmasını sağlayın.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+            ),
+          ],
+        ),
+      );
+    }
+
+    int getDayIndex(String dayStr) {
+      final d = dayStr.toLowerCase().replaceAll(' ', '');
+      if (d.contains('pazartesi') || d.contains('pzt')) return 1;
+      if (d.contains('salı') || d.contains('sali') || d.contains('sal')) return 2;
+      if (d.contains('çarşamba') ||
+          d.contains('carsamba') ||
+          d.contains('çarş') ||
+          d.contains('cars') ||
+          d.contains('çrş') ||
+          d.contains('crs')) {
+        return 3;
+      }
+      if (d.contains('perşembe') ||
+          d.contains('persembe') ||
+          d.contains('perş') ||
+          d.contains('pers') ||
+          d.contains('prş') ||
+          d.contains('prs')) {
+        return 4;
+      }
+      if (d.contains('cumartesi') || d.contains('cmt')) return 6;
+      if (d.contains('cuma') || d.contains('cum')) return 5;
+      if (d.contains('pazar') || d.contains('pzr')) return 7;
+      return 99;
+    }
+
+    int parseTime(String timeStr) {
+      try {
+        final parts = timeStr.trim().split(':');
+        if (parts.length >= 2) {
+          final h = int.tryParse(parts[0]) ?? 0;
+          final m = int.tryParse(parts[1]) ?? 0;
+          return h * 60 + m;
+        }
+      } catch (silentError) { debugPrint('[agm_group_grid_screen] hata yutuldu: $silentError'); }
+      return 9999;
+    }
+
+    final Map<String, List<AgmGroup>> byBranch = {};
+    final Set<String> allGroupBranches = _groups
+        .map((g) => g.isSpecial ? 'Özel Sınıf' : g.dersAdi)
+        .toSet();
+    final allDays =
+        _groups.map((g) => g.gun).where((d) => d.isNotEmpty).toSet().toList()
+          ..sort((a, b) {
+            final idxA = getDayIndex(a);
+            final idxB = getDayIndex(b);
+            if (idxA == idxB) return a.compareTo(b);
+            return idxA.compareTo(idxB);
+          });
+
+    // Seçili güne ait slotları belirle
+    final filteredGroups = _groups
+        .where(
+          (g) => _selectedSlotFilter == null || g.gun == _selectedSlotFilter,
+        )
+        .toList();
+    final allPossibleSlots =
+        filteredGroups
+            .map((g) => '${g.baslangicSaat}-${g.bitisSaat}')
+            .toSet()
+            .toList()
+          ..sort((a, b) {
+            final startA = a.split('-').first;
+            final startB = b.split('-').first;
+            return parseTime(startA).compareTo(parseTime(startB));
+          });
+
+    _selectedTimeSlots ??= Set<String>.from(allPossibleSlots);
+
+    for (final g in filteredGroups) {
+      final key = g.isSpecial ? 'Özel Sınıf' : g.dersAdi;
+      if (_groupFilterBranch != null && key != _groupFilterBranch) continue;
+      final slotKey = '${g.baslangicSaat}-${g.bitisSaat}';
+      if (!_selectedTimeSlots!.contains(slotKey)) continue;
+      byBranch.putIfAbsent(key, () => []).add(g);
+    }
+
+    final sortedBranches = byBranch.keys.toList()
+      ..sort((a, b) {
+        if (a == 'Özel Sınıf') return -1;
+        if (b == 'Özel Sınıf') return 1;
+        return a.compareTo(b);
+      });
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _buildCycleSummaryBar(),
+        const SizedBox(height: 16),
+        _buildGroupFilterRow(
+          allGroupBranches.toList()..sort(),
+          allPossibleSlots,
+          allDays,
+        ),
+        const SizedBox(height: 12),
+        ...sortedBranches.map((branch) {
+          final groups = byBranch[branch]!
+            ..sort((a, b) {
+              // 1. Gün Sıralaması (Pzt -> Salı -> Çarş -> Perş...)
+              final dayA = getDayIndex(a.gun.isNotEmpty ? a.gun : a.saatDilimiAdi);
+              final dayB = getDayIndex(b.gun.isNotEmpty ? b.gun : b.saatDilimiAdi);
+              if (dayA != dayB) return dayA.compareTo(dayB);
+
+              // 2. Başlangıç Saati Sıralaması (09:30 -> 10:20 -> 11:10...)
+              final timeA = parseTime(a.baslangicSaat);
+              final timeB = parseTime(b.baslangicSaat);
+              if (timeA != timeB) return timeA.compareTo(timeB);
+
+              // 3. Bitiş Saati Sıralaması
+              final endTimeA = parseTime(a.bitisSaat);
+              final endTimeB = parseTime(b.bitisSaat);
+              if (endTimeA != endTimeB) return endTimeA.compareTo(endTimeB);
+
+              // 4. Derslik / İsim Sıralaması
+              return (a.derslikAdi ?? a.dersAdi).compareTo(b.derslikAdi ?? b.dersAdi);
+            });
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildBranchHeader(branch),
+              const SizedBox(height: 8),
+              ...groups.map((g) => _buildGroupCard(g)),
+              const SizedBox(height: 12),
+            ],
+          );
+        }),
+        const SizedBox(height: 80),
+      ],
+    );
+  }
+
+  Widget _buildCycleSummaryBar() {
+    final totalAssignments = _assignmentsByGroup.values.fold(
+      0,
+      (sum, list) => sum + list.length,
+    );
+    final totalUnplaced =
+        _unassignedStudents.length +
+        _underAssignedStudents.length +
+        _absentStudents.length +
+        _excludedStudents.length;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.orange.shade600, Colors.orange.shade800],
+        ),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          _statItem('${_groups.length}', 'Grup'),
+          _dividerStat(),
+          _statItem('$_totalPotentialStudents', 'Öğrenci'),
+          _dividerStat(),
+          _statItem('$totalAssignments', 'Atanan'),
+          _dividerStat(),
+          _statItem('$totalUnplaced', 'Yerleşmedi'),
+        ],
+      ),
+    );
+  }
+
+  Widget _statItem(String value, String label) => Expanded(
+    child: Column(
+      children: [
+        Text(
+          value,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        Text(
+          label,
+          style: const TextStyle(color: Colors.white70, fontSize: 10),
+          textAlign: TextAlign.center,
+        ),
+      ],
+    ),
+  );
+  Widget _dividerStat() => Container(
+    height: 30,
+    width: 1,
+    color: Colors.white30,
+    margin: const EdgeInsets.symmetric(horizontal: 8),
+  );
+
+  Widget _buildGroupFilterRow(
+    List<String> branches,
+    List<String> allSlots,
+    List<String> allDays,
+  ) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
+
+    if (isMobile) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  height: 36,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    border: Border.all(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: _selectedSlotFilter,
+                      isExpanded: true,
+                      hint: Text(
+                        'Tümü (Slotlar)',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey.shade700,
+                          fontSize: 12,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      isDense: true,
+                      icon: Icon(
+                        Icons.arrow_drop_down,
+                        color: Colors.grey.shade600,
+                      ),
+                      items: [
+                        const DropdownMenuItem<String>(
+                          value: null,
+                          child: Text(
+                            'Tümü (Slotlar)',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        ...allDays.map(
+                          (day) => DropdownMenuItem<String>(
+                            value: day,
+                            child: Text(
+                              day,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                      ],
+                      onChanged: (val) {
+                        setState(() {
+                          _selectedSlotFilter = val;
+                          _selectedTimeSlots =
+                              null; // Gün değiştirince slotları sıfırla
+                        });
+                      },
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Container(
+                  height: 36,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    border: Border.all(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: _groupFilterBranch,
+                      isDense: true,
+                      isExpanded: true,
+                      icon: Icon(
+                        Icons.arrow_drop_down,
+                        color: Colors.grey.shade600,
+                      ),
+                      hint: Text(
+                        'Tüm Branşlar',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey.shade700,
+                          fontSize: 12,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.black87,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      items: [
+                        const DropdownMenuItem<String>(
+                          value: null,
+                          child: Text(
+                            'Tüm Branşlar',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        ...branches.map(
+                          (b) => DropdownMenuItem<String>(
+                            value: b,
+                            child: Text(
+                              b,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                      ],
+                      onChanged: (v) => setState(() => _groupFilterBranch = v),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (allSlots.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Container(
+              height: 32,
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    Text(
+                      'Saat Slotları: ',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                    ...allSlots.asMap().entries.map((entry) {
+                      final index = entry.key + 1;
+                      final slotKey = entry.value;
+                      final isSelected =
+                          _selectedTimeSlots?.contains(slotKey) ?? true;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: InkWell(
+                          onTap: () {
+                            setState(() {
+                              _selectedTimeSlots ??= Set<String>.from(allSlots);
+                              if (_selectedTimeSlots!.contains(slotKey)) {
+                                _selectedTimeSlots!.remove(slotKey);
+                              } else {
+                                _selectedTimeSlots!.add(slotKey);
+                              }
+                            });
+                          },
+                          borderRadius: BorderRadius.circular(6),
+                          child: Container(
+                            width: 28,
+                            height: 28,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: isSelected ? Colors.orange : Colors.white,
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: isSelected
+                                    ? Colors.orange
+                                    : Colors.grey.shade300,
+                              ),
+                            ),
+                            child: Text(
+                              '$index',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: isSelected
+                                    ? Colors.white
+                                    : Colors.grey.shade600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ],
+      );
+    }
+
+    return Row(
+      children: [
+        Container(
+          height: 32,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border.all(color: Colors.grey.shade300),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: _selectedSlotFilter,
+              hint: Text(
+                'Tümü (Slotlar)',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey.shade700,
+                  fontSize: 13,
+                ),
+              ),
+              isDense: true,
+              icon: Icon(Icons.arrow_drop_down, color: Colors.grey.shade600),
+              items: [
+                const DropdownMenuItem<String>(
+                  value: null,
+                  child: Text(
+                    'Tümü (Slotlar)',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                ),
+                ...allDays.map(
+                  (day) => DropdownMenuItem<String>(
+                    value: day,
+                    child: Text(
+                      day,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+              onChanged: (val) {
+                setState(() {
+                  _selectedSlotFilter = val;
+                  _selectedTimeSlots =
+                      null; // Gün değişince alt slotları sıfırla
+                });
+              },
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                ...allSlots.asMap().entries.map((entry) {
+                  final index = entry.key + 1;
+                  final slotKey = entry.value;
+                  final isSelected =
+                      _selectedTimeSlots?.contains(slotKey) ?? true;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: InkWell(
+                      onTap: () {
+                        setState(() {
+                          _selectedTimeSlots ??= Set<String>.from(allSlots);
+                          if (_selectedTimeSlots!.contains(slotKey)) {
+                            _selectedTimeSlots!.remove(slotKey);
+                          } else {
+                            _selectedTimeSlots!.add(slotKey);
+                          }
+                        });
+                      },
+                      borderRadius: BorderRadius.circular(4),
+                      child: Container(
+                        width: 26,
+                        height: 26,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: isSelected ? Colors.orange : Colors.white,
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(
+                            color: isSelected
+                                ? Colors.orange
+                                : Colors.grey.shade300,
+                          ),
+                        ),
+                        child: Text(
+                          '$index',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: isSelected
+                                ? Colors.white
+                                : Colors.grey.shade600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.grey.shade300),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: _groupFilterBranch,
+              hint: const Text('Tüm Branşlar', style: TextStyle(fontSize: 12)),
+              style: const TextStyle(fontSize: 12, color: Colors.black87),
+              items: [
+                const DropdownMenuItem<String>(
+                  value: null,
+                  child: Text('Tüm Branşlar'),
+                ),
+                ...branches.map(
+                  (b) => DropdownMenuItem<String>(value: b, child: Text(b)),
+                ),
+              ],
+              onChanged: (v) => setState(() => _groupFilterBranch = v),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBranchHeader(String branch) => Padding(
+    padding: const EdgeInsets.only(bottom: 4),
+    child: Row(
+      children: [
+        Icon(
+          Icons.label_important_outline,
+          size: 16,
+          color: Colors.orange.shade700,
+        ),
+        const SizedBox(width: 6),
+        Text(
+          branch,
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+            color: Colors.orange.shade700,
+          ),
+        ),
+      ],
+    ),
+  );
+
+  bool _hasHighPercentSuccess(AgmGroup group) {
+    final assignments = _assignmentsByGroup[group.id] ?? [];
+    if (assignments.isEmpty) return false;
+    final avg =
+        assignments.fold(0.0, (sum, a) => sum + a.basariOrani) /
+        assignments.length;
+    return (avg * 100).round() >= 95;
+  }
+
+  Widget _buildGroupCard(AgmGroup group) {
+    final assignments = _assignmentsByGroup[group.id] ?? [];
+    final doluluk = group.kapasite > 0
+        ? assignments.length / group.kapasite
+        : 0.0;
+    final isSpecial = group.isSpecial;
+    Color dolulukRenk = Colors.green;
+    if (doluluk >= 1.0)
+      dolulukRenk = Colors.red;
+    else if (doluluk >= 0.8)
+      dolulukRenk = Colors.orange;
+
+    final isHighPercentSuccess = _hasHighPercentSuccess(group);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      clipBehavior: Clip.antiAlias,
+      child: ExpansionTile(
+        shape: const RoundedRectangleBorder(side: BorderSide.none),
+        collapsedShape: const RoundedRectangleBorder(side: BorderSide.none),
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.orange.shade50,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(
+            isSpecial ? Icons.star : Icons.book_outlined,
+            color: Colors.orange,
+            size: 22,
+          ),
+        ),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Row 1: Full-Width Title (TAM SATIR)
+            Text(
+              isSpecial
+                  ? 'ÖZEL SINIF - ${group.derslikAdi ?? ""}'
+                  : group.dersAdi,
+              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 6),
+            // Row 2: Subtitle details and Right-hand metrics side-by-side
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                // Left details: Time, Teacher, Kazanım
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${group.gun} • ${group.baslangicSaat}-${group.bitisSaat} • ${group.ogretmenAdi}${group.derslikAdi != null ? ' (${group.derslikAdi})' : ''}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (group.kazanimlar.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            isHighPercentSuccess
+                                ? 'Ana Kazanım: Soru Çözümü'
+                                : 'Ana Kazanım: ${group.kazanimlar.first}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.orange.shade700,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                // Right details: Capacity, Progress, Avg Success
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '${assignments.length}/${group.kapasite}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: dolulukRenk,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    SizedBox(
+                      width: 48,
+                      height: 4,
+                      child: LinearProgressIndicator(
+                        value: doluluk.clamp(0.0, 1.0),
+                        backgroundColor: Colors.grey.shade200,
+                        valueColor: AlwaysStoppedAnimation<Color>(dolulukRenk),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    _buildGroupAvgBadge(group),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+        children: [
+          if (group.kazanimlar.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Kazanımlar (1 Ana + 2 Yardımcı)',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                      color: Colors.orange,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      if (isHighPercentSuccess)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.shade50,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: Colors.orange.shade100),
+                          ),
+                          child: const Text(
+                            'Ana: Soru Çözümü',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.orange,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        )
+                      else
+                        ...group.kazanimlar
+                            .take(3)
+                            .toList()
+                            .asMap()
+                            .entries
+                            .map((entry) {
+                              final index = entry.key;
+                              final k = entry.value;
+                              return Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.orange.shade50,
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                    color: Colors.orange.shade100,
+                                  ),
+                                ),
+                                child: Text(
+                                  index == 0 ? 'Ana: $k' : 'Yard: $k',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: index == 0
+                                        ? Colors.orange.shade900
+                                        : Colors.grey.shade700,
+                                    fontWeight: index == 0
+                                        ? FontWeight.bold
+                                        : FontWeight.w500,
+                                  ),
+                                ),
+                              );
+                            }),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Divider(color: Colors.grey.shade200),
+                ],
+              ),
+            ),
+          if (assignments.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('Bu grupta henüz öğrenci yok.'),
+            )
+          else
+            _buildGroupStudentList(assignments),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGroupStudentList(List<AgmAssignment> assignments) {
+    final sortedAssignments = List<AgmAssignment>.from(assignments)
+      ..sort((a, b) => b.basariOrani.compareTo(a.basariOrani));
+
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: sortedAssignments.length,
+      itemBuilder: (context, index) {
+        final s = sortedAssignments[index];
+        final isSelected = _selectedStudentIds.contains(s.id);
+        return InkWell(
+          onTap: () => setState(() {
+            if (isSelected)
+              _selectedStudentIds.remove(s.id);
+            else
+              _selectedStudentIds.add(s.id);
+          }),
+          child: Container(
+            color: isSelected ? Colors.orange.shade50.withValues(alpha: 0.5) : null,
+            child: ListTile(
+              dense: true,
+              leading: CircleAvatar(
+                radius: 12,
+                backgroundColor: isSelected
+                    ? Colors.orange
+                    : Colors.orange.shade50,
+                child: isSelected
+                    ? const Icon(Icons.check, size: 14, color: Colors.white)
+                    : Text(
+                        '${index + 1}',
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.orange,
+                        ),
+                      ),
+              ),
+              title: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${s.ogrenciAdi}${s.sube != null ? " (${s.sube})" : ""}',
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                  _buildStudentScoreBadge(s),
+                ],
+              ),
+              trailing: _selectedStudentIds.isEmpty
+                  ? IconButton(
+                      icon: const Icon(
+                        Icons.compare_arrows,
+                        size: 16,
+                        color: Colors.grey,
+                      ),
+                      onPressed: () => _showMoveDialog([s]),
+                    )
+                  : null,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildGroupAvgBadge(AgmGroup group) {
+    final assignments = _assignmentsByGroup[group.id] ?? [];
+    if (assignments.isEmpty) return const SizedBox.shrink();
+    final avg =
+        assignments.fold(0.0, (sum, a) => sum + a.basariOrani) /
+        assignments.length;
+    final pct = (avg * 100).toStringAsFixed(0);
+    final color = avg < 0.4
+        ? Colors.red
+        : avg < 0.7
+        ? Colors.orange
+        : Colors.green;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          'Ort. %$pct',
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+        if (!group.isSpecial)
+          Padding(
+            padding: const EdgeInsets.only(left: 4),
+            child: InkWell(
+              onTap: () => _showSwapGroupDialog(group),
+              child: Icon(
+                Icons.swap_horiz,
+                size: 14,
+                color: Colors.grey.shade400,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildStudentScoreBadge(AgmAssignment a) {
+    final pct = (a.basariOrani * 100).toStringAsFixed(0);
+    final color = a.basariOrani < 0.4
+        ? Colors.red
+        : a.basariOrani < 0.7
+        ? Colors.orange
+        : Colors.green;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Text(
+        '%$pct',
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+          color: color,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBulkActionBar() {
+    final selectedAssignments = _assignmentsByGroup.values
+        .expand((list) => list)
+        .where((a) => _selectedStudentIds.contains(a.id))
+        .toList();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 10,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        child: Row(
+          children: [
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${_selectedStudentIds.length} Seçim Yapıldı',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                Text(
+                  'Toplu işlem yapabilirsiniz.',
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
+                ),
+              ],
+            ),
+            const Spacer(),
+            TextButton(
+              onPressed: () => setState(() => _selectedStudentIds.clear()),
+              child: const Text('İptal'),
+            ),
+            const SizedBox(width: 8),
+            ElevatedButton.icon(
+              onPressed: () => _removeAssignments(selectedAssignments),
+              icon: const Icon(Icons.delete_outline, size: 18),
+              label: const Text('Çıkar'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red.shade50,
+                foregroundColor: Colors.red,
+                elevation: 0,
+              ),
+            ),
+            const SizedBox(width: 8),
+            ElevatedButton.icon(
+              onPressed: () => _showMoveDialog(selectedAssignments),
+              icon: const Icon(Icons.swap_horiz, size: 18),
+              label: const Text('Taşı'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange.shade700,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildYerlesmeyenTab() {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(12),
+          color: Colors.white,
+          width: double.infinity,
+          child: Row(
+            children: [
+              Expanded(
+                child: _filterChip(
+                  0,
+                  'Sınava Girmeyen',
+                  _absentStudents.length,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _filterChip(1, 'Atanamayan', _unassignedStudents.length),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _filterChip(
+                  2,
+                  'Eksik Atanan',
+                  _underAssignedStudents.length,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _filterChip(3, 'Hariçler', _excludedStudents.length),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: _yerlesmeyenFilterIndex == 0
+              ? _buildStudentList(_absentStudents)
+              : _buildStudentList(_getMappedStudents(_yerlesmeyenFilterIndex)),
+        ),
+      ],
+    );
+  }
+
+  Widget _filterChip(int index, String label, int count) {
+    final isSelected = _yerlesmeyenFilterIndex == index;
+    return InkWell(
+      onTap: () => setState(() => _yerlesmeyenFilterIndex = index),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.orange.shade700 : Colors.grey.shade50,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected ? Colors.orange.shade700 : Colors.grey.shade300,
+          ),
+        ),
+        child: Column(
+          children: [
+            Text(
+              '$count',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: isSelected ? Colors.white : Colors.orange.shade700,
+              ),
+            ),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.bold,
+                color: isSelected ? Colors.white : Colors.grey.shade600,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Map<String, dynamic>> _getMappedStudents(int filterIndex) {
+    List<String> ids = _unassignedStudents;
+    if (filterIndex == 2) ids = _underAssignedStudents;
+    if (filterIndex == 3) ids = _excludedStudents;
+    return _allBranchStudents
+        .where((s) => ids.contains(s['id']))
+        .map(
+          (s) => {
+            'id': s['id'],
+            'name': (s['fullName'] ?? s['name'] ?? 'İsimsiz').toString(),
+            'branch': (s['className'] ?? s['branch'] ?? '').toString(),
+            'subeId': s['branchId'] ?? '',
+          },
+        )
+        .toList();
+  }
+
+  Widget _buildStudentList(List<Map<String, dynamic>> students) {
+    if (students.isEmpty)
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.check_circle_outline,
+              size: 56,
+              color: Colors.green.shade300,
+            ),
+            const SizedBox(height: 12),
+            const Text('Bu kategoride öğrenci yok.'),
+          ],
+        ),
+      );
+    return ListView.builder(
+      padding: const EdgeInsets.only(left: 12, top: 12, right: 12, bottom: 160),
+      itemCount: students.length,
+      itemBuilder: (context, i) {
+        final student = students[i];
+        final name = student['name'] ?? 'İsimsiz';
+        final branch = student['branch'] ?? '';
+        final studentId = student['id']?.toString() ?? '';
+        final reasons = _unassignedReasons[studentId] ?? [];
+
+        // Öğrencinin atanmış olduğu gruplar
+        final studentAssigns = _assignmentsByGroup.values
+            .expand((list) => list)
+            .where((a) => a.ogrenciId == studentId)
+            .toList();
+        final Map<String, AgmAssignment> assignedSlots = {
+          for (final a in studentAssigns) a.groupId: a,
+        };
+        final Set<String> occupiedTimes = studentAssigns.map((a) {
+          final g = _groups.firstWhere((g) => g.id == a.groupId);
+          return '${g.baslangicSaat}-${g.gun}';
+        }).toSet();
+
+        return Card(
+          margin: const EdgeInsets.only(bottom: 12),
+          elevation: 0,
+          clipBehavior: Clip.antiAlias,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: Colors.grey.shade200),
+          ),
+          child: ExpansionTile(
+            shape: const RoundedRectangleBorder(side: BorderSide.none),
+            collapsedShape: const RoundedRectangleBorder(side: BorderSide.none),
+            tilePadding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+            leading: CircleAvatar(
+              backgroundColor: Colors.orange.shade50,
+              child: Text(
+                name.isNotEmpty ? name[0].toUpperCase() : '?',
+                style: TextStyle(
+                  color: Colors.orange.shade700,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            title: Text(
+              name,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(branch, style: const TextStyle(fontSize: 12)),
+                if (reasons.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: reasons
+                          .map(
+                            (r) => Text(
+                              '• $r',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.red.shade700,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  ),
+                if (studentAssigns.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      '${studentAssigns.length} seansa atandı.',
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: Colors.teal,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextButton(
+                  onPressed: () => _autoAssignSingleStudent(student),
+                  child: const Text(
+                    'Otomatik Ata',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.teal,
+                    ),
+                  ),
+                ),
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_vert, size: 18),
+                  padding: EdgeInsets.zero,
+                  onSelected: (val) {
+                    if (val == 'exclude') {
+                      _excludeStudent(studentId);
+                    } else if (val == 'include') {
+                      _includeStudent(studentId);
+                    }
+                  },
+                  itemBuilder: (ctx) => [
+                    if (_yerlesmeyenFilterIndex != 3)
+                      const PopupMenuItem(
+                        value: 'exclude',
+                        child: Text(
+                          'Hariç Tut',
+                          style: TextStyle(fontSize: 12, color: Colors.red),
+                        ),
+                      ),
+                    if (_yerlesmeyenFilterIndex == 3)
+                      const PopupMenuItem(
+                        value: 'include',
+                        child: Text(
+                          'Kapsama Al',
+                          style: TextStyle(fontSize: 12, color: Colors.green),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+            children: [
+              const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Atama Durumu (Seans Bazlı)',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    ...() {
+                      // Tüm seansları al
+                      final allTimeSlots =
+                          _groups
+                              .map(
+                                (g) =>
+                                    '${g.baslangicSaat}-${g.bitisSaat}#${g.gun}',
+                              )
+                              .toSet()
+                              .toList()
+                            ..sort();
+                      return allTimeSlots.map((slotKey) {
+                        final parts = slotKey.split('#');
+                        final time = parts[0];
+                        final day = parts[1];
+                        final shortTime = time.split('-')[0];
+
+                        final assignment = studentAssigns.firstWhere(
+                          (a) {
+                            final g = _groups.firstWhere(
+                              (g) => g.id == a.groupId,
+                            );
+                            return '${g.baslangicSaat}-${g.bitisSaat}' ==
+                                    time &&
+                                g.gun == day;
+                          },
+                          orElse: () => AgmAssignment(
+                            id: '',
+                            cycleId: '',
+                            groupId: '',
+                            ogrenciId: '',
+                            ogrenciAdi: '',
+                            groupName: '',
+                          ),
+                        );
+
+                        final bool isAssigned = assignment.id.isNotEmpty;
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isAssigned
+                                ? Colors.teal.shade50
+                                : Colors.grey.shade50,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: isAssigned
+                                  ? Colors.teal.shade100
+                                  : Colors.grey.shade200,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 80,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      day,
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    Text(
+                                      shortTime,
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.black54,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Expanded(
+                                child: Text(
+                                  isAssigned
+                                      ? assignment.groupName
+                                      : 'Atama Yapılmadı',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: isAssigned
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
+                                    color: isAssigned
+                                        ? Colors.teal.shade900
+                                        : Colors.grey.shade600,
+                                  ),
+                                ),
+                              ),
+                              if (!isAssigned)
+                                TextButton.icon(
+                                  onPressed: () {
+                                    // Bu seansa ait grupları filtrele
+                                    final slotGroups = _groups
+                                        .where(
+                                          (g) =>
+                                              '${g.baslangicSaat}-${g.bitisSaat}' ==
+                                                  time &&
+                                              g.gun == day,
+                                        )
+                                        .toList();
+                                    _showManualAssignDialog(
+                                      student,
+                                      slotGroups: slotGroups,
+                                    );
+                                  },
+                                  icon: const Icon(
+                                    Icons.add_circle_outline,
+                                    size: 14,
+                                  ),
+                                  label: const Text(
+                                    'Buraya Ata',
+                                    style: TextStyle(fontSize: 10),
+                                  ),
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: Colors.teal,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        );
+                      });
+                    }(),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _excludeStudent(String studentId) async {
+    // Tüm mevcut atamaları bul ve sil
+    final assigns = _assignmentsByGroup.values
+        .expand((l) => l)
+        .where((a) => a.ogrenciId == studentId)
+        .toList();
+    if (assigns.isNotEmpty) {
+      await _service.removeAssignments(assigns);
+      for (var a in assigns) {
+        _assignmentsByGroup[a.groupId]?.removeWhere((x) => x.id == a.id);
+      }
+    }
+
+    // Firestore'da ilgili listelerden çıkarıp excluded listesine ekle
+    final cycleRef = _db.collection('agm_cycles').doc(widget.cycle.id);
+    await cycleRef.update({
+      'unassignedStudentIds': FieldValue.arrayRemove([studentId]),
+      'underAssignedStudentIds': FieldValue.arrayRemove([studentId]),
+      'absentStudentIds': FieldValue.arrayRemove([studentId]),
+      'excludedStudentIds': FieldValue.arrayUnion([studentId]),
+    });
+
+    setState(() {
+      _unassignedStudents.remove(studentId);
+      _underAssignedStudents.remove(studentId);
+      _absentStudents.removeWhere((s) => s['id'] == studentId);
+      if (!_excludedStudents.contains(studentId))
+        _excludedStudents.add(studentId);
+    });
+
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Öğrenci hariç tutulanlar listesine eklendi ve mevcut atamaları silindi.',
+        ),
+        backgroundColor: Colors.orange,
+      ),
+    );
+  }
+
+  Future<void> _includeStudent(String studentId) async {
+    // Firestore'da excluded listesinden çıkar, sonra _loadData ile yeniden durumunu hesapla
+    final cycleRef = _db.collection('agm_cycles').doc(widget.cycle.id);
+    await cycleRef.update({
+      'excludedStudentIds': FieldValue.arrayRemove([studentId]),
+    });
+
+    setState(() {
+      _excludedStudents.remove(studentId);
+    });
+
+    // _loadData() çağırarak öğrencinin durumunu (unassigned, vs.) yeniden hesaplamasını sağlıyoruz
+    await _loadData();
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Öğrenci tekrar kapsama alındı.'),
+        backgroundColor: Colors.green,
+      ),
+    );
+  }
+
+  Future<void> _autoAssignSingleStudent(Map<String, dynamic> student) async {
+    setState(() => _loading = true);
     try {
-      // 1) Aktif derslikleri çek
-      final classroomsSnap = await _db
-          .collection('classrooms')
-          .where('institutionId', isEqualTo: widget.cycle.institutionId)
-          .where('schoolTypeId', isEqualTo: widget.cycle.schoolTypeId)
-          .where('isActive', isEqualTo: true)
-          .get();
+      final studentId = student['id'] as String;
 
-      if (classroomsSnap.docs.isEmpty) return;
+      // Load actual student profiles for this student
+      final allStudents = await _fetchStudentsForCycle();
+      final targetFullStudents = allStudents
+          .where((s) => s['id'] == studentId)
+          .toList();
+      final Set<String> allStudentsWhoEnteredExam = {};
+      final profiles = await _createStudentNeedProfiles(
+        targetFullStudents,
+        (sid) => allStudentsWhoEnteredExam.add(sid),
+      );
 
-      // 2) Derslikleri doğal sıraya göre diz
-      final classroomList = classroomsSnap.docs.map((doc) => {
-        'id': doc.id,
-        'name': doc.data()['classroomName'] ?? '',
-      }).toList();
-      classroomList.sort((a, b) => _compareNatural(a['name']!, b['name']!));
+      final profile = profiles.firstWhere(
+        (p) => p.ogrenciId == studentId,
+        orElse: () => StudentNeedProfile(
+          ogrenciId: studentId,
+          ogrenciAdi: student['name'] ?? 'İsimsiz',
+          subeId: student['subeId'] ?? '',
+          subeAdi: student['branch'] ?? '',
+          dersIhtiyaclari: {},
+        ),
+      );
+      final actualSube = profile.subeAdi.isNotEmpty
+          ? profile.subeAdi
+          : (student['branch'] ?? '');
 
-      // 3) Mevcut derslik kullanımını takip et (Day -> Slot -> List<RoomID>)
-      final Map<String, Map<String, List<String>>> roomUsage = {};
+      final assignedGroupIds = _assignmentsByGroup.entries
+          .where((e) => e.value.any((a) => a.ogrenciId == studentId))
+          .map((e) => e.key)
+          .toSet();
+      final assignedSubjects = <String>{};
+      final occupiedTimeSlots = <String>{};
 
-      // Mevcut manuel atamaları işle
-      for (final g in _groups) {
-        if (g.derslikId != null) {
-          final slot = '${g.baslangicSaat}-${g.bitisSaat}';
-          roomUsage
-              .putIfAbsent(g.gun, () => {})
-              .putIfAbsent(slot, () => [])
-              .add(g.derslikId!);
+      for (final grup in _groups) {
+        if (assignedGroupIds.contains(grup.id)) {
+          assignedSubjects.add(grup.dersAdi);
+          occupiedTimeSlots.add('${grup.baslangicSaat}-${grup.gun}');
         }
       }
 
-      // 4) Atama bekleyen grupları branş bazlı grupla
-      final groupsToAssign = _groups.where((g) => g.derslikId == null).toList();
-      if (groupsToAssign.isEmpty) return;
-
-      final Map<String, List<AgmGroup>> branchGroups = {};
-      for (final g in groupsToAssign) {
-        branchGroups.putIfAbsent(g.dersAdi, () => []).add(g);
+      final subjectLimits = widget.cycle.dersBazliSaatSinirlari;
+      final Map<String, int> studentSubjectHours = {};
+      for (final grup in _groups) {
+        if (assignedGroupIds.contains(grup.id)) {
+          studentSubjectHours[grup.dersAdi] = (studentSubjectHours[grup.dersAdi] ?? 0) + 1;
+          studentSubjectHours[grup.dersId] = (studentSubjectHours[grup.dersId] ?? 0) + 1;
+        }
       }
 
-      final batch = _db.batch();
-      bool anyChange = false;
-
-      // 5) Branş bazlı atama yap
-      for (final branch in branchGroups.keys) {
-        final groupsOfBranch = branchGroups[branch]!;
-        // Gün ve saat sırasına göre diz (peş peşe olması için)
-        groupsOfBranch.sort((a, b) {
-          final c1 = a.gun.compareTo(b.gun);
-          if (c1 != 0) return c1;
-          return a.baslangicSaat.compareTo(b.baslangicSaat);
+      final prioritizedGroups = List<AgmGroup>.from(_groups)
+        ..sort((a, b) {
+          if (subjectLimits.isNotEmpty) {
+            final minA = subjectLimits[a.dersAdi]?['min'] ?? subjectLimits[a.dersId]?['min'] ?? 0;
+            final minB = subjectLimits[b.dersAdi]?['min'] ?? subjectLimits[b.dersId]?['min'] ?? 0;
+            final currentA = studentSubjectHours[a.dersAdi] ?? studentSubjectHours[a.dersId] ?? 0;
+            final currentB = studentSubjectHours[b.dersAdi] ?? studentSubjectHours[b.dersId] ?? 0;
+            final needA = minA - currentA;
+            final needB = minB - currentB;
+            if (needA != needB) return needB.compareTo(needA);
+          }
+          final avgA = _getGroupSuccessAvg(a.id);
+          final avgB = _getGroupSuccessAvg(b.id);
+          return avgA.compareTo(avgB);
         });
 
-        // Bu branşın o gün kullandığı "tercih edilen" dersliği tut
-        final Map<String, String> preferredRoomForBranchOnDay = {};
+      int assignedCount = 0;
+      void attemptAssignment({required bool allowDuplicateSubject}) {
+        for (final grup in prioritizedGroups) {
+          if (grup.isSpecial) continue;
+          if (widget.cycle.haftalikMaksimumSaat != null &&
+              occupiedTimeSlots.length >= widget.cycle.haftalikMaksimumSaat!)
+            break;
 
-        for (final g in groupsOfBranch) {
-          final day = g.gun;
-          final slot = '${g.baslangicSaat}-${g.bitisSaat}';
-          String? selectedRoomId;
-          String? selectedRoomName;
-
-          // Önce bu branşın bu gün kullandığı odayı dene (mümkünse peş peşe)
-          final prefId = preferredRoomForBranchOnDay[day];
-          if (prefId != null) {
-            final usedRoomsInSlot = roomUsage[day]?[slot] ?? [];
-            if (!usedRoomsInSlot.contains(prefId)) {
-              selectedRoomId = prefId;
-            }
+          // Ders bazlı saat limiti kontrolü (Max kotayı asla aşamaz!)
+          final maxSaat = subjectLimits[grup.dersAdi]?['max'] ?? subjectLimits[grup.dersId]?['max'];
+          final currentHours = studentSubjectHours[grup.dersAdi] ?? studentSubjectHours[grup.dersId] ?? 0;
+          if (maxSaat != null && currentHours >= maxSaat) {
+            continue;
           }
 
-          // Tercih edilen oda doluysa veya yoksa boş oda ara
-          if (selectedRoomId == null) {
-            for (final room in classroomList) {
-              final rid = room['id']!;
-              final usedRoomsInSlot = roomUsage[day]?[slot] ?? [];
-              if (!usedRoomsInSlot.contains(rid)) {
-                selectedRoomId = rid;
-                preferredRoomForBranchOnDay[day] = rid; // Yeni tercih bu oda
-                break;
-              }
-            }
+          if (!allowDuplicateSubject &&
+              subjectLimits.isEmpty &&
+              assignedSubjects.contains(grup.dersAdi)) {
+            continue;
           }
+          if (occupiedTimeSlots.contains('${grup.baslangicSaat}-${grup.gun}'))
+            continue;
 
-          if (selectedRoomId != null) {
-            selectedRoomName = classroomList.firstWhere((r) => r['id'] == selectedRoomId)['name'];
-            batch.update(_db.collection('agm_groups').doc(g.id), {
-              'derslikId': selectedRoomId,
-              'derslikAdi': selectedRoomName,
-            });
-            roomUsage.putIfAbsent(day, () => {}).putIfAbsent(slot, () => []).add(selectedRoomId);
-            anyChange = true;
+          final currentAssigns = _assignmentsByGroup[grup.id] ?? [];
+          if (currentAssigns.length < grup.kapasite) {
+            if (assignedGroupIds.contains(grup.id)) continue;
+
+            final actualBasari =
+                profile.dersBasariOranlari[grup.dersId] ??
+                profile.dersBasariOranlari[grup.dersAdi] ??
+                0.5;
+
+            _service.manualAssign(
+              cycleId: widget.cycle.id,
+              ogrenciId: studentId,
+              ogrenciAdi: student['name']?.toString() ?? 'İsimsiz',
+              subeId: student['subeId'] ?? '',
+              subeAdi: actualSube,
+              yeniGrupId: grup.id,
+              yeniGrupAdi: '${grup.dersAdi} - ${grup.ogretmenAdi}',
+              basariOrani: actualBasari,
+              isAbsent: _yerlesmeyenFilterIndex == 0,
+            );
+            assignedCount++;
+
+            occupiedTimeSlots.add('${grup.baslangicSaat}-${grup.gun}');
+            assignedSubjects.add(grup.dersAdi);
+            assignedGroupIds.add(grup.id);
+            studentSubjectHours[grup.dersAdi] = (studentSubjectHours[grup.dersAdi] ?? 0) + 1;
+            studentSubjectHours[grup.dersId] = (studentSubjectHours[grup.dersId] ?? 0) + 1;
           }
         }
       }
 
-      if (anyChange) {
-        await batch.commit();
-        await _loadData(); // _groups listesini Firestore'dan tazele
+      attemptAssignment(allowDuplicateSubject: subjectLimits.isNotEmpty);
+
+      if (assignedCount == 0 ||
+          _yerlesmeyenFilterIndex == 2 ||
+          (widget.cycle.minimumDersSayisi != null &&
+              occupiedTimeSlots.length < widget.cycle.minimumDersSayisi!)) {
+        attemptAssignment(allowDuplicateSubject: true);
       }
+
+      if (assignedCount > 0) {
+        // Eğer öğrenci hariçler listesindeyse ve atandıysa, onu excluded listesinden de çıkaralım
+        if (_excludedStudents.contains(studentId)) {
+          final cycleRef = _db.collection('agm_cycles').doc(widget.cycle.id);
+          await cycleRef.update({
+            'excludedStudentIds': FieldValue.arrayRemove([studentId]),
+          });
+        }
+
+        setState(() {
+          _unassignedStudents.remove(studentId);
+          _underAssignedStudents.remove(studentId);
+          _absentStudents.removeWhere((s) => s['id'] == studentId);
+          _excludedStudents.remove(studentId);
+        });
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Öğrenci $assignedCount seansa başarıyla atandı.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Uygun boş yer bulunamadı.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      await _loadData();
     } catch (e) {
-      print('Derslik otomatik atama hatası: $e');
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+      );
+      if (mounted) setState(() => _loading = false);
     }
   }
 
-  /// Alfanümerik metinleri "doğal" sırada karşılaştırır (1, 2, 10...)
-  int _compareNatural(String a, String b) {
-    final RegExp re = RegExp(r'(\d+)|\D+');
-    final Iterable<Match> aMatch = re.allMatches(a.toLowerCase());
-    final Iterable<Match> bMatch = re.allMatches(b.toLowerCase());
-    final itA = aMatch.iterator;
-    final itB = bMatch.iterator;
-    while (itA.moveNext() && itB.moveNext()) {
-      final aStr = itA.current.group(0)!;
-      final bStr = itB.current.group(0)!;
-      if (itA.current.group(1) != null && itB.current.group(1) != null) {
-        final aNum = int.parse(aStr);
-        final bNum = int.parse(bStr);
-        if (aNum != bNum) return aNum.compareTo(bNum);
-      } else {
-        final cmp = aStr.compareTo(bStr);
-        if (cmp != 0) return cmp;
+  Widget _buildReportsTab() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _buildReportTile(
+          icon: Icons.analytics_rounded,
+          title: 'İşlem ve Değişiklik Logu',
+          subtitle: 'Atama geçmişi ve sistem günlükleri',
+          color: Colors.indigo,
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => AgmReportsScreen(
+                institutionId: widget.cycle.institutionId,
+                cycleId: widget.cycle.id,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        _buildReportTile(
+          icon: Icons.person_pin_rounded,
+          title: 'Öğrenci Haftalık Takvim',
+          subtitle: 'Bireysel öğrenci ders programları',
+          color: Colors.teal,
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => AgmStudentTimetableScreen(
+                cycle: widget.cycle,
+                groups: _groups,
+                assignmentsByGroup: _assignmentsByGroup,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        _buildReportTile(
+          icon: Icons.assignment_ind_rounded,
+          title: 'Öğretmen Haftalık Takvim',
+          subtitle: 'Öğretmen programları ve listeler',
+          color: Colors.amber.shade700,
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => AgmTeacherTimetableScreen(
+                cycle: widget.cycle,
+                groups: _groups,
+                assignmentsByGroup: _assignmentsByGroup,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        _buildReportTile(
+          icon: Icons.meeting_room_rounded,
+          title: 'Derslik Haftalık Takvim',
+          subtitle: 'Derslik doluluk ve program detayları',
+          color: Colors.pink.shade600,
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => AgmClassroomTimetableScreen(
+                cycle: widget.cycle,
+                groups: _groups,
+                assignmentsByGroup: _assignmentsByGroup,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildReportTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.08),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: IntrinsicHeight(
+            child: Row(
+              children: [
+                Container(width: 6, color: color),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: color.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Icon(icon, color: color, size: 28),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                title,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                subtitle,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          color: Colors.grey.shade300,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showGenerateDraftSheet() {
+    final subjects =
+        _groups
+            .where((g) => !g.isSpecial)
+            .map((g) => g.dersAdi)
+            .toSet()
+            .toList()
+          ..sort();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _DraftGenerateSheet(
+        cycle: widget.cycle,
+        availableSubjects: subjects,
+        onGenerate:
+            (
+              esik,
+              sadeceDusuk,
+              dersBazli,
+              minGrup,
+              pastCycles,
+              soruCozumActive,
+              soruCozumThreshold,
+              dersBazliSaatSinirlari,
+              dersBazliZorlaAtama,
+            ) async {
+              Navigator.pop(ctx);
+              await _executeGenerate(
+                esik,
+                sadeceDusuk,
+                dersBazli,
+                minGrup,
+                pastCycles,
+                soruCozumActive,
+                soruCozumThreshold,
+                dersBazliSaatSinirlari,
+                dersBazliZorlaAtama,
+              );
+            },
+      ),
+    );
+  }
+
+  Future<void> _executeGenerate(
+    double esik,
+    bool sadeceDusuk,
+    Map<String, double> dersBazli,
+    int minGrup,
+    List<String> pastCycles,
+    bool soruCozumActive,
+    double soruCozumThreshold,
+    Map<String, Map<String, int>> dersBazliSaatSinirlari,
+    bool dersBazliZorlaAtama,
+  ) async {
+    setState(() => _generating = true);
+    try {
+      final students = await _fetchStudentsForCycle();
+      students.removeWhere((s) => _excludedStudents.contains(s['id']));
+
+      final Set<String> allStudentsWhoEnteredExam = {};
+      final profiles = await _createStudentNeedProfiles(
+        students,
+        (sid) => allStudentsWhoEnteredExam.add(sid),
+      );
+      final List<Map<String, dynamic>> absent = students
+          .where((s) => !allStudentsWhoEnteredExam.contains(s['id']))
+          .map(
+            (s) => {
+              'id': s['id'],
+              'name': (s['fullName'] ?? s['name'] ?? 'İsimsiz').toString(),
+              'branch': (s['className'] ?? s['branch'] ?? '').toString(),
+              'subeId': s['branchId'] ?? '',
+            },
+          )
+          .toList();
+
+      final engine = AgmAssignmentEngine(
+        cycleId: widget.cycle.id,
+        institutionId: widget.cycle.institutionId,
+        haftalikMaksimumSaat: widget.cycle.haftalikMaksimumSaat,
+        minimumGrupOgrenciSayisi: minGrup,
+      );
+      engine.setMinimumDersSayisi(widget.cycle.minimumDersSayisi);
+
+      Map<String, Map<String, int>> gecmisKatilimlar = {};
+      if (pastCycles.isNotEmpty) {
+        for (var pid in pastCycles) {
+          final snap = await _db
+              .collection('agm_assignments')
+              .where('cycleId', isEqualTo: pid)
+              .get();
+          for (var doc in snap.docs) {
+            final data = doc.data();
+            final ogrenciId = data['ogrenciId'] as String?;
+            final groupName = data['groupName'] as String?;
+            if (ogrenciId != null && groupName != null) {
+              final dersAdi = groupName.split(' - ').first.trim();
+              gecmisKatilimlar.putIfAbsent(ogrenciId, () => {});
+              gecmisKatilimlar[ogrenciId]![dersAdi] =
+                  (gecmisKatilimlar[ogrenciId]![dersAdi] ?? 0) + 1;
+            }
+          }
+        }
+      }
+
+      final specialGroupIds = _groups
+          .where((g) => g.isSpecial)
+          .map((e) => e.id)
+          .toSet();
+      final existingSpecialAssigns = _assignmentsByGroup.values
+          .expand((a) => a)
+          .where(
+            (a) =>
+                specialGroupIds.contains(a.groupId) &&
+                !_excludedStudents.contains(a.ogrenciId),
+          )
+          .toList();
+
+      final draftResult = await engine.generateDraft(
+        ogrenciProfiller: profiles,
+        gruplar: _groups,
+        esikBasariOrani: esik,
+        sadeceDusukBasari: sadeceDusuk,
+        dersBazliEsikler: dersBazli,
+        gecmisKatilimlar: gecmisKatilimlar,
+        specialClassCriteria: widget.cycle.specialClassCriteria,
+        mevcutAtamalar: existingSpecialAssigns,
+        highSuccessSoruCozumActive: soruCozumActive,
+        highSuccessSoruCozumThreshold: soruCozumThreshold,
+        dersBazliSaatSinirlari: dersBazliSaatSinirlari,
+        dersBazliZorlaAtama: dersBazliZorlaAtama,
+      );
+
+      final Map<String, List<String>> allReasons = Map.from(
+        draftResult.yerlesmemeNedenleri,
+      );
+      for (final a in absent)
+        allReasons
+            .putIfAbsent(a['id'].toString(), () => [])
+            .add('Sınava girmedi, analiz verisi yok.');
+
+      // Özel sınıf atamalarını koruyarak silme işlemi yapalım
+      final snap = await _db
+          .collection('agm_assignments')
+          .where('cycleId', isEqualTo: widget.cycle.id)
+          .get();
+      final refsToDelete = snap.docs
+          .where((d) {
+            final gid = d.data()['groupId'] as String;
+            if (existingSpecialAssigns.isEmpty) return true;
+            return !specialGroupIds.contains(gid);
+          })
+          .map((d) => d.reference)
+          .toList();
+      await _repo.batchDeleteByRefs(refsToDelete);
+
+      // Yeni atamaları yaz
+      final newAssignments = existingSpecialAssigns.isEmpty
+          ? draftResult.atamalar
+          : draftResult.atamalar
+                .where((a) => !specialGroupIds.contains(a.groupId))
+                .toList();
+      await _repo.batchWriteAssignments(newAssignments);
+
+      await _repo.batchUpdateGroups(draftResult.gruplar);
+
+      final Map<String, dynamic> cycleUpdateData = {
+        'unassignedStudentIds': draftResult.yerlesmeyenOgrenciIds,
+        'underAssignedStudentIds': draftResult.eksikAtananOgrenciIds,
+        'absentStudentIds': absent.map((a) => a['id'].toString()).toList(),
+        'unassignedReasons': allReasons,
+      };
+      if (existingSpecialAssigns.isEmpty && widget.cycle.isSpecialClassActive) {
+        cycleUpdateData['specialClassGenerated'] = true;
+      }
+      await _db
+          .collection('agm_cycles')
+          .doc(widget.cycle.id)
+          .update(cycleUpdateData);
+
+      await _loadData();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Dağıtım başarıyla tamamlandı!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+      );
+    } finally {
+      setState(() => _generating = false);
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchStudentsForCycle() async {
+    final List<String> examIds = widget.cycle.referansDenemeSinavIds.isNotEmpty
+        ? widget.cycle.referansDenemeSinavIds
+        : [widget.cycle.referansDenemeSinavId];
+    final Set<String> studentIds = {};
+    final List<Map<String, dynamic>> students = [];
+    for (var eid in examIds) {
+      final doc = await _db.collection('trial_exams').doc(eid).get();
+      if (!doc.exists) continue;
+      final branches = (doc.data()!['selectedBranches'] as List<dynamic>? ?? [])
+          .map((e) => e.toString())
+          .toList();
+      final classLevel = doc.data()!['classLevel']?.toString() ?? '';
+      if (branches.isNotEmpty) {
+        for (var b in branches) {
+          final sSnap = await _db
+              .collection('students')
+              .where('institutionId', isEqualTo: widget.cycle.institutionId)
+              .where('className', isEqualTo: b)
+              .where('isActive', isEqualTo: true)
+              .get();
+          for (var sDoc in sSnap.docs)
+            if (!studentIds.contains(sDoc.id)) {
+              students.add({...sDoc.data(), 'id': sDoc.id});
+              studentIds.add(sDoc.id);
+            }
+        }
+      } else if (classLevel.isNotEmpty) {
+        final sSnap = await _db
+            .collection('students')
+            .where('institutionId', isEqualTo: widget.cycle.institutionId)
+            .where('classLevel', isEqualTo: classLevel)
+            .where('isActive', isEqualTo: true)
+            .get();
+        for (var sDoc in sSnap.docs)
+          if (!studentIds.contains(sDoc.id)) {
+            students.add({...sDoc.data(), 'id': sDoc.id});
+            studentIds.add(sDoc.id);
+          }
       }
     }
-    return a.length.compareTo(b.length);
+    return students;
+  }
+
+  Future<List<StudentNeedProfile>> _createStudentNeedProfiles(
+    List<Map<String, dynamic>> students,
+    Function(String) onStudentEntered,
+  ) async {
+    final List<String> examIds = widget.cycle.referansDenemeSinavIds.isNotEmpty
+        ? widget.cycle.referansDenemeSinavIds
+        : [widget.cycle.referansDenemeSinavId];
+    final Map<String, Map<String, double>> studentSubjectSuccess = {};
+    final Map<String, Map<String, Set<String>>> studentSubjectTopics = {};
+    final Map<String, List<double>> studentScoresList = {};
+
+    for (var eid in examIds) {
+      final doc = await _db.collection('trial_exams').doc(eid).get();
+      if (doc.exists && doc.data()!['resultsJson'] != null) {
+        try {
+          final examData = doc.data()!;
+          final outcomesMapRaw =
+              examData['outcomes'] as Map<String, dynamic>? ?? {};
+          final Map<String, Map<String, List<String>>> examOutcomes = {};
+          outcomesMapRaw.forEach((booklet, subjects) {
+            if (subjects is Map<String, dynamic>) {
+              examOutcomes[booklet] = subjects.map(
+                (k, v) => MapEntry(
+                  k,
+                  (v as List<dynamic>).map((e) => e.toString()).toList(),
+                ),
+              );
+            }
+          });
+
+          final List<dynamic> results = jsonDecode(examData['resultsJson']);
+          for (var r in results) {
+            final sr = StudentResult.fromJson(r);
+            if (sr.systemStudentId != null) {
+              onStudentEntered(sr.systemStudentId!);
+              final Map<String, double> successMap = studentSubjectSuccess
+                  .putIfAbsent(sr.systemStudentId!, () => {});
+              final Map<String, Set<String>> topicMap = studentSubjectTopics
+                  .putIfAbsent(sr.systemStudentId!, () => {});
+              final scoreList = studentScoresList.putIfAbsent(
+                sr.systemStudentId!,
+                () => [],
+              );
+              scoreList.add(sr.score);
+
+              sr.subjects.forEach((ders, stats) {
+                final totalQ = stats.correct + stats.wrong + stats.empty;
+                if (totalQ > 0) {
+                  final current = stats.correct / totalQ;
+                  successMap[ders] = successMap.containsKey(ders)
+                      ? (successMap[ders]! + current) / 2
+                      : current;
+
+                  if (current < 0.6) {
+                    final studentAnswers = sr.answers[ders] ?? '';
+                    final correctAnswers = sr.correctAnswers[ders] ?? '';
+                    final booklet = sr.booklet.isNotEmpty ? sr.booklet[0] : 'A';
+                    final subjectOutcomes = examOutcomes[booklet]?[ders] ?? [];
+
+                    final topics = topicMap.putIfAbsent(ders, () => {});
+                    for (
+                      int i = 0;
+                      i < studentAnswers.length && i < correctAnswers.length;
+                      i++
+                    ) {
+                      if (studentAnswers[i] != correctAnswers[i] &&
+                          i < subjectOutcomes.length) {
+                        final kazanim = subjectOutcomes[i];
+                        if (kazanim.isNotEmpty && kazanim != '-')
+                          topics.add(kazanim);
+                      }
+                    }
+                  }
+                }
+              });
+            }
+          }
+        } catch (silentError) { debugPrint('[agm_group_grid_screen] hata yutuldu: $silentError'); }
+      }
+    }
+    return students
+        .where((s) => studentSubjectSuccess.containsKey(s['id']))
+        .map((s) {
+          final sid = s['id'] as String;
+          final success = studentSubjectSuccess[sid]!;
+          final topics = studentSubjectTopics[sid] ?? {};
+          final scores = studentScoresList[sid] ?? [];
+          final avgScore = scores.isEmpty
+              ? 0.0
+              : scores.reduce((a, b) => a + b) / scores.length;
+          return StudentNeedProfile(
+            ogrenciId: sid,
+            ogrenciAdi: s['fullName'] ?? '${s['name']} ${s['surname']}',
+            subeId: s['branchId'] ?? '',
+            subeAdi: (s['className'] ?? s['branch'] ?? '').toString(),
+            examScore: avgScore,
+            dersIhtiyaclari: success.map(
+              (k, v) => MapEntry(k, (1.0 - v).clamp(0.0, 1.0)),
+            ),
+            dersBasariOranlari: success,
+            kazanimIhtiyaclari: topics,
+          );
+        })
+        .toList();
   }
 }
-
-// ─── TASLAK OLUŞTURMA BOTTOM SHEET ───────────────────────────────────────────
 
 class _DraftGenerateSheet extends StatefulWidget {
   final AgmCycle cycle;
   final List<String> availableSubjects;
-  final Future<void> Function({
-    required double esikBasariOrani,
-    required bool sadeceDusukBasari,
-    required Map<String, double> dersBazliEsikler,
-    required int minGroupSize,
-  }) onGenerate;
-
+  final Future<void> Function(
+    double esik,
+    bool sadeceDusuk,
+    Map<String, double> dersBazli,
+    int minGrup,
+    List<String> pastCycles,
+    bool soruCozumActive,
+    double soruCozumThreshold,
+    Map<String, Map<String, int>> dersBazliSaatSinirlari,
+    bool dersBazliZorlaAtama,
+  )
+  onGenerate;
   const _DraftGenerateSheet({
     required this.cycle,
     required this.availableSubjects,
     required this.onGenerate,
   });
-
   @override
   State<_DraftGenerateSheet> createState() => _DraftGenerateSheetState();
 }
 
 class _DraftGenerateSheetState extends State<_DraftGenerateSheet> {
-  double _esikBasariOrani = 0.6; // %60 altı = etüt gerekli
+  double _esikBasariOrani = 0.6;
   bool _sadeceDusukBasari = true;
   bool _loading = false;
   bool _dersBazliAcik = false;
-  int _minGrupOgrenci = 5;
+  late int _minGrupOgrenci;
   final Map<String, double> _dersBazliEsikler = {};
+
+  bool _soruCozumActive = true;
+  double _soruCozumThreshold = 0.95;
+
+  bool _dengele = false;
+  final List<String> _selectedPastCycles = [];
+  List<Map<String, dynamic>> _availablePastCycles = [];
+
+  // Ders bazlı saat sınırları
+  bool _dersBazliSaatAktif = false;
+  bool _dersBazliZorlaAtama = true;
+  final Map<String, Map<String, int>> _dersBazliSaatSinirlari = {};
 
   @override
   void initState() {
     super.initState();
-    for (final sub in widget.availableSubjects) {
+    _minGrupOgrenci = widget.cycle.minimumGrupOgrenciSayisi ?? 5;
+    for (final sub in widget.availableSubjects)
       _dersBazliEsikler[sub] = _esikBasariOrani;
+    _soruCozumActive = widget.cycle.highSuccessSoruCozumActive;
+    _soruCozumThreshold = widget.cycle.highSuccessSoruCozumThreshold;
+    // Mevcut ders bazlı saat sınırlarını yükle
+    if (widget.cycle.dersBazliSaatSinirlari.isNotEmpty) {
+      _dersBazliSaatAktif = true;
+      _dersBazliSaatSinirlari.addAll(widget.cycle.dersBazliSaatSinirlari);
+      _dersBazliZorlaAtama = widget.cycle.dersBazliZorlaAtama;
+    }
+    _fetchPastCycles();
+  }
+
+  Future<void> _fetchPastCycles() async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('agm_cycles')
+          .where('institutionId', isEqualTo: widget.cycle.institutionId)
+          .get();
+      final cycles = snap.docs
+          .map(
+            (d) => {'id': d.id, 'name': d.data()['title'] ?? 'İsimsiz Program'},
+          )
+          .where((c) => c['id'] != widget.cycle.id)
+          .toList();
+      if (mounted) setState(() => _availablePastCycles = cycles);
+    } catch (silentError) { debugPrint('[agm_group_grid_screen] hata yutuldu: $silentError'); }
+  }
+
+  void _initDersBazliSaatSinirlari() {
+    for (final sub in widget.availableSubjects) {
+      _dersBazliSaatSinirlari.putIfAbsent(sub, () => {'min': 1, 'max': 3});
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       padding: EdgeInsets.only(
         left: 20,
         right: 20,
@@ -3917,12 +5039,12 @@ class _DraftGenerateSheetState extends State<_DraftGenerateSheet> {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Colors.deepOrange.shade50,
+                  color: Colors.orange.shade50,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Icon(
                   Icons.auto_fix_high,
-                  color: Colors.deepOrange,
+                  color: Colors.orange,
                   size: 20,
                 ),
               ),
@@ -3932,7 +5054,7 @@ class _DraftGenerateSheetState extends State<_DraftGenerateSheet> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Taslak Oluştur',
+                      'Dağıtım Yap / Taslak Oluştur',
                       style: TextStyle(
                         fontSize: 17,
                         fontWeight: FontWeight.bold,
@@ -3948,14 +5070,11 @@ class _DraftGenerateSheetState extends State<_DraftGenerateSheet> {
             ],
           ),
           const Divider(height: 28),
-
           Flexible(
             child: SingleChildScrollView(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Grup Kotaları
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     child: Row(
@@ -3973,7 +5092,10 @@ class _DraftGenerateSheetState extends State<_DraftGenerateSheet> {
                               ),
                               Text(
                                 'Grup minimum öğrenci sayısını belirle',
-                                style: TextStyle(fontSize: 11, color: Colors.grey),
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey,
+                                ),
                               ),
                             ],
                           ),
@@ -3983,246 +5105,503 @@ class _DraftGenerateSheetState extends State<_DraftGenerateSheet> {
                           child: TextFormField(
                             initialValue: _minGrupOgrenci.toString(),
                             keyboardType: TextInputType.number,
-                            maxLength: 2,
                             textAlign: TextAlign.center,
                             style: const TextStyle(
                               fontWeight: FontWeight.bold,
-                              color: Colors.deepOrange,
+                              color: Colors.orange,
                             ),
                             decoration: InputDecoration(
                               isDense: true,
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 10,
-                              ),
                               filled: true,
-                              fillColor: Colors.deepOrange.shade50,
-                              counterText: "",
+                              fillColor: Colors.orange.shade50,
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(10),
                                 borderSide: BorderSide.none,
                               ),
                             ),
-                            onChanged: (v) => _minGrupOgrenci = int.tryParse(v) ?? 0,
+                            onChanged: (v) =>
+                                _minGrupOgrenci = int.tryParse(v) ?? 0,
                           ),
                         ),
                       ],
                     ),
                   ),
-
                   const Divider(height: 24),
 
-                  // Sadece düşük başarılı
+                  // ... DERS BAZLI SAAT SINIRLARI ...
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    value: _sadeceDusukBasari,
-                    onChanged: (v) => setState(() => _sadeceDusukBasari = v),
-                    activeColor: Colors.deepOrange,
+                    value: _dersBazliSaatAktif,
+                    onChanged: (v) => setState(() {
+                      _dersBazliSaatAktif = v;
+                      if (v) _initDersBazliSaatSinirlari();
+                    }),
+                    activeThumbColor: Colors.deepPurple,
                     title: const Text(
-                      'Sadece düşük başarılı dersler',
+                      'Ders Bazlı Saat Sınırları',
                       style: TextStyle(fontWeight: FontWeight.w600),
                     ),
                     subtitle: const Text(
-                      'Kapalıysa tüm dersler için etüt atanır',
+                      'Her ders için min/max saat belirle',
                       style: TextStyle(fontSize: 11),
                     ),
-                  ),
-
-                  if (_sadeceDusukBasari) ...[
-                    const SizedBox(height: 12),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      value: _dersBazliAcik,
-                      onChanged: (v) => setState(() {
-                        _dersBazliAcik = v;
-                        if (v) {
-                          // Ders bazlı açıldığında genel eşiğe eşitle
-                          for (final sub in widget.availableSubjects) {
-                            _dersBazliEsikler[sub] = _esikBasariOrani;
-                          }
-                        }
-                      }),
-                      activeColor: Colors.deepOrange,
-                      title: const Text(
-                        'Ders bazlı eşik belirle',
-                        style: TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      subtitle: const Text(
-                        'Her ders için farklı bir başarı eşiği tanımlayın',
-                        style: TextStyle(fontSize: 11),
-                      ),
+                    secondary: Icon(
+                      Icons.schedule,
+                      color: _dersBazliSaatAktif
+                          ? Colors.deepPurple
+                          : Colors.grey,
                     ),
-
-                    const SizedBox(height: 12),
-
-                    if (!_dersBazliAcik) ...[
-                      // Başarı eşik ayarı (Genel)
-                      Row(
+                  ),
+                  if (_dersBazliSaatAktif) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.deepPurple.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.deepPurple.shade100),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Başarı Eşiği',
-                                  style: TextStyle(fontWeight: FontWeight.w600),
-                                ),
-                                Text(
-                                  'Bu oranın altındaki dersler için etüt atanır',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.grey,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.deepOrange.shade50,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              '%${(_esikBasariOrani * 100).toStringAsFixed(0)}',
-                              style: TextStyle(
-                                color: Colors.deepOrange.shade700,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      Slider(
-                        value: _esikBasariOrani,
-                        min: 0.0,
-                        max: 1.0,
-                        divisions: 20,
-                        activeColor: Colors.deepOrange,
-                        onChanged: (v) => setState(() => _esikBasariOrani = v),
-                      ),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            '%0',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.grey.shade500,
-                            ),
-                          ),
-                          Text(
-                            '%100',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.grey.shade500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ] else if (widget.availableSubjects.isNotEmpty) ...[
-                      Container(
-                        margin: const EdgeInsets.only(top: 8),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade50,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.grey.shade200),
-                        ),
-                        child: Column(
-                          children: widget.availableSubjects.map((sub) {
+                          ...widget.availableSubjects.map((sub) {
+                            final limits =
+                                _dersBazliSaatSinirlari[sub] ??
+                                {'min': 1, 'max': 3};
                             return Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 4),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                              padding: const EdgeInsets.symmetric(vertical: 6),
+                              child: Row(
                                 children: [
-                                  Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text(
-                                        sub,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w600,
-                                          fontSize: 13,
-                                        ),
+                                  Expanded(
+                                    flex: 3,
+                                    child: Text(
+                                      sub,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13,
                                       ),
-                                      Text(
-                                        '%${((_dersBazliEsikler[sub] ?? 0.6) * 100).toStringAsFixed(0)}',
-                                        style: TextStyle(
-                                          color: Colors.deepOrange.shade700,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 13,
-                                        ),
-                                      ),
-                                    ],
+                                    ),
                                   ),
-                                  Slider(
-                                    value: _dersBazliEsikler[sub] ?? 0.6,
-                                    min: 0.0,
-                                    max: 1.0,
-                                    divisions: 20,
-                                    activeColor: Colors.deepOrange.shade300,
-                                    inactiveColor: Colors.deepOrange.shade100,
-                                    onChanged: (v) => setState(
-                                      () => _dersBazliEsikler[sub] = v,
+                                  const Text(
+                                    'Min:',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  SizedBox(
+                                    width: 40,
+                                    child: TextFormField(
+                                      initialValue: (limits['min'] ?? 1)
+                                          .toString(),
+                                      keyboardType: TextInputType.number,
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.deepPurple.shade700,
+                                        fontSize: 13,
+                                      ),
+                                      decoration: InputDecoration(
+                                        isDense: true,
+                                        filled: true,
+                                        fillColor: Colors.white,
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              vertical: 6,
+                                            ),
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                          borderSide: BorderSide(
+                                            color: Colors.deepPurple.shade200,
+                                          ),
+                                        ),
+                                      ),
+                                      onChanged: (v) => setState(
+                                        () => _dersBazliSaatSinirlari[sub] = {
+                                          ...limits,
+                                          'min': int.tryParse(v) ?? 1,
+                                        },
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  const Text(
+                                    'Max:',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  SizedBox(
+                                    width: 40,
+                                    child: TextFormField(
+                                      initialValue: (limits['max'] ?? 3)
+                                          .toString(),
+                                      keyboardType: TextInputType.number,
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.deepPurple.shade700,
+                                        fontSize: 13,
+                                      ),
+                                      decoration: InputDecoration(
+                                        isDense: true,
+                                        filled: true,
+                                        fillColor: Colors.white,
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              vertical: 6,
+                                            ),
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                          borderSide: BorderSide(
+                                            color: Colors.deepPurple.shade200,
+                                          ),
+                                        ),
+                                      ),
+                                      onChanged: (v) => setState(
+                                        () => _dersBazliSaatSinirlari[sub] = {
+                                          ...limits,
+                                          'max': int.tryParse(v) ?? 3,
+                                        },
+                                      ),
                                     ),
                                   ),
                                 ],
                               ),
                             );
-                          }).toList(),
-                        ),
+                          }),
+                          const Divider(height: 16),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            dense: true,
+                            value: _dersBazliZorlaAtama,
+                            onChanged: (v) =>
+                                setState(() => _dersBazliZorlaAtama = v),
+                            activeThumbColor: Colors.deepPurple,
+                            title: const Text(
+                              'Minimum saate ulaşamayan öğrencileri zorla ata',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w500,
+                                fontSize: 12,
+                              ),
+                            ),
+                            subtitle: const Text(
+                              'Kapalıysa sadece raporlanır',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.deepPurple.shade100.withValues(
+                                alpha: 0.3,
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.info_outline,
+                                  color: Colors.deepPurple.shade400,
+                                  size: 16,
+                                ),
+                                const SizedBox(width: 6),
+                                const Expanded(
+                                  child: Text(
+                                    'Aktif olduğunda "sadece düşük başarılı" filtresi devre dışı kalır. Öğrenciler başarı yakınlığına göre gruplanır.',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.deepPurple,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
+                    const SizedBox(height: 12),
                   ],
 
-                  const SizedBox(height: 16),
-
-                  // Bilgi kutusu
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade50,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.blue.shade100),
+                  if (!_dersBazliSaatAktif) ...[
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: _sadeceDusukBasari,
+                      onChanged: (v) => setState(() => _sadeceDusukBasari = v),
+                      activeThumbColor: Colors.orange,
+                      title: const Text(
+                        'Sadece düşük başarılı dersler',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: const Text(
+                        'Kapalıysa tüm dersler için atama yapılır',
+                        style: TextStyle(fontSize: 11),
+                      ),
                     ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(
-                          Icons.info_outline,
-                          color: Colors.blue.shade700,
-                          size: 18,
+                    if (_sadeceDusukBasari) ...[
+                      const SizedBox(height: 12),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: _dersBazliAcik,
+                        onChanged: (v) => setState(() {
+                          _dersBazliAcik = v;
+                          if (v) {
+                            for (final sub in widget.availableSubjects) {
+                              _dersBazliEsikler[sub] = _esikBasariOrani;
+                            }
+                          }
+                        }),
+                        activeThumbColor: Colors.orange,
+                        title: const Text(
+                          'Ders bazlı eşik belirle',
+                          style: TextStyle(fontWeight: FontWeight.w600),
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Sınav: ${widget.cycle.referansDenemeSinavAdi}\n'
-                            'Mevcut sınav sonuçları analiz edilecek. Sınava girmeyen öğrenciler ayrı listede görünecek.',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.blue.shade800,
+                        subtitle: const Text(
+                          'Her ders için farklı bir başarı eşiği tanımlayın',
+                          style: TextStyle(fontSize: 11),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      if (!_dersBazliAcik) ...[
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'Başarı Eşiği',
+                              style: TextStyle(fontWeight: FontWeight.w600),
                             ),
+                            Text(
+                              '%${(_esikBasariOrani * 100).toStringAsFixed(0)}',
+                              style: const TextStyle(
+                                color: Colors.orange,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Slider(
+                          value: _esikBasariOrani,
+                          min: 0.0,
+                          max: 1.0,
+                          divisions: 20,
+                          activeColor: Colors.orange,
+                          onChanged: (v) =>
+                              setState(() => _esikBasariOrani = v),
+                        ),
+                      ] else ...[
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.grey.shade200),
+                          ),
+                          child: Column(
+                            children: widget.availableSubjects
+                                .map(
+                                  (sub) => Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text(
+                                            sub,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w600,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                          Text(
+                                            '%${((_dersBazliEsikler[sub] ?? 0.6) * 100).toStringAsFixed(0)}',
+                                            style: const TextStyle(
+                                              color: Colors.orange,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      Slider(
+                                        value: _dersBazliEsikler[sub] ?? 0.6,
+                                        min: 0.0,
+                                        max: 1.0,
+                                        divisions: 20,
+                                        activeColor: Colors.orange.shade300,
+                                        onChanged: (v) => setState(
+                                          () => _dersBazliEsikler[sub] = v,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                                .toList(),
                           ),
                         ),
                       ],
+                    ],
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.blue.shade100),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.info_outline,
+                            color: Colors.blue.shade700,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 8),
+                          const Expanded(
+                            child: Text(
+                              'Mevcut sınav sonuçları analiz edilecek. Sınava girmeyen öğrenciler ayrı listede görünecek.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.blue,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _soruCozumActive,
+            onChanged: (v) => setState(() => _soruCozumActive = v),
+            activeThumbColor: Colors.orange,
+            title: const Text(
+              'Başarılı Sınıfları Soru Çözüm Yap',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            subtitle: const Text(
+              'Başarılı sınıflara otomatik olarak Soru Çözüm atanır',
+              style: TextStyle(fontSize: 11),
+            ),
+          ),
+          if (_soruCozumActive) ...[
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Soru Çözüm Eşiği',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                Text(
+                  '%${(_soruCozumThreshold * 100).toStringAsFixed(0)}',
+                  style: const TextStyle(
+                    color: Colors.orange,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+              ],
+            ),
+            Slider(
+              value: _soruCozumThreshold,
+              min: 0.0,
+              max: 1.0,
+              divisions: 20,
+              activeColor: Colors.orange,
+              onChanged: (v) => setState(() => _soruCozumThreshold = v),
+            ),
+          ],
+          const SizedBox(height: 12),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _dengele,
+            onChanged: (v) => setState(() => _dengele = v),
+            activeThumbColor: Colors.teal,
+            title: const Text(
+              'Geçmiş Katılımları Dengele',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            subtitle: const Text(
+              'Diğer programlardaki katılımları analiz eder',
+              style: TextStyle(fontSize: 11),
+            ),
+          ),
+          if (_dengele && _availablePastCycles.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.teal.shade50,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Referans alınacak programları seçin:',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.teal,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: _availablePastCycles.map((c) {
+                        final isSelected = _selectedPastCycles.contains(
+                          c['id'],
+                        );
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text(
+                              c['name'],
+                              style: const TextStyle(fontSize: 11),
+                            ),
+                            selected: isSelected,
+                            selectedColor: Colors.teal.shade200,
+                            onSelected: (val) {
+                              setState(() {
+                                if (val)
+                                  _selectedPastCycles.add(c['id']);
+                                else
+                                  _selectedPastCycles.remove(c['id']);
+                              });
+                            },
+                          ),
+                        );
+                      }).toList(),
                     ),
                   ),
                 ],
               ),
             ),
-          ),
-
+            const SizedBox(height: 12),
+          ],
           const SizedBox(height: 20),
-
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
@@ -4231,12 +5610,15 @@ class _DraftGenerateSheetState extends State<_DraftGenerateSheet> {
                   : () async {
                       setState(() => _loading = true);
                       await widget.onGenerate(
-                        esikBasariOrani: _esikBasariOrani,
-                        sadeceDusukBasari: _sadeceDusukBasari,
-                        dersBazliEsikler: _dersBazliAcik
-                            ? _dersBazliEsikler
-                            : {},
-                        minGroupSize: _minGrupOgrenci,
+                        _esikBasariOrani,
+                        _dersBazliSaatAktif ? false : _sadeceDusukBasari,
+                        _dersBazliAcik ? _dersBazliEsikler : {},
+                        _minGrupOgrenci,
+                        _dengele ? _selectedPastCycles : [],
+                        _soruCozumActive,
+                        _soruCozumThreshold,
+                        _dersBazliSaatAktif ? _dersBazliSaatSinirlari : {},
+                        _dersBazliZorlaAtama,
                       );
                     },
               icon: _loading
@@ -4251,7 +5633,7 @@ class _DraftGenerateSheetState extends State<_DraftGenerateSheet> {
                   : const Icon(Icons.play_arrow_rounded),
               label: const Text('Algoritmayı Çalıştır'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.deepOrange,
+                backgroundColor: Colors.orange.shade700,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(

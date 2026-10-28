@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -506,7 +506,7 @@ class _SchoolTypeLeaveApprovalScreenState extends State<SchoolTypeLeaveApprovalS
           absentBranch = (data['branches'] as List).first.toString();
         }
       }
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[school_type_leave_approval_screen] hata yutuldu: $silentError'); }
 
     final teachers = await _conflictService.findFreeTeachers(
       institutionId: widget.institutionId,
@@ -636,7 +636,7 @@ class _SchoolTypeLeaveApprovalScreenState extends State<SchoolTypeLeaveApprovalS
           absentBranch = (data['branches'] as List).first.toString();
         }
       }
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[school_type_leave_approval_screen] hata yutuldu: $silentError'); }
 
     final Map<String, Set<int>> assignedThisBatch = {};
     final Map<String, int> sessionAssignmentCounts = {};
@@ -822,7 +822,7 @@ class _SchoolTypeLeaveApprovalScreenState extends State<SchoolTypeLeaveApprovalS
         Navigator.pop(context, true);
       }
     } catch (e) {
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata: $e')));
     } finally {
@@ -874,7 +874,7 @@ class _SchoolTypeLeaveApprovalScreenState extends State<SchoolTypeLeaveApprovalS
         );
         if (mounted) Navigator.pop(context, true);
       } catch (e) {
-        ScaffoldMessenger.of(
+        if (mounted) ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Hata: $e')));
       } finally {

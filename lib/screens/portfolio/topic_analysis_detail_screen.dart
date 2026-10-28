@@ -1,14 +1,20 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 
 class TopicAnalysisDetailScreen extends StatefulWidget {
   final Map<String, Map<String, Map<String, double>>> allSubjectStats;
   final String studentName;
+  final List<String>? definedSubjectOrder;
+  final int analyzedExamCount;
+  final String? initialSubject;
 
   const TopicAnalysisDetailScreen({
     Key? key,
     required this.allSubjectStats,
     required this.studentName,
+    this.definedSubjectOrder,
+    this.analyzedExamCount = 1,
+    this.initialSubject,
   }) : super(key: key);
 
   @override
@@ -20,16 +26,6 @@ class _TopicAnalysisDetailScreenState extends State<TopicAnalysisDetailScreen> {
   late String _selectedSubject;
   late List<String> _orderedSubjects;
 
-  // Subject order based on exam type
-  final List<String> _subjectOrder = [
-    'Türkçe',
-    'Sosyal Bilgiler',
-    'Din Kültürü ve Ahlak Bilgisi',
-    'İngilizce',
-    'Matematik',
-    'Fen Bilimleri',
-  ];
-
   @override
   void initState() {
     super.initState();
@@ -38,8 +34,10 @@ class _TopicAnalysisDetailScreenState extends State<TopicAnalysisDetailScreen> {
       widget.allSubjectStats.keys.toList(),
     );
 
-    // Default to first subject
-    if (_orderedSubjects.isNotEmpty) {
+    if (widget.initialSubject != null &&
+        _orderedSubjects.contains(widget.initialSubject)) {
+      _selectedSubject = widget.initialSubject!;
+    } else if (_orderedSubjects.isNotEmpty) {
       _selectedSubject = _orderedSubjects.first;
     }
   }
@@ -48,19 +46,87 @@ class _TopicAnalysisDetailScreenState extends State<TopicAnalysisDetailScreen> {
     return subjects..sort((a, b) {
       int indexA = _getSubjectOrderIndex(a);
       int indexB = _getSubjectOrderIndex(b);
-      return indexA.compareTo(indexB);
+      if (indexA != indexB) return indexA.compareTo(indexB);
+      return a.compareTo(b);
     });
   }
 
   int _getSubjectOrderIndex(String subject) {
-    // Find matching subject in order list (case-insensitive, partial match)
-    for (int i = 0; i < _subjectOrder.length; i++) {
-      if (subject.toLowerCase().contains(_subjectOrder[i].toLowerCase()) ||
-          _subjectOrder[i].toLowerCase().contains(subject.toLowerCase())) {
-        return i;
+    final clean = subject
+        .trim()
+        .toLowerCase()
+        .replaceAll('İ', 'i')
+        .replaceAll('I', 'ı');
+
+    // 1. Standard Sınav Sırası:
+    // 1: Türkçe
+    if (clean.contains('türkçe') ||
+        clean.contains('turkce') ||
+        clean.contains('edebiyat') ||
+        clean.contains('türk dili')) {
+      return 10;
+    }
+    // 2: Sosyal Bilgiler / T.C. İnkılap Tarihi ve Atatürkçülük / Tarih / Coğrafya
+    if (clean.contains('sosyal') ||
+        clean.contains('inkılap') ||
+        clean.contains('inkilap') ||
+        clean.contains('tarih') ||
+        clean.contains('coğrafya') ||
+        clean.contains('cografya') ||
+        clean.contains('felsefe')) {
+      return 20;
+    }
+    // 3: Din Kültürü ve Ahlak Bilgisi
+    if (clean.contains('din')) {
+      return 30;
+    }
+    // 4: İngilizce / Yabancı Dil
+    if (clean.contains('ingilizce') ||
+        clean.contains('yabancı') ||
+        clean.contains('yabanci') ||
+        clean.contains('almanca') ||
+        clean.contains('fransızca')) {
+      return 40;
+    }
+    // 5: Matematik (İlköğretim Matematik, Temel Matematik, Geometri)
+    if (clean.contains('matematik') || clean.contains('geometri')) {
+      return 50;
+    }
+    // 6: Fen Bilimleri (Fen ve Teknoloji, Fizik, Kimya, Biyoloji)
+    if (clean.contains('fen') ||
+        clean.contains('fizik') ||
+        clean.contains('kimya') ||
+        clean.contains('biyoloji')) {
+      return 60;
+    }
+
+    // 2. Fallback: Defined order from exam type definition
+    if (widget.definedSubjectOrder != null &&
+        widget.definedSubjectOrder!.isNotEmpty) {
+      for (int i = 0; i < widget.definedSubjectOrder!.length; i++) {
+        final d = widget.definedSubjectOrder![i].trim().toLowerCase();
+        if (clean == d || clean.contains(d) || d.contains(clean)) {
+          return 100 + i;
+        }
       }
     }
+
     return 999; // Unknown subjects go to the end
+  }
+
+  double _calcSubjectSuccess(String subj) {
+    final map = widget.allSubjectStats[subj];
+    if (map == null || map.isEmpty) return 0;
+    double corr = 0;
+    double total = 0;
+    for (final v in map.values) {
+      final c = v['correct'] ?? 0;
+      final w = v['wrong'] ?? 0;
+      final emp = v['empty'] ?? 0;
+      corr += c;
+      total += c + w + emp;
+    }
+    return total > 0 ? (corr / total) * 100 : 0;
   }
 
   @override
@@ -68,44 +134,127 @@ class _TopicAnalysisDetailScreenState extends State<TopicAnalysisDetailScreen> {
     final isMobile = MediaQuery.of(context).size.width < 600;
 
     return Scaffold(
-      appBar: EduknAppBar(title: 'Konu Analiz Raporu - ${widget.studentName}'),
+      appBar: EduknAppBar(title: 'Birleşik Kazanım Analizi - ${widget.studentName}'),
       body: SingleChildScrollView(
         child: Column(
           children: [
             Container(
+              width: double.infinity,
               padding: EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-              color: Colors.white,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+              ),
               child: Center(
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Ders Seçimi:',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 1000),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Ders Seçimi',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.grey.shade700,
+                            ),
+                          ),
+                          if (widget.analyzedExamCount > 1)
+                            Container(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.indigo.shade50,
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(color: Colors.indigo.shade100),
+                              ),
+                              child: Text(
+                                '${widget.analyzedExamCount} Sınav Birleştirildi',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.indigo.shade800,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
-                    ),
-                    SizedBox(width: 16),
-                    DropdownButton<String>(
-                      value: _selectedSubject,
-                      dropdownColor: Colors.white,
-                      icon: Icon(
-                        Icons.keyboard_arrow_down,
-                        size: 20,
-                        color: Colors.indigo,
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: _orderedSubjects.map((s) {
+                          final isSel = _selectedSubject == s;
+                          final count = widget.allSubjectStats[s]?.length ?? 0;
+                          final pct = _calcSubjectSuccess(s);
+                          return InkWell(
+                            onTap: () => setState(() => _selectedSubject = s),
+                            borderRadius: BorderRadius.circular(12),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: isSel
+                                    ? Colors.indigo.shade600
+                                    : Colors.grey.shade50,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: isSel
+                                      ? Colors.indigo.shade600
+                                      : Colors.grey.shade300,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    s,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                      color: isSel
+                                          ? Colors.white
+                                          : Colors.indigo.shade900,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: isSel
+                                          ? Colors.white.withValues(alpha: 0.2)
+                                          : Colors.indigo.shade50,
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      '$count kazanım • %${pct.toStringAsFixed(0)}',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: isSel
+                                            ? Colors.white
+                                            : Colors.indigo.shade700,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }).toList(),
                       ),
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.indigo,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      items: _orderedSubjects.map((s) {
-                        return DropdownMenuItem(value: s, child: Text(s));
-                      }).toList(),
-                      onChanged: (v) => setState(() => _selectedSubject = v!),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -133,16 +282,32 @@ class _TopicAnalysisDetailScreenState extends State<TopicAnalysisDetailScreen> {
     // Sort by success percentage (ascending - worst first)
     final sortedEntries = statsMap.entries.toList()
       ..sort((a, b) {
-        double aCorr = a.value['correct']!;
-        double aTotal = aCorr + a.value['wrong']! + a.value['empty']!;
+        double aCorr = a.value['correct'] ?? 0;
+        double aTotal = aCorr + (a.value['wrong'] ?? 0) + (a.value['empty'] ?? 0);
         double aPct = aTotal > 0 ? (aCorr / aTotal) * 100 : 0;
 
-        double bCorr = b.value['correct']!;
-        double bTotal = bCorr + b.value['wrong']! + b.value['empty']!;
+        double bCorr = b.value['correct'] ?? 0;
+        double bTotal = bCorr + (b.value['wrong'] ?? 0) + (b.value['empty'] ?? 0);
         double bPct = bTotal > 0 ? (bCorr / bTotal) * 100 : 0;
 
         return aPct.compareTo(bPct);
       });
+
+    int totalSubjectQuestions = 0;
+    int totalSubjectCorrect = 0;
+    int mergedOutcomesCount = 0;
+    for (final e in sortedEntries) {
+      final c = (e.value['correct'] ?? 0).toInt();
+      final w = (e.value['wrong'] ?? 0).toInt();
+      final emp = (e.value['empty'] ?? 0).toInt();
+      final exCnt = (e.value['examCount'] ?? 1).toInt();
+      totalSubjectQuestions += c + w + emp;
+      totalSubjectCorrect += c;
+      if (exCnt > 1) mergedOutcomesCount++;
+    }
+    final double overallSubjectPct = totalSubjectQuestions > 0
+        ? (totalSubjectCorrect / totalSubjectQuestions) * 100
+        : 0;
 
     return Center(
       child: Container(
@@ -154,23 +319,47 @@ class _TopicAnalysisDetailScreenState extends State<TopicAnalysisDetailScreen> {
           children: [
             Padding(
               padding: const EdgeInsets.only(bottom: 12, top: 8),
-              child: Row(
+              child: Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  Container(
-                    width: 4,
-                    height: 20,
-                    decoration: BoxDecoration(
-                      color: Colors.indigo,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 4,
+                        height: 20,
+                        decoration: BoxDecoration(
+                          color: Colors.indigo,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                      SizedBox(width: 12),
+                      Text(
+                        subject,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.indigo.shade900,
+                        ),
+                      ),
+                    ],
                   ),
-                  SizedBox(width: 12),
-                  Text(
-                    subject,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.indigo.shade900,
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '${sortedEntries.length} Kazanım • $totalSubjectQuestions Soru • Genel Başarı: %${overallSubjectPct.toStringAsFixed(1)}'
+                      '${mergedOutcomesCount > 0 ? ' • $mergedOutcomesCount Ortak Kazanım' : ''}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade700,
+                      ),
                     ),
                   ),
                 ],
@@ -185,20 +374,24 @@ class _TopicAnalysisDetailScreenState extends State<TopicAnalysisDetailScreen> {
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: DataTable(
-                  columnSpacing: isMobile ? 24 : 48,
+                  columnSpacing: isMobile ? 20 : 36,
                   horizontalMargin: 16,
-                  headingRowColor: MaterialStateProperty.all(
+                  headingRowColor: WidgetStateProperty.all(
                     Colors.grey.shade50,
                   ),
                   columns: [
                     DataColumn(
                       label: Text(
-                        'Konu',
+                        'Kazanım / Konu',
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 13,
                         ),
                       ),
+                    ),
+                    DataColumn(
+                      label: Text('Sınav', style: TextStyle(fontSize: 13)),
+                      numeric: true,
                     ),
                     DataColumn(
                       label: Text('Soru', style: TextStyle(fontSize: 13)),
@@ -222,9 +415,10 @@ class _TopicAnalysisDetailScreenState extends State<TopicAnalysisDetailScreen> {
                     ),
                   ],
                   rows: sortedEntries.map((e) {
-                    double corr = e.value['correct']!;
-                    double wrng = e.value['wrong']!;
-                    double empty = e.value['empty']!;
+                    double corr = e.value['correct'] ?? 0;
+                    double wrng = e.value['wrong'] ?? 0;
+                    double empty = e.value['empty'] ?? 0;
+                    int examCnt = (e.value['examCount'] ?? 1).toInt();
                     double total = corr + wrng + empty;
                     double pct = total > 0 ? (corr / total) * 100 : 0;
 
@@ -233,16 +427,54 @@ class _TopicAnalysisDetailScreenState extends State<TopicAnalysisDetailScreen> {
                         DataCell(
                           Container(
                             constraints: BoxConstraints(
-                              maxWidth: isMobile ? 200 : 400,
+                              maxWidth: isMobile ? 200 : 420,
                             ),
                             child: Tooltip(
                               message: e.key,
-                              child: Text(
-                                e.key,
-                                style: TextStyle(fontSize: 12),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      e.key,
+                                      style: TextStyle(fontSize: 12),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  if (examCnt > 1) ...[
+                                    SizedBox(width: 6),
+                                    Container(
+                                      padding: EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.indigo.shade50,
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Text(
+                                        '$examCnt sınav',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.indigo.shade700,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ],
                               ),
+                            ),
+                          ),
+                        ),
+                        DataCell(
+                          Text(
+                            examCnt.toString(),
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: examCnt > 1 ? FontWeight.bold : FontWeight.normal,
+                              color: examCnt > 1 ? Colors.indigo.shade700 : Colors.black87,
                             ),
                           ),
                         ),

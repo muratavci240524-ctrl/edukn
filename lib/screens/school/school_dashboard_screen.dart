@@ -127,7 +127,7 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
         data['id'] = schoolDoc.id;
       } else {
         // Fallback: Kullanıcının users/{uid} belgesine bak ve schoolId ile oku
-        print(
+        debugPrint(
           'ℹ️ Kurum ID ile okul bulunamadı. Fallback: users/${user.uid} -> schoolId',
         );
         final userDoc = await FirebaseFirestore.instance
@@ -216,44 +216,44 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
             .get();
 
         // Impersonation kontrolü
-        print('🔍 Impersonation kontrolü başlatılıyor...');
+        debugPrint('🔍 Impersonation kontrolü başlatılıyor...');
         final isImpersonating = prefs.getBool('is_impersonating') ?? false;
         final impersonatedEmail = prefs.getString('impersonated_user_email');
         final impersonatedName = prefs.getString('impersonated_user_name');
 
-        print('📋 SharedPreferences durumu:');
-        print('   - is_impersonating: $isImpersonating');
-        print('   - impersonated_email: $impersonatedEmail');
-        print('   - impersonated_name: $impersonatedName');
+        debugPrint('📋 SharedPreferences durumu:');
+        debugPrint('   - is_impersonating: $isImpersonating');
+        debugPrint('   - impersonated_email: $impersonatedEmail');
+        debugPrint('   - impersonated_name: $impersonatedName');
 
         Map<String, dynamic>? currentUserData;
 
         if (isImpersonating) {
-          print('🎭 Impersonation modu aktif: $impersonatedEmail');
+          debugPrint('🎭 Impersonation modu aktif: $impersonatedEmail');
 
           if (impersonatedEmail != null) {
-            print('🔍 Firestore\'dan kullanıcı aranıyor: $impersonatedEmail');
+            debugPrint('🔍 Firestore\'dan kullanıcı aranıyor: $impersonatedEmail');
             final impUserQuery = await FirebaseFirestore.instance
                 .collection('users')
                 .where('email', isEqualTo: impersonatedEmail)
                 .limit(1)
                 .get();
 
-            print('📊 Query sonucu: ${impUserQuery.docs.length} döküman');
+            debugPrint('📊 Query sonucu: ${impUserQuery.docs.length} döküman');
 
             if (impUserQuery.docs.isNotEmpty) {
               currentUserData = impUserQuery.docs.first.data();
-              print(
+              debugPrint(
                 '✅ Impersonated kullanıcı yüklendi: ${currentUserData['fullName']}',
               );
             } else {
-              print('❌ Impersonated kullanıcı Firestore\'da bulunamadı!');
+              debugPrint('❌ Impersonated kullanıcı Firestore\'da bulunamadı!');
             }
           } else {
-            print('❌ impersonated_user_email null!');
+            debugPrint('❌ impersonated_user_email null!');
           }
         } else {
-          print('ℹ️ Normal mod - Impersonation yok');
+          debugPrint('ℹ️ Normal mod - Impersonation yok');
           // Normal giriş - Email'den kullanıcı adını al
           final username = email.split('@')[0];
           final userQuery = await FirebaseFirestore.instance
@@ -265,24 +265,24 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
 
           if (userQuery.docs.isNotEmpty) {
             currentUserData = userQuery.docs.first.data();
-            print(
+            debugPrint(
               '✅ Kullanıcı verileri yüklendi: ${currentUserData['fullName']}',
             );
           }
         }
 
         if (currentUserData != null) {
-          print('📋 Modül yetkileri: ${currentUserData['modulePermissions']}');
-          print(
+          debugPrint('📋 Modül yetkileri: ${currentUserData['modulePermissions']}');
+          debugPrint(
             '🏫 Okul türü yetkileri: ${currentUserData['schoolTypePermissions']}',
           );
         } else {
           // Admin kullanıcısı (users koleksiyonunda yok)
-          print('ℹ️ Admin kullanıcısı - Tüm yetkiler var');
+          debugPrint('ℹ️ Admin kullanıcısı - Tüm yetkiler var');
         }
 
         // Rol şablonunu yükle
-        if (currentUserData != null && data != null) {
+        if (currentUserData != null) {
           final userRole = (currentUserData['role'] ?? 'ogretmen').toString().toLowerCase();
           final instId = (data['institutionId'] ?? '').toString();
           if (instId.isNotEmpty) {
@@ -305,8 +305,8 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
         throw 'Okul verisi bulunamadı! (institutionId=$instIdForQueries)';
       }
     } catch (e) {
-      print('Hata: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
+      debugPrint('Hata: $e');
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Okul verileri yüklenemedi: $e'),
           backgroundColor: Colors.red,
@@ -574,7 +574,7 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
     if (confirm != true) return;
 
     // Loading dialog göster
-    showDialog(
+    if (mounted) showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
@@ -607,7 +607,7 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
       }
     } catch (e) {
       Navigator.pop(context); // Loading dialog kapat
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
       );
     }
@@ -646,7 +646,7 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
     if (confirm != true) return;
 
     // Loading dialog
-    showDialog(
+    if (mounted) showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
@@ -678,7 +678,7 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
       }
     } catch (e) {
       Navigator.pop(context); // Loading dialog kapat
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
       );
     }
@@ -1320,8 +1320,8 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
                           boxShadow: [
                             BoxShadow(
                               color: isSelected
-                                  ? Colors.indigo.withOpacity(0.3)
-                                  : Colors.black.withOpacity(0.05),
+                                  ? Colors.indigo.withValues(alpha: 0.3)
+                                  : Colors.black.withValues(alpha: 0.05),
                               blurRadius: 10,
                               offset: const Offset(0, 4),
                             ),
@@ -1734,7 +1734,7 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
               Container(
                 padding: EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
+                  color: color.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Icon(icon, size: 28, color: color),
@@ -1798,18 +1798,18 @@ class _SchoolDashboardScreenState extends State<SchoolDashboardScreen> {
         html.window.location.reload();
       } else {
         // Mobil için navigation
-        Navigator.pushReplacementNamed(context, '/school-dashboard');
+        if (mounted) Navigator.pushReplacementNamed(context, '/school-dashboard');
       }
 
       // Başarı mesajı
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Admin hesabına geri dönüldü'),
           backgroundColor: Colors.green,
         ),
       );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
       );
     }

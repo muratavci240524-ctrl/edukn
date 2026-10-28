@@ -1,4 +1,4 @@
-﻿import 'package:edukn/services/user_permission_service.dart';
+import 'package:edukn/services/user_permission_service.dart';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -448,7 +448,7 @@ class _CleaningScreenState extends State<CleaningScreen>
                 SizedBox(height: 12),
                 // Leave type
                 DropdownButtonFormField<String>(
-                  value: leaveType,
+                  initialValue: leaveType,
                   decoration: InputDecoration(
                     labelText: 'İzin Türü',
                     prefixIcon: Icon(Icons.schedule),
@@ -548,7 +548,7 @@ class _CleaningScreenState extends State<CleaningScreen>
 
     if (result != true || selectedStaffId == null || startDate == null) {
       if (result == true) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Personel ve başlangıç tarihi zorunludur!'),
             backgroundColor: Colors.red,
@@ -915,7 +915,7 @@ class _CleaningScreenState extends State<CleaningScreen>
                       children: [
                         CircleAvatar(
                           radius: 16,
-                          backgroundColor: typeColor.withOpacity(0.1),
+                          backgroundColor: typeColor.withValues(alpha: 0.1),
                           child: Icon(
                             Icons.event_busy,
                             color: typeColor,
@@ -949,7 +949,7 @@ class _CleaningScreenState extends State<CleaningScreen>
                             typeLabel,
                             style: TextStyle(fontSize: 11, color: typeColor),
                           ),
-                          backgroundColor: typeColor.withOpacity(0.1),
+                          backgroundColor: typeColor.withValues(alpha: 0.1),
                           materialTapTargetSize:
                               MaterialTapTargetSize.shrinkWrap,
                           visualDensity: VisualDensity.compact,

@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -264,9 +264,9 @@ class GuidanceTestHistoryScreen extends StatelessWidget {
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
+        color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
       child: Column(
         children: [
@@ -291,7 +291,7 @@ class GuidanceTestHistoryScreen extends StatelessWidget {
             style: GoogleFonts.inter(
               fontWeight: FontWeight.bold,
               fontSize: 14,
-              color: color.withOpacity(0.9),
+              color: color.withValues(alpha: 0.9),
             ),
           ),
         ],

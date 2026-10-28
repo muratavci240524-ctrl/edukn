@@ -9,6 +9,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:math' as math;
 import '../../../firebase_options.dart';
 import 'package:edukn/services/pdf_service.dart';
 import '../../../services/crypto_service.dart';
@@ -556,6 +557,9 @@ class _PersonalTabState extends State<_PersonalTab> {
     final staff = _staffData;
 
     final tcDecrypted = CryptoService.decrypt(staff['tc'] ?? staff['tcKimlik'] ?? '', institutionId: staff['institutionId']);
+    final fullNameCtrl = TextEditingController(
+      text: (staff['fullName'] ?? staff['name'] ?? '').toString(),
+    );
     final tcCtrl = TextEditingController(text: tcDecrypted);
     final birthDateCtrl = TextEditingController(text: staff['birthDate']);
     final birthPlaceCtrl = TextEditingController(text: staff['birthPlace']);
@@ -638,6 +642,16 @@ class _PersonalTabState extends State<_PersonalTab> {
                 ),
                 const SizedBox(height: 16),
                 TextField(
+                  controller: fullNameCtrl,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(
+                    labelText: 'Ad Soyad',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.person),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
                   controller: tcCtrl,
                   keyboardType: TextInputType.number,
                   maxLength: 11,
@@ -673,7 +687,7 @@ class _PersonalTabState extends State<_PersonalTab> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: (gender != null && ['Erkek', 'Kadın'].contains(gender))
+                  initialValue: (gender != null && ['Erkek', 'Kadın'].contains(gender))
                       ? gender
                       : null,
                   items: const [
@@ -688,7 +702,7 @@ class _PersonalTabState extends State<_PersonalTab> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value:
+                  initialValue:
                       (maritalStatus != null &&
                           ['Evli', 'Bekar'].contains(maritalStatus))
                       ? maritalStatus
@@ -723,7 +737,7 @@ class _PersonalTabState extends State<_PersonalTab> {
                         // En iyisi kullanicinin girdigi degeri korumak adina genis bir liste sunmak veya textfield yapmak.
                         // Ama dropdown isteniyor.
                         // DB'deki degeri listede bulamazsa null gosterir, kullanici yeniden secer.
-                        value:
+                        initialValue:
                             (bloodGroup != null &&
                                 [
                                   'A Rh+',
@@ -804,6 +818,8 @@ class _PersonalTabState extends State<_PersonalTab> {
                     onPressed: () {
                       Navigator.pop(context);
                       _updateStaff({
+                        if (fullNameCtrl.text.trim().isNotEmpty)
+                          'fullName': fullNameCtrl.text.trim(),
                         'tc': CryptoService.encrypt(tcCtrl.text.trim(), institutionId: staff['institutionId']),
                         'tcKimlik': CryptoService.encrypt(tcCtrl.text.trim(), institutionId: staff['institutionId']),
                         'birthDate': birthDateCtrl.text.trim(),
@@ -1730,7 +1746,7 @@ class _JobTabState extends State<_JobTab> {
                       .update(updateData);
 
                   if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text('Görev bilgileri güncellendi'),
                       backgroundColor: Colors.green,
@@ -1741,10 +1757,10 @@ class _JobTabState extends State<_JobTab> {
                     widget.staff?.addAll(updateData);
                   });
 
-                  Navigator.pop(context);
+                  if (mounted) Navigator.pop(context);
                 } catch (e) {
                   if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Hata: $e'),
                       backgroundColor: Colors.red,
@@ -1783,7 +1799,7 @@ class _JobTabState extends State<_JobTab> {
                   if (isPositionCard) ...[
                     // Departman
                     DropdownButtonFormField<String>(
-                      value: [
+                      initialValue: [
                         'Öğretim Departmanı',
                         'İdari Departman',
                         'İnsan Kaynakları',
@@ -1827,7 +1843,7 @@ class _JobTabState extends State<_JobTab> {
 
                     // Ünvan
                     DropdownButtonFormField<String>(
-                      value: [
+                      initialValue: [
                         'ogretmen', 'mudur', 'mudur_yardimcisi', 'uzman', 'personel',
                         'hr', 'muhasebe', 'satin_alma', 'depo', 'destek_hizmetleri', 'diger'
                       ].contains(jobTitle.toLowerCase()) ? jobTitle.toLowerCase() : null,
@@ -1891,7 +1907,7 @@ class _JobTabState extends State<_JobTab> {
                     // Branş (sadece öğretmen seçiliyse görünür)
                     if (jobTitle.toLowerCase() == 'ogretmen') ...[
                       DropdownButtonFormField<String>(
-                        value: [
+                        initialValue: [
                           'Almanca', 'Arapça', 'Beden Eğitimi ve Spor', 'Bilişim Teknolojileri ve Yazılım',
                           'Biyoloji', 'Coğrafya', 'Din Kültürü ve Ahlak Bilgisi', 'Felsefe',
                           'Fen Bilimleri', 'Fizik', 'Fransızca', 'Görsel Sanatlar', 'İlköğretim Matematik',
@@ -2038,7 +2054,7 @@ class _JobTabState extends State<_JobTab> {
 
                     // Yönetici / Bağlı Olduğu Kişi (Müdür Yardımcıları hariç, sadece Müdür ve Genel Müdürler)
                     DropdownButtonFormField<String>(
-                      value: (() {
+                      initialValue: (() {
                         final validUids = _users
                             .where((u) {
                               final uid = (u['id'] ?? '').toString();
@@ -2152,7 +2168,7 @@ class _JobTabState extends State<_JobTab> {
                                     }
                                   });
                                 },
-                                selectedColor: Colors.indigo.withOpacity(0.3),
+                                selectedColor: Colors.indigo.withValues(alpha: 0.3),
                                 checkmarkColor: Colors.indigo,
                               );
                             }),
@@ -2163,7 +2179,7 @@ class _JobTabState extends State<_JobTab> {
                           Container(
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
-                              color: Colors.indigo.withOpacity(0.1),
+                              color: Colors.indigo.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
@@ -2217,7 +2233,7 @@ class _JobTabState extends State<_JobTab> {
                     ),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
-                      value: employmentType.isEmpty ? null : employmentType,
+                      initialValue: employmentType.isEmpty ? null : employmentType,
                       items: const [
                         DropdownMenuItem(
                           value: 'tam_zamanli',
@@ -2551,10 +2567,10 @@ class _EducationTabState extends State<_EducationTab> {
 
                   if (!mounted) return;
                   setState(() => widget.staff?['formalEducations'] = current);
-                  Navigator.pop(context);
+                  if (mounted) Navigator.pop(context);
                 } catch (e) {
                   if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Hata: $e'),
                       backgroundColor: Colors.red,
@@ -2604,7 +2620,7 @@ class _EducationTabState extends State<_EducationTab> {
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
-                    value: degree.isEmpty ? null : degree,
+                    initialValue: degree.isEmpty ? null : degree,
                     items: const [
                       DropdownMenuItem(value: 'LISE', child: Text('Lise')),
                       DropdownMenuItem(
@@ -2760,10 +2776,10 @@ class _EducationTabState extends State<_EducationTab> {
 
                   if (!mounted) return;
                   setState(() => widget.staff?['certificates'] = current);
-                  Navigator.pop(context);
+                  if (mounted) Navigator.pop(context);
                 } catch (e) {
                   if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Hata: $e'),
                       backgroundColor: Colors.red,
@@ -2914,10 +2930,10 @@ class _EducationTabState extends State<_EducationTab> {
 
                   if (!mounted) return;
                   setState(() => widget.staff?['languages'] = current);
-                  Navigator.pop(context);
+                  if (mounted) Navigator.pop(context);
                 } catch (e) {
                   if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Hata: $e'),
                       backgroundColor: Colors.red,
@@ -2933,7 +2949,7 @@ class _EducationTabState extends State<_EducationTab> {
                 void Function(String) onChanged,
               ) {
                 return DropdownButtonFormField<String>(
-                  value: currentValue.isEmpty ? null : currentValue,
+                  initialValue: currentValue.isEmpty ? null : currentValue,
                   items: const [
                     DropdownMenuItem(value: 'ZAYIF', child: Text('Zayıf')),
                     DropdownMenuItem(value: 'ORTA', child: Text('Orta')),
@@ -3089,10 +3105,10 @@ class _EducationTabState extends State<_EducationTab> {
 
                   if (!mounted) return;
                   setState(() => widget.staff?['formalEducations'] = current);
-                  Navigator.pop(context);
+                  if (mounted) Navigator.pop(context);
                 } catch (e) {
                   if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Hata: $e'),
                       backgroundColor: Colors.red,
@@ -3142,7 +3158,7 @@ class _EducationTabState extends State<_EducationTab> {
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
-                    value: degree.isEmpty ? null : degree,
+                    initialValue: degree.isEmpty ? null : degree,
                     items: const [
                       DropdownMenuItem(value: 'LISE', child: Text('Lise')),
                       DropdownMenuItem(
@@ -3304,10 +3320,10 @@ class _EducationTabState extends State<_EducationTab> {
 
                   if (!mounted) return;
                   setState(() => widget.staff?['certificates'] = current);
-                  Navigator.pop(context);
+                  if (mounted) Navigator.pop(context);
                 } catch (e) {
                   if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Hata: $e'),
                       backgroundColor: Colors.red,
@@ -3460,10 +3476,10 @@ class _EducationTabState extends State<_EducationTab> {
 
                   if (!mounted) return;
                   setState(() => widget.staff?['languages'] = current);
-                  Navigator.pop(context);
+                  if (mounted) Navigator.pop(context);
                 } catch (e) {
                   if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Hata: $e'),
                       backgroundColor: Colors.red,
@@ -3479,7 +3495,7 @@ class _EducationTabState extends State<_EducationTab> {
                 void Function(String) onChanged,
               ) {
                 return DropdownButtonFormField<String>(
-                  value: currentValue.isEmpty ? null : currentValue,
+                  initialValue: currentValue.isEmpty ? null : currentValue,
                   items: const [
                     DropdownMenuItem(value: 'ZAYIF', child: Text('Zayıf')),
                     DropdownMenuItem(value: 'ORTA', child: Text('Orta')),
@@ -3865,10 +3881,10 @@ class _ExperienceTabState extends State<_ExperienceTab> {
 
                   if (!mounted) return;
                   setState(() => widget.staff?['experiences'] = current);
-                  Navigator.pop(context);
+                  if (mounted) Navigator.pop(context);
                 } catch (e) {
                   if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Hata: $e'),
                       backgroundColor: Colors.red,
@@ -4084,10 +4100,10 @@ class _ExperienceTabState extends State<_ExperienceTab> {
 
                   if (!mounted) return;
                   setState(() => widget.staff?['experiences'] = current);
-                  Navigator.pop(context);
+                  if (mounted) Navigator.pop(context);
                 } catch (e) {
                   if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Hata: $e'),
                       backgroundColor: Colors.red,
@@ -4399,24 +4415,24 @@ class _FilesTabState extends State<_FilesTab> {
 
   Future<void> _uploadFile(String category, String key) async {
     try {
-      print('Dosya seçimi başlatılıyor...');
+      debugPrint('Dosya seçimi başlatılıyor...');
       final result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf'],
       );
 
       if (result == null || result.files.isEmpty) {
-        print('Dosya seçilmedi.');
+        debugPrint('Dosya seçilmedi.');
         return;
       }
 
       setState(() => _uploadingStates[key] = true);
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Yükleme başlıyor...')));
 
       final file = result.files.first;
-      print('Dosya seçildi: ${file.name}, Boyut: ${file.size}');
+      debugPrint('Dosya seçildi: ${file.name}, Boyut: ${file.size}');
 
       if (kIsWeb && file.bytes == null) {
         throw Exception('Dosya verisi okunamadı (Bytes null).');
@@ -4432,7 +4448,7 @@ class _FilesTabState extends State<_FilesTab> {
           .child(category)
           .child('$key.pdf');
 
-      print('Firebase Storage yüklemesi başlıyor...');
+      debugPrint('Firebase Storage yüklemesi başlıyor...');
       if (kIsWeb) {
         await ref
             .putData(
@@ -4451,10 +4467,10 @@ class _FilesTabState extends State<_FilesTab> {
         // Mobile implementation if needed later
         // await ref.putFile(File(file.path!));
       }
-      print('Firebase Storage yüklemesi tamamlandı.');
+      debugPrint('Firebase Storage yüklemesi tamamlandı.');
 
       final url = await ref.getDownloadURL();
-      print('Download URL alındı: $url');
+      debugPrint('Download URL alındı: $url');
 
       // Update Firestore
       final field = category == 'official' ? 'officialDocs' : 'contractDocs';
@@ -4464,11 +4480,11 @@ class _FilesTabState extends State<_FilesTab> {
 
       currentData[key] = url;
 
-      print('Firestore güncelleniyor...');
+      debugPrint('Firestore güncelleniyor...');
       await FirebaseFirestore.instance.collection('users').doc(staffId).update({
         field: currentData,
       });
-      print('Firestore güncellendi.');
+      debugPrint('Firestore güncellendi.');
 
       // Update local state
       setState(() {
@@ -4481,7 +4497,7 @@ class _FilesTabState extends State<_FilesTab> {
         );
       }
     } catch (e, stack) {
-      print('Hata oluştu: $e');
+      debugPrint('Hata oluştu: $e');
       print(stack);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -4845,10 +4861,10 @@ class _StatusTabState extends State<_StatusTab> {
                         updateData['inactiveReason'];
                     widget.staff?['exitDate'] = updateData['exitDate'];
                   });
-                  Navigator.pop(context);
+                  if (mounted) Navigator.pop(context);
                 } catch (e) {
                   if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Hata: $e'),
                       backgroundColor: Colors.red,
@@ -5014,9 +5030,6 @@ class _StatusTabState extends State<_StatusTab> {
 
     String passwordStatus = (staff['passwordStatus'] ?? 'ilk_giris').toString();
     String role = (staff['role'] ?? 'personel').toString();
-    final sizeCtrl = TextEditingController(
-      text: (staff['clothingSize'] ?? '').toString(),
-    );
 
     final initialStoredPassword = (staff['defaultPassword'] ?? staff['password'] ?? '').toString().trim();
     final passwordCtrl = TextEditingController();
@@ -5136,7 +5149,7 @@ class _StatusTabState extends State<_StatusTab> {
                           headers: {'Content-Type': 'application/json'},
                           body: json.encode({
                             'email': emailToUse,
-                            'password': isPasswordChanged ? newPassword : (initialStoredPassword.isNotEmpty ? initialStoredPassword : '123456'),
+                            'password': isPasswordChanged ? newPassword : (initialStoredPassword.isNotEmpty ? initialStoredPassword : (() { final r = math.Random.secure(); const c = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'; return List.generate(12, (_) => c[r.nextInt(c.length)]).join(); })()),
                             'returnSecureToken': true,
                           }),
                         );
@@ -5201,7 +5214,6 @@ class _StatusTabState extends State<_StatusTab> {
                   final updateData = <String, dynamic>{
                     'username': newUsername,
                     'role': role,
-                    'clothingSize': sizeCtrl.text.trim(),
                     'updatedAt': FieldValue.serverTimestamp(),
                   };
                   if (emailToUse.isNotEmpty) {
@@ -5227,10 +5239,8 @@ class _StatusTabState extends State<_StatusTab> {
                   setState(() {
                     widget.staff?['username'] = newUsername;
                     widget.staff?['role'] = role;
-                    widget.staff?['clothingSize'] = sizeCtrl.text.trim();
                     _staffData['username'] = newUsername;
                     _staffData['role'] = role;
-                    _staffData['clothingSize'] = sizeCtrl.text.trim();
 
                     if (emailToUse.isNotEmpty) {
                       widget.staff?['email'] = emailToUse;
@@ -5483,7 +5493,7 @@ class _StatusTabState extends State<_StatusTab> {
                   const SizedBox(height: 12),
                   // Kullanıcı Rolü
                   DropdownButtonFormField<String>(
-                    value: role,
+                    initialValue: role,
                     items: const [
                       DropdownMenuItem(value: 'genel_mudur', child: Text('Genel Müdür')),
                       DropdownMenuItem(value: 'mudur', child: Text('Müdür')),
@@ -5501,16 +5511,6 @@ class _StatusTabState extends State<_StatusTab> {
                     onChanged: (v) => setSheet(() {
                       role = v ?? 'personel';
                     }),
-                  ),
-                  const SizedBox(height: 8),
-                  // Kıyafet Bedeni
-                  TextField(
-                    controller: sizeCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Kıyafet Bedeni (Opsiyonel)',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
                   ),
                   const SizedBox(height: 14),
                   // Kaydet Butonu
@@ -5626,7 +5626,6 @@ class _StatusTabState extends State<_StatusTab> {
     final username = (staff['username'] ?? '').toString();
     final passwordStatus = (staff['passwordStatus'] ?? 'ilk_giris').toString();
     final role = (staff['role'] ?? 'personel').toString();
-    final clothingSize = (staff['clothingSize'] ?? '').toString();
 
     String formatRole(String value) {
       switch (value) {
@@ -5707,7 +5706,6 @@ class _StatusTabState extends State<_StatusTab> {
                     : '*****',
               ),
               statusLine('Kullanıcı Rolü', formatRole(role)),
-              statusLine('Kıyafet Bedeni', clothingSize),
             ],
             onTap: _editSystemStatus,
           ),

@@ -14,8 +14,6 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
 import '../../../services/term_service.dart';
 import '../../../widgets/haberlesme_hub_widget.dart';
-import 'school_type_announcements_screen.dart';
-import 'school_type_social_media_screen.dart';
 import '../student_registration_screen.dart';
 import '../registration/pre_registration_screen.dart';
 import 'student_promotion_transfer_screens.dart';
@@ -43,27 +41,24 @@ import '../../portfolio/portfolio_screen.dart';
 import '../tasks/todo_list_screen.dart';
 import '../tasks/substitute_teacher_list_screen.dart';
 import '../tasks/duty_management_screen.dart';
+import '../tasks/proctoring_management_screen.dart';
 import '../tasks/field_trip_list_screen.dart';
 import '../tasks/project_assignments/project_assignment_list_screen.dart';
 import '../homework/homework_operations_screen.dart';
 import '../book_management_screen.dart';
 import '../etut_process_screen.dart';
 import '../activity/activity_list_screen.dart';
-import '../assessment/agm/screens/agm_teacher_timetable_screen.dart';
 import '../../../../widgets/recipient_selector_field.dart';
 import '../../../../widgets/edukn_logo.dart';
 import '../../../../widgets/premium_app_bar.dart';
-import '../../../../widgets/web_image_renderer.dart';
 import '../profile_settings_screen.dart';
 import '../../teacher/teacher_qr_scan_screen.dart';
 
-import 'chat/chat_screen.dart';
 import '../hr/school_type_leave_management_screen.dart';
 import '../dynamic_groups/course_group_management_screen.dart';
 import '../../../models/school/dynamic_course_group_model.dart';
 import '../../../../widgets/stylish_bottom_nav.dart';
 import '../guidance/guidance_interview_screen.dart';
-import '../guidance/guidance_study_program_screen.dart';
 import '../guidance/mentor_studies_hub_screen.dart';
 import '../../guidance/guidance_test_catalog_screen.dart';
 import '../../support_services/cafeteria/cafeteria_screen.dart';
@@ -75,7 +70,6 @@ import '../../support_services/inventory/inventory_screen.dart';
 import '../../guidance/reports/development_report_management_screen.dart';
 import '../guidance/demand/demand_dashboard_screen.dart';
 import '../notes/personal_notes_screen.dart';
-import '../assessment/camp/screens/camp_dashboard_screen.dart';
 import '../assessment/agm/screens/agm_dashboard_screen.dart';
 import 'package:edukn/widgets/safe_stream_builder.dart';
 import '../tools/tools_hub_screen.dart';
@@ -195,9 +189,19 @@ class _SchoolTypeDetailScreenState extends State<SchoolTypeDetailScreen> {
             showBackButton: true,
           ),
           Expanded(
-            child: IndexedStack(
-              index: _currentIndex,
-              children: pages,
+            child: Stack(
+              children: [
+                const Positioned.fill(
+                  child: ColoredBox(color: Color(0xFFF8FAFC)),
+                ),
+                const Positioned.fill(
+                  child: IgnorePointer(child: CustomPaint(painter: DoodlePainter())),
+                ),
+                IndexedStack(
+                  index: _currentIndex,
+                  children: pages,
+                ),
+              ],
             ),
           ),
         ],
@@ -490,7 +494,7 @@ class _OperationsTabState extends State<_OperationsTab> {
         });
       }
     } catch (e) {
-      print('Dönemler yüklenirken hata: $e');
+      debugPrint('Dönemler yüklenirken hata: $e');
     }
   }
 
@@ -570,8 +574,8 @@ class _OperationsTabState extends State<_OperationsTab> {
                           }
 
                           setState(() => _selectedTerm = term);
-                          Navigator.pop(context);
-                          ScaffoldMessenger.of(context).showSnackBar(
+                          if (mounted) Navigator.pop(context);
+                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text(
                                 isActive
@@ -719,7 +723,7 @@ class _OperationsTabState extends State<_OperationsTab> {
         child: Row(
           children: [
             CircleAvatar(
-              backgroundColor: color.withOpacity(0.1),
+              backgroundColor: color.withValues(alpha: 0.1),
               child: Icon(icon, color: color, size: 20),
             ),
             const SizedBox(width: 16),
@@ -859,7 +863,7 @@ class _OperationsTabState extends State<_OperationsTab> {
       offset: const Offset(0, 48),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       elevation: 8,
-      shadowColor: Colors.black.withOpacity(0.12),
+      shadowColor: Colors.black.withValues(alpha: 0.12),
       onSelected: (value) {
         if (value == 'profile') {
           Navigator.push(
@@ -1071,7 +1075,7 @@ class _OperationsTabState extends State<_OperationsTab> {
                     _overlaySetState = setOverlayState;
                     return Material(
                       elevation: 8,
-                      shadowColor: Colors.black.withOpacity(0.05),
+                      shadowColor: Colors.black.withValues(alpha: 0.05),
                       borderRadius: BorderRadius.circular(24),
                       color: Colors.white,
                       child: Container(
@@ -1091,7 +1095,7 @@ class _OperationsTabState extends State<_OperationsTab> {
                                   shrinkWrap: true,
                                   padding: const EdgeInsets.symmetric(vertical: 12),
                                   itemCount: _searchResults.length,
-                                  separatorBuilder: (_, __) => Divider(height: 1, color: Colors.indigo.withOpacity(0.05)),
+                                  separatorBuilder: (_, __) => Divider(height: 1, color: Colors.indigo.withValues(alpha: 0.05)),
                                   itemBuilder: (_, index) {
                                     final item = _searchResults[index];
                                     final isStudent = item['type'] == 'student';
@@ -1151,7 +1155,7 @@ class _OperationsTabState extends State<_OperationsTab> {
                       _overlaySetState = setOverlayState;
                       return Material(
                         elevation: 8,
-                        shadowColor: Colors.black.withOpacity(0.05),
+                        shadowColor: Colors.black.withValues(alpha: 0.05),
                         borderRadius: BorderRadius.circular(24),
                         color: Colors.white,
                         child: Container(
@@ -1171,7 +1175,7 @@ class _OperationsTabState extends State<_OperationsTab> {
                                     shrinkWrap: true,
                                     padding: const EdgeInsets.symmetric(vertical: 12),
                                     itemCount: _searchResults.length,
-                                    separatorBuilder: (_, __) => Divider(height: 1, color: Colors.indigo.withOpacity(0.05)),
+                                    separatorBuilder: (_, __) => Divider(height: 1, color: Colors.indigo.withValues(alpha: 0.05)),
                                     itemBuilder: (_, index) {
                                       final item = _searchResults[index];
                                       final isStudent = item['type'] == 'student';
@@ -1543,10 +1547,16 @@ class _OperationsTabState extends State<_OperationsTab> {
             {'title': 'Sınav ve Gözetmenlik', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ToolsHubScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName, initialCategoryIndex: 1)))},
             {'title': 'Akademik Ölçme ve Başarı Takibi', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ToolsHubScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName, initialCategoryIndex: 2)))},
             {'title': 'Evrak, Liste ve Şablon Otomasyonları', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ToolsHubScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName, initialCategoryIndex: 3)))},
-            {'title': 'Online Hizmetler', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ToolsHubScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName, initialCategoryIndex: 4)))},
+            {'title': 'Online Hizmetler', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ToolsHubScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName, initialCategoryIndex: 5)))},
             {'title': 'Notlarım', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => const PersonalNotesScreen()))},
           ],
-          onTap: () => setState(() => _selectedCategory = 'Araçlar'),
+          onTap: () {
+            if (_selectedCategory == 'Araçlar') {
+              Navigator.push(context, MaterialPageRoute(builder: (context) => ToolsHubScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName, initialCategoryIndex: 0)));
+            } else {
+              setState(() => _selectedCategory = 'Araçlar');
+            }
+          },
         ),
       if (_hasModuleAccess('insan_kaynaklari'))
         _ModuleCardWidget(
@@ -1565,9 +1575,10 @@ class _OperationsTabState extends State<_OperationsTab> {
               {'title': 'İzin Yönetimi', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => SchoolTypeLeaveManagementScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
             {'title': 'Geçici Öğretmen', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => SubstituteTeacherListScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
             {'title': 'Nöbet İşlemleri', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => DutyManagementScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
+            {'title': 'Gözetmenlik İşlemleri', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ProctoringManagementScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
             {'title': 'Gezi Görevlendirmeleri', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => FieldTripListScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
             {'title': 'Proje Görevlendirmeleri', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ProjectAssignmentListScreen(institutionId: widget.institutionId)))},
-            {'title': 'Nöbet Çizelgesi', 'onTap': () => print('Nöbet Çizelgesi')},
+            {'title': 'Nöbet Çizelgesi', 'onTap': () => debugPrint('Nöbet Çizelgesi')},
           ],
           onTap: () => setState(() => _selectedCategory = 'Görev'),
         ),
@@ -1592,7 +1603,7 @@ class _OperationsTabState extends State<_OperationsTab> {
             {'title': 'Temizlik İşlemleri', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => CleaningScreen(fixedSchoolTypeId: widget.schoolTypeId, fixedSchoolTypeName: widget.schoolTypeName)))},
             if (_hasSubModuleAccess('hizmetler', 'depo_satin_alma'))
               {'title': 'Depo ve Satın Alma', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => InventoryScreen(fixedSchoolTypeId: widget.schoolTypeId, fixedSchoolTypeName: widget.schoolTypeName)))},
-            {'title': 'Okul Envanteri', 'onTap': () => print('Okul Envanteri')},
+            {'title': 'Okul Envanteri', 'onTap': () => debugPrint('Okul Envanteri')},
           ],
           onTap: () => setState(() => _selectedCategory = 'Destek'),
         ),
@@ -1614,7 +1625,7 @@ class _OperationsTabState extends State<_OperationsTab> {
               {'title': 'Ödev Raporları', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => HomeworkOperationsScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
             if (_hasSubModuleAccess('olcme_degerlendirme', 'raporlar'))
               {'title': 'Ölçme Raporları', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => AssessmentReportsScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
-            {'title': 'Gelişim İstatistikleri', 'onTap': () => print('Gelişim İstatistikleri')},
+            {'title': 'Gelişim İstatistikleri', 'onTap': () => debugPrint('Gelişim İstatistikleri')},
           ],
           onTap: () => setState(() => _selectedCategory = 'Raporlar'),
         ),
@@ -1636,7 +1647,7 @@ class _OperationsTabState extends State<_OperationsTab> {
               {'title': 'Kullanıcı Yetkilendirme', 'onTap': () => Navigator.pushNamed(context, '/user-management')},
             if (_hasSubModuleAccess('sistem_ayarlari', 'uygulama_ayarlari'))
               {'title': 'Uygulama Ayarları', 'onTap': () => Navigator.pushNamed(context, '/app-settings').then((_) => _loadSchoolData())},
-            {'title': 'Okul Genel Bilgileri', 'onTap': () => print('Okul Bilgileri')},
+            {'title': 'Okul Genel Bilgileri', 'onTap': () => debugPrint('Okul Bilgileri')},
           ],
           onTap: () => setState(() => _selectedCategory = 'Ayarlar'),
         ),
@@ -1726,7 +1737,7 @@ class _OperationsTabState extends State<_OperationsTab> {
         showAllItems: isFiltered,
         items: [
           {'title': 'İzin Taleplerim', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => SchoolTypeLeaveManagementScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
-          {'title': 'Nöbet Programım', 'onTap': () => print('Nöbetlerim')},
+          {'title': 'Nöbet Programım', 'onTap': () => debugPrint('Nöbetlerim')},
           {'title': 'Gezi Görevlerim', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => FieldTripListScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName)))},
           {'title': 'To-Do List', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ToDoListScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId)))},
           {'title': 'Profil Bilgilerim', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (ctx) => const UserProfileScreen()))},
@@ -1747,7 +1758,13 @@ class _OperationsTabState extends State<_OperationsTab> {
           {'title': 'Sınıf İçi Yönetim ve Etkileşim', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => ToolsHubScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName, initialCategoryIndex: 0, isTeacher: true)))},
           {'title': 'Notlarım', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (context) => const PersonalNotesScreen()))},
         ],
-        onTap: () => setState(() => _selectedCategory = 'Araçlar'),
+        onTap: () {
+          if (_selectedCategory == 'Araçlar') {
+            Navigator.push(context, MaterialPageRoute(builder: (context) => ToolsHubScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: widget.schoolTypeName, initialCategoryIndex: 0, isTeacher: true)));
+          } else {
+            setState(() => _selectedCategory = 'Araçlar');
+          }
+        },
       ),
 
     ];
@@ -1783,7 +1800,7 @@ class _OperationsTabState extends State<_OperationsTab> {
     return Container(
       width: double.infinity,
       height: 100,
-      color: Colors.white.withOpacity(0.5),
+      color: Colors.white.withValues(alpha: 0.5),
       child: Center(
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
@@ -1811,13 +1828,13 @@ class _OperationsTabState extends State<_OperationsTab> {
                         borderRadius: BorderRadius.circular(16),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(isSelected ? 0.2 : 0.03),
+                            color: Colors.black.withValues(alpha: isSelected ? 0.2 : 0.03),
                             blurRadius: isSelected ? 12 : 8,
                             offset: const Offset(0, 4),
                           ),
                         ],
                         border: Border.all(
-                          color: isSelected ? Colors.indigo : Colors.indigo.withOpacity(0.05),
+                          color: isSelected ? Colors.indigo : Colors.indigo.withValues(alpha: 0.05),
                           width: 1,
                         ),
                       ),
@@ -1922,7 +1939,7 @@ class _OperationsTabState extends State<_OperationsTab> {
                       title: const Text('Tüm Okula Erişimi Aç'),
                       subtitle: const Text('Tüm öğretmen ve öğrenciler LinGoKN portalına geçiş yapabilir.'),
                       value: enabledAll,
-                      activeColor: Colors.teal,
+                      activeThumbColor: Colors.teal,
                       onChanged: (val) => setDialogState(() => enabledAll = val),
                     ),
                     const Divider(),
@@ -1980,8 +1997,8 @@ class _OperationsTabState extends State<_OperationsTab> {
                           schoolData!['lingoknAccess'] = updatedAccess;
                         }
                       });
-                      Navigator.pop(context);
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      if (mounted) Navigator.pop(context);
+                      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('LinGoKN erişim izinleri başarıyla güncellendi.')),
                       );
                     }
@@ -2213,7 +2230,7 @@ class _SharedNotificationSectionState extends State<SharedNotificationSection> {
           });
         }
       }
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[school_type_detail_screen] hata yutuldu: $silentError'); }
   }
 
   Future<void> _saveToDiskCache(String key, List<Map<String, dynamic>> items) async {
@@ -2221,7 +2238,7 @@ class _SharedNotificationSectionState extends State<SharedNotificationSection> {
       _memoryNotifCache[key] = items;
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('edukn_notif_cache_$key', json.encode(items));
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[school_type_detail_screen] hata yutuldu: $silentError'); }
   }
 
   @override
@@ -2470,7 +2487,7 @@ class _SharedNotificationSectionState extends State<SharedNotificationSection> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.05),
+            color: Colors.grey.withValues(alpha: 0.05),
             spreadRadius: 2,
             blurRadius: 10,
             offset: Offset(0, 4),
@@ -2492,7 +2509,7 @@ class _SharedNotificationSectionState extends State<SharedNotificationSection> {
                       Container(
                         padding: EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: color.withOpacity(0.1),
+                          color: color.withValues(alpha: 0.1),
                           shape: BoxShape.circle,
                         ),
                         child: Icon(icon, color: color, size: 20),
@@ -2555,7 +2572,7 @@ class SharedCalendarSection extends StatefulWidget {
   final String institutionId;
   final Map<String, dynamic>? userData;
 
-  const SharedCalendarSection({
+  const SharedCalendarSection({super.key, 
     required this.schoolTypeId,
     required this.institutionId,
     this.userData,
@@ -2740,7 +2757,7 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection>
           final minute = match.group(5) != null ? int.parse(match.group(5)!) : 0;
           return DateTime(year, month, day, hour, minute);
         }
-      } catch (_) {}
+      } catch (silentError) { debugPrint('[school_type_detail_screen] hata yutuldu: $silentError'); }
     }
     return null;
   }
@@ -2859,18 +2876,16 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection>
                   _cachedTermInfo = info;
                   return info;
                 }
-              } catch (_) {}
+              } catch (silentError) { debugPrint('[school_type_detail_screen] hata yutuldu: $silentError'); }
               return <String, dynamic>{'id': null, 'name': null};
             })();
 
-      // 2. Çalışma Dönemleri (WorkPeriods - Önbellekte varsa Firestore'a tekrar sormaz)
-      final wpFuture = (_cachedValidWorkPeriodIds != null && _cachedInstForWp == widget.institutionId)
-          ? Future.value(null)
-          : FirebaseFirestore.instance
-              .collection('workPeriods')
-              .where('institutionId', whereIn: instIds)
-              .get()
-              .catchError((_) => FirebaseFirestore.instance.collection('workPeriods').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get());
+      // 2. Çalışma Dönemleri (WorkPeriods)
+      final wpFuture = FirebaseFirestore.instance
+          .collection('workPeriods')
+          .where('institutionId', whereIn: instIds)
+          .get()
+          .catchError((_) => FirebaseFirestore.instance.collection('workPeriods').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get());
 
       // 3. Öğretmen Sınıf Atamaları
       final assignFuture = (isTeacher && validTeacherIds.isNotEmpty)
@@ -2989,7 +3004,31 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection>
               .get().catchError((_) => FirebaseFirestore.instance.collection('dutyLocations').where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID').limit(1).get())
           : Future.value(null);
 
-      // ⚡ TÜM SORGULARI TEK BİR EŞ ZAMANLI PATLAMA İLE ÇEK (Sequential waterfall kaldırıldı)
+      // 13. Gözetmenlik Slotları (yayınlanmış, bu öğretmene ait)
+      final proctoringFuture = (isTeacher && validTeacherIds.isNotEmpty)
+          ? (() {
+              final List<Future<QuerySnapshot>> pQueryList = [];
+              for (final inst in instIds) {
+                for (int i = 0; i < validTeacherIds.length; i += 10) {
+                  final chunk = validTeacherIds.skip(i).take(10).toList();
+                  pQueryList.add(FirebaseFirestore.instance
+                      .collection('proctoringSlots')
+                      .where('institutionId', isEqualTo: inst)
+                      .where('teacherId', whereIn: chunk)
+                      .where('isPublished', isEqualTo: true)
+                      .get()
+                      .catchError((_) => FirebaseFirestore.instance
+                          .collection('proctoringSlots')
+                          .where(FieldPath.documentId, isEqualTo: 'NO_MATCH_DUMMY_ID')
+                          .limit(1)
+                          .get()));
+                }
+              }
+              return Future.wait(pQueryList);
+            })()
+          : Future.value(<QuerySnapshot>[]);
+
+
       final results = await Future.wait([
         termFuture,             // 0
         wpFuture,               // 1
@@ -3003,11 +3042,12 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection>
         classExamsFuture,       // 9
         trialExamsFuture,       // 10
         dutyLocationsFuture,    // 11
+        proctoringFuture,       // 12
       ]).timeout(
         const Duration(seconds: 8),
         onTimeout: () {
           debugPrint('⚠️ Calendar Future.wait timeout (8s) - Mevcut verilerle devam ediliyor.');
-          return List.filled(12, null);
+          return List.filled(13, null);
         },
       );
 
@@ -3051,6 +3091,7 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection>
       final classExamsSnapshot = results[9] as QuerySnapshot?;
       final trialExamsSnapshot = results[10] as QuerySnapshot?;
       final dutyLocationsSnapshot = results[11] as QuerySnapshot?;
+      final proctoringSnapshots = results[12] as List<QuerySnapshot>?;
 
       final List<QueryDocumentSnapshot> allAssignDocs = [];
       if (assignSnapshots != null) {
@@ -3078,6 +3119,17 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection>
         for (final s in dutySnapshots) {
           for (final d in s.docs) {
             if (seen.add(d.id)) allDutyDocs.add(d);
+          }
+        }
+      }
+
+      // Gözetmenlik docs
+      final List<QueryDocumentSnapshot> allProctoringDocs = [];
+      if (proctoringSnapshots != null) {
+        final seen = <String>{};
+        for (final s in proctoringSnapshots) {
+          for (final d in s.docs) {
+            if (seen.add(d.id)) allProctoringDocs.add(d);
           }
         }
       }
@@ -3298,6 +3350,7 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection>
       if (isTeacher && (myId != null || validTeacherIds.isNotEmpty || teacherName.isNotEmpty)) {
         // A. dutyScheduleItems (Nöbetler)
         if (allDutyDocs.isNotEmpty) {
+          final List<QueryDocumentSnapshot> matchingDutyDocs = [];
           for (var doc in allDutyDocs) {
             final data = doc.data() as Map<String, dynamic>;
             final itemTermId = data['termId']?.toString().trim();
@@ -3308,14 +3361,46 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection>
               termMatches = true;
             } else if (itemTermId != null && itemTermId.isNotEmpty) {
               termMatches = (itemTermId == activeTermId);
-            } else if (itemPeriodId.isEmpty || itemPeriodId == activeTermId || validWorkPeriodIds.contains(itemPeriodId)) {
-              termMatches = true;
-            } else {
-              // Failsafe: Öğretmenin kendi nöbeti ise döneme takılıp kaybolmasın
+            } else if (itemPeriodId == activeTermId || validWorkPeriodIds.contains(itemPeriodId)) {
               termMatches = true;
             }
-            if (!termMatches) continue;
+            if (termMatches) {
+              matchingDutyDocs.add(doc);
+            }
+          }
 
+          // Dönem eşleşen nöbetler varsa onları göster; dönem filtresi boş dönerse kullanıcı mağdur olmasın diye tümünü göster (teacher_duty_screen ile birebir aynı)
+          final dutyDocsToProcess = matchingDutyDocs.isNotEmpty ? matchingDutyDocs : allDutyDocs;
+
+          // Aktif dönemle eşleşen ve en güncel olan nöbetleri öne al
+          final sortedDutyDocs = List<QueryDocumentSnapshot>.from(dutyDocsToProcess);
+          sortedDutyDocs.sort((a, b) {
+            final dataA = a.data() as Map<String, dynamic>;
+            final dataB = b.data() as Map<String, dynamic>;
+
+            final matchA = (dataA['termId'] == activeTermId || validWorkPeriodIds.contains(dataA['periodId']));
+            final matchB = (dataB['termId'] == activeTermId || validWorkPeriodIds.contains(dataB['periodId']));
+            if (matchA != matchB) {
+              return matchA ? -1 : 1;
+            }
+
+            final tsA = dataA['updatedAt'] ?? dataA['createdAt'];
+            final tsB = dataB['updatedAt'] ?? dataB['createdAt'];
+            if (tsA != null && tsB != null) {
+              final dtA = _parseDateTime(tsA);
+              final dtB = _parseDateTime(tsB);
+              if (dtA != null && dtB != null) {
+                return dtB.compareTo(dtA);
+              }
+            }
+            return 0;
+          });
+
+          final Set<String> seenDutyDatePerTeacher = {};
+
+          for (var doc in sortedDutyDocs) {
+            final data = doc.data() as Map<String, dynamic>;
+            final itemPeriodId = data['periodId']?.toString().trim() ?? '';
             final dDayOfWeek = int.tryParse(data['dayOfWeek']?.toString() ?? '');
             final dWeekStart = _parseDateTime(data['weekStart']);
             final location = data['locationName'] ?? data['dutyLocation'] ?? 'Nöbet Yeri';
@@ -3365,6 +3450,13 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection>
               if (dutyDate.isAfter(startOfMonth.subtract(const Duration(seconds: 1))) &&
                   dutyDate.isBefore(endOfMonth.add(const Duration(seconds: 1)))) {
                 
+                // Aynı öğretmenin aynı gün mükerrer/eski nöbeti varsa teke indir (en güncel/aktif olanı göster)
+                final dutyTeacherId = (data['teacherId'] ?? myId ?? '').toString();
+                final dayKey = '${dutyTeacherId}_${dutyDate.year}_${dutyDate.month}_${dutyDate.day}';
+                if (!seenDutyDatePerTeacher.add(dayKey)) {
+                  continue;
+                }
+
                 String startStr = '';
                 if (locData?['startTime'] != null && locData!['startTime'].toString().trim().isNotEmpty) {
                   startStr = locData['startTime'].toString().trim();
@@ -3426,6 +3518,131 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection>
                 });
               }
             }
+          }
+        }
+
+        // B2. Gözetmenlik Slotları
+        if (allProctoringDocs.isNotEmpty) {
+          // İlgili sınavların güncel saat ayarlarını çek
+          final examIds = allProctoringDocs
+              .map((d) => (d.data() as Map<String, dynamic>)['examId']?.toString())
+              .where((id) => id != null && id.isNotEmpty)
+              .toSet()
+              .toList();
+
+          final Map<String, List<Map<String, String>>> examManualSlotsMap = {};
+          if (examIds.isNotEmpty) {
+            final List<Future<void>> settingsFutures = [];
+            for (final eId in examIds) {
+              settingsFutures.add(
+                FirebaseFirestore.instance
+                    .collection('proctoringSettings')
+                    .where('examId', isEqualTo: eId)
+                    .limit(1)
+                    .get()
+                    .then((snap) {
+                  if (snap.docs.isNotEmpty) {
+                    final sData = snap.docs.first.data();
+                    final raw = (sData['manualSlots'] ?? sData['timeSlots']) as List? ?? [];
+                    if (raw.isNotEmpty) {
+                      examManualSlotsMap[eId!] = raw.map((e) {
+                        if (e is Map) {
+                          return {
+                            'start': (e['start'] ?? e['startTime'] ?? '').toString(),
+                            'end': (e['end'] ?? e['endTime'] ?? '').toString(),
+                          };
+                        }
+                        return {'start': '', 'end': ''};
+                      }).toList();
+                    }
+                  }
+                }).catchError((_) {}),
+              );
+            }
+            try {
+              await Future.wait(settingsFutures).timeout(const Duration(seconds: 3));
+            } catch (_) {}
+          }
+
+          final seen = <String>{};
+          for (var doc in allProctoringDocs) {
+            if (!seen.add(doc.id)) continue;
+            final data = doc.data() as Map<String, dynamic>;
+
+            // Sınav tarihini al
+            final examDate = _parseDateTime(data['examDate']);
+            if (examDate == null) continue;
+
+            // Sadece bu ay içindeyse göster
+            if (examDate.isBefore(startOfMonth.subtract(const Duration(days: 7))) ||
+                examDate.isAfter(endOfMonth.add(const Duration(days: 7)))) {
+              continue;
+            }
+
+            final examId = data['examId']?.toString() ?? '';
+            final slotIndex = (data['slotIndex'] as num?)?.toInt() ?? 0;
+            final className = data['className']?.toString() ?? '';
+            final examName = data['examName']?.toString() ?? 'Sınav';
+            
+            String startTime = data['startTime']?.toString() ?? '';
+            String endTime = data['endTime']?.toString() ?? '';
+            String slotLabel = data['slotLabel']?.toString() ?? '';
+
+            // Sınavın güncel saat ayarı varsa slotIndex'e göre saati dinamik belirle ve dokümanı güncelle
+            if (examId.isNotEmpty && examManualSlotsMap.containsKey(examId)) {
+              final mSlots = examManualSlotsMap[examId]!;
+              if (slotIndex >= 0 && slotIndex < mSlots.length) {
+                final configuredStart = mSlots[slotIndex]['start'] ?? '';
+                final configuredEnd = mSlots[slotIndex]['end'] ?? '';
+                if (configuredStart.isNotEmpty && configuredEnd.isNotEmpty) {
+                  if (startTime != configuredStart || endTime != configuredEnd) {
+                    doc.reference.update({
+                      'startTime': configuredStart,
+                      'endTime': configuredEnd,
+                      'slotLabel': '${slotIndex + 1}. Saat',
+                    }).catchError((_) {});
+                  }
+                  startTime = configuredStart;
+                  endTime = configuredEnd;
+                  slotLabel = '${slotIndex + 1}. Saat';
+                }
+              }
+            }
+
+            DateTime? startDt;
+            DateTime? endDt;
+            if (startTime.contains(':')) {
+              final parts = startTime.split(':');
+              startDt = DateTime(examDate.year, examDate.month, examDate.day,
+                  int.tryParse(parts[0]) ?? 8, int.tryParse(parts[1]) ?? 0);
+            }
+            if (endTime.contains(':')) {
+              final parts = endTime.split(':');
+              endDt = DateTime(examDate.year, examDate.month, examDate.day,
+                  int.tryParse(parts[0]) ?? 9, int.tryParse(parts[1]) ?? 0);
+            }
+
+            final desc = [
+              if (className.isNotEmpty) className,
+              if (slotLabel.isNotEmpty) slotLabel,
+              if (startTime.isNotEmpty && endTime.isNotEmpty) '$startTime – $endTime',
+            ].join(' · ');
+
+            allEvents.add(<String, dynamic>{
+              ...data,
+              'id': 'proctoring_${doc.id}',
+              'source': 'proctoring',
+              'title': 'Gözetmenlik: $examName',
+              'description': desc,
+              'displayType': 'Gözetmenlik',
+              'type': 'Gözetmenlik',
+              'date': Timestamp.fromDate(
+                  DateTime(examDate.year, examDate.month, examDate.day)),
+              'startTime': startDt != null ? Timestamp.fromDate(startDt) : null,
+              'endTime': endDt != null ? Timestamp.fromDate(endDt) : null,
+              'rawStartTime': startTime,
+              'rawEndTime': endTime,
+            });
           }
         }
 
@@ -3511,7 +3728,7 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection>
             if (examDate != null) {
               if (examDate.isAfter(startOfMonth.subtract(const Duration(seconds: 1))) &&
                   examDate.isBefore(endOfMonth.add(const Duration(seconds: 1)))) {
-                final ts = Timestamp.fromDate(examDate);
+                final startTs = Timestamp.fromDate(examDate);
                 allEvents.add(<String, dynamic>{
                   ...data,
                   'id': 'trial_exam_${doc.id}',
@@ -3519,9 +3736,10 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection>
                   'title': 'Deneme Sınavı: $name',
                   'displayType': 'Sınav',
                   'type': 'Sınav',
-                  'date': ts,
-                  'startTime': ts,
-                  'endTime': ts,
+                  'date': startTs,
+                  'startTime': startTs,
+                  'endTime': startTs,
+                  'rawStartTime': '${examDate.hour.toString().padLeft(2, '0')}:${examDate.minute.toString().padLeft(2, '0')}',
                 });
               }
             }
@@ -3550,7 +3768,7 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection>
         });
       }
     } catch (e) {
-      print('Etkinlik yükleme hatası: $e');
+      debugPrint('Etkinlik yükleme hatası: $e');
       if (mounted) setState(() => _isLoading = false);
     }
   }
@@ -3611,7 +3829,7 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection>
                 boxShadow: isWideScreen
                     ? [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.03),
+                          color: Colors.black.withValues(alpha: 0.03),
                           spreadRadius: 5,
                           blurRadius: 20,
                           offset: Offset(0, 10),
@@ -3786,7 +4004,10 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection>
       0,
     ).day;
     int firstDayWeekday = firstDayOfMonth.weekday - 1;
-    final totalCells = _isWeeklyView ? 7 : 42;
+    // Minimum 5 satır, gerekirse 6 (ayın günleri sığmıyorsa)
+    final int neededRows = ((firstDayWeekday + daysInMonth) / 7).ceil();
+    final int rowCount = neededRows < 5 ? 5 : neededRows;
+    final totalCells = _isWeeklyView ? 7 : rowCount * 7;
 
     return GridView.builder(
       shrinkWrap: true,
@@ -3809,7 +4030,63 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection>
           // Ay görünümündeyse
           int dayNum = index - firstDayWeekday + 1;
           bool isCurrentMonth = dayNum > 0 && dayNum <= daysInMonth;
-          if (!isCurrentMonth) return SizedBox.shrink();
+
+          if (!isCurrentMonth) {
+            // Önceki / sonraki ay günleri — soluk göster
+            late DateTime adjacentDay;
+            if (dayNum <= 0) {
+              final prevMonthLastDay = DateTime(_focusedDay.year, _focusedDay.month, 0);
+              adjacentDay = DateTime(prevMonthLastDay.year, prevMonthLastDay.month, prevMonthLastDay.day + dayNum);
+            } else {
+              adjacentDay = DateTime(_focusedDay.year, _focusedDay.month + 1, dayNum - daysInMonth);
+            }
+            final adjEvents = _events.where((e) {
+              final dateVal = e['date'];
+              if (dateVal == null) return false;
+              final DateTime? eventDate = dateVal is Timestamp
+                  ? dateVal.toDate()
+                  : (dateVal is DateTime ? dateVal : DateTime.tryParse(dateVal.toString()));
+              if (eventDate == null) return false;
+              return eventDate.day == adjacentDay.day &&
+                  eventDate.month == adjacentDay.month &&
+                  eventDate.year == adjacentDay.year;
+            }).toList();
+            return InkWell(
+              onTap: () {
+                setState(() {
+                  _selectedDay = adjacentDay;
+                  _focusedDay = adjacentDay;
+                  _loadEvents();
+                });
+              },
+              borderRadius: BorderRadius.circular(100),
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      adjacentDay.day.toString(),
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w400,
+                        color: Colors.blueGrey.shade300,
+                      ),
+                    ),
+                    if (adjEvents.isNotEmpty)
+                      Container(
+                        margin: const EdgeInsets.only(top: 1),
+                        width: 4,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.blueGrey.shade300,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          }
 
           currentDay = DateTime(
             _focusedDay.year,
@@ -3853,7 +4130,7 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection>
           },
           onLongPress: () => _showAddEventDialog(date: currentDay),
           borderRadius: BorderRadius.circular(100),
-          splashColor: Colors.blue.withOpacity(0.1),
+          splashColor: Colors.blue.withValues(alpha: 0.1),
           highlightColor: Colors.transparent,
           child: Center(
             child: AnimatedContainer(
@@ -3865,16 +4142,16 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection>
                 color: isSelected
                     ? Colors.blue
                     : (isToday
-                          ? Colors.blue.withOpacity(0.05)
+                          ? Colors.blue.withValues(alpha: 0.05)
                           : Colors.transparent),
                 shape: BoxShape.circle,
                 border: isToday && !isSelected
-                    ? Border.all(color: Colors.blue.withOpacity(0.3), width: 1.5)
+                    ? Border.all(color: Colors.blue.withValues(alpha: 0.3), width: 1.5)
                     : null,
                 boxShadow: isSelected
                     ? [
                         BoxShadow(
-                          color: Colors.blue.withOpacity(0.4),
+                          color: Colors.blue.withValues(alpha: 0.4),
                           blurRadius: 8,
                           offset: Offset(0, 3),
                         )
@@ -3912,7 +4189,7 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection>
                           color: dotColor,
                           shape: BoxShape.circle,
                           boxShadow: isSelected ? null : [
-                            BoxShadow(color: dotColor.withOpacity(0.3), blurRadius: 4, spreadRadius: 1)
+                            BoxShadow(color: dotColor.withValues(alpha: 0.3), blurRadius: 4, spreadRadius: 1)
                           ],
                         ),
                       );
@@ -3945,8 +4222,21 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection>
       if (aTime == null && bTime == null) return 0;
       if (aTime == null) return 1;
       if (bTime == null) return -1;
-      if (aTime is Timestamp && bTime is Timestamp) return aTime.compareTo(bTime);
-      return aTime.toString().compareTo(bTime.toString());
+      int timeCmp = 0;
+      if (aTime is Timestamp && bTime is Timestamp) {
+        timeCmp = aTime.compareTo(bTime);
+      } else {
+        timeCmp = aTime.toString().compareTo(bTime.toString());
+      }
+      if (timeCmp != 0) return timeCmp;
+      // Aynı saatte: trial_exam önce, proctoring sonra
+      int sourcePriority(Map e) {
+        final src = e['source']?.toString() ?? '';
+        if (src == 'trial_exam') return 0;
+        if (src == 'proctoring') return 2;
+        return 1;
+      }
+      return sourcePriority(a).compareTo(sourcePriority(b));
     });
 
     final bool isWideScreen = MediaQuery.of(context).size.width > 900;
@@ -4077,9 +4367,15 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection>
                                         final hasTime = event['startTime'] != null;
                                         final rawStart = (event['rawStartTime'] ?? '').toString().trim();
                                         final rawEnd = (event['rawEndTime'] ?? '').toString().trim();
+                                        final isTrialExam = event['source'] == 'trial_exam';
                                         final String timeStr;
-                                        if (rawStart.isNotEmpty && rawEnd.isNotEmpty) {
+                                        if (isTrialExam) {
+                                          // Deneme sınavında sadece başlangıç saati
+                                          timeStr = rawStart.isNotEmpty ? rawStart : (hasTime ? _formatTime(event['startTime']) : '');
+                                        } else if (rawStart.isNotEmpty && rawEnd.isNotEmpty && rawStart != rawEnd) {
                                           timeStr = '$rawStart - $rawEnd';
+                                        } else if (rawStart.isNotEmpty) {
+                                          timeStr = rawStart;
                                         } else if (hasTime && event['endTime'] != null) {
                                           timeStr = '${_formatTime(event['startTime'])} - ${_formatTime(event['endTime'])}';
                                         } else if (hasTime) {
@@ -4090,8 +4386,10 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection>
                                         final prefix = dateStr.isNotEmpty && timeStr.isNotEmpty
                                             ? '$dateStr • $timeStr'
                                             : (dateStr.isNotEmpty ? dateStr : timeStr);
+                                        final isProctoring = event['source'] == 'proctoring';
+                                        final String proctoringClass = isProctoring ? (event['className'] ?? '').toString().trim() : '';
                                         return Text(
-                                          prefix + (hasClassroom ? ' • Derslik: $classroom' : '') + (hasDescription ? ' • $description' : '') + (hasDutyDesc ? ' • $dutyDesc' : ''),
+                                          prefix + (hasClassroom ? ' • Derslik: $classroom' : '') + (hasDescription ? ' • $description' : '') + (hasDutyDesc ? ' • $dutyDesc' : '') + (proctoringClass.isNotEmpty ? ' • $proctoringClass' : ''),
                                           style: const TextStyle(
                                             color: Colors.grey,
                                             fontSize: 12,
@@ -4145,6 +4443,10 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection>
     } else if (source == 'duty') {
       icon = Icons.security_rounded;
       color = Colors.orange;
+      size = 18;
+    } else if (source == 'proctoring') {
+      icon = Icons.supervised_user_circle_rounded;
+      color = const Color(0xFF7C3AED);
       size = 18;
     } else if (source == 'homework') {
       icon = Icons.assignment_rounded;
@@ -4210,7 +4512,7 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection>
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: _getEventColor(event['type']).withOpacity(0.1),
+                      color: _getEventColor(event['type']).withValues(alpha: 0.1),
                       shape: BoxShape.circle,
                     ),
                     child: _buildEventIcon(event),
@@ -4377,7 +4679,7 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection>
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: Colors.blue.withOpacity(0.1),
+              color: Colors.blue.withValues(alpha: 0.1),
               shape: BoxShape.circle,
             ),
             child: const Icon(Icons.person_outline, size: 16, color: Colors.blue),
@@ -4622,7 +4924,7 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection>
         await eventDoc.reference.delete();
         _loadEvents();
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
               'Sadece kendi oluşturduğunuz etkinlikleri silebilirsiniz.',
@@ -4632,7 +4934,7 @@ class _SharedCalendarSectionState extends State<SharedCalendarSection>
       }
     } catch (e) {
       debugPrint('Error deleting event: $e');
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Silme hatası: $e')));
     } finally {
@@ -4696,7 +4998,7 @@ class _AddEventFormState extends State<_AddEventForm> {
           ),
           SizedBox(height: 20),
           DropdownButtonFormField<String>(
-            value: _selectedType,
+            initialValue: _selectedType,
             decoration: InputDecoration(
               labelText: 'Etkinlik Türü',
               prefixIcon: Icon(Icons.category_rounded, color: Colors.blue),
@@ -4946,16 +5248,16 @@ class _ModuleCardWidgetState extends State<_ModuleCardWidget> {
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(
-                  isCardHovered || widget.showAllItems ? 0.08 : 0.03),
+              color: Colors.black.withValues(
+                  alpha: isCardHovered || widget.showAllItems ? 0.08 : 0.03),
               blurRadius: isCardHovered || widget.showAllItems ? 30 : 20,
               offset: const Offset(0, 10),
             ),
           ],
           border: Border.all(
             color: isCardHovered || widget.showAllItems
-                ? widget.color.withOpacity(0.3)
-                : Colors.indigo.withOpacity(0.05),
+                ? widget.color.withValues(alpha: 0.3)
+                : Colors.indigo.withValues(alpha: 0.05),
             width: 1.5,
           ),
         ),
@@ -4971,7 +5273,7 @@ class _ModuleCardWidgetState extends State<_ModuleCardWidget> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: widget.color.withOpacity(0.1),
+                    color: widget.color.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Icon(widget.icon, color: widget.color, size: 28),
@@ -4980,7 +5282,7 @@ class _ModuleCardWidgetState extends State<_ModuleCardWidget> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: widget.color.withOpacity(0.1),
+                    color: widget.color.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
@@ -5137,7 +5439,7 @@ class DoodlePainter extends CustomPainter {
                     fontSize: iconSize,
                     fontFamily: iconData.fontFamily,
                     package: iconData.fontPackage,
-                    color: Colors.indigo.withOpacity(0.02 +
+                    color: Colors.indigo.withValues(alpha: 0.02 +
                         random.nextDouble() * 0.03))));
         textPainter.layout();
         canvas.save();

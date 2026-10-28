@@ -11,7 +11,6 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:excel/excel.dart' hide Border;
 import 'package:file_saver/file_saver.dart';
-import 'dart:typed_data';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:intl/intl.dart';
@@ -48,8 +47,8 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
   String _selectedTab = 'ogrenci'; // 'personel', 'ogrenci', 'veli'
   List<Map<String, dynamic>> _dataList = []; // Gelen veriler
   List<Map<String, dynamic>> _filteredList = []; // Filtrelenmiş veriler
-  Set<String> _selectedIds = {}; // Seçili kişi ID'leri
-  Map<String, String> _selectedNames = {}; // Seçili kişi İsimleri (ID -> Name)
+  final Set<String> _selectedIds = {}; // Seçili kişi ID'leri
+  final Map<String, String> _selectedNames = {}; // Seçili kişi İsimleri (ID -> Name)
 
   bool _isLoading = false;
   String _searchQuery = '';
@@ -107,7 +106,7 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
   static dynamic _makeJsonSafe(dynamic value) {
     if (value is Timestamp) return value.toDate().toIso8601String();
     if (value is DateTime) return value.toIso8601String();
-    if (value is Color) return value.value;
+    if (value is Color) return value.toARGB32();
     if (value is Map) {
       final res = <String, dynamic>{};
       value.forEach((k, v) => res[k.toString()] = _makeJsonSafe(v));
@@ -135,7 +134,7 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
           _staticGuidanceCache[cacheKey] = list;
         }
       }
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[guidance_interview_screen] hata yutuldu: $silentError'); }
   }
 
   @override
@@ -518,7 +517,7 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
         });
       }
     } catch (e) {
-      print('Veri çekme hatası: $e');
+      debugPrint('Veri çekme hatası: $e');
       if (mounted) setState(() => _isLoading = false);
     }
   }
@@ -803,7 +802,7 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
 
       await batch.commit();
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('✅ Görüşme(ler) başarıyla kaydedildi!'),
           backgroundColor: Colors.green,
@@ -827,7 +826,7 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
       });
     } catch (e) {
       setState(() => _isSaving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Hata oluştu: $e'), backgroundColor: Colors.red),
       );
     }
@@ -852,7 +851,7 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
 
       return await ref.getDownloadURL();
     } catch (e) {
-      print("Upload Error: $e");
+      debugPrint("Upload Error: $e");
       return null;
     }
   }
@@ -1387,7 +1386,7 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
                     borderRadius: BorderRadius.circular(16),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.03),
+                        color: Colors.black.withValues(alpha: 0.03),
                         blurRadius: 10,
                       ),
                     ],
@@ -1469,7 +1468,7 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
                     borderRadius: BorderRadius.circular(16),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.03),
+                        color: Colors.black.withValues(alpha: 0.03),
                         blurRadius: 10,
                       ),
                     ],
@@ -1657,7 +1656,7 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
                             ),
                             Switch(
                               value: _isPrivate,
-                              activeColor: Colors.red,
+                              activeThumbColor: Colors.red,
                               onChanged: (val) =>
                                   setState(() => _isPrivate = val),
                             ),
@@ -1950,7 +1949,7 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: Colors.grey.shade200),
             boxShadow: [
-              BoxShadow(color: Colors.black.withOpacity(0.01), blurRadius: 10),
+              BoxShadow(color: Colors.black.withValues(alpha: 0.01), blurRadius: 10),
             ],
           ),
           child: canViewContent
@@ -2041,7 +2040,7 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
         Container(
           padding: EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
+            color: color.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Icon(icon, color: color, size: 20),
@@ -2094,7 +2093,7 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
           color: isSelected ? Colors.white : Colors.transparent,
           borderRadius: BorderRadius.circular(10),
           boxShadow: isSelected
-              ? [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4)]
+              ? [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 4)]
               : [],
         ),
         child: Text(
@@ -2183,7 +2182,7 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
           boxShadow: isSelected
               ? [
                   BoxShadow(
-                    color: Colors.indigo.withOpacity(0.3),
+                    color: Colors.indigo.withValues(alpha: 0.3),
                     blurRadius: 8,
                     offset: Offset(0, 4),
                   ),
@@ -2237,7 +2236,7 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
           .doc(docId)
           .delete();
       _loadData(); // Refresh list
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Görüşme silindi.')));
     }
@@ -2396,13 +2395,13 @@ class _GuidanceInterviewScreenState extends State<GuidanceInterviewScreen> {
           ext: 'xlsx',
           mimeType: MimeType.microsoftExcel,
         );
-        ScaffoldMessenger.of(
+        if (mounted) ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Excel raporu indirildi.')));
       }
     } catch (e) {
       debugPrint('Excel Export Error: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Rapor oluşturulurken hata oluştu: $e')),
       );
     }

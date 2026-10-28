@@ -109,10 +109,10 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
                     height: 40,
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
-                      color: isPublished ? Colors.blue.shade700.withOpacity(0.08) : Colors.transparent,
+                      color: isPublished ? Colors.blue.shade700.withValues(alpha: 0.08) : Colors.transparent,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: isPublished ? Colors.blue.shade700 : Colors.grey.withOpacity(0.3),
+                        color: isPublished ? Colors.blue.shade700 : Colors.grey.withValues(alpha: 0.3),
                         width: isPublished ? 1.8 : 1.0,
                       ),
                     ),
@@ -136,10 +136,10 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
                     height: 40,
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
-                      color: !isPublished ? Colors.blue.shade700.withOpacity(0.08) : Colors.transparent,
+                      color: !isPublished ? Colors.blue.shade700.withValues(alpha: 0.08) : Colors.transparent,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: !isPublished ? Colors.blue.shade700 : Colors.grey.withOpacity(0.3),
+                        color: !isPublished ? Colors.blue.shade700 : Colors.grey.withValues(alpha: 0.3),
                         width: !isPublished ? 1.8 : 1.0,
                       ),
                     ),
@@ -273,7 +273,7 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
           borderRadius: BorderRadius.circular(30),
           boxShadow: [
             BoxShadow(
-              color: Colors.indigo.withOpacity(0.3),
+              color: Colors.indigo.withValues(alpha: 0.3),
               blurRadius: 10,
               offset: const Offset(0, 5),
             ),
@@ -357,9 +357,9 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
                       vertical: 4,
                     ),
                     decoration: BoxDecoration(
-                      color: statusColor.withOpacity(0.1),
+                      color: statusColor.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: statusColor.withOpacity(0.5)),
+                      border: Border.all(color: statusColor.withValues(alpha: 0.5)),
                     ),
                     child: Text(
                       statusText,

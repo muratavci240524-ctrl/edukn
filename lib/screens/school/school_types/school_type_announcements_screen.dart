@@ -339,8 +339,8 @@ class _SchoolTypeAnnouncementsScreenState
               onPressed: () async {
                 await _announcementService.setTeacherAnnouncementMode(schoolId, currentMode);
                 if (mounted) {
-                  Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  if (mounted) Navigator.pop(ctx);
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Öğretmen duyuru yetki ayarı kaydedildi.')),
                   );
                 }
@@ -528,10 +528,7 @@ class _SchoolTypeAnnouncementsScreenState
                         final title = (data['title'] ?? '').toString().toLowerCase();
                         final content = (data['content'] ?? '').toString().toLowerCase();
                         final publishDate = data['publishDate'] as Timestamp?;
-                        final readBy = data['readBy'] as List<dynamic>? ?? [];
-                        final isRead = readBy.contains(currentUserEmail) || readBy.contains(currentUserUid);
                         final isPinned = data['isPinned'] ?? false;
-                        final wasUnreadAtStart = _sessionUnreadDocIds.contains(doc.id);
 
                         final docCreatedBy = (data['createdBy'] ?? '').toString();
                         final isCreator = docCreatedBy.isNotEmpty && docCreatedBy == currentUserEmail;
@@ -563,9 +560,12 @@ class _SchoolTypeAnnouncementsScreenState
                           }
                         }
 
-                        // Sekme filtrelemesi:
-                        if (_viewMode == 'past' && !isRead) return false;
-                        if (_viewMode == 'new' && isRead && !isPinned) return false;
+                        // Sekme filtrelemesi: yayın tarihinden itibaren 3 gün 'Yeni', sonrası 'Geçmiş'
+                        final refTs = (publishDate ?? data['createdAt']) as Timestamp?;
+                        final isRecent = refTs == null ||
+                            DateTime.now().difference(refTs.toDate()).inDays < 3;
+                        if (_viewMode == 'past' && isRecent) return false;
+                        if (_viewMode == 'new' && !isRecent) return false;
 
                         if (_filterType == 'pinned' && !isPinned) return false;
 
@@ -591,11 +591,11 @@ class _SchoolTypeAnnouncementsScreenState
                       if (filteredDocs.isEmpty) {
                         return _buildEmptyState(
                           _viewMode == 'new'
-                              ? 'Henüz duyuru yok'
-                              : 'Okunmuş geçmiş duyuru bulunmuyor',
+                              ? 'Son 3 gün içinde yayınlanan duyuru yok'
+                              : 'Geçmiş duyuru bulunmuyor',
                           _viewMode == 'new'
-                              ? 'Yeni bir duyuru yayınlandığında veya geldiğinde burada görünecektir.'
-                              : 'Okuduğunuz tüm duyurular geçmiş sekmesinde listelenmektedir.',
+                              ? 'Yeni bir duyuru yayınlandığında burada görünecektir.'
+                              : '3 günden eski duyurular geçmiş sekmesinde listelenir.',
                         );
                       }
 
@@ -639,7 +639,7 @@ class _SchoolTypeAnnouncementsScreenState
                                     await _announcementService.approveAnnouncement(doc.id, sId, currentUserEmail);
                                     if (mounted) {
                                       setState(() {});
-                                      ScaffoldMessenger.of(context).showSnackBar(
+                                      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                                         const SnackBar(content: Text('Duyuru onaylandı ve yayınlandı!')),
                                       );
                                     }
@@ -651,7 +651,7 @@ class _SchoolTypeAnnouncementsScreenState
                                     await _announcementService.rejectAnnouncement(doc.id, sId, currentUserEmail);
                                     if (mounted) {
                                       setState(() {});
-                                      ScaffoldMessenger.of(context).showSnackBar(
+                                      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                                         const SnackBar(content: Text('Duyuru reddedildi.')),
                                       );
                                     }
@@ -670,7 +670,7 @@ class _SchoolTypeAnnouncementsScreenState
                                   
                                   final schoolId = await _announcementService.getSchoolId();
                                   if (schoolId != null && mounted) {
-                                    Navigator.push(
+                                    if (mounted) Navigator.push(
                                       context,
                                       MaterialPageRoute(
                                         builder: (ctx) => AnnouncementDetailScreen(
@@ -822,7 +822,7 @@ class _SchoolTypeAnnouncementsScreenState
               const SizedBox(width: 12),
               // Takvim Butonu
               Material(
-                color: _range != null ? Colors.indigo.withOpacity(0.1) : const Color(0xFFF1F5F9),
+                color: _range != null ? Colors.indigo.withValues(alpha: 0.1) : const Color(0xFFF1F5F9),
                 borderRadius: BorderRadius.circular(12),
                 child: InkWell(
                   onTap: _pickRange,
@@ -954,7 +954,7 @@ class _SchoolTypeAnnouncementsScreenState
                     boxShadow: _viewMode == 'new'
                         ? [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.06),
+                              color: Colors.black.withValues(alpha: 0.06),
                               blurRadius: 4,
                               offset: const Offset(0, 2),
                             ),
@@ -996,7 +996,7 @@ class _SchoolTypeAnnouncementsScreenState
                     boxShadow: _viewMode == 'past'
                         ? [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.06),
+                              color: Colors.black.withValues(alpha: 0.06),
                               blurRadius: 4,
                               offset: const Offset(0, 2),
                             ),
@@ -1045,7 +1045,7 @@ class _SchoolTypeAnnouncementsScreenState
               border: Border.all(color: Colors.indigo.shade50, width: 1.5),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.indigo.shade900.withOpacity(0.04),
+                  color: Colors.indigo.shade900.withValues(alpha: 0.04),
                   blurRadius: 24,
                   offset: const Offset(0, 8),
                 ),

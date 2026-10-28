@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -297,7 +297,7 @@ class _SmsIntegrationScreenState extends State<SmsIntegrationScreen> {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -359,7 +359,7 @@ class _SmsIntegrationScreenState extends State<SmsIntegrationScreen> {
           ),
           Switch(
             value: _isActive,
-            activeColor: Colors.blueGrey.shade700,
+            activeThumbColor: Colors.blueGrey.shade700,
             onChanged: (val) => setState(() => _isActive = val),
           ),
         ],
@@ -375,7 +375,7 @@ class _SmsIntegrationScreenState extends State<SmsIntegrationScreen> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -416,7 +416,7 @@ class _SmsIntegrationScreenState extends State<SmsIntegrationScreen> {
                   color: Colors.blueGrey.shade700)),
           const SizedBox(height: 8),
           DropdownButtonFormField<SmsProvider>(
-            value: _selectedProvider,
+            initialValue: _selectedProvider,
             decoration: _inputDecoration('Sağlayıcı seçin'),
             items: SmsProvider.values.map((p) {
               final names = {
@@ -530,7 +530,7 @@ class _SmsIntegrationScreenState extends State<SmsIntegrationScreen> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),

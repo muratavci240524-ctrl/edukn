@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -232,7 +232,7 @@ class _CafeteriaScreenState extends State<CafeteriaScreen> {
                           'isActive': true,
                         });
                   }
-                  Navigator.pop(ctx);
+                  if (mounted) Navigator.pop(ctx);
                   _loadMealPeriods();
                 },
                 child: Text('Kaydet'),
@@ -341,7 +341,7 @@ class _CafeteriaScreenState extends State<CafeteriaScreen> {
         border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.02),
+            color: Colors.black.withValues(alpha: 0.02),
             blurRadius: 2,
             offset: Offset(0, 2),
           ),
@@ -620,7 +620,7 @@ class _MenuManagementScreenState extends State<_MenuManagementScreen> {
 
     if (result != true) return;
     if (foodNameCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Yemek adı zorunludur!'),
           backgroundColor: Colors.red,
@@ -647,7 +647,7 @@ class _MenuManagementScreenState extends State<_MenuManagementScreen> {
         });
 
     _loadMenus();
-    ScaffoldMessenger.of(context).showSnackBar(
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('? Menü eklendi'), backgroundColor: Colors.green),
     );
   }
@@ -789,7 +789,7 @@ class _MenuManagementScreenState extends State<_MenuManagementScreen> {
                 'dd.MM.yyyy',
               ).parse(dateCell.value.toString().trim());
             } catch (e) {
-              print('Date parse error row $i: $e');
+              debugPrint('Date parse error row $i: $e');
               continue;
             }
           }

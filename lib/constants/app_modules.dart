@@ -73,7 +73,6 @@ class AppModules {
         'hata_kitapcigi': 'Hata Kitapçığı',
         'soru_havuzu': 'Soru Havuzu',
         'dis_katilimli_sinav': 'Dış Katılımlı Sınav',
-        'kamp_programi': 'Kamp Programı',
       },
     ),
 

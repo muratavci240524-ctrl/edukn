@@ -1,4 +1,4 @@
-﻿import 'dart:ui';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -266,7 +266,7 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(16),
                         boxShadow: [
-                          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 15, offset: const Offset(0, 4)),
+                          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 15, offset: const Offset(0, 4)),
                         ],
                       ),
                       child: ClipRRect(
@@ -307,7 +307,7 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
               Container(
                 padding: EdgeInsets.all(isMobile ? 20 : 32),
                 decoration: BoxDecoration(
-                  color: Colors.indigo.withOpacity(0.1),
+                  color: Colors.indigo.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(Icons.contact_phone_rounded, size: isMobile ? 48 : 80, color: Colors.indigo.shade400),
@@ -374,7 +374,7 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
-              BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 2)),
+              BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 2)),
             ],
           ),
           child: Column(
@@ -502,7 +502,7 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(color: isSelected ? Colors.indigo : Colors.transparent, width: 1.5),
                             boxShadow: [
-                              BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 4, offset: const Offset(0, 2)),
+                              BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 4, offset: const Offset(0, 2)),
                             ],
                           ),
                           child: Row(
@@ -511,7 +511,7 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
                                 width: 44,
                                 height: 44,
                                 decoration: BoxDecoration(
-                                  color: reg['isConverted'] == true ? Colors.green.withOpacity(0.1) : Colors.orange.withOpacity(0.1),
+                                  color: reg['isConverted'] == true ? Colors.green.withValues(alpha: 0.1) : Colors.orange.withValues(alpha: 0.1),
                                   shape: BoxShape.circle,
                                 ),
                                 child: Icon(
@@ -611,12 +611,12 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
                     borderRadius: BorderRadius.circular(27),
                     color: Colors.white,
                     boxShadow: [
-                      BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8, offset: const Offset(0, 2)),
+                      BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2)),
                     ],
                   ),
                   labelColor: Colors.indigo,
                   unselectedLabelColor: const Color(0xFF64748B),
-                  overlayColor: MaterialStateProperty.all(Colors.transparent),
+                  overlayColor: WidgetStateProperty.all(Colors.transparent),
                   splashFactory: NoSplash.splashFactory,
                   labelStyle: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: isNarrow ? 11 : 13),
                   unselectedLabelStyle: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: isNarrow ? 11 : 13),
@@ -823,9 +823,9 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
       
       _newNoteController.clear();
       _loadPreRegistrations();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Not başarıyla eklendi.')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Not başarıyla eklendi.')));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Not ekleme hatası: $e')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Not ekleme hatası: $e')));
     }
   }
 
@@ -837,7 +837,7 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFF1F5F9)),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 4, offset: const Offset(0, 2)),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 4, offset: const Offset(0, 2)),
         ],
       ),
       child: Stack(
@@ -851,7 +851,7 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
                   children: [
                     Container(
                       padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(color: Colors.indigo.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                      decoration: BoxDecoration(color: Colors.indigo.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
                       child: Icon(icon, color: Colors.indigo, size: 20),
                     ),
                     const SizedBox(width: 12),
@@ -1410,7 +1410,7 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(color: const Color(0xFFF1F5F9)),
-                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
+                  boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4))],
                 ),
                 padding: const EdgeInsets.all(20),
                 child: Column(
@@ -1591,7 +1591,7 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: chosenMethodId != null ? Colors.indigo.shade200 : const Color(0xFFE2E8F0)),
-                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 6)],
+                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6)],
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1600,7 +1600,7 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
                         children: [
                           Icon(_getIconForPriceType(typeStr), size: 16, color: Colors.indigo),
                           const SizedBox(width: 8),
-                          Text('$typeStr', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 14, color: const Color(0xFF1E293B))),
+                          Text(typeStr, style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 14, color: const Color(0xFF1E293B))),
                           const Spacer(),
                           if (chosenMethodId != null && chosenDisc > 0)
                             Text(
@@ -1708,7 +1708,7 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
                     decoration: BoxDecoration(
                       gradient: LinearGradient(colors: [Colors.indigo.shade700, Colors.indigo.shade900]),
                       borderRadius: BorderRadius.circular(18),
-                      boxShadow: [BoxShadow(color: Colors.indigo.withOpacity(0.3), blurRadius: 12, offset: const Offset(0, 6))],
+                      boxShadow: [BoxShadow(color: Colors.indigo.withValues(alpha: 0.3), blurRadius: 12, offset: const Offset(0, 6))],
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1743,11 +1743,11 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
                 decoration: BoxDecoration(
                   gradient: LinearGradient(colors: [Colors.indigo.shade600, Colors.indigo.shade800]),
                   borderRadius: BorderRadius.circular(20),
-                  boxShadow: [BoxShadow(color: Colors.indigo.withOpacity(0.3), blurRadius: 12, offset: const Offset(0, 6))],
+                  boxShadow: [BoxShadow(color: Colors.indigo.withValues(alpha: 0.3), blurRadius: 12, offset: const Offset(0, 6))],
                 ),
                 child: Column(
                   children: [
-                    Text('NET ÖDENECEK TUTAR', style: GoogleFonts.inter(color: Colors.white.withOpacity(0.8), fontSize: 13, fontWeight: FontWeight.w600, letterSpacing: 1)),
+                    Text('NET ÖDENECEK TUTAR', style: GoogleFonts.inter(color: Colors.white.withValues(alpha: 0.8), fontSize: 13, fontWeight: FontWeight.w600, letterSpacing: 1)),
                     const SizedBox(height: 8),
                     FittedBox(
                       fit: BoxFit.scaleDown,
@@ -1803,12 +1803,12 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.06),
+        color: color.withValues(alpha: 0.06),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withOpacity(0.25), width: 1.5),
+        border: Border.all(color: color.withValues(alpha: 0.25), width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: color.withOpacity(0.06),
+            color: color.withValues(alpha: 0.06),
             blurRadius: 8,
             offset: const Offset(0, 3),
           ),
@@ -1823,7 +1823,7 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
               Container(
                 padding: const EdgeInsets.all(4),
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.12),
+                  color: color.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Icon(icon, size: 14, color: color),
@@ -1867,9 +1867,9 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.06),
+        color: color.withValues(alpha: 0.06),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
       child: Row(
         children: [
@@ -1952,9 +1952,9 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
         'updatedAt': FieldValue.serverTimestamp(),
       });
       _loadPreRegistrations();
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Durum güncellendi: $status')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Durum güncellendi: $status')));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e')));
     }
   }
 
@@ -1985,7 +1985,7 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
             .get();
         
         if (!settingsDoc.exists || settingsDoc.data() == null) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ayarlar bulunamadı.')));
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ayarlar bulunamadı.')));
           return;
         }
         settingsData = settingsDoc.data()!;
@@ -1998,7 +1998,7 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
 
       await Printing.layoutPdf(onLayout: (format) async => pdfBytes);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e')));
     }
   }
 
@@ -2042,10 +2042,10 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✓ Kayıt başarıyla tamamlandı.'), backgroundColor: Colors.green));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✓ Kayıt başarıyla tamamlandı.'), backgroundColor: Colors.green));
       _loadPreRegistrations();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red));
     } finally {
       setState(() => _isLoading = false);
     }
@@ -2087,7 +2087,7 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
             } else {
               effectiveDate = DateTime.parse(mDate);
             }
-          } catch (_) {}
+          } catch (silentError) { debugPrint('[pre_registration_screen] hata yutuldu: $silentError'); }
         }
       }
     }
@@ -2235,7 +2235,7 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
           color: isSelected ? Colors.indigo : Colors.white,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(color: isSelected ? Colors.indigo : const Color(0xFFE2E8F0)),
-          boxShadow: isSelected ? [BoxShadow(color: Colors.indigo.withOpacity(0.2), blurRadius: 6, offset: const Offset(0, 2))] : [],
+          boxShadow: isSelected ? [BoxShadow(color: Colors.indigo.withValues(alpha: 0.2), blurRadius: 6, offset: const Offset(0, 2))] : [],
         ),
         child: Text(
           label,
@@ -2258,7 +2258,7 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
           children: [
             Container(
               padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: Colors.indigo.withOpacity(0.08), borderRadius: BorderRadius.circular(10)),
+              decoration: BoxDecoration(color: Colors.indigo.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(10)),
               child: Icon(icon, size: 20, color: Colors.indigo),
             ),
             const SizedBox(width: 12),
@@ -2293,7 +2293,7 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
             color: isSelected ? Colors.indigo.shade50 : Colors.white,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: isSelected ? Colors.indigo : const Color(0xFFE2E8F0), width: isSelected ? 1.5 : 1),
-            boxShadow: isSelected ? [BoxShadow(color: Colors.indigo.withOpacity(0.1), blurRadius: 4)] : [],
+            boxShadow: isSelected ? [BoxShadow(color: Colors.indigo.withValues(alpha: 0.1), blurRadius: 4)] : [],
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -2302,7 +2302,7 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
               const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(color: isSelected ? Colors.indigo.withOpacity(0.2) : const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(6)),
+                decoration: BoxDecoration(color: isSelected ? Colors.indigo.withValues(alpha: 0.2) : const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(6)),
                 child: Text(percentage, style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w800, color: isSelected ? Colors.indigo : const Color(0xFF64748B))),
               ),
             ],
@@ -2433,10 +2433,10 @@ class _PreRegistrationScreenState extends State<PreRegistrationScreen> {
 
     try {
       await FirebaseFirestore.instance.collection('preRegistrations').doc(id).delete();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✓ Görüşme silindi.')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✓ Görüşme silindi.')));
       _loadPreRegistrations();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Silme hatası: $e')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Silme hatası: $e')));
     }
   }
 

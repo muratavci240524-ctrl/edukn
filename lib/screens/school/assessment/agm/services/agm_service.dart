@@ -5,32 +5,35 @@ import '../models/agm_cycle_model.dart';
 import '../models/agm_group_model.dart';
 import '../models/agm_assignment_model.dart';
 import '../models/agm_assignment_log_model.dart';
-import '../models/agm_time_slot_model.dart';
 import '../repository/agm_repository.dart';
 import 'agm_assignment_engine.dart';
+import '../../../../../services/term_service.dart';
 
-/// AGM iş mantığı katmanı
-/// Bu servis, UI ile repository arasında köprü görevi görür.
-/// Publish akışı, rollback ve etüt sistemi entegrasyonu buradan yönetilir.
 class AgmService {
   final AgmRepository _repo = AgmRepository();
   final _auth = FirebaseAuth.instance;
   final _db = FirebaseFirestore.instance;
 
   String get _currentUserId => _auth.currentUser?.uid ?? '';
-  String get _currentUserName =>
-      _auth.currentUser?.displayName ?? 'Bilinmeyen Kullanıcı';
-
-  // ─── CYCLE YÖNETİMİ ───────────────────────────────────────────────────────
+  String get _currentUserName => _auth.currentUser?.displayName ?? 'Bilinmeyen Kullanıcı';
 
   Stream<List<AgmCycle>> watchCycles(
     String institutionId,
-    String schoolTypeId,
-  ) => _repo.watchCycles(institutionId, schoolTypeId);
+    String schoolTypeId, {
+    String? workPeriodId,
+    bool isPastPeriod = false,
+  }) => 
+      _repo.watchCycles(
+        institutionId,
+        schoolTypeId,
+        workPeriodId: workPeriodId,
+        isPastPeriod: isPastPeriod,
+      );
 
   Future<String> createCycle({
     required String institutionId,
     required String schoolTypeId,
+    String? workPeriodId,
     String? title,
     required String referansDenemeSinavId,
     required String referansDenemeSinavAdi,
@@ -41,12 +44,22 @@ class AgmService {
     int? haftalikMaksimumSaat,
     int? minimumDersSayisi,
     int? minimumGrupOgrenciSayisi,
+    bool isSpecialClassActive = false,
+    int? specialClassCapacity,
+    String? specialClassRoomId,
+    String? specialClassRoomName,
+    String specialClassCriteria = 'success_rate',
   }) async {
-    print('DEBUG: [Service] createCycle started');
+    String? effectiveWorkPeriodId = workPeriodId;
+    if (effectiveWorkPeriodId == null || effectiveWorkPeriodId.isEmpty) {
+      effectiveWorkPeriodId = await TermService().getActiveTermId();
+    }
+
     final cycle = AgmCycle(
       id: '',
       institutionId: institutionId,
       schoolTypeId: schoolTypeId,
+      workPeriodId: effectiveWorkPeriodId,
       title: title,
       referansDenemeSinavId: referansDenemeSinavId,
       referansDenemeSinavAdi: referansDenemeSinavAdi,
@@ -60,419 +73,140 @@ class AgmService {
       haftalikMaksimumSaat: haftalikMaksimumSaat,
       minimumDersSayisi: minimumDersSayisi,
       minimumGrupOgrenciSayisi: minimumGrupOgrenciSayisi,
+      isSpecialClassActive: isSpecialClassActive,
+      specialClassCapacity: specialClassCapacity,
+      specialClassRoomId: specialClassRoomId,
+      specialClassRoomName: specialClassRoomName,
+      specialClassCriteria: specialClassCriteria,
     );
-    final id = await _repo.createCycle(cycle);
-    print('DEBUG: [Service] createCycle finished with ID: $id');
-    return id;
+    return await _repo.createCycle(cycle);
   }
 
   Future<void> saveCycle({
     required AgmCycle cycle,
     required List<AgmGroup> proposedGroups,
   }) async {
-    print('DEBUG: [Service] saveCycle started for ${cycle.id}');
-    if (cycle.id.isEmpty) {
-      // Yeni oluşturulan cycle (zaten repository.createCycle var ama grupları da yazmak gerek)
-      final id = await _repo.createCycle(cycle);
-      final groupsWithId = proposedGroups.map((g) => g.copyWith(cycleId: id)).toList();
-      await _repo.batchWriteGroups(groupsWithId);
-    } else {
-      // Mevcut güncelleme (SMART UPDATE)
-      await _repo.saveCycleOptimized(cycle: cycle, proposedGroups: proposedGroups);
-    }
-    print('DEBUG: [Service] saveCycle finished');
-  }
+    List<AgmGroup> finalGroups = List.from(proposedGroups);
 
-  Future<void> updateCycle({
-    required String id,
-    required String institutionId,
-    required String schoolTypeId,
-    String? title,
-    required String referansDenemeSinavId,
-    required String referansDenemeSinavAdi,
-    List<String> referansDenemeSinavIds = const [],
-    List<String> referansDenemeSinavAdlari = const [],
-    required DateTime baslangicTarihi,
-    required DateTime bitisTarihi,
-    int? haftalikMaksimumSaat,
-    int? minimumDersSayisi,
-    int? minimumGrupOgrenciSayisi,
-    required AgmCycleStatus status,
-    required DateTime olusturulmaZamani,
-    required String olusturanKullaniciId,
-  }) async {
-    print('DEBUG: [Service] updateCycle started for $id');
-    final cycle = AgmCycle(
-      id: id,
-      institutionId: institutionId,
-      schoolTypeId: schoolTypeId,
-      title: title,
-      referansDenemeSinavId: referansDenemeSinavId,
-      referansDenemeSinavAdi: referansDenemeSinavAdi,
-      referansDenemeSinavIds: referansDenemeSinavIds,
-      referansDenemeSinavAdlari: referansDenemeSinavAdlari,
-      baslangicTarihi: baslangicTarihi,
-      bitisTarihi: bitisTarihi,
-      status: status,
-      olusturulmaZamani: olusturulmaZamani,
-      olusturanKullaniciId: olusturanKullaniciId,
-      haftalikMaksimumSaat: haftalikMaksimumSaat,
-      minimumDersSayisi: minimumDersSayisi,
-      minimumGrupOgrenciSayisi: minimumGrupOgrenciSayisi,
-    );
-    await _repo.updateCycle(cycle);
-    print('DEBUG: [Service] updateCycle finished');
-  }
-
-  Future<void> lockCycle(String cycleId) async {
-    await _repo.updateCycleStatus(cycleId, AgmCycleStatus.locked);
-  }
-
-  // ─── GRUP YÖNETİMİ ────────────────────────────────────────────────────────
-
-  Future<void> createGroupsFromTimeSlots({
-    required String cycleId,
-    required String institutionId,
-    required List<AgmTimeSlot> slots,
-  }) async {
-    print('DEBUG: [Service] smartUpdateGroups starting for $cycleId');
-    final sw = Stopwatch()..start();
-
-    // 1) Mevcut grupları çek
-    final existingGroups = await _repo.getGroupsByCycle(cycleId);
-    print('DEBUG: [Service] Fetched ${existingGroups.length} existing groups in ${sw.elapsedMilliseconds}ms');
-
-    // 2) İstenen (güncel) grupları oluştur
-    final List<AgmGroup> desiredGroups = [];
-    for (final slot in slots) {
-      for (final entry in slot.ogretmenGirisler) {
-        desiredGroups.add(
-          AgmGroup(
-            id: '', // Henüz ID yok, eşleştirme için (saatDilimiId, ogretmenId, dersId) kullanacağız
-            cycleId: cycleId,
-            institutionId: institutionId,
-            dersId: entry.dersId,
-            dersAdi: entry.dersAdi,
-            saatDilimiId: slot.id,
-            saatDilimiAdi: slot.ad,
-            gun: slot.gun,
-            baslangicSaat: slot.baslangicSaat,
-            bitisSaat: slot.bitisSaat,
-            ogretmenId: entry.ogretmenId,
-            ogretmenAdi: entry.ogretmenAdi,
-            derslikId: entry.derslikId,
-            derslikAdi: entry.derslikAdi,
-            kapasite: entry.kapasite,
-            mevcutOgrenciSayisi: 0,
-          ),
-        );
+    if (cycle.isSpecialClassActive) {
+      finalGroups.removeWhere((g) => g.isSpecial || g.dersAdi == 'Özel Sınıf' || g.dersId == 'OZEL');
+      
+      final Map<String, List<AgmGroup>> groupsBySlot = {};
+      for (final g in proposedGroups) {
+        final slotKey = '${g.gun}_${g.baslangicSaat}-${g.bitisSaat}';
+        groupsBySlot.putIfAbsent(slotKey, () => []).add(g);
       }
-    }
 
-    // 3) Eşleştirme anahtarı oluştur: (slotId + teacherId + dersId)
-    String getMatchKey(AgmGroup g) => '${g.saatDilimiId}_${g.ogretmenId}_${g.dersId}';
+      final List<AgmGroup> specialClasses = [];
+      
+      groupsBySlot.forEach((slotKey, slotGroups) {
+        final existingInSpecialRoom = slotGroups.where((g) => g.derslikId == cycle.specialClassRoomId).firstOrNull;
 
-    final Map<String, AgmGroup> existingMap = {
-      for (final g in existingGroups) getMatchKey(g): g
-    };
-
-    final List<AgmGroup> toCreate = [];
-    final List<AgmGroup> toUpdate = [];
-    final Set<String> matchedExistingKeys = {};
-
-    for (final desired in desiredGroups) {
-      final key = getMatchKey(desired);
-      if (existingMap.containsKey(key)) {
-        matchedExistingKeys.add(key);
-        final existing = existingMap[key]!;
-        
-        // Metadata değişikliği var mı kontrol et (Derslik veya Kapasite)
-        if (existing.derslikId != desired.derslikId || 
-            existing.kapasite != desired.kapasite ||
-            existing.dersAdi != desired.dersAdi ||
-            existing.ogretmenAdi != desired.ogretmenAdi) {
+        if (existingInSpecialRoom != null) {
+          finalGroups.removeWhere((fg) => 
+            fg.gun == existingInSpecialRoom.gun && 
+            fg.baslangicSaat == existingInSpecialRoom.baslangicSaat && 
+            fg.derslikId == existingInSpecialRoom.derslikId
+          );
           
-          toUpdate.add(existing.copyWith(
-            derslikId: desired.derslikId,
-            derslikAdi: desired.derslikAdi,
-            kapasite: desired.kapasite,
-            dersAdi: desired.dersAdi,
-            ogretmenAdi: desired.ogretmenAdi,
+          specialClasses.add(existingInSpecialRoom.copyWith(
+            dersId: 'OZEL',
+            dersAdi: 'Özel Sınıf',
+            isSpecial: true,
+            kapasite: cycle.specialClassCapacity ?? 24,
+          ));
+        } else {
+          final template = slotGroups.first;
+          specialClasses.add(AgmGroup(
+            id: '', 
+            cycleId: cycle.id, 
+            institutionId: cycle.institutionId, 
+            dersId: 'OZEL', 
+            dersAdi: 'Özel Sınıf', 
+            saatDilimiId: template.saatDilimiId, 
+            saatDilimiAdi: template.saatDilimiAdi, 
+            gun: template.gun, 
+            baslangicSaat: template.baslangicSaat, 
+            bitisSaat: template.bitisSaat, 
+            ogretmenId: '', 
+            ogretmenAdi: 'Özel Öğretmen', 
+            derslikId: cycle.specialClassRoomId, 
+            derslikAdi: cycle.specialClassRoomName, 
+            kapasite: cycle.specialClassCapacity ?? 24, 
+            isSpecial: true
           ));
         }
-      } else {
-        toCreate.add(desired);
-      }
+      });
+      finalGroups.addAll(specialClasses);
     }
 
-    // 4) Silinecekler: Mevcut olup istenenler arasında olmayanlar
-    final List<DocumentReference> toDeleteRefs = [];
-    existingMap.forEach((key, group) {
-      if (!matchedExistingKeys.contains(key)) {
-        toDeleteRefs.add(FirebaseFirestore.instance.collection('agm_groups').doc(group.id));
+    if (cycle.id.isEmpty) {
+      final id = await _repo.createCycle(cycle);
+      final groupsWithId = finalGroups.map((g) => g.copyWith(cycleId: id)).toList();
+      await _repo.batchWriteGroups(groupsWithId);
+    } else {
+      await _repo.updateCycle(cycle);
+      final existing = await _repo.getGroupsByCycle(cycle.id);
+      if (existing.isNotEmpty) {
+        final refs = existing.map((g) => _db.collection('agm_groups').doc(g.id)).toList();
+        await _repo.batchDeleteByRefs(refs);
       }
-    });
-
-    print('DEBUG: [Service] Diff results: ${toCreate.length} to create, ${toUpdate.length} to update, ${toDeleteRefs.length} to delete');
-
-    // 5) İşlemleri toplu yap
-    if (toCreate.isNotEmpty) await _repo.batchWriteGroups(toCreate);
-    if (toUpdate.isNotEmpty) await _repo.batchUpdateGroups(toUpdate);
-    if (toDeleteRefs.isNotEmpty) await _repo.batchDeleteByRefs(toDeleteRefs);
-
-    print('DEBUG: [Service] smartUpdateGroups finished in ${sw.elapsedMilliseconds}ms');
+      final groupsWithId = finalGroups.map((g) => g.copyWith(cycleId: cycle.id)).toList();
+      await _repo.batchWriteGroups(groupsWithId);
+    }
   }
 
-  Stream<List<AgmGroup>> watchGroups(String cycleId) =>
-      _repo.watchGroupsByCycle(cycleId);
-
-  // ─── TASLAK OLUŞTURMA ─────────────────────────────────────────────────────
-
-  /// [Grid Screen] Doğrudan StudentNeedProfile listesi alan basit imza.
-  /// Gruplar dışarıdan verilir (zaten yüklenmiş).
   Future<AgmDraftResult> generateDraft({
     required AgmCycle cycle,
     required List<StudentNeedProfile> ogrenciProfiller,
     required List<AgmGroup> gruplar,
+    double esikBasariOrani = 0.6,
+    bool sadeceDusukBasari = true,
+    Map<String, double> dersBazliEsikler = const {},
+    int minGroupSize = 5,
+    Map<String, Map<String, int>>? gecmisKatilimlar,
+    double penaltyMultiplier = 0.15,
+    List<AgmAssignment>? mevcutAtamalar,
+    Map<String, Map<String, int>> dersBazliSaatSinirlari = const {},
+    bool dersBazliZorlaAtama = true,
   }) async {
     final engine = AgmAssignmentEngine(
       cycleId: cycle.id,
       institutionId: cycle.institutionId,
       haftalikMaksimumSaat: cycle.haftalikMaksimumSaat,
+      minimumGrupOgrenciSayisi: minGroupSize,
     );
     engine.setMinimumDersSayisi(cycle.minimumDersSayisi);
-    engine.setMinimumGrupOgrenciSayisi(cycle.minimumGrupOgrenciSayisi);
 
     final draft = await engine.generateDraft(
       ogrenciProfiller: ogrenciProfiller,
       gruplar: gruplar,
+      esikBasariOrani: esikBasariOrani,
+      sadeceDusukBasari: sadeceDusukBasari,
+      specialClassCriteria: cycle.specialClassCriteria,
+      dersBazliEsikler: dersBazliEsikler,
+      gecmisKatilimlar: gecmisKatilimlar,
+      penaltyMultiplier: penaltyMultiplier,
+      mevcutAtamalar: mevcutAtamalar,
+      highSuccessSoruCozumActive: cycle.highSuccessSoruCozumActive,
+      highSuccessSoruCozumThreshold: cycle.highSuccessSoruCozumThreshold,
+      dersBazliSaatSinirlari: dersBazliSaatSinirlari,
+      dersBazliZorlaAtama: dersBazliZorlaAtama,
     );
 
-    // Eski atamaları temizle ve yenilerini kaydet
     await _repo.rollbackAssignments(cycle.id);
     await _repo.batchWriteAssignments(draft.atamalar);
-
-    // Grupları topluca güncelle (kazanımlar ve doluluk)
     await _repo.batchUpdateGroups(draft.gruplar);
-    print('DEBUG: [Service] batchUpdateGroups done for ${draft.gruplar.length} groups');
-
-    // Eksik atananları ve yerleşmeyenleri cycle modelinde güncelle
     await _db.collection('agm_cycles').doc(cycle.id).update({
       'unassignedStudentIds': draft.yerlesmeyenOgrenciIds,
       'underAssignedStudentIds': draft.eksikAtananOgrenciIds,
       'unassignedReasons': draft.yerlesmemeNedenleri,
     });
-
     return draft;
   }
 
-  /// [Legacy / Servis katmanı] Sınav sonuç haritası alan overload.
-  Future<AgmDraftResult> generateDraftFromResults({
-    required String cycleId,
-    required String institutionId,
-    required int? haftalikMaksimumSaat,
-    required Map<String, Map<String, double>> examResultsByStudent,
-    required Map<String, String> ogrenciAdlari,
-    required Map<String, String> ogrenciSubeleri,
-    required Map<String, String> subeAdlari,
-  }) async {
-    final cycleDoc = await _db.collection('agm_cycles').doc(cycleId).get();
-    if (!cycleDoc.exists) throw Exception('Cycle bulunamadı');
-    final cycle = AgmCycle.fromMap(cycleDoc.data()!, cycleDoc.id);
+  // ─── MANUEL İŞLEMLER ──────────────────────────────────────────────────────
 
-    final gruplar = await _repo.getGroupsByCycle(cycleId);
-    final profiller = examResultsByStudent.entries.map((entry) {
-      final ogrenciId = entry.key;
-      final basarilar = entry.value;
-      final ihtiyaclar = basarilar.map((k, v) => MapEntry(k, 1.0 - v));
-      final subeId = ogrenciSubeleri[ogrenciId] ?? '';
-      return StudentNeedProfile(
-        ogrenciId: ogrenciId,
-        ogrenciAdi: ogrenciAdlari[ogrenciId] ?? ogrenciId,
-        subeId: subeId,
-        subeAdi: subeAdlari[subeId] ?? subeId,
-        dersIhtiyaclari: ihtiyaclar,
-      );
-    }).toList();
-
-    final engine = AgmAssignmentEngine(
-      cycleId: cycleId,
-      institutionId: institutionId,
-      haftalikMaksimumSaat: haftalikMaksimumSaat,
-    );
-    engine.setMinimumDersSayisi(cycle.minimumDersSayisi);
-    engine.setMinimumGrupOgrenciSayisi(cycle.minimumGrupOgrenciSayisi);
-
-    final draft = await engine.generateDraft(
-      ogrenciProfiller: profiller,
-      gruplar: gruplar,
-    );
-
-    await _repo.rollbackAssignments(cycleId);
-    await _repo.batchWriteAssignments(draft.atamalar);
-
-    // Eksik atananları ve yerleşmeyenleri cycle modelinde güncelle
-    await _db.collection('agm_cycles').doc(cycleId).update({
-      'unassignedStudentIds': draft.yerlesmeyenOgrenciIds,
-      'underAssignedStudentIds': draft.eksikAtananOgrenciIds,
-      'absentStudentIds': cycle.absentStudentIds, // Değişmedi
-      'unassignedReasons': draft.yerlesmemeNedenleri,
-    });
-
-    return draft;
-  }
-
-  // ─── MANUEL OVERRIDE ──────────────────────────────────────────────────────
-
-  /// Öğrenciyi başka gruba taşır + log kaydeder.
-  /// [assignmentId] boş ise yeni atama oluşturulur (sınava girmeyenler senaryosu).
-  Future<void> moveStudent({
-    required String assignmentId,
-    required String cycleId,
-    required String ogrenciId,
-    required String ogrenciAdi,
-    required String eskiGrupId,
-    required String eskiGrupAdi,
-    required String yeniGrupId,
-    required String yeniGrupAdi,
-    required bool isOverride,
-    String? subeId,
-    String? subeAdi,
-    String? overrideNedeni,
-    List<String>? transferKazanimlar,
-    double? newIhtiyacSkoru,
-  }) async {
-    // 0) Cycle bilgilerini al (min ders sayısı ve instId için)
-    final cycleDoc = await _db.collection('agm_cycles').doc(cycleId).get();
-    if (!cycleDoc.exists) return;
-    final cycle = AgmCycle.fromMap(cycleDoc.data()!, cycleDoc.id);
-
-    if (assignmentId.isEmpty) {
-      // Yeni atama oluştur (sınava girmeyen öğrenci manuel atama)
-      final yeniAtama = AgmAssignment(
-        id: '',
-        cycleId: cycleId,
-        institutionId: cycle.institutionId,
-        groupId: yeniGrupId,
-        ogrenciId: ogrenciId,
-        ogrenciAdi: ogrenciAdi,
-        subeId: subeId ?? '',
-        subeAdi: subeAdi ?? '',
-        ihtiyacSkoru: newIhtiyacSkoru ?? 0.0,
-        atamaTipi: AgmAssignmentType.manual,
-        olusturulmaZamani: DateTime.now(),
-        isAbsent: true,
-      );
-      await _repo.batchWriteAssignments([yeniAtama]);
-    } else {
-      // Update existing assignment with new group and potentially new score
-      final Map<String, dynamic> updates = {
-        'groupId': yeniGrupId,
-        'groupName': yeniGrupAdi,
-        'atamaTipi': AgmAssignmentType.manual.name,
-      };
-      if (newIhtiyacSkoru != null) {
-        updates['ihtiyacSkoru'] = newIhtiyacSkoru;
-      }
-      await _db.collection('agm_assignments').doc(assignmentId).update(updates);
-
-      if (eskiGrupId.isNotEmpty) {
-        await _repo.updateGroupStudentCount(eskiGrupId, -1);
-      }
-    }
-    await _repo.updateGroupStudentCount(yeniGrupId, 1);
-
-    // [x] Transfer kazanımlar if provided and target group is empty <!-- id: 10 -->
-    if (transferKazanimlar != null && transferKazanimlar.isNotEmpty) {
-      final targetGroupDoc = await _db.collection('agm_groups').doc(yeniGrupId).get();
-      if (targetGroupDoc.exists) {
-        final currentKazanimlar = List<String>.from(targetGroupDoc.data()?['kazanimlar'] ?? []);
-        if (currentKazanimlar.isEmpty) {
-          await _db.collection('agm_groups').doc(yeniGrupId).update({
-            'kazanimlar': transferKazanimlar,
-          });
-        }
-      }
-    }
-
-    // 1) Döngü listelerini güncelle
-    final currentAssignments = await _repo.getAssignmentsByStudent(
-      cycleId,
-      ogrenciId,
-    );
-    final count = currentAssignments.length;
-
-    final isUnder =
-        cycle.minimumDersSayisi != null && count < cycle.minimumDersSayisi!;
-
-    await _repo.updateCycleStudentLists(
-      cycleId,
-      unassignedRemove: [ogrenciId],
-      absentRemove: [ogrenciId],
-      underAssignedAdd: isUnder ? [ogrenciId] : null,
-      underAssignedRemove: !isUnder ? [ogrenciId] : null,
-    );
-
-    // Log
-    await _repo.addLog(
-      AgmAssignmentLog(
-        id: '',
-        cycleId: cycleId,
-        institutionId: cycle.institutionId,
-        ogrenciId: ogrenciId,
-        ogrenciAdi: ogrenciAdi,
-        eskiGrupId: eskiGrupId,
-        eskiGrupAdi: eskiGrupAdi,
-        yeniGrupId: yeniGrupId,
-        yeniGrupAdi: yeniGrupAdi,
-        yapanKullaniciId: _currentUserId,
-        yapanKullaniciAdi: _currentUserName,
-        isOverride: isOverride,
-        overrideNedeni: overrideNedeni,
-        tarih: DateTime.now(),
-      ),
-    );
-  }
-
-  Future<void> removeAssignments(List<AgmAssignment> assignments) async {
-    if (assignments.isEmpty) return;
-
-    final batch = _db.batch();
-    final Map<String, int> groupDeltas = {};
-    final Set<String> absentIds = {};
-    final Set<String> normalIds = {};
-    final String cycleId = assignments.first.cycleId;
-
-    for (final a in assignments) {
-      batch.delete(_db.collection('agm_assignments').doc(a.id));
-      groupDeltas[a.groupId] = (groupDeltas[a.groupId] ?? 0) - 1;
-      
-      if (a.isAbsent) {
-        absentIds.add(a.ogrenciId);
-      } else {
-        normalIds.add(a.ogrenciId);
-      }
-    }
-
-    // Update group counts
-    for (final entry in groupDeltas.entries) {
-      batch.update(_db.collection('agm_groups').doc(entry.key), {
-        'mevcutOgrenciSayisi': FieldValue.increment(entry.value),
-      });
-    }
-
-    await batch.commit();
-
-    // Update cycle lists
-    await _repo.updateCycleStudentLists(
-      cycleId,
-      unassignedAdd: normalIds.toList(),
-      absentAdd: absentIds.toList(),
-      underAssignedRemove: [...normalIds, ...absentIds],
-    );
-  }
-
-  /// Doğrudan yeni atama yapar (sınava girmeyen veya kategori bazlı manuel atama)
   Future<void> manualAssign({
     required String cycleId,
     required String ogrenciId,
@@ -481,190 +215,224 @@ class AgmService {
     required String subeAdi,
     required String yeniGrupId,
     required String yeniGrupAdi,
-    required bool isAbsent,
+    double basariOrani = 0.5,
+    bool isAbsent = false,
   }) async {
-    final cycleDoc = await _db.collection('agm_cycles').doc(cycleId).get();
-    if (!cycleDoc.exists) return;
-    final cycle = AgmCycle.fromMap(cycleDoc.data()!, cycleDoc.id);
+    final cycle = await _repo.getCycle(cycleId);
+    final institutionId = cycle?.institutionId ?? '';
 
-    final yeniAtama = AgmAssignment(
-      id: '',
+    final batch = _db.batch();
+    final atamaId = '${cycleId}_${ogrenciId}_${yeniGrupId}';
+    final atamaRef = _db.collection('agm_assignments').doc(atamaId);
+
+    batch.set(atamaRef, {
+      'id': atamaId,
+      'cycleId': cycleId,
+      'institutionId': institutionId,
+      'ogrenciId': ogrenciId,
+      'ogrenciAdi': ogrenciAdi,
+      'subeId': subeId,
+      'sube': subeAdi,
+      'groupId': yeniGrupId,
+      'groupName': yeniGrupAdi,
+      'basariOrani': basariOrani,
+      'atamaTipi': 'manual',
+      'atamaZamani': FieldValue.serverTimestamp(),
+    });
+
+    final logRef = _db.collection('agm_assignment_logs').doc();
+    final log = AgmAssignmentLog(
+      id: logRef.id,
       cycleId: cycleId,
-      institutionId: cycle.institutionId,
-      groupId: yeniGrupId,
+      institutionId: institutionId,
       ogrenciId: ogrenciId,
       ogrenciAdi: ogrenciAdi,
-      subeId: subeId,
-      subeAdi: subeAdi,
-      groupName: yeniGrupAdi,
-      ihtiyacSkoru: 0.0,
-      atamaTipi: AgmAssignmentType.manual,
-      olusturulmaZamani: DateTime.now(),
-      isAbsent: isAbsent,
+      yeniGrupId: yeniGrupId,
+      yeniGrupAdi: yeniGrupAdi,
+      yapanKullaniciId: _currentUserId,
+      yapanKullaniciAdi: _currentUserName,
+      tarih: DateTime.now(),
     );
+    batch.set(logRef, log.toMap());
 
-    await _repo.batchWriteAssignments([yeniAtama]);
-    await _repo.updateGroupStudentCount(yeniGrupId, 1);
+    final grupRef = _db.collection('agm_groups').doc(yeniGrupId);
+    batch.update(grupRef, {'mevcutOgrenciSayisi': FieldValue.increment(1)});
 
-    // Listeleri güncelle
-    await _repo.updateCycleStudentLists(
-      cycleId,
-      unassignedRemove: [ogrenciId],
-      absentRemove: isAbsent ? [ogrenciId] : null,
-    );
+    final cycleRef = _db.collection('agm_cycles').doc(cycleId);
+    batch.update(cycleRef, {
+      'unassignedStudentIds': FieldValue.arrayRemove([ogrenciId]),
+      'underAssignedStudentIds': FieldValue.arrayRemove([ogrenciId]),
+      if (isAbsent) 'absentStudentIds': FieldValue.arrayRemove([ogrenciId]),
+    });
 
-    // Log
-    await _repo.addLog(
-      AgmAssignmentLog(
-        id: '',
-        cycleId: cycleId,
-        institutionId: cycle.institutionId,
-        ogrenciId: ogrenciId,
-        ogrenciAdi: ogrenciAdi,
-        eskiGrupId: '',
-        eskiGrupAdi: isAbsent ? 'Sınava Girmeyenler' : 'Yerleşmeyenler',
-        yeniGrupId: yeniGrupId,
-        yeniGrupAdi: yeniGrupAdi,
-        yapanKullaniciId: _currentUserId,
-        yapanKullaniciAdi: _currentUserName,
-        isOverride: false,
-        tarih: DateTime.now(),
-      ),
-    );
+    await batch.commit();
   }
 
-  // ─── PUBLISH AKIŞI ────────────────────────────────────────────────────────
+  Future<void> removeAssignments(List<AgmAssignment> assignments) async {
+    if (assignments.isEmpty) return;
 
-  /// Cycle'ı yayınlar ve mevcut etüt sistemine atamaları yazar.
-  ///
-  /// Publish adımları:
-  ///   1. Cycle status = published
-  ///   2. Atamaları etut_requests koleksiyonuna yaz
-  ///   3. Bildirimleri tetikle (notificationRequests)
+    final cycle = await _repo.getCycle(assignments.first.cycleId);
+    final institutionId = cycle?.institutionId ?? '';
+
+    final batch = _db.batch();
+    for (final a in assignments) {
+      batch.delete(_db.collection('agm_assignments').doc(a.id));
+      batch.update(_db.collection('agm_groups').doc(a.groupId), {'mevcutOgrenciSayisi': FieldValue.increment(-1)});
+      
+      final logRef = _db.collection('agm_assignment_logs').doc();
+      final log = AgmAssignmentLog(
+        id: logRef.id,
+        cycleId: a.cycleId,
+        institutionId: institutionId,
+        ogrenciId: a.ogrenciId,
+        ogrenciAdi: a.ogrenciAdi,
+        eskiGrupId: a.groupId,
+        eskiGrupAdi: a.groupName,
+        yapanKullaniciId: _currentUserId,
+        yapanKullaniciAdi: _currentUserName,
+        tarih: DateTime.now(),
+      );
+      batch.set(logRef, log.toMap());
+
+      final cycleRef = _db.collection('agm_cycles').doc(a.cycleId);
+      batch.update(cycleRef, {
+        'unassignedStudentIds': FieldValue.arrayUnion([a.ogrenciId]),
+      });
+    }
+    await batch.commit();
+  }
+
+  Future<void> moveAssignments(List<AgmAssignment> assignments, String targetGroupId, String targetGroupName) async {
+    if (assignments.isEmpty) return;
+
+    final cycle = await _repo.getCycle(assignments.first.cycleId);
+    final institutionId = cycle?.institutionId ?? '';
+
+    final batch = _db.batch();
+    for (final a in assignments) {
+      batch.update(_db.collection('agm_assignments').doc(a.id), {
+        'groupId': targetGroupId,
+        'groupName': targetGroupName,
+        'atamaTipi': 'manual',
+      });
+      batch.update(_db.collection('agm_groups').doc(a.groupId), {'mevcutOgrenciSayisi': FieldValue.increment(-1)});
+      batch.update(_db.collection('agm_groups').doc(targetGroupId), {'mevcutOgrenciSayisi': FieldValue.increment(1)});
+
+      final logRef = _db.collection('agm_assignment_logs').doc();
+      final log = AgmAssignmentLog(
+        id: logRef.id,
+        cycleId: a.cycleId,
+        institutionId: institutionId,
+        ogrenciId: a.ogrenciId,
+        ogrenciAdi: a.ogrenciAdi,
+        eskiGrupId: a.groupId,
+        eskiGrupAdi: a.groupName,
+        yeniGrupId: targetGroupId,
+        yeniGrupAdi: targetGroupName,
+        yapanKullaniciId: _currentUserId,
+        yapanKullaniciAdi: _currentUserName,
+        tarih: DateTime.now(),
+      );
+      batch.set(logRef, log.toMap());
+    }
+    await batch.commit();
+  }
+
+  Future<void> swapGroups(AgmGroup groupA, AgmGroup groupB, List<AgmAssignment> assignsA, List<AgmAssignment> assignsB) async {
+    final batch = _db.batch();
+    for (final a in assignsA) {
+      batch.update(_db.collection('agm_assignments').doc(a.id), {
+        'groupId': groupB.id,
+        'groupName': '${groupB.dersAdi} - ${groupB.ogretmenAdi}',
+      });
+      final logRef = _db.collection('agm_assignment_logs').doc();
+      batch.set(logRef, AgmAssignmentLog(
+        id: logRef.id, cycleId: groupA.cycleId, institutionId: groupA.institutionId,
+        ogrenciId: a.ogrenciId, ogrenciAdi: a.ogrenciAdi,
+        eskiGrupId: groupA.id, eskiGrupAdi: '${groupA.dersAdi} - ${groupA.ogretmenAdi}',
+        yeniGrupId: groupB.id, yeniGrupAdi: '${groupB.dersAdi} - ${groupB.ogretmenAdi}',
+        yapanKullaniciId: _currentUserId, yapanKullaniciAdi: _currentUserName, tarih: DateTime.now()
+      ).toMap());
+    }
+    for (final a in assignsB) {
+      batch.update(_db.collection('agm_assignments').doc(a.id), {
+        'groupId': groupA.id,
+        'groupName': '${groupA.dersAdi} - ${groupA.ogretmenAdi}',
+      });
+      final logRef = _db.collection('agm_assignment_logs').doc();
+      batch.set(logRef, AgmAssignmentLog(
+        id: logRef.id, cycleId: groupB.cycleId, institutionId: groupB.institutionId,
+        ogrenciId: a.ogrenciId, ogrenciAdi: a.ogrenciAdi,
+        eskiGrupId: groupB.id, eskiGrupAdi: '${groupB.dersAdi} - ${groupB.ogretmenAdi}',
+        yeniGrupId: groupA.id, yeniGrupAdi: '${groupA.dersAdi} - ${groupA.ogretmenAdi}',
+        yapanKullaniciId: _currentUserId, yapanKullaniciAdi: _currentUserName, tarih: DateTime.now()
+      ).toMap());
+    }
+    batch.update(_db.collection('agm_groups').doc(groupA.id), {'mevcutOgrenciSayisi': assignsB.length});
+    batch.update(_db.collection('agm_groups').doc(groupB.id), {'mevcutOgrenciSayisi': assignsA.length});
+    await batch.commit();
+  }
+
+  Future<List<AgmAssignmentLog>> getLogs(String cycleId) async {
+    final snap = await _db.collection('agm_assignment_logs')
+        .where('cycleId', isEqualTo: cycleId)
+        .orderBy('tarih', descending: true)
+        .get();
+    return snap.docs.map((d) => AgmAssignmentLog.fromMap(d.data(), d.id)).toList();
+  }
+
+  // ─── YAYINLAMA VE DİĞERLERİ ──────────────────────────────────────────────
+
   Future<void> publishCycle({
     required AgmCycle cycle,
     required List<AgmGroup> gruplar,
     required List<AgmAssignment> atamalar,
   }) async {
     final batch = _db.batch();
+    batch.update(_db.collection('agm_cycles').doc(cycle.id), {'status': AgmCycleStatus.published.name});
 
-    // 1) Cycle status güncelle
-    batch.update(_db.collection('agm_cycles').doc(cycle.id), {
-      'status': AgmCycleStatus.published.name,
-    });
+    final cycleStartOfWeek = cycle.baslangicTarihi.subtract(Duration(days: cycle.baslangicTarihi.weekday - 1));
+    final cycleStartTs = Timestamp.fromDate(DateTime(cycleStartOfWeek.year, cycleStartOfWeek.month, cycleStartOfWeek.day));
+    final cycleEndOfWeek = cycle.bitisTarihi;
+    final cycleEndTs = Timestamp.fromDate(DateTime(cycleEndOfWeek.year, cycleEndOfWeek.month, cycleEndOfWeek.day, 23, 59, 59));
 
-    // Haftanın başı (Pazartesi)
-    final cycleStartOfWeek = cycle.baslangicTarihi.subtract(
-      Duration(days: cycle.baslangicTarihi.weekday - 1),
-    );
-    final cycleStartTs = Timestamp.fromDate(
-      DateTime(
-        cycleStartOfWeek.year,
-        cycleStartOfWeek.month,
-        cycleStartOfWeek.day,
-      ),
-    );
-
-    // Haftanın sonu (Pazar)
-    final cycleEndOfWeek = cycleStartOfWeek.add(const Duration(days: 6));
-    final cycleEndTs = Timestamp.fromDate(
-      DateTime(
-        cycleEndOfWeek.year,
-        cycleEndOfWeek.month,
-        cycleEndOfWeek.day,
-        23,
-        59,
-        59,
-      ),
-    );
-
-    // Gün isimlerinden index'e çevrim (Pazartesi = 1, Pazar = 7)
-    int dayNameToIndex(String dayName) {
-      final d = dayName
-          .toLowerCase()
-          .replaceAll('ı', 'i')
-          .replaceAll('İ', 'i')
-          .trim();
-      switch (d) {
-        case 'pazartesi':
-          return 1;
-        case 'sali':
-          return 2;
-        case 'carsamba':
-          return 3;
-        case 'persembe':
-          return 4;
-        case 'cuma':
-          return 5;
-        case 'cumartesi':
-          return 6;
-        case 'pazar':
-          return 7;
-        default:
-          return 1;
-      }
-    }
-
-    // 2) Etüt sistemine yaz
-    // Atamaları grup bazında topla (her grup 1 etüt olacak, öğrencileri listeye eklenecek)
     final Map<String, List<AgmAssignment>> assignmentsByGroup = {};
-    for (final atama in atamalar) {
-      assignmentsByGroup.putIfAbsent(atama.groupId, () => []).add(atama);
-    }
+    for (final atama in atamalar) assignmentsByGroup.putIfAbsent(atama.groupId, () => []).add(atama);
 
     for (final entry in assignmentsByGroup.entries) {
       final groupId = entry.key;
       final groupAssignments = entry.value;
-
-      final grup = gruplar.firstWhere(
-        (g) => g.id == groupId,
-        orElse: () => gruplar.first,
-      );
-
+      final grup = gruplar.firstWhere((g) => g.id == groupId, orElse: () => gruplar.first);
       final etutRef = _db.collection('etut_requests').doc();
+      final dayIndex = _dayNameToIndex(grup.gun);
 
-      // Tam tarihi hesapla
-      final dayIndex = dayNameToIndex(grup.gun);
-      final exactDate = cycleStartOfWeek.add(Duration(days: dayIndex - 1));
+      DateTime exactDate = cycleStartOfWeek.add(Duration(days: dayIndex - 1));
+      if (exactDate.isBefore(DateTime(cycle.baslangicTarihi.year, cycle.baslangicTarihi.month, cycle.baslangicTarihi.day))) {
+        exactDate = exactDate.add(const Duration(days: 7));
+      }
+      if (exactDate.isAfter(cycle.bitisTarihi.add(const Duration(days: 1)))) {
+        continue;
+      }
 
-      // Start/End time hesapla
       final startParts = grup.baslangicSaat.split(':');
       final endParts = grup.bitisSaat.split(':');
-      DateTime? startTime;
-      DateTime? endTime;
-
+      DateTime? startTime, endTime;
       if (startParts.length == 2 && endParts.length == 2) {
-        startTime = DateTime(
-          exactDate.year,
-          exactDate.month,
-          exactDate.day,
-          int.parse(startParts[0]),
-          int.parse(startParts[1]),
-        );
-        endTime = DateTime(
-          exactDate.year,
-          exactDate.month,
-          exactDate.day,
-          int.parse(endParts[0]),
-          int.parse(endParts[1]),
-        );
+        startTime = DateTime(exactDate.year, exactDate.month, exactDate.day, int.parse(startParts[0]), int.parse(startParts[1]));
+        endTime = DateTime(exactDate.year, exactDate.month, exactDate.day, int.parse(endParts[0]), int.parse(endParts[1]));
       }
 
       batch.set(etutRef, {
         'id': etutRef.id,
         'institutionId': cycle.institutionId,
-        'studentId': groupAssignments.first.ogrenciId, // Legacy uyumluluk
+        'studentId': groupAssignments.first.ogrenciId,
         'studentIds': groupAssignments.map((a) => a.ogrenciId).toList(),
-        'recipientNames': {
-          for (final a in groupAssignments) 
-            a.ogrenciId: '${a.ogrenciAdi}${a.subeAdi != null && a.subeAdi!.isNotEmpty ? " (${a.subeAdi})" : ""}'
-        },
+        'recipientNames': {for (final a in groupAssignments) a.ogrenciId: '${a.ogrenciAdi}${a.sube != null && a.sube!.isNotEmpty ? " (${a.sube})" : ""}'},
         'teacherId': grup.ogretmenId,
         'teacherName': grup.ogretmenAdi,
         'dersId': grup.dersId,
         'dersAdi': grup.dersAdi,
         'lessonName': grup.dersAdi,
-        'topic': grup.kazanimlar.join(', '),
         'gun': grup.gun,
         'baslangicSaat': grup.baslangicSaat,
         'bitisSaat': grup.bitisSaat,
@@ -673,7 +441,7 @@ class AgmService {
         'date': Timestamp.fromDate(exactDate),
         'startTime': startTime != null ? Timestamp.fromDate(startTime) : null,
         'endTime': endTime != null ? Timestamp.fromDate(endTime) : null,
-        'className': 'AGM - ${grup.saatDilimiAdi}', // Opsiyonel, gösterim için
+        'className': 'AGM - ${grup.saatDilimiAdi}',
         'weekStart': cycleStartTs,
         'weekEnd': cycleEndTs,
         'status': 'active',
@@ -684,52 +452,40 @@ class AgmService {
         'createdBy': _currentUserId,
       });
 
-      // 3) Bildirim tetikle (her öğrenci için)
       for (final atama in groupAssignments) {
         final notifRef = _db.collection('notificationRequests').doc();
         batch.set(notifRef, {
           'type': 'agm_assignment',
           'recipientId': atama.ogrenciId,
-          'title': 'Yeni Etüt Programı',
-          'body':
-              '${grup.dersAdi} etüdünüz ${grup.gun} ${grup.baslangicSaat}-${grup.bitisSaat} olarak oluşturuldu.',
+          'title': 'AGM Programı Yayınlandı',
+          'body': '${grup.dersAdi} AGM etüdünüz ${grup.gun} ${grup.baslangicSaat}-${grup.bitisSaat} olarak oluşturuldu.',
           'institutionId': cycle.institutionId,
           'createdAt': FieldValue.serverTimestamp(),
         });
       }
     }
-
     await batch.commit();
   }
 
-  /// Cycle'ı yayından kaldırır: bağlı etütleri (ve gerekirse bildirimleri) siler,
-  /// cycle durumunu tekrar active yapar.
   Future<void> unpublishCycle(String cycleId) async {
     final batch = _db.batch();
-
-    // 1) İlgili etütleri bul ve sil
-    final etutsQuery = await _db
-        .collection('etut_requests')
-        .where('agmCycleId', isEqualTo: cycleId)
-        .get();
-
-    for (final doc in etutsQuery.docs) {
-      batch.delete(doc.reference);
-    }
-
-    // 2) Cycle status güncelle
-    batch.update(_db.collection('agm_cycles').doc(cycleId), {
-      'status': AgmCycleStatus.locked.name,
-    });
-
+    final etutsQuery = await _db.collection('etut_requests').where('agmCycleId', isEqualTo: cycleId).get();
+    for (final doc in etutsQuery.docs) batch.delete(doc.reference);
+    batch.update(_db.collection('agm_cycles').doc(cycleId), {'status': AgmCycleStatus.locked.name});
     await batch.commit();
   }
 
-  // ─── RAPORLAR ─────────────────────────────────────────────────────────────
-
-  Future<List<AgmAssignmentLog>> getLogs(String cycleId) =>
-      _repo.getLogsByCycle(cycleId);
-
-  Future<List<AgmAssignment>> getAssignmentsByCycle(String cycleId) =>
-      _repo.getAssignmentsByCycle(cycleId);
+  int _dayNameToIndex(String dayName) {
+    final d = dayName.toLowerCase().replaceAll('ı', 'i').replaceAll('İ', 'i').trim();
+    switch (d) {
+      case 'pazartesi': return 1;
+      case 'sali': return 2;
+      case 'carsamba': return 3;
+      case 'persembe': return 4;
+      case 'cuma': return 5;
+      case 'cumartesi': return 6;
+      case 'pazar': return 7;
+      default: return 1;
+    }
+  }
 }

@@ -255,7 +255,7 @@ class _CallScreenDialogState extends State<CallScreenDialog>
     try {
       await _ringtonePlayer.stop();
       await _ringtonePlayer.release();
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[call_screen_dialog] hata yutuldu: $silentError'); }
   }
 
   /// Arayan taraf çalma sesi — klasik telefon paterni:
@@ -303,7 +303,7 @@ class _CallScreenDialogState extends State<CallScreenDialog>
     try {
       await _ringbackPlayer.stop();
       await _ringbackPlayer.release();
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[call_screen_dialog] hata yutuldu: $silentError'); }
   }
 
   @override
@@ -466,7 +466,7 @@ class _CallScreenDialogState extends State<CallScreenDialog>
                           begin: Alignment.topCenter,
                           end: Alignment.bottomCenter,
                           colors: [
-                            const Color(0xFF0F172A).withOpacity(0.9),
+                            const Color(0xFF0F172A).withValues(alpha: 0.9),
                             Colors.transparent,
                           ],
                         ),
@@ -500,7 +500,7 @@ class _CallScreenDialogState extends State<CallScreenDialog>
                           begin: Alignment.bottomCenter,
                           end: Alignment.topCenter,
                           colors: [
-                            const Color(0xFF0F172A).withOpacity(0.9),
+                            const Color(0xFF0F172A).withValues(alpha: 0.9),
                             Colors.transparent,
                           ],
                         ),
@@ -549,7 +549,7 @@ class _CallScreenDialogState extends State<CallScreenDialog>
                           border: Border.all(color: Colors.white24, width: 3),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.white.withOpacity(0.1),
+                              color: Colors.white.withValues(alpha: 0.1),
                               blurRadius: 30,
                               spreadRadius: 10,
                             ),
@@ -635,7 +635,7 @@ class _CallScreenDialogState extends State<CallScreenDialog>
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: const Color(0xFF25D366).withOpacity(0.3 + _pulseController.value * 0.3),
+                      color: const Color(0xFF25D366).withValues(alpha: 0.3 + _pulseController.value * 0.3),
                       width: 3,
                     ),
                   ),
@@ -645,7 +645,7 @@ class _CallScreenDialogState extends State<CallScreenDialog>
                       height: 50,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: const Color(0xFF25D366).withOpacity(0.15),
+                        color: const Color(0xFF25D366).withValues(alpha: 0.15),
                       ),
                       child: const Icon(
                         Icons.wifi_calling_3_rounded,
@@ -700,7 +700,7 @@ class _CallScreenDialogState extends State<CallScreenDialog>
                 shape: BoxShape.circle,
                 color: i < dotCount
                     ? const Color(0xFF25D366)
-                    : const Color(0xFF25D366).withOpacity(0.2),
+                    : const Color(0xFF25D366).withValues(alpha: 0.2),
               ),
             );
           }),
@@ -720,7 +720,7 @@ class _CallScreenDialogState extends State<CallScreenDialog>
           border: Border.all(color: Colors.white24, width: 2),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.5),
+              color: Colors.black.withValues(alpha: 0.5),
               blurRadius: 10,
               spreadRadius: 2,
             ),
@@ -764,7 +764,7 @@ class _CallScreenDialogState extends State<CallScreenDialog>
             ),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF25D366).withOpacity(0.3),
+                color: const Color(0xFF25D366).withValues(alpha: 0.3),
                 blurRadius: 20,
                 spreadRadius: 5,
               ),
@@ -801,7 +801,7 @@ class _CallScreenDialogState extends State<CallScreenDialog>
                   height: 20 * scale,
                   margin: const EdgeInsets.symmetric(horizontal: 2),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF25D366).withOpacity(0.7),
+                    color: const Color(0xFF25D366).withValues(alpha: 0.7),
                     borderRadius: BorderRadius.circular(2),
                   ),
                 );
@@ -1015,7 +1015,7 @@ class _CallScreenDialogState extends State<CallScreenDialog>
         _buildControlButton(
           icon: _isMuted ? Icons.mic_off_rounded : Icons.mic_rounded,
           label: _isMuted ? 'Aç' : 'Sustur',
-          backgroundColor: _isMuted ? Colors.white : Colors.white.withOpacity(0.2),
+          backgroundColor: _isMuted ? Colors.white : Colors.white.withValues(alpha: 0.2),
           iconColor: _isMuted ? const Color(0xFF0F172A) : Colors.white,
           onTap: () {
             if (_webRtcService != null) {
@@ -1031,7 +1031,7 @@ class _CallScreenDialogState extends State<CallScreenDialog>
           _buildControlButton(
             icon: _isCameraOff ? Icons.videocam_off_rounded : Icons.videocam_rounded,
             label: _isCameraOff ? 'Kamera Aç' : 'Kamera Kapa',
-            backgroundColor: _isCameraOff ? Colors.white : Colors.white.withOpacity(0.2),
+            backgroundColor: _isCameraOff ? Colors.white : Colors.white.withValues(alpha: 0.2),
             iconColor: _isCameraOff ? const Color(0xFF0F172A) : Colors.white,
             onTap: () {
               if (_webRtcService != null) {
@@ -1092,7 +1092,7 @@ class _CallScreenDialogState extends State<CallScreenDialog>
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
-                  color: backgroundColor.withOpacity(0.4),
+                  color: backgroundColor.withValues(alpha: 0.4),
                   blurRadius: 12,
                   spreadRadius: 2,
                 ),

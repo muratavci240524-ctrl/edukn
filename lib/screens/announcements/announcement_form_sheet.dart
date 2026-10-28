@@ -38,7 +38,7 @@ class _AnnouncementFormSheetState extends State<AnnouncementFormSheet> {
   bool _showRecipientSelector = false;
   bool _isAnonymous = false;
   bool _schedulePublish = false;
-  List<Map<String, dynamic>> _reminders = [];
+  final List<Map<String, dynamic>> _reminders = [];
   String _repeatMode = 'none';
   DateTime _repeatUntil = DateTime.now().add(const Duration(days: 30));
 
@@ -56,7 +56,7 @@ class _AnnouncementFormSheetState extends State<AnnouncementFormSheet> {
   String _selectedClassLevel = '';
   String _selectedBranch = '';
 
-  Set<String> _selectedRecipientTypes = {}; // Öğrenci, Veli, Öğretmen seçimleri
+  final Set<String> _selectedRecipientTypes = {}; // Öğrenci, Veli, Öğretmen seçimleri
   final List<String> _branches = ['A', 'B', 'C', 'D', 'E', 'F'];
 
   @override
@@ -461,7 +461,7 @@ class _AnnouncementFormSheetState extends State<AnnouncementFormSheet> {
                         color: Colors.white,
                       ),
                       child: DropdownButtonFormField<String>(
-                        value: _selectedTargetType.isEmpty
+                        initialValue: _selectedTargetType.isEmpty
                             ? null
                             : _selectedTargetType,
                         isExpanded: true,
@@ -696,7 +696,7 @@ class _AnnouncementFormSheetState extends State<AnnouncementFormSheet> {
             color: Colors.white,
           ),
           child: DropdownButtonFormField<String>(
-            value: _selectedSchoolType.isEmpty ? null : _selectedSchoolType,
+            initialValue: _selectedSchoolType.isEmpty ? null : _selectedSchoolType,
             decoration: InputDecoration(
               labelText: 'Okul Türü Seç',
               border: InputBorder.none,
@@ -740,7 +740,7 @@ class _AnnouncementFormSheetState extends State<AnnouncementFormSheet> {
             color: Colors.white,
           ),
           child: DropdownButtonFormField<String>(
-            value: _selectedClassLevel.isEmpty ? null : _selectedClassLevel,
+            initialValue: _selectedClassLevel.isEmpty ? null : _selectedClassLevel,
             decoration: InputDecoration(
               labelText: 'Sınıf Seviyesi Seç',
               border: InputBorder.none,
@@ -774,7 +774,7 @@ class _AnnouncementFormSheetState extends State<AnnouncementFormSheet> {
               color: Colors.white,
             ),
             child: DropdownButtonFormField<String>(
-              value: _selectedBranch.isEmpty ? null : _selectedBranch,
+              initialValue: _selectedBranch.isEmpty ? null : _selectedBranch,
               decoration: InputDecoration(
                 labelText: 'Şube Seç (Opsiyonel)',
                 border: InputBorder.none,
@@ -1044,7 +1044,7 @@ class _AnnouncementFormSheetState extends State<AnnouncementFormSheet> {
                     subtitle: _isAnonymous
                         ? const Text('Duyuru kurum adıyla paylaşılacak')
                         : const Text('Duyuru adınızla paylaşılacak'),
-                    activeColor: Colors.blue[700],
+                    activeThumbColor: Colors.blue[700],
                   ),
                 ),
 
@@ -1079,7 +1079,7 @@ class _AnnouncementFormSheetState extends State<AnnouncementFormSheet> {
                                 'Belirlenen tarih ve saatte yayınlanacak',
                               )
                             : const Text('Hemen yayınlanacak'),
-                        activeColor: Colors.purple[700],
+                        activeThumbColor: Colors.purple[700],
                       ),
                       if (_schedulePublish) ...[
                         const Divider(height: 1),
@@ -1291,7 +1291,7 @@ class _AnnouncementFormSheetState extends State<AnnouncementFormSheet> {
                         subtitle: _sendSms
                             ? const Text('SMS alıcılara gönderilecek')
                             : null,
-                        activeColor: Colors.green[700],
+                        activeThumbColor: Colors.green[700],
                       ),
                       if (_sendSms)
                         Container(
@@ -1682,7 +1682,7 @@ class _AnnouncementFormSheetState extends State<AnnouncementFormSheet> {
                                   }
 
                                   if (!mounted) return;
-                                  ScaffoldMessenger.of(context).showSnackBar(
+                                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
                                       content: Text(
                                         widget.announcementId != null
@@ -1695,7 +1695,7 @@ class _AnnouncementFormSheetState extends State<AnnouncementFormSheet> {
                                   );
                                   // Sadece düzenleme modunda sayfayı kapat
                                   if (widget.announcementId != null) {
-                                    Navigator.pop(context);
+                                    if (mounted) Navigator.pop(context);
                                   } else {
                                     // Yeni duyuru eklendiyse formu temizle
                                     _title.clear();
@@ -1725,7 +1725,7 @@ class _AnnouncementFormSheetState extends State<AnnouncementFormSheet> {
                                   }
                                 } catch (e) {
                                   if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
+                                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
                                         content: Text('Kaydetme hatası: $e'),
                                         backgroundColor: Colors.red,

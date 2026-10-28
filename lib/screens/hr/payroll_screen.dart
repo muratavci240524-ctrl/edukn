@@ -1,4 +1,4 @@
-﻿import 'package:edukn/services/user_permission_service.dart';
+import 'package:edukn/services/user_permission_service.dart';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -217,7 +217,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                       IconButton(
                         icon: Container(
                           padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(color: Colors.indigo.withOpacity(0.05), borderRadius: BorderRadius.circular(10)),
+                          decoration: BoxDecoration(color: Colors.indigo.withValues(alpha: 0.05), borderRadius: BorderRadius.circular(10)),
                           child: const Icon(Icons.edit_note_rounded, color: Colors.indigo, size: 24)
                         ),
                         tooltip: 'Tanımı Düzenle',
@@ -259,7 +259,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
             children: [
               Expanded(
                 child: DropdownButtonFormField<String>(
-                  value: _depFilter ?? 'Tümü',
+                  initialValue: _depFilter ?? 'Tümü',
                   items: deps.map((d) => DropdownMenuItem(value: d, child: Text(d))).toList(),
                   onChanged: (v) => setState(() => _depFilter = v),
                   decoration: const InputDecoration(labelText: 'Departman', isDense: true),
@@ -268,7 +268,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
               const SizedBox(width: 16),
               Expanded(
                 child: DropdownButtonFormField<String>(
-                  value: _schoolTypeFilter ?? 'Tümü',
+                  initialValue: _schoolTypeFilter ?? 'Tümü',
                   items: types.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
                   onChanged: (v) => setState(() => _schoolTypeFilter = v),
                   decoration: const InputDecoration(labelText: 'Okul Türü', isDense: true),
@@ -330,7 +330,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
             children: [
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(color: statusColor.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                decoration: BoxDecoration(color: statusColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
                 child: Text(statusText, style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.bold)),
               ),
               const SizedBox(width: 12),
@@ -474,7 +474,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
           ..._payrollList.map((p) {
              final staff = _staffList.firstWhere((s) => s['id'] == p['staffId'], orElse: () => {});
              return ListTile(
-               leading: CircleAvatar(backgroundColor: Colors.indigo.withOpacity(0.1), child: const Icon(Icons.person, color: Colors.indigo, size: 20)),
+               leading: CircleAvatar(backgroundColor: Colors.indigo.withValues(alpha: 0.1), child: const Icon(Icons.person, color: Colors.indigo, size: 20)),
                title: Text(staff['fullName'] ?? '...', style: const TextStyle(fontSize: 14)),
                trailing: Text(_formatCurrency((p['netSalary'] as num).toDouble()), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
              );
@@ -496,7 +496,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
           IconButton(onPressed: () { setState(() => _selectedDate = DateTime(_selectedDate.year, _selectedDate.month - 1)); _loadData(); }, icon: const Icon(Icons.chevron_left)),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-            decoration: BoxDecoration(color: Colors.indigo.withOpacity(0.05), borderRadius: BorderRadius.circular(20)),
+            decoration: BoxDecoration(color: Colors.indigo.withValues(alpha: 0.05), borderRadius: BorderRadius.circular(20)),
             child: Text(DateFormat('MMMM yyyy', 'tr_TR').format(_selectedDate).toUpperCase(), style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.indigo)),
           ),
           IconButton(onPressed: () { setState(() => _selectedDate = DateTime(_selectedDate.year, _selectedDate.month + 1)); _loadData(); }, icon: const Icon(Icons.chevron_right)),
@@ -508,7 +508,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
   Widget _buildStatCard(String label, String value, Color color) {
     return Container(
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), border: Border.all(color: color.withOpacity(0.2), width: 2)),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), border: Border.all(color: color.withValues(alpha: 0.2), width: 2)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -559,7 +559,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                   const Text('Maaş Bilgileri', style: TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
-                    value: type,
+                    initialValue: type,
                     items: const [DropdownMenuItem(value: 'monthly', child: Text('Aylık Sabit Maaş')), DropdownMenuItem(value: 'hourly', child: Text('Saatlik Ücret Bazlı'))],
                     onChanged: (v) => setS(() => type = v!),
                     decoration: const InputDecoration(labelText: 'Maaş Hesaplama Tipi', filled: true),
@@ -594,7 +594,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                     extraHourRate: double.tryParse(extraController.text.replaceAll(',', '.')) ?? 0.0,
                     overtimeHourRate: double.tryParse(extraController.text.replaceAll(',', '.')) ?? 0.0,
                   );
-                  Navigator.pop(ctx);
+                  if (mounted) Navigator.pop(ctx);
                   _loadData();
                 },
                 style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16)),
@@ -646,7 +646,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
       }
       setState(() => _isLoading = false);
       _loadData();
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$count bordro oluşturuldu. $errors hata.')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$count bordro oluşturuldu. $errors hata.')));
     }
   }
 
@@ -683,11 +683,11 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                   customBonus: double.tryParse(bonusController.text) ?? 0.0,
                   customDeduction: double.tryParse(deducController.text) ?? 0.0,
                 );
-                Navigator.pop(ctx);
+                if (mounted) Navigator.pop(ctx);
                 _loadData();
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bordro başarıyla oluşturuldu.')));
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bordro başarıyla oluşturuldu.')));
               } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: ${e.toString()}')));
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: ${e.toString()}')));
               }
             },
             child: const Text('OLUŞTUR'),
@@ -893,7 +893,7 @@ class _SalaryEditScreenState extends State<_SalaryEditScreen> {
             Text(widget.staff['department'] ?? 'Departman Belirtilmedi', style: const TextStyle(color: Colors.grey)),
             const SizedBox(height: 32),
             DropdownButtonFormField<String>(
-              value: _type,
+              initialValue: _type,
               items: const [DropdownMenuItem(value: 'monthly', child: Text('Aylık Sabit Maaş')), DropdownMenuItem(value: 'hourly', child: Text('Saatlik Ücret Bazlı'))],
               onChanged: (v) => setState(() => _type = v!),
               decoration: const InputDecoration(labelText: 'Maaş Hesaplama Tipi', filled: true),
@@ -918,7 +918,7 @@ class _SalaryEditScreenState extends State<_SalaryEditScreen> {
                     overtimeHourRate: double.tryParse(_extra.text.replaceAll(',', '.')) ?? 0.0,
                   );
                   widget.onSaved();
-                  Navigator.pop(context);
+                  if (mounted) Navigator.pop(context);
                 },
                 child: _saving ? const CircularProgressIndicator(color: Colors.white) : const Text('KAYDET'),
               ),

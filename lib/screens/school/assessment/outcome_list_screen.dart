@@ -128,7 +128,7 @@ class _OutcomeListScreenState extends State<OutcomeListScreen> {
       if (_selectedOutcomeList?.id == list.id) {
         _cancelSelection();
       }
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Kazanım listesi silindi.')));
     }
@@ -311,7 +311,7 @@ class _OutcomeListScreenState extends State<OutcomeListScreen> {
                   return Container(
                     padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.3),
+                      color: Colors.white.withValues(alpha: 0.3),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
@@ -337,7 +337,7 @@ class _OutcomeListScreenState extends State<OutcomeListScreen> {
               hintStyle: TextStyle(color: Colors.white70),
               prefixIcon: Icon(Icons.search, size: 20, color: Colors.white70),
               filled: true,
-              fillColor: Colors.white.withOpacity(0.2),
+              fillColor: Colors.white.withValues(alpha: 0.2),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(25),
                 borderSide: BorderSide.none,
@@ -385,7 +385,7 @@ class _OutcomeListScreenState extends State<OutcomeListScreen> {
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.white : Colors.white.withOpacity(0.2),
+          color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.2),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Text(

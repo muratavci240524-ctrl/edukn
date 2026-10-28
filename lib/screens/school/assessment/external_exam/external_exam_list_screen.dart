@@ -207,7 +207,7 @@ class _ExternalExamListScreenState extends State<ExternalExamListScreen> {
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.04),
+              color: Colors.black.withValues(alpha: 0.04),
               blurRadius: 16,
               offset: const Offset(0, 4),
             ),
@@ -236,7 +236,7 @@ class _ExternalExamListScreenState extends State<ExternalExamListScreen> {
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
+                      color: Colors.white.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Icon(
@@ -265,7 +265,7 @@ class _ExternalExamListScreenState extends State<ExternalExamListScreen> {
                           exam.examTypeName,
                           style: GoogleFonts.inter(
                             fontSize: 12,
-                            color: Colors.white.withOpacity(0.85),
+                            color: Colors.white.withValues(alpha: 0.85),
                           ),
                         ),
                       ],

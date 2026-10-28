@@ -1,0 +1,37 @@
+  Future<void> _printRoomObservationForm(ExamRoom room) async {
+    try {
+      final bytes = await ButterflyPdfService.generateObservationFormPdf(
+        distribution: _currentDistribution,
+        room: room,
+      );
+      await Printing.layoutPdf(
+        onLayout: (_) => bytes,
+        name: '${_currentDistribution.title}_${room.classroomName}_Gozlem_Formu.pdf',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('PDF hatası: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _printAllObservationForms() async {
+    try {
+      final bytes = await ButterflyPdfService.generateAllObservationFormsPdf(
+        distribution: _currentDistribution,
+      );
+      await Printing.layoutPdf(
+        onLayout: (_) => bytes,
+        name: '${_currentDistribution.title}_Tum_Gozlem_Formlari.pdf',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('PDF hatası: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+

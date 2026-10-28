@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:edukn/services/user_permission_service.dart';
@@ -98,7 +98,7 @@ class _TermsScreenState extends State<TermsScreen> {
         _isLoading = false;
       });
     } catch (e) {
-      print('Dönemler yüklenirken hata: $e');
+      debugPrint('Dönemler yüklenirken hata: $e');
       setState(() => _isLoading = false);
     }
   }
@@ -123,13 +123,13 @@ class _TermsScreenState extends State<TermsScreen> {
       await TermService().clearSelectedTerm();
       TermService().clearCache();
       
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('✓ Aktif dönem güncellendi'), backgroundColor: Colors.green),
       );
       
       _loadTerms();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('❌ Hata: $e'), backgroundColor: Colors.red),
       );
     }
@@ -154,7 +154,7 @@ class _TermsScreenState extends State<TermsScreen> {
                     labelText: 'Başlangıç Yılı *',
                     border: OutlineInputBorder(),
                   ),
-                  value: startYear,
+                  initialValue: startYear,
                   items: List.generate(10, (i) {
                     final year = DateTime.now().year - 2 + i;
                     return DropdownMenuItem(value: year, child: Text('$year'));
@@ -172,7 +172,7 @@ class _TermsScreenState extends State<TermsScreen> {
                     labelText: 'Bitiş Yılı *',
                     border: OutlineInputBorder(),
                   ),
-                  value: endYear,
+                  initialValue: endYear,
                   items: startYear == null
                       ? []
                       : List.generate(2, (i) {
@@ -223,8 +223,8 @@ class _TermsScreenState extends State<TermsScreen> {
                   await FirebaseFirestore.instance.collection('terms').add(termData);
                 }
 
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
+                if (mounted) Navigator.pop(context);
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text(isEdit ? '✓ Dönem güncellendi' : '✓ Dönem eklendi'),
                     backgroundColor: Colors.green,
@@ -232,7 +232,7 @@ class _TermsScreenState extends State<TermsScreen> {
                 );
                 _loadTerms();
               } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(content: Text('❌ Hata: $e'), backgroundColor: Colors.red),
                 );
               }
@@ -507,7 +507,7 @@ class _TermsScreenState extends State<TermsScreen> {
     if (confirmAgain != true) return;
 
     // Loading dialog göster
-    showDialog(
+    if (mounted) showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
@@ -525,7 +525,7 @@ class _TermsScreenState extends State<TermsScreen> {
       final count = await TermService().deleteAllData();
       Navigator.pop(context); // Loading dialog kapat
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('✓ $count kayıt silindi'),
           backgroundColor: Colors.green,
@@ -534,7 +534,7 @@ class _TermsScreenState extends State<TermsScreen> {
       );
     } catch (e) {
       Navigator.pop(context); // Loading dialog kapat
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Hata: $e'),
           backgroundColor: Colors.red,
@@ -575,7 +575,7 @@ class _TermsScreenState extends State<TermsScreen> {
     if (confirm != true) return;
 
     // Loading dialog göster
-    showDialog(
+    if (mounted) showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
@@ -593,7 +593,7 @@ class _TermsScreenState extends State<TermsScreen> {
       final count = await TermService().migrateDataToActiveTerm();
       Navigator.pop(context); // Loading dialog kapat
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('✓ $count kayıt aktif döneme atandı'),
           backgroundColor: Colors.green,
@@ -602,7 +602,7 @@ class _TermsScreenState extends State<TermsScreen> {
       );
     } catch (e) {
       Navigator.pop(context); // Loading dialog kapat
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Hata: $e'),
           backgroundColor: Colors.red,
@@ -658,7 +658,7 @@ class _TermsScreenState extends State<TermsScreen> {
 
       Navigator.pop(context); // Loading dialog kapat
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('✓ $copiedCount kayıt aktif döneme kopyalandı'),
           backgroundColor: Colors.green,
@@ -667,7 +667,7 @@ class _TermsScreenState extends State<TermsScreen> {
       );
     } catch (e) {
       Navigator.pop(context); // Loading dialog kapat
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Hata: $e'),
           backgroundColor: Colors.red,

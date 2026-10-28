@@ -24,7 +24,7 @@ class _ActivityDetailScreenState extends State<ActivityDetailScreen>
   Set<String> _participatedIds = {};
 
   // Cache student info
-  Map<String, Map<String, dynamic>> _studentDetails = {};
+  final Map<String, Map<String, dynamic>> _studentDetails = {};
   bool _isLoadingStudents = true;
   bool _isManager = false;
 
@@ -159,7 +159,7 @@ class _ActivityDetailScreenState extends State<ActivityDetailScreen>
                       ),
                     );
                     if (updated == true && mounted) {
-                      Navigator.pop(context, true);
+                      if (mounted) Navigator.pop(context, true);
                     }
                   },
                 ),

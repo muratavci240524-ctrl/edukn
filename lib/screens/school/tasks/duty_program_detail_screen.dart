@@ -60,6 +60,28 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
   DateTime? _periodStartDate;
   DateTime? _periodEndDate;
   bool _isStatsLoading = false;
+  // İstatistik tablosunda öğretmen arama
+  bool _statsSearchOpen = false;
+  String _statsSearch = '';
+  final TextEditingController _statsSearchCtrl = TextEditingController();
+
+  /// Türkçe uyumlu, büyük/küçük harf ve aksan duyarsız normalleştirme.
+  /// "YILMAZ", "yılmaz", "yilmaz" → hepsi eşleşir.
+  static String _normalizeTr(String s) {
+    return s
+        .replaceAll('İ', 'i')
+        .replaceAll('I', 'ı')
+        .toLowerCase()
+        .replaceAll('ı', 'i')
+        .replaceAll('i̇', 'i') // birleşik nokta (İ.toLowerCase())
+        .replaceAll('ş', 's')
+        .replaceAll('ğ', 'g')
+        .replaceAll('ü', 'u')
+        .replaceAll('ö', 'o')
+        .replaceAll('ç', 'c')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
   bool _customStatsDateRangePicked = false;
   bool _isFabMenuOpen = false;
 
@@ -113,6 +135,7 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
   void dispose() {
     _dutyItemsSub?.cancel();
     _tabController.dispose();
+    _statsSearchCtrl.dispose();
     super.dispose();
   }
 
@@ -390,7 +413,7 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
                 .doc(widget.periodId)
                 .get();
             _termId = pDoc.data()?['termId']?.toString();
-          } catch (_) {}
+          } catch (silentError) { debugPrint('[duty_program_detail_screen] hata yutuldu: $silentError'); }
           if (_termId == null || _termId!.isEmpty) {
             final selectedTermId = await TermService().getSelectedTermId();
             final activeTermId = await TermService().getActiveTermId();
@@ -516,7 +539,7 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
         _matrix[key] = item;
       }
     } catch (e) {
-      print('Error loading calendar data: $e');
+      debugPrint('Error loading calendar data: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -553,7 +576,7 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
       _allPeriodDutyItems = allItems;
       _statsItems = statsList;
     } catch (e) {
-      print('Error loading stats data: $e');
+      debugPrint('Error loading stats data: $e');
     } finally {
       if (mounted) setState(() => _isStatsLoading = false);
     }
@@ -1165,7 +1188,7 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.04),
+                color: Colors.black.withValues(alpha: 0.04),
                 blurRadius: 16,
                 offset: const Offset(0, 4),
               ),
@@ -1176,7 +1199,7 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: DataTable(
-                headingRowColor: MaterialStateProperty.all(
+                headingRowColor: WidgetStateProperty.all(
                   const Color(0xFFF1F5F9),
                 ),
                 dataRowHeight: 72,
@@ -1199,7 +1222,7 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
                   final isEven = index % 2 == 0;
 
                   return DataRow(
-                    color: MaterialStateProperty.all(
+                    color: WidgetStateProperty.all(
                       isEven ? Colors.white : const Color(0xFFF8FAFC),
                     ),
                     cells: [
@@ -1470,6 +1493,7 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
 
       int total = 0;
       Map<String, int> locCounts = {};
+      Map<String, List<DateTime>> locDates = {};
       for (var l in _locations) {
         locCounts[l.id] = 0;
       }
@@ -1478,14 +1502,41 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
         if (item.teacherId == tid) {
           total++;
           locCounts[item.locationId] = (locCounts[item.locationId] ?? 0) + 1;
+          DateTime? date = item.dutyDate != null
+              ? DateTime.tryParse(item.dutyDate!)
+              : null;
+          if (date == null && item.weekStart != null) {
+            date = item.weekStart!.add(Duration(days: item.dayOfWeek - 1));
+          }
+          if (date != null) {
+            locDates.putIfAbsent(item.locationId, () => []).add(date);
+          }
         }
       }
+      for (final list in locDates.values) {
+        list.sort();
+      }
 
-      stats.add({'name': tName, 'branch': branch, 'total': total, 'locCounts': locCounts});
+      stats.add({
+        'name': tName,
+        'branch': branch,
+        'total': total,
+        'locCounts': locCounts,
+        'locDates': locDates,
+      });
     }
 
     // Sort by Total Descending
     stats.sort((a, b) => (b['total'] as int).compareTo(a['total'] as int));
+
+    // Öğretmen adına göre filtre
+    final searchQ = _normalizeTr(_statsSearch);
+    if (searchQ.isNotEmpty) {
+      stats = stats
+          .where((s) => _normalizeTr(s['name']?.toString() ?? '')
+              .contains(searchQ))
+          .toList();
+    }
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -1577,7 +1628,7 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
                   border: Border.all(color: Colors.grey.shade200),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.02),
+                      color: Colors.black.withValues(alpha: 0.02),
                       blurRadius: 12,
                     ),
                   ],
@@ -1597,31 +1648,92 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
                       ),
                       child: Row(
                         children: [
-                          if (isMobile)
-                            const SizedBox(
-                              width: 48,
-                              child: Center(
-                                child: Text(
-                                  'DETAY',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF64748B),
-                                  ),
+                          const SizedBox(
+                            width: 48,
+                            child: Center(
+                              child: Text(
+                                'DETAY',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF64748B),
                                 ),
                               ),
                             ),
+                          ),
 
                           Expanded(
                             flex: 3,
-                            child: Text(
-                              'ÖRETMEN',
-                              style: TextStyle(
-                                color: const Color(0xFF64748B),
-                                fontWeight: FontWeight.bold,
-                                fontSize: isMobile ? 11 : 12,
-                              ),
-                            ),
+                            child: _statsSearchOpen
+                                ? SizedBox(
+                                    height: 34,
+                                    child: TextField(
+                                      controller: _statsSearchCtrl,
+                                      autofocus: true,
+                                      style: const TextStyle(fontSize: 13),
+                                      decoration: InputDecoration(
+                                        isDense: true,
+                                        hintText: 'Öğretmen ara...',
+                                        prefixIcon: const Icon(
+                                          Icons.search_rounded,
+                                          size: 18,
+                                        ),
+                                        prefixIconConstraints:
+                                            const BoxConstraints(minWidth: 32),
+                                        suffixIcon: IconButton(
+                                          tooltip: 'Aramayı kapat',
+                                          icon: const Icon(
+                                            Icons.close_rounded,
+                                            size: 18,
+                                          ),
+                                          onPressed: () => setState(() {
+                                            _statsSearchOpen = false;
+                                            _statsSearch = '';
+                                            _statsSearchCtrl.clear();
+                                          }),
+                                        ),
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                          vertical: 8,
+                                        ),
+                                        border: OutlineInputBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                        ),
+                                      ),
+                                      onChanged: (v) =>
+                                          setState(() => _statsSearch = v),
+                                    ),
+                                  )
+                                : InkWell(
+                                    borderRadius: BorderRadius.circular(6),
+                                    onTap: () => setState(
+                                      () => _statsSearchOpen = true,
+                                    ),
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 4,
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Text(
+                                            'ÖĞRETMEN',
+                                            style: TextStyle(
+                                              color: const Color(0xFF64748B),
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: isMobile ? 11 : 12,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 4),
+                                          const Icon(
+                                            Icons.search_rounded,
+                                            size: 15,
+                                            color: Color(0xFF64748B),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
                           ),
 
                           Expanded(
@@ -1662,6 +1774,16 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
                       ),
                     ),
 
+                    // Arama sonucu yoksa
+                    if (stats.isEmpty && searchQ.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text(
+                          '"$_statsSearch" ile eşleşen öğretmen bulunamadı.',
+                          style: TextStyle(color: Colors.grey.shade600),
+                        ),
+                      ),
+
                     // Rows
                     ...stats.map((s) {
                       final total = s['total'] as int;
@@ -1679,19 +1801,25 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
                         ),
                         child: Row(
                           children: [
-                            if (isMobile)
-                              SizedBox(
-                                width: 48,
-                                child: IconButton(
-                                  icon: const Icon(
-                                    Icons.info_outline_rounded,
-                                    color: Color(0xFF64748B),
-                                    size: 20,
-                                  ),
-                                  onPressed: () =>
-                                      _showMobileStatDetail(s['name'], locs),
+                            SizedBox(
+                              width: 48,
+                              child: IconButton(
+                                tooltip: 'Nöbet detayı',
+                                icon: const Icon(
+                                  Icons.info_outline_rounded,
+                                  color: Color(0xFF64748B),
+                                  size: 20,
+                                ),
+                                onPressed: () => _showMobileStatDetail(
+                                  s['name'],
+                                  locs,
+                                  s['locDates']
+                                      as Map<String, List<DateTime>>,
+                                  branch: s['branch']?.toString(),
+                                  total: total,
                                 ),
                               ),
+                            ),
 
                             Expanded(
                               flex: 3,
@@ -1779,57 +1907,319 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
     );
   }
 
-  void _showMobileStatDetail(String name, Map<String, int> locCounts) {
-    showDialog(
+  void _showMobileStatDetail(
+    String name,
+    Map<String, int> locCounts,
+    Map<String, List<DateTime>> locDates, {
+    String? branch,
+    int? total,
+  }) {
+    final dayFormat = DateFormat('dd MMMM yyyy, EEEE', 'tr_TR');
+    final visibleLocs =
+        _locations.where((l) => (locCounts[l.id] ?? 0) > 0).toList();
+    final totalCount =
+        total ?? locCounts.values.fold<int>(0, (acc, c) => acc + c);
+
+    // Kronolojik liste (tarih • nöbet yeri)
+    final listDateFormat = DateFormat('dd MMMM yyyy EEEE', 'tr_TR');
+    final locNameById = {for (final l in _locations) l.id: l.name};
+    final chronological = <MapEntry<DateTime, String>>[];
+    locDates.forEach((locId, dates) {
+      for (final d in dates) {
+        chronological.add(MapEntry(d, locNameById[locId] ?? 'Nöbet Yeri'));
+      }
+    });
+    chronological.sort((a, b) => a.key.compareTo(b.key));
+    bool sortByDate = false;
+
+    showModalBottomSheet(
       context: context,
-      builder: (c) => AlertDialog(
-        title: Text(name),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children:
-              _locations
-                  .where((l) => (locCounts[l.id] ?? 0) > 0)
-                  .map((l) {
-                    return ListTile(
-                      dense: true,
-                      title: Text(l.name),
-                      trailing: CircleAvatar(
-                        radius: 12,
-                        backgroundColor: const Color(0xFFDCFCE7),
-                        child: Text(
-                          locCounts[l.id].toString(),
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: Color(0xFF166534),
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    );
-                  })
-                  .toList()
-                  .isEmpty
-              ? [const Text('Henüz nöbet atanmamış.')]
-              : _locations
-                    .where((l) => (locCounts[l.id] ?? 0) > 0)
-                    .map(
-                      (l) => ListTile(
-                        dense: true,
-                        title: Text(l.name),
-                        trailing: Text(
-                          '${locCounts[l.id]}',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    )
-                    .toList(),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c),
-            child: const Text('Tamam'),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      constraints: const BoxConstraints(maxWidth: 640),
+      builder: (c) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        minChildSize: 0.4,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (context, scrollController) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
           ),
-        ],
+          child: Column(
+            children: [
+              // Tutamaç
+              Container(
+                margin: const EdgeInsets.only(top: 10, bottom: 6),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              // Başlık
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 12, 12),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 22,
+                      backgroundColor:
+                          const Color(0xFF4F46E5).withValues(alpha: 0.1),
+                      child: Text(
+                        name.isNotEmpty ? name[0].toUpperCase() : '?',
+                        style: const TextStyle(
+                          color: Color(0xFF4F46E5),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            name,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF1E293B),
+                            ),
+                          ),
+                          if (branch != null && branch.isNotEmpty)
+                            Text(
+                              branch,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFDCFCE7),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        'Toplam $totalCount',
+                        style: const TextStyle(
+                          color: Color(0xFF166534),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () => Navigator.pop(c),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              // İçerik
+              Expanded(
+                child: StatefulBuilder(
+                  builder: (context, setSheetState) => Column(
+                    children: [
+                      // Sıralama anahtarı
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 4, 12, 4),
+                        child: Row(
+                          children: [
+                            Icon(
+                              sortByDate
+                                  ? Icons.event_note_rounded
+                                  : Icons.place_outlined,
+                              size: 18,
+                              color: const Color(0xFF64748B),
+                            ),
+                            const SizedBox(width: 8),
+                            const Expanded(
+                              child: Text(
+                                'Tarihe göre sırala',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF334155),
+                                ),
+                              ),
+                            ),
+                            Switch(
+                              value: sortByDate,
+                              activeThumbColor: const Color(0xFF4F46E5),
+                              onChanged: (v) =>
+                                  setSheetState(() => sortByDate = v),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Divider(height: 1),
+                      Expanded(
+                child: visibleLocs.isEmpty
+                    ? const Center(child: Text('Henüz nöbet atanmamış.'))
+                    : sortByDate
+                    ? ListView.separated(
+                        controller: scrollController,
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                        itemCount: chronological.length,
+                        separatorBuilder: (_, __) =>
+                            const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                        itemBuilder: (context, i) {
+                          final e = chronological[i];
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 10,
+                              horizontal: 4,
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 26,
+                                  height: 26,
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF4F46E5)
+                                        .withValues(alpha: 0.1),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Text(
+                                    '${i + 1}',
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF4F46E5),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text.rich(
+                                    TextSpan(
+                                      children: [
+                                        TextSpan(
+                                          text: listDateFormat.format(e.key),
+                                          style: TextStyle(
+                                            color: Colors.grey.shade700,
+                                          ),
+                                        ),
+                                        const TextSpan(
+                                          text: '  •  ',
+                                          style: TextStyle(
+                                            color: Color(0xFF94A3B8),
+                                          ),
+                                        ),
+                                        TextSpan(
+                                          text: e.value,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            color: Color(0xFF334155),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    style: const TextStyle(fontSize: 13),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      )
+                    : ListView.separated(
+                        controller: scrollController,
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                        itemCount: visibleLocs.length,
+                        separatorBuilder: (_, __) =>
+                            const SizedBox(height: 10),
+                        itemBuilder: (context, i) {
+                          final l = visibleLocs[i];
+                          final count = locCounts[l.id] ?? 0;
+                          final dates = locDates[l.id] ?? const <DateTime>[];
+                          return Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: count > 1
+                                    ? const Color(0xFFF59E0B)
+                                        .withValues(alpha: 0.5)
+                                    : const Color(0xFFE2E8F0),
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.place_outlined,
+                                      size: 18,
+                                      color: Color(0xFF4F46E5),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        '${l.name} ($count)',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 14,
+                                          color: Color(0xFF334155),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                ...dates.map(
+                                  (d) => Padding(
+                                    padding: const EdgeInsets.only(
+                                      left: 24,
+                                      bottom: 4,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.event_rounded,
+                                          size: 14,
+                                          color: Colors.grey.shade500,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          dayFormat.format(d),
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            color: Colors.grey.shade700,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -2153,7 +2543,7 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
                                 if (isSelected) {
                                   avatarBgColor = const Color(0xFF4F46E5);
                                   avatarTextColor = Colors.white;
-                                  tileColor = const Color(0xFF4F46E5).withOpacity(0.06);
+                                  tileColor = const Color(0xFF4F46E5).withValues(alpha: 0.06);
                                 } else if (isAssignedElsewhere) {
                                   avatarBgColor = Colors.orange.shade100;
                                   avatarTextColor = Colors.orange.shade800;
@@ -2315,6 +2705,18 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
     final key = '${locId}_$day';
     final current = _matrix[key];
     final weekStr = _selectedWeekStart.toIso8601String();
+
+    // Eğer öğretmen bu gün zaten başka bir yerde nöbetçiyse, eski nöbet yerinden tamamen kaldır
+    final otherLocationsWithSameTeacher = <String>[];
+    for (var entry in _matrix.entries) {
+      if (entry.key != key && entry.value.dayOfWeek == day && entry.value.teacherId == tid) {
+        otherLocationsWithSameTeacher.add(entry.value.locationId);
+      }
+    }
+    for (final otherLocId in otherLocationsWithSameTeacher) {
+      _removeItem(otherLocId, day);
+    }
+
     final locName = _locations
         .firstWhere(
           (l) => l.id == locId,
@@ -2429,6 +2831,23 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
           });
         }
       }
+
+      // Aynı öğretmenin BU HAFTAKI bu günde başka bir yerde kalmış olası eski kaydı varsa sil
+      try {
+        final sameDaySnap = await FirebaseFirestore.instance
+            .collection('dutyScheduleItems')
+            .where('periodId', isEqualTo: widget.periodId)
+            .where('teacherId', isEqualTo: tid)
+            .where('dayOfWeek', isEqualTo: day)
+            .where('weekStart', isEqualTo: weekStr) // ← SADECE BU HAFTA
+            .get();
+        for (var doc in sameDaySnap.docs) {
+          // Yeni kaydedilen konumdan FARKLI olan eski kayıtları sil
+          if (doc.id != realDocId && doc.data()['locationId'] != locId) {
+            await doc.reference.delete();
+          }
+        }
+      } catch (silentError) { debugPrint('[duty_program_detail_screen] hata yutuldu: $silentError'); }
     } catch (e) {
       debugPrint('Error saving duty item: $e');
     }
@@ -2453,24 +2872,65 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
     });
 
     try {
+      // 1. Doğrudan doküman ID'si ile sil
       if (!current.id.startsWith('temp_')) {
         await FirebaseFirestore.instance
             .collection('dutyScheduleItems')
             .doc(current.id)
             .delete();
-      } else {
-        final dateFormat = DateFormat('yyyy-MM-dd');
-        final weekStr = dateFormat.format(_selectedWeekStart);
-        final snap = await FirebaseFirestore.instance
+      }
+
+      // 2. Garanti Silme: weekStart veya dutyDate formatı ne olursa olsun (ISO veya yyyy-MM-dd) tüm eşleşenleri sil
+      final isoWeek = _selectedWeekStart.toIso8601String();
+      final dateStr = DateFormat('yyyy-MM-dd').format(_selectedWeekStart);
+      final dutyDate = _selectedWeekStart.add(Duration(days: day - 1));
+      final dutyDateIso = dutyDate.toIso8601String();
+      final dutyDateStr = DateFormat('yyyy-MM-dd').format(dutyDate);
+
+      final snaps = await Future.wait([
+        FirebaseFirestore.instance
             .collection('dutyScheduleItems')
             .where('periodId', isEqualTo: widget.periodId)
             .where('locationId', isEqualTo: locId)
             .where('dayOfWeek', isEqualTo: day)
-            .where('weekStart', isEqualTo: weekStr)
-            .get();
-        for (var doc in snap.docs) {
-          await doc.reference.delete();
+            .where('weekStart', isEqualTo: isoWeek)
+            .get(),
+        FirebaseFirestore.instance
+            .collection('dutyScheduleItems')
+            .where('periodId', isEqualTo: widget.periodId)
+            .where('locationId', isEqualTo: locId)
+            .where('dayOfWeek', isEqualTo: day)
+            .where('weekStart', isEqualTo: dateStr)
+            .get(),
+        FirebaseFirestore.instance
+            .collection('dutyScheduleItems')
+            .where('periodId', isEqualTo: widget.periodId)
+            .where('locationId', isEqualTo: locId)
+            .where('dayOfWeek', isEqualTo: day)
+            .where('dutyDate', isEqualTo: dutyDateIso)
+            .get(),
+        FirebaseFirestore.instance
+            .collection('dutyScheduleItems')
+            .where('periodId', isEqualTo: widget.periodId)
+            .where('locationId', isEqualTo: locId)
+            .where('dayOfWeek', isEqualTo: day)
+            .where('dutyDate', isEqualTo: dutyDateStr)
+            .get(),
+      ]);
+
+      final toDelete = <DocumentReference>{};
+      for (final s in snaps) {
+        for (final d in s.docs) {
+          toDelete.add(d.reference);
         }
+      }
+
+      if (toDelete.isNotEmpty) {
+        final batch = FirebaseFirestore.instance.batch();
+        for (final ref in toDelete) {
+          batch.delete(ref);
+        }
+        await batch.commit();
       }
     } catch (e) {
       debugPrint('Error deleting duty item: $e');
@@ -2519,18 +2979,36 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
     });
 
     try {
-      final weekStr = _selectedWeekStart.toIso8601String();
-      final exist = await FirebaseFirestore.instance
-          .collection('dutyScheduleItems')
-          .where('periodId', isEqualTo: widget.periodId)
-          .where('weekStart', isEqualTo: weekStr)
-          .get();
+      final isoWeek = _selectedWeekStart.toIso8601String();
+      final dateStr = DateFormat('yyyy-MM-dd').format(_selectedWeekStart);
 
-      WriteBatch batch = FirebaseFirestore.instance.batch();
-      for (var d in exist.docs) {
-        batch.delete(d.reference);
+      final snaps = await Future.wait([
+        FirebaseFirestore.instance
+            .collection('dutyScheduleItems')
+            .where('periodId', isEqualTo: widget.periodId)
+            .where('weekStart', isEqualTo: isoWeek)
+            .get(),
+        FirebaseFirestore.instance
+            .collection('dutyScheduleItems')
+            .where('periodId', isEqualTo: widget.periodId)
+            .where('weekStart', isEqualTo: dateStr)
+            .get(),
+      ]);
+
+      final toDelete = <DocumentReference>{};
+      for (final s in snaps) {
+        for (final d in s.docs) {
+          toDelete.add(d.reference);
+        }
       }
-      await batch.commit();
+
+      if (toDelete.isNotEmpty) {
+        final batch = FirebaseFirestore.instance.batch();
+        for (final ref in toDelete) {
+          batch.delete(ref);
+        }
+        await batch.commit();
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2584,7 +3062,7 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF59E0B).withOpacity(0.15),
+                    color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: const Icon(Icons.notifications_active_rounded, color: Color(0xFFF59E0B), size: 22),
@@ -3167,315 +3645,388 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
         weekIndex = (diffDays ~/ 7);
       }
 
-      // Load Trackers (Grup Bazlı ve Lokasyon Bazlı Tarihçe)
+      // ------------------------------------------------------------------
+      // GEÇMİŞ (İSTATİSTİK) YÜKLEME
+      // Sadece seçili haftadan ÖNCEKİ haftalar dikkate alınır. İleri tarihli
+      // haftalarda kayıt olsa bile rotasyon hesabını bozmaz. Elle yapılan
+      // müdahaleler de bu geçmişin parçasıdır; algoritma onları baz alır.
+      // ------------------------------------------------------------------
       final historySnap = await FirebaseFirestore.instance
           .collection('dutyScheduleItems')
           .where('periodId', isEqualTo: widget.periodId)
           .get();
 
-      // Mevcut haftanın eski kayıtlarını geçmiş sayımından hariç tut (temiz tarihçe)
-      final pastHistoryDocs = historySnap.docs.where((d) {
-        final ws = (d.data() as Map<String, dynamic>?)?['weekStart'];
-        return ws != weekStr;
-      }).toList();
-
-      // Lokasyonların grup haritası
-      Map<String, String> locToGroup = {
-        for (var l in _locations)
-          l.id: (l.group.trim().isNotEmpty ? l.group.trim() : '__loc_${l.id}'),
-      };
-
-      // Her gruba ait sıralı nöbet yerleri listesi (kullanıcının belirlediği sırada)
-      Map<String, List<DutyLocation>> groupLocationsMap = {};
-      for (var l in _locations) {
-        final g = locToGroup[l.id]!;
-        groupLocationsMap.putIfAbsent(g, () => []).add(l);
+      DateTime? parseDate(dynamic v) {
+        if (v == null) return null;
+        if (v is Timestamp) return v.toDate();
+        if (v is DateTime) return v;
+        return DateTime.tryParse(v.toString());
       }
 
-      // Her öğretmenin grup bazında EN SON tuttuğu nöbet yeri
-      Map<String, Map<String, String>> teacherLastLocInGroup = {};
+      final selDay = DateTime(
+        _selectedWeekStart.year,
+        _selectedWeekStart.month,
+        _selectedWeekStart.day,
+      );
 
-      // Geçmişi tarihe göre sıralayarak en son tutulan yeri tespit et
-      final sortedHistoryDocs = List<QueryDocumentSnapshot>.from(pastHistoryDocs);
-      sortedHistoryDocs.sort((a, b) {
-        final dataA = a.data() as Map<String, dynamic>? ?? {};
-        final dataB = b.data() as Map<String, dynamic>? ?? {};
-        final dateA = dataA['dutyDate'] ?? dataA['weekStart'] ?? '';
-        final dateB = dataB['dutyDate'] ?? dataB['weekStart'] ?? '';
-        return dateA.toString().compareTo(dateB.toString());
+      final pastHistory = <Map<String, dynamic>>[];
+      for (final d in historySnap.docs) {
+        final data = d.data();
+        final ws = parseDate(data['weekStart']) ?? parseDate(data['dutyDate']);
+        if (ws == null) continue;
+        if (DateTime(ws.year, ws.month, ws.day).isBefore(selDay)) {
+          pastHistory.add(data);
+        }
+      }
+      // Tarihe göre sırala (en son tutulan yeri doğru tespit etmek için)
+      pastHistory.sort((a, b) {
+        final da = parseDate(a['dutyDate']) ?? parseDate(a['weekStart']);
+        final db = parseDate(b['dutyDate']) ?? parseDate(b['weekStart']);
+        if (da == null || db == null) return 0;
+        return da.compareTo(db);
       });
 
-      Map<String, int> totalLoad = {};
-      Map<String, int> currentLoad = {};
-      Map<String, Map<String, int>> locHistoryCounts = {};
-      Map<String, Map<String, int>> groupTotalLoad = {};
-      Map<String, Map<String, int>> groupWeeklyLoad = {};
+      // ------------------------------------------------------------------
+      // ROTASYON GRUPLARI
+      // Aynı rotasyon grubundaki yerler için kural: Öğretmen, grubun
+      // (havuzunda bulunduğu) TÜM yerlerini tutmadan hiçbir yeri 2. kez
+      // tutmaz.
+      //  - Aynı "grup" adı yazılmış yerler aynı gruptur.
+      //  - Grup adı yazılmamış yerler, personel havuzları büyük oranda
+      //    örtüşüyorsa (Jaccard >= %50) otomatik olarak aynı gruba alınır.
+      //    Böylece havuzlarda 1-2 kişilik fark olsa bile kat nöbetleri
+      //    tek rotasyon olarak değerlendirilir; 50 kişilik tek yerli havuz
+      //    ise 9-10 kişilik kat havuzuyla birleşmez.
+      // ------------------------------------------------------------------
+      final Map<String, Set<String>> locPools = {
+        for (final l in _locations)
+          l.id: l.eligibilities.values
+              .expand((e) => e)
+              .map((x) => x.toString())
+              .toSet(),
+      };
 
-      // Her öğretmenin taban indeksi (döngüsel rotasyon sırası için)
-      Map<String, int> teacherBaseIndex = {};
+      // Union-Find
+      final Map<String, String> uf = {for (final l in _locations) l.id: l.id};
+      String find(String x) {
+        while (uf[x] != x) {
+          uf[x] = uf[uf[x]!]!;
+          x = uf[x]!;
+        }
+        return x;
+      }
+
+      void union(String a, String b) {
+        final ra = find(a), rb = find(b);
+        if (ra != rb) uf[ra] = rb;
+      }
+
+      for (int i = 0; i < _locations.length; i++) {
+        for (int j = i + 1; j < _locations.length; j++) {
+          final a = _locations[i], b = _locations[j];
+          final ga = a.group.trim(), gb = b.group.trim();
+          if (ga.isNotEmpty && gb.isNotEmpty) {
+            if (ga == gb) union(a.id, b.id);
+            continue; // farklı açık gruplar asla birleşmez
+          }
+          final pa = locPools[a.id]!, pb = locPools[b.id]!;
+          if (pa.isEmpty || pb.isEmpty) continue;
+          final inter = pa.intersection(pb).length;
+          final uni = pa.union(pb).length;
+          if (uni > 0 && inter / uni >= 0.5) union(a.id, b.id);
+        }
+      }
+
+      final Map<String, String> locToGroup = {
+        for (final l in _locations) l.id: find(l.id),
+      };
+
+      // Her gruba ait sıralı nöbet yerleri (kullanıcının belirlediği sırada)
+      final Map<String, List<DutyLocation>> groupLocationsMap = {};
+      for (final l in _locations) {
+        groupLocationsMap.putIfAbsent(locToGroup[l.id]!, () => []).add(l);
+      }
+
+      // ------------------------------------------------------------------
+      // SAYAÇLAR
+      // ------------------------------------------------------------------
+      final Map<String, int> totalLoad = {};
+      final Map<String, Map<String, int>> locHistoryCounts = {};
+      final Map<String, Map<String, int>> groupTotalLoad = {};
+      final Map<String, Map<String, String>> teacherLastLocInGroup = {};
+      final Map<String, int> teacherBaseIndex = {};
+
       for (int i = 0; i < teachers.length; i++) {
         final tid = teachers[i]['id']?.toString() ?? '';
         teacherBaseIndex[tid] = i;
         totalLoad[tid] = 0;
-        currentLoad[tid] = 0;
         locHistoryCounts[tid] = {};
         groupTotalLoad[tid] = {};
-        groupWeeklyLoad[tid] = {};
         teacherLastLocInGroup[tid] = {};
-
-        for (var l in _locations) {
-          locHistoryCounts[tid]![l.id] = 0;
-          final g = locToGroup[l.id]!;
-          groupTotalLoad[tid]![g] = 0;
-          groupWeeklyLoad[tid]![g] = 0;
-        }
       }
 
-      for (var d in sortedHistoryDocs) {
-        final data = d.data() as Map<String, dynamic>? ?? {};
+      for (final data in pastHistory) {
         final tid = data['teacherId']?.toString();
         final lid = data['locationId']?.toString();
         if (tid == null || lid == null) continue;
+        if (!locHistoryCounts.containsKey(tid)) continue; // pasif personel
 
         totalLoad[tid] = (totalLoad[tid] ?? 0) + 1;
-        if (locHistoryCounts.containsKey(tid) &&
-            locHistoryCounts[tid]!.containsKey(lid)) {
-          locHistoryCounts[tid]![lid] = (locHistoryCounts[tid]![lid] ?? 0) + 1;
-        }
+        locHistoryCounts[tid]![lid] = (locHistoryCounts[tid]![lid] ?? 0) + 1;
         final g = locToGroup[lid];
         if (g != null) {
-          if (groupTotalLoad.containsKey(tid)) {
-            groupTotalLoad[tid]![g] = (groupTotalLoad[tid]![g] ?? 0) + 1;
-          }
-          teacherLastLocInGroup[tid] ??= {};
+          groupTotalLoad[tid]![g] = (groupTotalLoad[tid]![g] ?? 0) + 1;
           teacherLastLocInGroup[tid]![g] = lid;
         }
       }
 
-      int assignedCount = 0;
-      // 5. Algorithm: Grup Bazlı Döngüsel Rotasyon (Cyclical Shift)
-      for (int day = 1; day <= 7; day++) {
-        Set<String> assignedToday = {};
-
-        // Bu gün aktif olan nöbet yerleri
-        final activeLocs = _locations
-            .where((l) => l.activeDays.contains(day))
+      // Öğretmenin bir gruptaki "rotasyon seti": o gruptaki, havuzunda
+      // bulunduğu nöbet yerleri (sıralı).
+      List<DutyLocation> rotationSetOf(String tid, String g) {
+        return (groupLocationsMap[g] ?? const <DutyLocation>[])
+            .where((gl) => locPools[gl.id]?.contains(tid) ?? false)
             .toList();
-        if (activeLocs.isEmpty) continue;
+      }
 
-        // Uygun öğretmen havuzunu getiren yardımcı
-        List<String> getEffectiveIds(DutyLocation loc) {
-          final specific = loc.eligibilities[day.toString()];
-          if (specific != null && specific.isNotEmpty) {
-            return List<String>.from(specific);
-          }
-          final all = loc.eligibilities.values
-              .expand((e) => (e as List).map((x) => x.toString()))
-              .toSet()
-              .toList();
-          return all;
+      // TUR FAZLASI: Öğretmenin bu yerdeki sayısı - rotasyon setindeki
+      // en düşük sayısı. 0 => bu yeri mevcut turunda henüz tutmamış.
+      // >0 => tüm yerleri gezmeden aynı yere tekrar geliyor (ihlal).
+      int excessOf(String tid, String locId, List<DutyLocation> rotSet) {
+        if (rotSet.isEmpty) return 0;
+        int minC = 1 << 30;
+        for (final gl in rotSet) {
+          final c = locHistoryCounts[tid]?[gl.id] ?? 0;
+          if (c < minC) minC = c;
         }
+        final own = locHistoryCounts[tid]?[locId] ?? 0;
+        final ex = own - minC;
+        return ex < 0 ? 0 : ex;
+      }
 
-        // Günün nöbet yerlerini akıllı sırala:
-        // 1. O yerde henüz hiç nöbet tutmamış uygun aday sayısı (fresh candidates) az olanlar EN ÖNCE atanır (darboğaz önleme).
-        // 2. Eşitlik durumunda, haftalık döngüsel ofset devreye girer: (index + weekIndex) % activeLocs.length
-        activeLocs.sort((a, b) {
-          final poolA = getEffectiveIds(a);
-          final poolB = getEffectiveIds(b);
+      // Döngüsel kaydırmada "sıradaki" yer: son tuttuğu yerden sonra gelen
+      // ve bu turda henüz tutmadığı İLK yer (tuttuysa bir basamak daha kayar).
+      String? preferredNextLoc(String tid, String g, List<DutyLocation> rotSet) {
+        if (rotSet.isEmpty) return null;
+        final last = teacherLastLocInGroup[tid]?[g];
+        int startIdx;
+        if (last == null) {
+          final base = teacherBaseIndex[tid] ?? 0;
+          startIdx = (base + weekIndex) % rotSet.length;
+        } else {
+          final li = rotSet.indexWhere((l) => l.id == last);
+          startIdx = li == -1 ? 0 : (li + 1) % rotSet.length;
+        }
+        for (int k = 0; k < rotSet.length; k++) {
+          final cand = rotSet[(startIdx + k) % rotSet.length];
+          if (excessOf(tid, cand.id, rotSet) == 0) return cand.id;
+        }
+        return rotSet[startIdx].id;
+      }
 
-          int freshA = teachers
-              .where((t) =>
-                  poolA.contains(t['id']) &&
-                  (locHistoryCounts[t['id']]?[a.id] ?? 0) == 0)
-              .length;
-          int freshB = teachers
-              .where((t) =>
-                  poolB.contains(t['id']) &&
-                  (locHistoryCounts[t['id']]?[b.id] ?? 0) == 0)
-              .length;
+      // Puan ağırlıkları (küçük = daha iyi)
+      const double kRepeatBeforeCycle = 1e9; // tüm yerleri gezmeden tekrar
+      // Haftada 2. nöbet, tur ihlalinden daha ağır cezalandırılır
+      const double kWeekly = 2e9; // haftada k. nöbet: (k-1) * kWeekly
+      const double kGroupTotal = 5e4; // grup içi toplam adalet
+      const double kCyclicBonus = 5000; // tam sıradaki yer
+      const double kTotal = 100; // genel toplam yük
+      // BÜYÜK HAVUZ SIRA KURALI: Havuzdaki herkes tutmadan kimse 2. kez
+      // tutmaz. Haftada 2. nöbetten (kWeekly) daha ağırdır.
+      const double kPoolQueue = 3e9;
 
-          if (freshA != freshB) return freshA.compareTo(freshB);
-          if (poolA.length != poolB.length) {
-            return poolA.length.compareTo(poolB.length);
-          }
+      // ------------------------------------------------------------------
+      // BÜYÜK HAVUZLU GRUPLAR (örn. Aziz Sancar: 1 yer, ~50 kişi)
+      // Havuzdaki aktif kişi sayısı, gruptaki yer sayısının 2 katından
+      // fazlaysa "sıra kuralı" uygulanır: öğretmenin bu gruptaki nöbet
+      // sayısı, havuzdaki en az tutan kişinin sayısını geçemez.
+      // (Kat nöbetleri gibi 9 yer / 9-12 kişi gruplarda tur kuralı yeterli.)
+      // ------------------------------------------------------------------
+      final Map<String, int> groupPoolMin = {};
+      groupLocationsMap.forEach((g, locs) {
+        final pool = <String>{};
+        for (final l in locs) {
+          pool.addAll(locPools[l.id] ?? const <String>{});
+        }
+        pool.removeWhere((id) => !teacherBaseIndex.containsKey(id));
+        if (pool.isEmpty || pool.length < locs.length * 2) return;
+        int minC = 1 << 30;
+        for (final id in pool) {
+          final c = groupTotalLoad[id]?[g] ?? 0;
+          if (c < minC) minC = c;
+        }
+        groupPoolMin[g] = minC;
+      });
 
-          final orderA = (a.order + weekIndex) % 1000;
-          final orderB = (b.order + weekIndex) % 1000;
-          return orderA.compareTo(orderB);
-        });
+      int poolExcessOf(String tid, String g) {
+        final minC = groupPoolMin[g];
+        if (minC == null) return 0;
+        final ex = (groupTotalLoad[tid]?[g] ?? 0) - minC;
+        return ex < 0 ? 0 : (ex > 10 ? 10 : ex);
+      }
 
-        for (int i = 0; i < activeLocs.length; i++) {
-          final loc = activeLocs[i];
-          final eligibleIds = getEffectiveIds(loc);
-          final g = locToGroup[loc.id] ?? '__loc_${loc.id}';
-          final groupLocs = groupLocationsMap[g] ?? [loc];
-
-          if (eligibleIds.isEmpty) continue;
-
-          // O gün atanmamış ve bu yer için uygun olan adaylar
-          var candidates = teachers.where((t) {
-            final tid = t['id'];
-            return eligibleIds.contains(tid) && !assignedToday.contains(tid);
-          }).toList();
-
-          if (candidates.isEmpty) continue;
-
-          // Adayları puanlayarak en uygun kişiyi seç
-          candidates.sort((a, b) {
-            final idA = a['id'];
-            final idB = b['id'];
-
-            double scoreA = 0;
-            double scoreB = 0;
-
-            // --- KURAL 1: GRUP İÇİ TÜM YERLERİ GEZMEDEN AYNI YERE DÜŞMEME (MUTLAK KURAL) ---
-            final locCountA = locHistoryCounts[idA]?[loc.id] ?? 0;
-            final locCountB = locHistoryCounts[idB]?[loc.id] ?? 0;
-
-            // Öğretmenin bu grupta henüz hiç nöbet tutmadığı (0 olan) yer sayısı
-            int unvisitedA = 0;
-            int unvisitedB = 0;
-            for (var gl in groupLocs) {
-              if ((locHistoryCounts[idA]?[gl.id] ?? 0) == 0) unvisitedA++;
-              if ((locHistoryCounts[idB]?[gl.id] ?? 0) == 0) unvisitedB++;
-            }
-
-            // Eğer öğretmenin grupta henüz gitmediği yerler varken bu yere tekrar verilmek isteniyorsa devasa ceza
-            if (locCountA > 0 && unvisitedA > 0) {
-              scoreA += 1000000000.0 * locCountA;
-            } else {
-              scoreA += locCountA * 100000000.0;
-            }
-
-            if (locCountB > 0 && unvisitedB > 0) {
-              scoreB += 1000000000.0 * locCountB;
-            } else {
-              scoreB += locCountB * 100000000.0;
-            }
-
-            // --- KURAL 2: GRUP İÇİ HAFTALIK KOTA (Haftada 1'den fazla nöbet tutmama) ---
-            final grpWeeklyA = groupWeeklyLoad[idA]?[g] ?? 0;
-            final grpWeeklyB = groupWeeklyLoad[idB]?[g] ?? 0;
-            if (grpWeeklyA >= 1) scoreA += grpWeeklyA * 50000000.0;
-            if (grpWeeklyB >= 1) scoreB += grpWeeklyB * 50000000.0;
-
-            // --- KURAL 3: GENEL HAFTALIK NÖBET KOTASI ---
-            final curLoadA = currentLoad[idA] ?? 0;
-            final curLoadB = currentLoad[idB] ?? 0;
-            if (curLoadA >= 1) scoreA += curLoadA * 10000000.0;
-            if (curLoadB >= 1) scoreB += curLoadB * 10000000.0;
-
-            // --- KURAL 4: GRUP İÇİ TOPLAM ADALET (Az nöbet tutan öncelikli) ---
-            final grpTotalA = groupTotalLoad[idA]?[g] ?? 0;
-            final grpTotalB = groupTotalLoad[idB]?[g] ?? 0;
-            scoreA += grpTotalA * 50000.0;
-            scoreB += grpTotalB * 50000.0;
-
-            // --- KURAL 5: DÖNGÜSEL KAYDIRMA (CYCLICAL SHIFT) UYUMU ---
-            // Öğretmenin bu gruptaki bir önceki nöbet yerine göre sıradaki yer burası mı?
-            final lastLocA = teacherLastLocInGroup[idA]?[g];
-            if (lastLocA != null) {
-              final lastIdx = groupLocs.indexWhere((l) => l.id == lastLocA);
-              if (lastIdx != -1) {
-                final targetNextIdx = (lastIdx + 1) % groupLocs.length;
-                if (groupLocs[targetNextIdx].id == loc.id) {
-                  scoreA -= 5000.0; // Tam sıradaki yer! Büyük döngüsel avantaj
-                }
-              }
-            } else {
-              // İlk defa nöbete girecekse haftalık ve taban indeks ofseti
-              final baseIdxA = teacherBaseIndex[idA] ?? 0;
-              final idealIdxA = (baseIdxA + weekIndex) % groupLocs.length;
-              if (groupLocs[idealIdxA].id == loc.id) {
-                scoreA -= 2500.0;
-              }
-            }
-
-            final lastLocB = teacherLastLocInGroup[idB]?[g];
-            if (lastLocB != null) {
-              final lastIdx = groupLocs.indexWhere((l) => l.id == lastLocB);
-              if (lastIdx != -1) {
-                final targetNextIdx = (lastIdx + 1) % groupLocs.length;
-                if (groupLocs[targetNextIdx].id == loc.id) {
-                  scoreB -= 5000.0;
-                }
-              }
-            } else {
-              final baseIdxB = teacherBaseIndex[idB] ?? 0;
-              final idealIdxB = (baseIdxB + weekIndex) % groupLocs.length;
-              if (groupLocs[idealIdxB].id == loc.id) {
-                scoreB -= 2500.0;
-              }
-            }
-
-            // --- KURAL 6: GENEL TOPLAM YÜK ---
-            scoreA += (totalLoad[idA] ?? 0) * 100.0;
-            scoreB += (totalLoad[idB] ?? 0) * 100.0;
-
-            if (scoreA != scoreB) {
-              return scoreA.compareTo(scoreB);
-            }
-
-            // --- KURAL 7: EŞİTLİK DURUMUNDA DÖNGÜSEL TİE-BREAKER (HAFTALIK OFSET) ---
-            final rotRankA =
-                ((teacherBaseIndex[idA] ?? 0) + weekIndex + day) %
-                    teachers.length;
-            final rotRankB =
-                ((teacherBaseIndex[idB] ?? 0) + weekIndex + day) %
-                    teachers.length;
-            return rotRankA.compareTo(rotRankB);
-          });
-
-          final selectedTeacher = candidates.first;
-
-          // Atama
-          final tId = selectedTeacher['id'];
-          final tName = selectedTeacher['fullName'] ?? selectedTeacher['name'];
-          assignedToday.add(tId);
-          totalLoad[tId] = (totalLoad[tId] ?? 0) + 1;
-          currentLoad[tId] = (currentLoad[tId] ?? 0) + 1;
-          groupTotalLoad[tId]?[g] = (groupTotalLoad[tId]?[g] ?? 0) + 1;
-          groupWeeklyLoad[tId]?[g] = (groupWeeklyLoad[tId]?[g] ?? 0) + 1;
-          teacherLastLocInGroup[tId] ??= {};
-          teacherLastLocInGroup[tId]![g] = loc.id;
-          assignedCount++;
-
-          if (locHistoryCounts.containsKey(tId)) {
-            locHistoryCounts[tId]![loc.id] =
-                (locHistoryCounts[tId]![loc.id] ?? 0) + 1;
-          }
-
-          final ref = FirebaseFirestore.instance
-              .collection('dutyScheduleItems')
-              .doc();
-
-          batch.set(ref, {
-            'institutionId': widget.institutionId,
-            'periodId': widget.periodId,
-            'termId': _termId,
-            'locationId': loc.id,
-            'locationName': loc.name,
-            'dayOfWeek': day,
-            'teacherId': tId,
-            'teacherName': tName,
-            'weekStart': weekStr,
-            'dutyDate': _selectedWeekStart
-                .add(Duration(days: day - 1))
-                .toIso8601String(),
-            'sendNotification': false,
-            'notificationSent': false,
-            'notifiedTeacherId': null,
-          });
+      // ------------------------------------------------------------------
+      // HAFTALIK SLOTLAR (yer + gün)
+      // ------------------------------------------------------------------
+      final slotLocs = <DutyLocation>[];
+      final slotDays = <int>[];
+      final slotElig = <Set<String>>[];
+      for (int day = 1; day <= 7; day++) {
+        for (final loc in _locations.where((l) => l.activeDays.contains(day))) {
+          final specific = loc.eligibilities[day.toString()];
+          final Set<String> ids = (specific != null && specific.isNotEmpty)
+              ? specific.map((x) => x.toString()).toSet()
+              : (locPools[loc.id] ?? <String>{});
+          final elig =
+              ids.where((id) => teacherBaseIndex.containsKey(id)).toSet();
+          if (elig.isEmpty) continue;
+          slotLocs.add(loc);
+          slotDays.add(day);
+          slotElig.add(elig);
         }
       }
 
+      // Slot maliyeti (öğretmen, slot)
+      double slotCost(String tid, int s) {
+        final loc = slotLocs[s];
+        final day = slotDays[s];
+        final g = locToGroup[loc.id]!;
+        final rotSet = rotationSetOf(tid, g);
+        double c = kCyclicBonus; // negatif olmaması için taban
+        int ex = excessOf(tid, loc.id, rotSet);
+        if (ex > 50) ex = 50;
+        c += ex * kRepeatBeforeCycle;
+        c += poolExcessOf(tid, g) * kPoolQueue;
+        c += (groupTotalLoad[tid]?[g] ?? 0) * kGroupTotal;
+        if (preferredNextLoc(tid, g, rotSet) == loc.id) c -= kCyclicBonus;
+        c += (totalLoad[tid] ?? 0) * kTotal;
+        final rot =
+            ((teacherBaseIndex[tid] ?? 0) + weekIndex + day) % teachers.length;
+        c += rot / (teachers.length + 1);
+        return c;
+      }
+
+      // ------------------------------------------------------------------
+      // HAFTALIK OPTİMAL DAĞITIM (Min-Cost Max-Flow)
+      // Tüm haftanın tüm yerleri TEK SEFERDE değerlendirilir. Böylece bir
+      // öğretmen, tutmadığı yerin bulunduğu güne yerleştirilir; günler arası
+      // sıralı (açgözlü) seçimden kaynaklanan tekrarlar oluşmaz.
+      //   Kaynak -> Öğretmen (haftalık k. nöbet maliyeti artan)
+      //   Öğretmen -> Öğretmen-Gün (kapasite 1: günde en fazla 1 nöbet)
+      //   Öğretmen-Gün -> Slot (maliyet = slotCost)
+      //   Slot -> Hedef (kapasite 1)
+      // ------------------------------------------------------------------
+      final flow = _MinCostFlow();
+      final src = flow.addNode();
+      final sink = flow.addNode();
+      final teacherNode = <String, int>{};
+      final teacherDayNode = <String, int>{};
+      final slotNode = <int>[];
+      for (int s = 0; s < slotLocs.length; s++) {
+        final node = flow.addNode();
+        slotNode.add(node);
+        flow.addEdge(node, sink, 1, 0);
+      }
+      final distinctDays = slotDays.toSet().length;
+      // (edgeIndex -> (tid, slot)) eşlemesi
+      final assignEdges = <int, MapEntry<String, int>>{};
+      for (int s = 0; s < slotLocs.length; s++) {
+        final day = slotDays[s];
+        for (final tid in slotElig[s]) {
+          final tn = teacherNode.putIfAbsent(tid, () {
+            final n = flow.addNode();
+            for (int k = 1; k <= distinctDays; k++) {
+              flow.addEdge(src, n, 1, (k - 1) * kWeekly);
+            }
+            return n;
+          });
+          final tdKey = '$tid|$day';
+          final tdn = teacherDayNode.putIfAbsent(tdKey, () {
+            final n = flow.addNode();
+            flow.addEdge(tn, n, 1, 0);
+            return n;
+          });
+          final e = flow.addEdge(tdn, slotNode[s], 1, slotCost(tid, s));
+          assignEdges[e] = MapEntry(tid, s);
+        }
+      }
+      flow.run(src, sink);
+
+      int assignedCount = 0;
+      final violations = <String>[];
+      final teacherById = {
+        for (final t in teachers) t['id']?.toString() ?? '': t,
+      };
+
+      assignEdges.forEach((edgeIdx, pair) {
+        if (!flow.isUsed(edgeIdx)) return;
+        final tId = pair.key;
+        final s = pair.value;
+        final loc = slotLocs[s];
+        final day = slotDays[s];
+        final selectedTeacher = teacherById[tId]!;
+        final tName = selectedTeacher['fullName'] ?? selectedTeacher['name'];
+
+        final g = locToGroup[loc.id]!;
+        if (excessOf(tId, loc.id, rotationSetOf(tId, g)) > 0) {
+          violations.add('$tName → ${loc.name} (tüm yerleri gezmeden tekrar)');
+        } else if (poolExcessOf(tId, g) > 0) {
+          violations.add(
+              '$tName → ${loc.name} (havuzda henüz tutmayanlar varken tekrar)');
+        }
+        assignedCount++;
+
+        final ref = FirebaseFirestore.instance
+            .collection('dutyScheduleItems')
+            .doc();
+
+        batch.set(ref, {
+          'institutionId': widget.institutionId,
+          'periodId': widget.periodId,
+          'termId': _termId,
+          'locationId': loc.id,
+          'locationName': loc.name,
+          'dayOfWeek': day,
+          'teacherId': tId,
+          'teacherName': tName,
+          'weekStart': weekStr,
+          'dutyDate': _selectedWeekStart
+              .add(Duration(days: day - 1))
+              .toIso8601String(),
+          'sendNotification': false,
+          'notificationSent': false,
+          'notifiedTeacherId': null,
+        });
+      });
+
       await batch.commit();
       if (!mounted) return;
-      if (assignedCount > 0) {
+      if (assignedCount > 0 && violations.isNotEmpty) {
+        await showDialog<void>(
+          context: context,
+          builder: (c) => AlertDialog(
+            title: const Text('Dağıtım tamamlandı (uyarı)'),
+            content: SingleChildScrollView(
+              child: Text(
+                '$assignedCount atama yapıldı.\n\n'
+                'Aşağıdaki atamalarda öğretmen, grubundaki tüm yerleri '
+                'tutmadan aynı yere tekrar yazıldı. Havuz/gün kısıtları '
+                'nedeniyle başka geçerli bir kombinasyon bulunamadı:\n\n'
+                '${violations.map((v) => '• $v').join('\n')}',
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(c),
+                child: const Text('Tamam'),
+              ),
+            ],
+          ),
+        );
+      } else if (assignedCount > 0) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Otomatik dağıtım (Döngüsel Rotasyon) tamamlandı. $assignedCount atama yapıldı.',
+              'Otomatik dağıtım tamamlandı. $assignedCount atama yapıldı. Tur kuralı ihlali yok.',
             ),
           ),
         );
@@ -3499,6 +4050,77 @@ class _DutyProgramDetailScreenState extends State<DutyProgramDetailScreen>
       }
     } finally {
       setState(() => _isLoading = false);
+    }
+  }
+}
+
+/// Basit Min-Cost Max-Flow (SPFA tabanlı) çözücü.
+/// Haftalık nöbet dağıtımında tüm (yer, gün) slotlarını tek seferde
+/// optimal şekilde doldurmak için kullanılır.
+class _MinCostFlow {
+  final List<int> _to = [];
+  final List<int> _cap = [];
+  final List<double> _cost = [];
+  final List<List<int>> _adj = [];
+
+  int addNode() {
+    _adj.add(<int>[]);
+    return _adj.length - 1;
+  }
+
+  /// İleri kenarın indeksini döner.
+  int addEdge(int u, int v, int cap, double cost) {
+    final e = _to.length;
+    _to.add(v);
+    _cap.add(cap);
+    _cost.add(cost);
+    _adj[u].add(e);
+    _to.add(u);
+    _cap.add(0);
+    _cost.add(-cost);
+    _adj[v].add(e + 1);
+    return e;
+  }
+
+  /// İleri kenar akış taşıyor mu?
+  bool isUsed(int edge) => _cap[edge] == 0 && _cap[edge ^ 1] > 0;
+
+  void run(int s, int t) {
+    final n = _adj.length;
+    while (true) {
+      final dist = List<double>.filled(n, double.infinity);
+      final inQueue = List<bool>.filled(n, false);
+      final prevEdge = List<int>.filled(n, -1);
+      dist[s] = 0;
+      final queue = <int>[s];
+      int head = 0;
+      inQueue[s] = true;
+      while (head < queue.length) {
+        final u = queue[head++];
+        inQueue[u] = false;
+        for (final e in _adj[u]) {
+          if (_cap[e] <= 0) continue;
+          final v = _to[e];
+          final nd = dist[u] + _cost[e];
+          if (nd < dist[v] - 1e-6) {
+            dist[v] = nd;
+            prevEdge[v] = e;
+            if (!inQueue[v]) {
+              inQueue[v] = true;
+              queue.add(v);
+            }
+          }
+        }
+      }
+      if (dist[t] == double.infinity) break;
+      // Tüm kapasiteler 1 olduğu için her seferinde 1 birim akış
+      int v = t;
+      while (v != s) {
+        final e = prevEdge[v];
+        _cap[e] -= 1;
+        _cap[e ^ 1] += 1;
+        v = _to[e ^ 1];
+      }
     }
   }
 }

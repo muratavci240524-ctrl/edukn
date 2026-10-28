@@ -109,7 +109,7 @@ class _ExternalExamVenueScreenState extends State<ExternalExamVenueScreen> {
             ..sort((a, b) => _naturalCompare(a['name'], b['name']));
 
           _templates = templSnap.docs.map((d) {
-            final data = d.data() as Map<String, dynamic>;
+            final data = d.data();
             return {
               'id': d.id,
               'name': data['name'] ?? '',
@@ -222,7 +222,7 @@ class _ExternalExamVenueScreenState extends State<ExternalExamVenueScreen> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.green.withOpacity(0.2),
+            color: Colors.green.withValues(alpha: 0.2),
             blurRadius: 12,
             offset: const Offset(0, 6),
           ),
@@ -251,7 +251,7 @@ class _ExternalExamVenueScreenState extends State<ExternalExamVenueScreen> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
+                    color: Colors.white.withValues(alpha: 0.2),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(Icons.people_alt_rounded, color: Colors.white, size: 28),
@@ -273,7 +273,7 @@ class _ExternalExamVenueScreenState extends State<ExternalExamVenueScreen> {
                       Text(
                         'Toplam $assignedCount öğrenci salonlara yerleştirildi. Taşımak, çıkarmak veya listeleri basmak için tıklayın.',
                         style: GoogleFonts.inter(
-                          color: Colors.white.withOpacity(0.85),
+                          color: Colors.white.withValues(alpha: 0.85),
                           fontSize: 12,
                         ),
                       ),
@@ -295,7 +295,7 @@ class _ExternalExamVenueScreenState extends State<ExternalExamVenueScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4))],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 10, offset: const Offset(0, 4))],
       ),
       child: Row(
         children: [
@@ -616,9 +616,9 @@ class _ExternalExamVenueScreenState extends State<ExternalExamVenueScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
             decoration: BoxDecoration(
-              color: occupancyColor.withOpacity(0.1),
+              color: occupancyColor.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: occupancyColor.withOpacity(0.3)),
+              border: Border.all(color: occupancyColor.withValues(alpha: 0.3)),
             ),
             child: Text(
               '$assignedCount/$cap',
@@ -1480,9 +1480,7 @@ class _ExternalExamVenueScreenState extends State<ExternalExamVenueScreen> {
           }
         }
 
-        if (headerRow == null) {
-          headerRow = table.rows[0];
-        }
+        headerRow ??= table.rows[0];
 
         Map<String, int> colMap = {};
         for (int i = 0; i < headerRow.length; i++) {
@@ -1862,7 +1860,7 @@ class _ExternalExamVenueScreenState extends State<ExternalExamVenueScreen> {
         border: Border.all(color: Colors.grey.shade200),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.01),
+            color: Colors.black.withValues(alpha: 0.01),
             blurRadius: 8,
             offset: const Offset(0, 4),
           ),
@@ -1957,9 +1955,9 @@ class _ExternalExamVenueScreenState extends State<ExternalExamVenueScreen> {
     final cardContent = Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.04),
+        color: color.withValues(alpha: 0.04),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withOpacity(0.15)),
+        border: Border.all(color: color.withValues(alpha: 0.15)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

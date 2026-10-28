@@ -42,7 +42,7 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
   bool _sendSms = false;
   bool _isAnonymous = false;
   bool _schedulePublish = false;
-  List<Map<String, dynamic>> _reminders = [];
+  final List<Map<String, dynamic>> _reminders = [];
 
   bool _isSaving = false;
 
@@ -304,7 +304,7 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
+                          color: Colors.black.withValues(alpha: 0.05),
                           blurRadius: 10,
                           offset: const Offset(0, 4),
                         ),
@@ -320,7 +320,7 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
                       decoration: InputDecoration(
                         labelText: 'Duyuru Başlığı',
                         labelStyle: TextStyle(
-                          color: Colors.indigo.withOpacity(0.6),
+                          color: Colors.indigo.withValues(alpha: 0.6),
                           fontWeight: FontWeight.normal,
                         ),
                         hintText: 'Örn: Veli Toplantısı Duyurusu',
@@ -354,7 +354,7 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
+                          color: Colors.black.withValues(alpha: 0.05),
                           blurRadius: 10,
                           offset: const Offset(0, 4),
                         ),
@@ -367,7 +367,7 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
                       decoration: InputDecoration(
                         labelText: 'Duyuru İçeriği',
                         labelStyle: TextStyle(
-                          color: Colors.indigo.withOpacity(0.6),
+                          color: Colors.indigo.withValues(alpha: 0.6),
                         ),
                         hintText:
                             'Duyurunuzun detaylı açıklamasını buraya yazın...',

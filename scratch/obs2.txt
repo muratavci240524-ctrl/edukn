@@ -1,0 +1,239 @@
+  static PdfColor _tint(PdfColor c, double t) =>
+      PdfColor(1 - (1 - c.red) * t, 1 - (1 - c.green) * t, 1 - (1 - c.blue) * t);
+
+  static const List<PdfColor> _obsColors = [
+    PdfColors.red600,
+    PdfColors.deepOrange600,
+    PdfColors.amber800,
+    PdfColors.green700,
+    PdfColors.teal600,
+    PdfColors.cyan700,
+    PdfColors.blue600,
+    PdfColors.indigo600,
+    PdfColors.purple600,
+    PdfColors.pink600,
+    PdfColors.brown500,
+    PdfColors.blueGrey600,
+    PdfColors.lightGreen800,
+    PdfColors.deepPurple500,
+  ];
+
+  static void _addObservationPages(
+    pw.Document pdf,
+    ExamDistribution distribution,
+    ExamRoom room,
+    pw.Font font,
+    pw.Font fontBold,
+  ) {
+    const rowsPerPage = 25;
+    const headerH = 112.0;
+    const rowH = 14.4;
+    final seated = room.seats.where((s) => s.student != null).toList()
+      ..sort((a, b) => a.seatNumber.compareTo(b.seatNumber));
+    final pageCount = (seated.length / rowsPerPage).ceil().clamp(1, 99);
+    final dateStr = DateFormat('dd.MM.yyyy').format(distribution.examDate);
+    final examTitle = _getExamTitle(distribution);
+    const navy = PdfColors.indigo900;
+
+    pw.Widget cell(pw.Widget child, {double? h, pw.Alignment align = pw.Alignment.center}) => pw.Container(
+          height: h,
+          alignment: align,
+          padding: const pw.EdgeInsets.symmetric(horizontal: 4),
+          child: child,
+        );
+
+    for (int p = 0; p < pageCount; p++) {
+      final chunk = seated.skip(p * rowsPerPage).take(rowsPerPage).toList();
+
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4.landscape,
+          margin: const pw.EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          build: (ctx) {
+            return pw.Container(
+              decoration: pw.BoxDecoration(
+                border: pw.Border.all(color: navy, width: 1.2),
+                borderRadius: pw.BorderRadius.circular(6),
+              ),
+              child: pw.ClipRRect(
+                horizontalRadius: 6,
+                verticalRadius: 6,
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+                  children: [
+                    // Başlık
+                    pw.Container(
+                      height: 38,
+                      padding: const pw.EdgeInsets.symmetric(horizontal: 14),
+                      decoration: const pw.BoxDecoration(
+                        gradient: pw.LinearGradient(colors: [PdfColors.indigo900, PdfColors.indigo600]),
+                      ),
+                      child: pw.Row(
+                        children: [
+                          pw.Container(
+                            padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: pw.BoxDecoration(
+                              color: PdfColors.amber400,
+                              borderRadius: pw.BorderRadius.circular(6),
+                            ),
+                            child: pw.Text(room.classroomName,
+                                style: pw.TextStyle(font: fontBold, fontSize: 13, color: navy)),
+                          ),
+                          pw.SizedBox(width: 12),
+                          pw.Expanded(
+                            child: pw.Column(
+                              mainAxisAlignment: pw.MainAxisAlignment.center,
+                              crossAxisAlignment: pw.CrossAxisAlignment.start,
+                              children: [
+                                pw.Text('Sınav Davranışları Gözlem Formu',
+                                    style: pw.TextStyle(font: fontBold, fontSize: 14, color: PdfColors.white)),
+                                pw.SizedBox(height: 1),
+                                pw.Text(
+                                  '$examTitle   •   Tarih: $dateStr   •   Saat: ${distribution.examTime}',
+                                  style: pw.TextStyle(font: font, fontSize: 8.5, color: PdfColors.indigo100),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (pageCount > 1)
+                            pw.Text('Sayfa ${p + 1}/$pageCount',
+                                style: pw.TextStyle(font: font, fontSize: 8, color: PdfColors.indigo100)),
+                        ],
+                      ),
+                    ),
+                    // Tablo
+                    pw.Table(
+                      border: pw.TableBorder.all(color: PdfColors.grey500, width: 0.4),
+                      columnWidths: {
+                        0: const pw.FixedColumnWidth(26),
+                        1: const pw.FixedColumnWidth(150),
+                        for (int i = 0; i < _observationBehaviors.length; i++) 2 + i: const pw.FixedColumnWidth(36),
+                        2 + _observationBehaviors.length: const pw.FlexColumnWidth(1),
+                      },
+                      children: [
+                        pw.TableRow(
+                          children: [
+                            pw.Container(
+                              color: navy,
+                              height: headerH,
+                              alignment: pw.Alignment.center,
+                              child: pw.Text('SR', style: pw.TextStyle(font: fontBold, fontSize: 8.5, color: PdfColors.white)),
+                            ),
+                            pw.Container(
+                              color: navy,
+                              height: headerH,
+                              alignment: pw.Alignment.center,
+                              child: pw.Text('ÖĞRENCİNİN\nADI / SOYADI',
+                                  textAlign: pw.TextAlign.center,
+                                  style: pw.TextStyle(font: fontBold, fontSize: 9.5, color: PdfColors.white)),
+                            ),
+                            for (int i = 0; i < _observationBehaviors.length; i++)
+                              pw.Container(
+                                height: headerH,
+                                color: _tint(_obsColors[i % _obsColors.length], 0.16),
+                                alignment: pw.Alignment.center,
+                                child: pw.Column(
+                                  mainAxisAlignment: pw.MainAxisAlignment.center,
+                                  children: [
+                                    pw.Container(
+                                      width: 14,
+                                      height: 14,
+                                      alignment: pw.Alignment.center,
+                                      decoration: pw.BoxDecoration(
+                                        color: _obsColors[i % _obsColors.length],
+                                        shape: pw.BoxShape.circle,
+                                      ),
+                                      child: pw.Text('${i + 1}',
+                                          style: pw.TextStyle(font: fontBold, fontSize: 7.5, color: PdfColors.white)),
+                                    ),
+                                    pw.SizedBox(height: 4),
+                                    pw.SizedBox(
+                                      height: 88,
+                                      child: pw.Center(
+                                        child: pw.Transform.rotateBox(
+                                          angle: 3.14159265 / 2,
+                                          child: pw.SizedBox(
+                                            width: 86,
+                                            child: pw.Text(
+                                              _observationBehaviors[i],
+                                              textAlign: pw.TextAlign.center,
+                                              style: pw.TextStyle(
+                                                font: fontBold,
+                                                fontSize: 7.4,
+                                                lineSpacing: 1.5,
+                                                color: _obsColors[i % _obsColors.length],
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            pw.Container(
+                              color: navy,
+                              height: headerH,
+                              alignment: pw.Alignment.center,
+                              padding: const pw.EdgeInsets.symmetric(horizontal: 6),
+                              child: pw.Text('VARSA SINAVDA GÖZLEMLENEN\nDİĞER DAVRANIŞLAR:',
+                                  textAlign: pw.TextAlign.center,
+                                  style: pw.TextStyle(font: fontBold, fontSize: 8.5, color: PdfColors.white)),
+                            ),
+                          ],
+                        ),
+                        for (int i = 0; i < rowsPerPage; i++)
+                          pw.TableRow(
+                            decoration: pw.BoxDecoration(
+                              color: i.isOdd ? PdfColors.indigo50 : PdfColors.white,
+                            ),
+                            children: [
+                              cell(
+                                pw.Text('${p * rowsPerPage + i + 1}',
+                                    style: pw.TextStyle(font: fontBold, fontSize: 7.5, color: PdfColors.indigo700)),
+                                h: rowH,
+                              ),
+                              cell(
+                                pw.Text(
+                                  i < chunk.length ? chunk[i].student!.fullName : '',
+                                  maxLines: 1,
+                                  overflow: pw.TextOverflow.clip,
+                                  style: pw.TextStyle(font: fontBold, fontSize: 8, color: PdfColors.grey900),
+                                ),
+                                h: rowH,
+                                align: pw.Alignment.centerLeft,
+                              ),
+                              for (int k = 0; k < _observationBehaviors.length; k++) pw.SizedBox(height: rowH),
+                              pw.SizedBox(height: rowH),
+                            ],
+                          ),
+                      ],
+                    ),
+                    pw.Spacer(),
+                    pw.Container(
+                      padding: const pw.EdgeInsets.fromLTRB(8, 4, 8, 4),
+                      color: PdfColors.amber50,
+                      child: pw.Text(
+                        'Öğrencilerimizin sınav sırasındaki gözlemlenebilen davranışları başarılarını önemli derecede etkileyen ipuçları taşır. '
+                        'Daha etkili bir rehberlik için; öğrencilerimizin sınav sonuçlarının değerlendirilmesinde katkısı olacak değerli gözlemlerinizi '
+                        'titizlikle paylaşacağınıza inanıyor, şimdiden çok teşekkür ediyoruz.',
+                        style: pw.TextStyle(font: fontBold, fontSize: 7.5, color: PdfColors.grey800),
+                      ),
+                    ),
+                    pw.Container(
+                      padding: const pw.EdgeInsets.fromLTRB(8, 5, 8, 5),
+                      color: navy,
+                      child: pw.Text(
+                        'GÖZETMEN ÖĞRETMENİN ADI SOYADI - İMZASI: ${(room.supervisorName ?? '').trim() == 'Gözetmen Öğretmen' ? '' : (room.supervisorName ?? '').trim()}',
+                        style: pw.TextStyle(font: fontBold, fontSize: 8.5, color: PdfColors.white),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      );
+    }
+  }

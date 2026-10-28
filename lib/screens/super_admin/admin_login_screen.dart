@@ -45,8 +45,8 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
       final email = _emailController.text.trim();
       final password = _passwordController.text;
 
-      print('🔐 Süper Admin girişi deneniyor...');
-      print('📧 Email: $email');
+      debugPrint('🔐 Süper Admin girişi deneniyor...');
+      debugPrint('📧 Email: $email');
 
       await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: email,
@@ -66,17 +66,17 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
             'isActive': true,
             'createdAt': FieldValue.serverTimestamp(),
           });
-          print('📝 Süper Admin kullanıcı belgesi Firestore\'da oluşturuldu.');
+          debugPrint('📝 Süper Admin kullanıcı belgesi Firestore\'da oluşturuldu.');
         } else if (userDoc.data()?['role'] != 'super_admin') {
           // Rol güncelle
           await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
             'role': 'super_admin',
           });
-          print('📝 Süper Admin kullanıcı rolü Firestore\'da güncellendi.');
+          debugPrint('📝 Süper Admin kullanıcı rolü Firestore\'da güncellendi.');
         }
       }
 
-      print('✅ Giriş başarılı!');
+      debugPrint('✅ Giriş başarılı!');
 
       if (mounted) {
         // Show success loading animation for 2 seconds

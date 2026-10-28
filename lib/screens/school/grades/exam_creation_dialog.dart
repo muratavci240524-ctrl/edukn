@@ -88,7 +88,7 @@ class _ExamCreationDialogState extends State<ExamCreationDialog> {
       }
     } catch (e) {
       debugPrint('File picker error: $e');
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Dosya seçimi başarısız: $e')));
     }

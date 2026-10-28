@@ -313,7 +313,7 @@ class _TeacherPortfolioScreenState extends State<TeacherPortfolioScreen> {
           if (widget.initialStudentId != null) {
             try {
               _selectedStudent = _allStudents.firstWhere((s) => s['id'] == widget.initialStudentId);
-            } catch (_) {}
+            } catch (silentError) { debugPrint('[teacher_portfolio_screen] hata yutuldu: $silentError'); }
           }
           _isLoading = false;
           _isSyncing = false;
@@ -481,7 +481,7 @@ class _TeacherPortfolioScreenState extends State<TeacherPortfolioScreen> {
           end: Alignment.bottomRight,
         ),
         boxShadow: [
-          BoxShadow(color: Colors.indigo.shade900.withOpacity(0.2), blurRadius: 8, offset: const Offset(0, 3)),
+          BoxShadow(color: Colors.indigo.shade900.withValues(alpha: 0.2), blurRadius: 8, offset: const Offset(0, 3)),
         ],
       ),
       child: Row(
@@ -508,7 +508,7 @@ class _TeacherPortfolioScreenState extends State<TeacherPortfolioScreen> {
                 Text(
                   'Öğretmen Rehberlik Portalı',
                   style: GoogleFonts.inter(
-                    color: Colors.white.withOpacity(0.75),
+                    color: Colors.white.withValues(alpha: 0.75),
                     fontSize: 11,
                     fontWeight: FontWeight.w400,
                   ),
@@ -531,9 +531,9 @@ class _TeacherPortfolioScreenState extends State<TeacherPortfolioScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.15),
+              color: Colors.white.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.white.withOpacity(0.2)),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
             ),
             child: Text(
               '${_filteredStudents.length} Öğrenci',
@@ -685,8 +685,8 @@ class _TeacherPortfolioScreenState extends State<TeacherPortfolioScreen> {
           width: isSelected ? 1.5 : 1.0,
         ),
         boxShadow: isSelected
-            ? [BoxShadow(color: Colors.indigo.withOpacity(0.1), blurRadius: 6, offset: const Offset(0, 2))]
-            : [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 3, offset: const Offset(0, 1))],
+            ? [BoxShadow(color: Colors.indigo.withValues(alpha: 0.1), blurRadius: 6, offset: const Offset(0, 2))]
+            : [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 3, offset: const Offset(0, 1))],
       ),
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),

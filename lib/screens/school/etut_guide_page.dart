@@ -97,7 +97,7 @@ class EtutGuidePage extends StatelessWidget {
                 child: Icon(
                   Icons.auto_awesome_rounded,
                   size: 200,
-                  color: Colors.white.withOpacity(0.08),
+                  color: Colors.white.withValues(alpha: 0.08),
                 ),
               ),
               Positioned(
@@ -106,7 +106,7 @@ class EtutGuidePage extends StatelessWidget {
                 child: Icon(
                   Icons.history_edu_rounded,
                   size: 150,
-                  color: Colors.white.withOpacity(0.1),
+                  color: Colors.white.withValues(alpha: 0.1),
                 ),
               ),
               Center(
@@ -116,7 +116,7 @@ class EtutGuidePage extends StatelessWidget {
                     Icon(
                       Icons.tips_and_updates_rounded,
                       size: 70,
-                      color: Colors.white.withOpacity(0.9),
+                      color: Colors.white.withValues(alpha: 0.9),
                     ),
                     const SizedBox(height: 40), // Spacer for title
                   ],
@@ -172,7 +172,7 @@ class EtutGuidePage extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
+              color: color.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(16),
             ),
             child: Icon(icon, color: color, size: 26),
@@ -234,7 +234,7 @@ class EtutGuidePage extends StatelessWidget {
                   'Etütleri planlarken takvimdeki gri alanlar "Ders Programı" veya "Yoğunluk" çakışmalarını temsil eder. En temiz beyaz alanı seçmek başarı oranınızı artırır.',
                   style: GoogleFonts.poppins(
                     fontSize: 13,
-                    color: Colors.indigo.shade900.withOpacity(0.8),
+                    color: Colors.indigo.shade900.withValues(alpha: 0.8),
                   ),
                 ),
               ],

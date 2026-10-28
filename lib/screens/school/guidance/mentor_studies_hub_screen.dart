@@ -350,7 +350,7 @@ class _MentorStudiesHubScreenState extends State<MentorStudiesHubScreen>
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.indigo.withOpacity(0.15),
+            color: Colors.indigo.withValues(alpha: 0.15),
             blurRadius: 10,
             offset: const Offset(0, 4),
           )
@@ -480,12 +480,12 @@ class _MentorStudiesHubScreenState extends State<MentorStudiesHubScreen>
         ),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: Colors.white.withOpacity(0.15),
+          color: Colors.white.withValues(alpha: 0.15),
           width: 1.2,
         ),
         boxShadow: [
           BoxShadow(
-            color: gradient.last.withOpacity(0.35),
+            color: gradient.last.withValues(alpha: 0.35),
             blurRadius: 18,
             offset: const Offset(0, 8),
           ),
@@ -503,7 +503,7 @@ class _MentorStudiesHubScreenState extends State<MentorStudiesHubScreen>
               child: Icon(
                 icon,
                 size: 130,
-                color: Colors.white.withOpacity(0.08),
+                color: Colors.white.withValues(alpha: 0.08),
               ),
             ),
           ),
@@ -524,10 +524,10 @@ class _MentorStudiesHubScreenState extends State<MentorStudiesHubScreen>
                         Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
+                            color: Colors.white.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(14),
                             border: Border.all(
-                              color: Colors.white.withOpacity(0.25),
+                              color: Colors.white.withValues(alpha: 0.25),
                               width: 1.5,
                             ),
                           ),
@@ -536,7 +536,7 @@ class _MentorStudiesHubScreenState extends State<MentorStudiesHubScreen>
                         Container(
                           padding: const EdgeInsets.all(6),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.1),
+                            color: Colors.white.withValues(alpha: 0.1),
                             shape: BoxShape.circle,
                           ),
                           child: const Icon(
@@ -563,7 +563,7 @@ class _MentorStudiesHubScreenState extends State<MentorStudiesHubScreen>
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.inter(
-                        color: Colors.white.withOpacity(0.85),
+                        color: Colors.white.withValues(alpha: 0.85),
                         fontSize: 11,
                         height: 1.35,
                       ),
@@ -575,10 +575,10 @@ class _MentorStudiesHubScreenState extends State<MentorStudiesHubScreen>
                         vertical: 6,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.15),
+                        color: Colors.white.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(30),
                         border: Border.all(
-                          color: Colors.white.withOpacity(0.1),
+                          color: Colors.white.withValues(alpha: 0.1),
                         ),
                       ),
                       child: Row(

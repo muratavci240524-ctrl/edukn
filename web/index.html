@@ -416,6 +416,164 @@
       cMapPacked: true,
     }
   </script>
+  <!-- 📄 Native PDF İndirme ve Yazdırma Motoru (0 Byte ve Blob Hatalarını Kesin Çözer) -->
+  <script type="text/javascript">
+    window.__eduKnDownloadPdf = function() {
+      try {
+        console.log('__eduKnDownloadPdf tetiklendi! Argüman sayısı:', arguments.length);
+        var base64Data = null;
+        var filename = 'document.pdf';
+
+        for (var i = 0; i < arguments.length; i++) {
+          var a = arguments[i];
+          if (!a) continue;
+          if (typeof a === 'string') {
+            if (a.length > 300) {
+              base64Data = a;
+            } else if (a.toLowerCase().indexOf('.pdf') !== -1) {
+              filename = a;
+            }
+          } else if (Array.isArray(a)) {
+            for (var j = 0; j < a.length; j++) {
+              var sub = a[j];
+              if (typeof sub === 'string') {
+                if (sub.length > 300) {
+                  base64Data = sub;
+                } else if (sub.toLowerCase().indexOf('.pdf') !== -1) {
+                  filename = sub;
+                }
+              }
+            }
+          }
+        }
+
+        // Eğer hala bulunamadıysa ilk uzun string'i ara
+        if (!base64Data) {
+          for (var k = 0; k < arguments.length; k++) {
+            if (typeof arguments[k] === 'string' && arguments[k].length > 20) {
+              base64Data = arguments[k];
+              break;
+            }
+          }
+        }
+
+        console.log('Dosya:', filename, 'Veri boyutu (karakter):', base64Data ? base64Data.length : 0);
+
+        if (!base64Data || base64Data.length === 0) {
+          console.error('Hata: Base64 veri hiçbir parametrede bulunamadı!');
+          return false;
+        }
+
+        var cleanBase64 = base64Data.replace(/\s+/g, '');
+        var byteChars = atob(cleanBase64);
+        var byteNums = new Uint8Array(byteChars.length);
+        for (var m = 0; m < byteChars.length; m++) {
+          byteNums[m] = byteChars.charCodeAt(m);
+        }
+        var blob = new Blob([byteNums], { type: 'application/pdf' });
+        console.log('✅ PDF Blob oluşturuldu! Boyut:', blob.size, 'bayt');
+
+        var blobUrl = URL.createObjectURL(blob);
+        var link = document.createElement('a');
+        link.style.display = 'none';
+        link.href = blobUrl;
+        link.download = filename || 'document.pdf';
+        document.body.appendChild(link);
+        link.click();
+
+        setTimeout(function() {
+          try { document.body.removeChild(link); } catch(e) {}
+        }, 2000);
+        setTimeout(function() {
+          try { URL.revokeObjectURL(blobUrl); } catch(e) {}
+        }, 120000);
+        return true;
+      } catch(err) {
+        console.error('__eduKnDownloadPdf hata:', err);
+        return false;
+      }
+    };
+
+    window.__eduKnPrintPdf = function() {
+      try {
+        console.log('__eduKnPrintPdf tetiklendi! Argüman sayısı:', arguments.length);
+        var base64Data = null;
+        var filename = 'document.pdf';
+
+        for (var i = 0; i < arguments.length; i++) {
+          var a = arguments[i];
+          if (!a) continue;
+          if (typeof a === 'string') {
+            if (a.length > 300) {
+              base64Data = a;
+            } else if (a.toLowerCase().indexOf('.pdf') !== -1) {
+              filename = a;
+            }
+          } else if (Array.isArray(a)) {
+            for (var j = 0; j < a.length; j++) {
+              var sub = a[j];
+              if (typeof sub === 'string') {
+                if (sub.length > 300) {
+                  base64Data = sub;
+                } else if (sub.toLowerCase().indexOf('.pdf') !== -1) {
+                  filename = sub;
+                }
+              }
+            }
+          }
+        }
+
+        if (!base64Data) {
+          for (var k = 0; k < arguments.length; k++) {
+            if (typeof arguments[k] === 'string' && arguments[k].length > 20) {
+              base64Data = arguments[k];
+              break;
+            }
+          }
+        }
+
+        if (!base64Data) {
+          console.error('Hata: Base64 veri bulunamadı (Yazdır)!');
+          return false;
+        }
+
+        var cleanBase64 = base64Data.replace(/\s+/g, '');
+        var byteChars = atob(cleanBase64);
+        var byteNums = new Uint8Array(byteChars.length);
+        for (var m = 0; m < byteChars.length; m++) {
+          byteNums[m] = byteChars.charCodeAt(m);
+        }
+        var blob = new Blob([byteNums], { type: 'application/pdf' });
+        var blobUrl = URL.createObjectURL(blob);
+
+        var printWin = window.open(blobUrl, '_blank');
+        if (!printWin) {
+          var iframe = document.createElement('iframe');
+          iframe.style.position = 'fixed';
+          iframe.style.right = '0';
+          iframe.style.bottom = '0';
+          iframe.style.width = '0';
+          iframe.style.height = '0';
+          iframe.style.border = '0';
+          iframe.src = blobUrl;
+          document.body.appendChild(iframe);
+          iframe.onload = function() {
+            setTimeout(function() {
+              try { iframe.contentWindow.focus(); iframe.contentWindow.print(); } catch(e) {}
+            }, 500);
+          };
+        }
+
+        setTimeout(function() {
+          try { URL.revokeObjectURL(blobUrl); } catch(e) {}
+        }, 180000);
+        return true;
+      } catch(err) {
+        console.error('__eduKnPrintPdf çalışma hatası:', err);
+        return false;
+      }
+    };
+  </script>
   <!-- Firebase Messaging Service Worker Kayıtı (Web Push için) -->
   <script>
     if ('serviceWorker' in navigator) {

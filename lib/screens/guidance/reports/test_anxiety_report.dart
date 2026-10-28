@@ -62,7 +62,7 @@ class _TestAnxietyReportState extends State<TestAnxietyReport>
   };
 
   List<Map<String, dynamic>> _branches = [];
-  Map<String, Map<String, dynamic>> _userDetails = {};
+  final Map<String, Map<String, dynamic>> _userDetails = {};
   bool _isLoadingFilters = false;
 
   @override
@@ -109,7 +109,7 @@ class _TestAnxietyReportState extends State<TestAnxietyReport>
           .where((b) => respondentBranches.contains(b['id']))
           .toList();
     } catch (e) {
-      print('Load filters error: $e');
+      debugPrint('Load filters error: $e');
     }
     if (mounted) setState(() => _isLoadingFilters = false);
   }
@@ -300,7 +300,7 @@ class _TestAnxietyReportState extends State<TestAnxietyReport>
     return Container(
       width: double.infinity,
       child: DropdownButtonFormField(
-        value: value,
+        initialValue: value,
         decoration: InputDecoration(
           labelText: label,
           labelStyle: TextStyle(color: Colors.grey.shade600, fontSize: 14),
@@ -407,7 +407,7 @@ class _TestAnxietyReportState extends State<TestAnxietyReport>
             RadarChartData(
               dataSets: [
                 RadarDataSet(
-                  fillColor: Colors.indigo.withOpacity(0.2),
+                  fillColor: Colors.indigo.withValues(alpha: 0.2),
                   borderColor: Colors.indigo,
                   entryRadius: 3,
                   dataEntries: normalizedData
@@ -768,11 +768,11 @@ class _TestAnxietyReportState extends State<TestAnxietyReport>
 
     // Subscale insights
     List<String> highRiskAreas = [];
-    _categories.keys.forEach((catId) {
+    for (var catId in _categories.keys) {
       if (_isHighRisk(catId, stats[catId] ?? 0)) {
         highRiskAreas.add(_categoryNames[catId]!);
       }
-    });
+    }
 
     if (highRiskAreas.isNotEmpty) {
       advice +=

@@ -1,9 +1,7 @@
-import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:csv/csv.dart';
 import 'package:excel/excel.dart' hide Border;
 import 'package:file_saver/file_saver.dart';
 import 'dart:typed_data';
@@ -405,7 +403,7 @@ class _ExternalExamRegistrationsTabState
         border: Border.all(color: Colors.grey.shade200),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.02),
+            color: Colors.black.withValues(alpha: 0.02),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -475,7 +473,7 @@ class _ExternalExamRegistrationsTabState
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${reg.gradeLevel == 'Mezun' ? 'Mezun' : '${reg.gradeLevel}. Sınıf'}${reg.parentName != null && reg.parentName!.isNotEmpty ? ' · Veli: ${reg.parentName}' : ''}${reg.parentPhone != null && reg.parentPhone!.isNotEmpty ? ' - ${reg.parentPhone}' : ''}',
+                  '${reg.gradeLevel == 'Mezun' ? 'Mezun' : '${reg.gradeLevel}. Sınıf'}${reg.parentName.isNotEmpty ? ' · Veli: ${reg.parentName}' : ''}${reg.parentPhone.isNotEmpty ? ' - ${reg.parentPhone}' : ''}',
                   style: GoogleFonts.inter(
                       fontSize: 13, color: Colors.grey.shade500),
                 ),
@@ -873,7 +871,7 @@ class _ExistingStudentsDialog extends StatefulWidget {
 class _ExistingStudentsDialogState extends State<_ExistingStudentsDialog> {
   bool _isLoading = true;
   List<Map<String, dynamic>> _allStudents = [];
-  Map<String, List<Map<String, dynamic>>> _groupedStudents = {};
+  final Map<String, List<Map<String, dynamic>>> _groupedStudents = {};
   Map<String, List<Map<String, dynamic>>> _filteredGroupedStudents = {};
   final Set<String> _selectedIds = {};
   String _searchQuery = '';

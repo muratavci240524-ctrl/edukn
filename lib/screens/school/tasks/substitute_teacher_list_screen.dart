@@ -413,7 +413,7 @@ class _SubstituteTeacherListScreenState
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.03),
+                    color: Colors.black.withValues(alpha: 0.03),
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   ),
@@ -427,7 +427,7 @@ class _SubstituteTeacherListScreenState
                     children: [
                       Switch(
                         value: isAllPublished,
-                        activeColor: const Color(0xFF10B981),
+                        activeThumbColor: const Color(0xFF10B981),
                         onChanged: hasAssignments
                             ? (val) {
                                 if (val) {
@@ -665,7 +665,7 @@ class _SubstituteTeacherListScreenState
               borderRadius: BorderRadius.circular(16),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.04),
+                  color: Colors.black.withValues(alpha: 0.04),
                   blurRadius: 10,
                   offset: const Offset(0, 4),
                 ),
@@ -680,7 +680,7 @@ class _SubstituteTeacherListScreenState
                       CircleAvatar(
                         backgroundColor: const Color(
                           0xFFEF4444, // Red for absent teacher
-                        ).withOpacity(0.1),
+                        ).withValues(alpha: 0.1),
                         child: Text(
                           entry.key.isNotEmpty
                               ? entry.key.substring(0, 1)
@@ -881,7 +881,7 @@ class _SubstituteTeacherListScreenState
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
+                    color: Colors.black.withValues(alpha: 0.05),
                     blurRadius: 20,
                     offset: const Offset(0, 4),
                   ),
@@ -1275,7 +1275,7 @@ class _SubstituteTeacherListScreenState
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: text.withOpacity(0.2), width: 0.5),
+        border: Border.all(color: text.withValues(alpha: 0.2), width: 0.5),
       ),
       child: Text(
         value,
@@ -1400,7 +1400,7 @@ class _SubstituteTeacherListScreenState
           );
         }
       } catch (e) {
-        print('Notification error: $e');
+        debugPrint('Notification error: $e');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -1772,7 +1772,7 @@ class _SubstituteTeacherListScreenState
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),

@@ -119,7 +119,7 @@ class _SeatingPlanHubScreenState extends State<SeatingPlanHubScreen>
                         borderRadius: BorderRadius.circular(12),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.04),
+                            color: Colors.black.withValues(alpha: 0.04),
                             blurRadius: 6,
                             offset: const Offset(0, 2),
                           ),
@@ -258,7 +258,7 @@ class _SeatingPlanHubScreenState extends State<SeatingPlanHubScreen>
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: gradient.first.withOpacity(0.3),
+                color: gradient.first.withValues(alpha: 0.3),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
@@ -269,7 +269,7 @@ class _SeatingPlanHubScreenState extends State<SeatingPlanHubScreen>
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
+                  color: Colors.white.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(icon, color: Colors.white, size: 26),
@@ -291,7 +291,7 @@ class _SeatingPlanHubScreenState extends State<SeatingPlanHubScreen>
                     Text(
                       subtitle,
                       style: GoogleFonts.inter(
-                        color: Colors.white.withOpacity(0.85),
+                        color: Colors.white.withValues(alpha: 0.85),
                         fontSize: 11,
                       ),
                     ),
@@ -527,7 +527,7 @@ class _SeatingPlanHubScreenState extends State<SeatingPlanHubScreen>
                     border: Border.all(color: const Color(0xFFE2E8F0)),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.02),
+                        color: Colors.black.withValues(alpha: 0.02),
                         blurRadius: 6,
                         offset: const Offset(0, 2),
                       ),
@@ -653,7 +653,7 @@ class _SeatingPlanHubScreenState extends State<SeatingPlanHubScreen>
                       border: Border.all(color: const Color(0xFFE2E8F0)),
                       boxShadow: [
                         BoxShadow(
-                          color: const Color(0xFF1E293B).withOpacity(0.03),
+                          color: const Color(0xFF1E293B).withValues(alpha: 0.03),
                           blurRadius: 8,
                           offset: const Offset(0, 2),
                         ),
@@ -692,7 +692,7 @@ class _SeatingPlanHubScreenState extends State<SeatingPlanHubScreen>
                                 Container(
                                   padding: const EdgeInsets.all(8),
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFF5C6BC0).withOpacity(0.12),
+                                    color: const Color(0xFF5C6BC0).withValues(alpha: 0.12),
                                     borderRadius: BorderRadius.circular(10),
                                   ),
                                   child: const Icon(Icons.domain_rounded, color: Color(0xFF5C6BC0), size: 20),
@@ -869,7 +869,7 @@ class _SeatingPlanHubScreenState extends State<SeatingPlanHubScreen>
                                                   leading: Container(
                                                     padding: const EdgeInsets.all(6),
                                                     decoration: BoxDecoration(
-                                                      color: const Color(0xFF5C6BC0).withOpacity(0.1),
+                                                      color: const Color(0xFF5C6BC0).withValues(alpha: 0.1),
                                                       borderRadius: BorderRadius.circular(8),
                                                     ),
                                                     child: const Icon(Icons.event_seat_rounded, color: Color(0xFF5C6BC0), size: 18),
@@ -902,7 +902,7 @@ class _SeatingPlanHubScreenState extends State<SeatingPlanHubScreen>
                                                             Container(
                                                               padding: const EdgeInsets.all(6),
                                                               decoration: BoxDecoration(
-                                                                color: const Color(0xFF5C6BC0).withOpacity(0.1),
+                                                                color: const Color(0xFF5C6BC0).withValues(alpha: 0.1),
                                                                 borderRadius: BorderRadius.circular(8),
                                                               ),
                                                               child: const Icon(Icons.print_rounded, size: 16, color: Color(0xFF5C6BC0)),
@@ -919,7 +919,7 @@ class _SeatingPlanHubScreenState extends State<SeatingPlanHubScreen>
                                                             Container(
                                                               padding: const EdgeInsets.all(6),
                                                               decoration: BoxDecoration(
-                                                                color: Colors.blue.withOpacity(0.1),
+                                                                color: Colors.blue.withValues(alpha: 0.1),
                                                                 borderRadius: BorderRadius.circular(8),
                                                               ),
                                                               child: const Icon(Icons.edit_rounded, size: 16, color: Colors.blue),
@@ -936,7 +936,7 @@ class _SeatingPlanHubScreenState extends State<SeatingPlanHubScreen>
                                                             Container(
                                                               padding: const EdgeInsets.all(6),
                                                               decoration: BoxDecoration(
-                                                                color: Colors.red.withOpacity(0.1),
+                                                                color: Colors.red.withValues(alpha: 0.1),
                                                                 borderRadius: BorderRadius.circular(8),
                                                               ),
                                                               child: const Icon(Icons.delete_outline_rounded, size: 16, color: Colors.red),
@@ -1018,7 +1018,7 @@ class _SeatingPlanHubScreenState extends State<SeatingPlanHubScreen>
                 leading: Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF7E57C2).withOpacity(0.1),
+                    color: const Color(0xFF7E57C2).withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: const Icon(Icons.grid_4x4_rounded, color: Color(0xFF7E57C2), size: 24),
@@ -1049,7 +1049,7 @@ class _SeatingPlanHubScreenState extends State<SeatingPlanHubScreen>
                           Container(
                             padding: const EdgeInsets.all(6),
                             decoration: BoxDecoration(
-                              color: Colors.blue.withOpacity(0.1),
+                              color: Colors.blue.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: const Icon(Icons.edit_rounded, size: 18, color: Colors.blue),
@@ -1066,7 +1066,7 @@ class _SeatingPlanHubScreenState extends State<SeatingPlanHubScreen>
                           Container(
                             padding: const EdgeInsets.all(6),
                             decoration: BoxDecoration(
-                              color: Colors.red.withOpacity(0.1),
+                              color: Colors.red.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: const Icon(Icons.delete_outline_rounded, size: 18, color: Colors.red),
@@ -1133,7 +1133,7 @@ class _SeatingPlanHubScreenState extends State<SeatingPlanHubScreen>
           border: Border.all(color: const Color(0xFFFFCC80), width: 1.5),
           boxShadow: [
             BoxShadow(
-              color: Colors.orange.withOpacity(0.08),
+              color: Colors.orange.withValues(alpha: 0.08),
               blurRadius: 16,
               offset: const Offset(0, 4),
             ),

@@ -84,7 +84,7 @@ class _AttendanceStatisticsScreenState extends State<AttendanceStatisticsScreen>
           _cachedStudentNameById = studMap;
         }
       }
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[attendance_statistics_screen] hata yutuldu: $silentError'); }
   }
 
   @override
@@ -131,7 +131,7 @@ class _AttendanceStatisticsScreenState extends State<AttendanceStatisticsScreen>
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: Colors.purple.withOpacity(0.10),
+          color: Colors.purple.withValues(alpha: 0.10),
           borderRadius: BorderRadius.circular(14),
         ),
         child: Row(
@@ -737,7 +737,7 @@ class _AttendanceStatisticsScreenState extends State<AttendanceStatisticsScreen>
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: Colors.orange.withOpacity(0.10),
+          color: Colors.orange.withValues(alpha: 0.10),
           borderRadius: BorderRadius.circular(14),
         ),
         child: Row(
@@ -782,7 +782,7 @@ class _AttendanceStatisticsScreenState extends State<AttendanceStatisticsScreen>
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(color: Colors.grey.shade200),
                           boxShadow: [
-                            BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: Offset(0, 6)),
+                            BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 10, offset: Offset(0, 6)),
                           ],
                         ),
                         child: Column(
@@ -828,7 +828,7 @@ class _AttendanceStatisticsScreenState extends State<AttendanceStatisticsScreen>
                                     child: Container(
                                       padding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                                       decoration: BoxDecoration(
-                                        color: Colors.blue.withOpacity(0.08),
+                                        color: Colors.blue.withValues(alpha: 0.08),
                                         borderRadius: BorderRadius.circular(14),
                                       ),
                                       child: Row(
@@ -879,7 +879,7 @@ class _AttendanceStatisticsScreenState extends State<AttendanceStatisticsScreen>
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(color: Colors.grey.shade200),
                           boxShadow: [
-                            BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: Offset(0, 6)),
+                            BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 10, offset: Offset(0, 6)),
                           ],
                         ),
                         child: Row(
@@ -1027,7 +1027,7 @@ class _Section extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.grey.shade200),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: Offset(0, 6)),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 10, offset: Offset(0, 6)),
         ],
       ),
       child: Column(
@@ -1054,7 +1054,7 @@ class _Section extends StatelessWidget {
                     Container(
                       padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                       decoration: BoxDecoration(
-                        color: Colors.red.withOpacity(0.10),
+                        color: Colors.red.withValues(alpha: 0.10),
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
@@ -1109,7 +1109,7 @@ class _DonutPainter extends CustomPainter {
     final bgPaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = stroke
-      ..color = Colors.grey.withOpacity(0.15)
+      ..color = Colors.grey.withValues(alpha: 0.15)
       ..strokeCap = StrokeCap.round;
 
     canvas.drawArc(rect, -math.pi / 2, 2 * math.pi, false, bgPaint);

@@ -11,6 +11,8 @@ import 'package:edukn/widgets/safe_stream_builder.dart';
 import '../../services/splash/splash_service.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
+  const AdminDashboardScreen({super.key});
+
   @override
   _AdminDashboardScreenState createState() => _AdminDashboardScreenState();
 }
@@ -304,9 +306,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
+          color: color.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: color.withOpacity(0.3)),
+          border: Border.all(color: color.withValues(alpha: 0.3)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -341,8 +343,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           .doc(schoolId)
           .update({'isActive': newStatus});
 
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) Navigator.pop(context);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             newStatus
@@ -353,8 +355,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         ),
       );
     } catch (e) {
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) Navigator.pop(context);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Hata: $e"), backgroundColor: Colors.red),
       );
     }
@@ -502,12 +504,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
         await callable.call({'schoolId': schoolId});
       } catch (e) {
-        print('Yönetici hesabı silinemedi (opsiyonel): $e');
+        debugPrint('Yönetici hesabı silinemedi (opsiyonel): $e');
         // Okul belgesi zaten silindi, devam et
       }
 
       Navigator.pop(context); // Loading dialog'unu kapat
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Okul başarıyla silindi!'),
           backgroundColor: Colors.green,
@@ -515,7 +517,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       );
     } catch (e) {
       Navigator.pop(context); // Loading dialog'unu kapat
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
       );
     }
@@ -538,8 +540,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             'isActive': true,
           });
 
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) Navigator.pop(context);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             'Lisans tarihi ${DateFormat('dd.MM.yyyy').format(newDate)} olarak güncellendi!',
@@ -548,8 +550,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         ),
       );
     } catch (e) {
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) Navigator.pop(context);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Hata: $e"), backgroundColor: Colors.red),
       );
     }
@@ -576,7 +578,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       });
 
       Navigator.pop(context); // Yükleniyor dialog'unu kapat
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             result.data['message'] ?? 'Lisans başarıyla güncellendi!',
@@ -586,7 +588,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       );
     } on FirebaseFunctionsException catch (e) {
       Navigator.pop(context); // Yükleniyor dialog'unu kapat
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text("Hata: ${e.message} (Kod: ${e.code})"),
           backgroundColor: Colors.red,
@@ -594,7 +596,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       );
     } catch (e) {
       Navigator.pop(context); // Yükleniyor dialog'unu kapat
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text("Bilinmeyen bir hata oluştu: $e"),
           backgroundColor: Colors.red,
@@ -686,7 +688,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
                             if (mounted) {
                               Navigator.pop(context); // Dialog'u kapat
-                              ScaffoldMessenger.of(context).showSnackBar(
+                              if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
                                   content: Text("Modüller güncellendi!"),
                                   backgroundColor: Colors.green,
@@ -703,7 +705,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                             // --- GÜNCELLEME BİTTİ ---
 
                             if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
+                              if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
                                   content: Text(errorMessage),
                                   backgroundColor: Colors.red,
@@ -793,7 +795,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   builder: (BuildContext context, AsyncSnapshot<QuerySnapshot> snapshot) {
                     // Hata varsa
                     if (snapshot.hasError) {
-                      print("Hata: ${snapshot.error}");
+                      debugPrint("Hata: ${snapshot.error}");
                       return Center(
                         child: Text('Veriler yüklenirken bir hata oluştu.'),
                       );
@@ -1179,7 +1181,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       children: [
                         CircleAvatar(
                           radius: 20,
-                          backgroundColor: Theme.of(context).primaryColor.withOpacity(0.1),
+                          backgroundColor: Theme.of(context).primaryColor.withValues(alpha: 0.1),
                           child: Icon(
                             Icons.business,
                             size: 20,
@@ -1257,7 +1259,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 children: [
                   CircleAvatar(
                     radius: 24,
-                    backgroundColor: Theme.of(context).primaryColor.withOpacity(0.1),
+                    backgroundColor: Theme.of(context).primaryColor.withValues(alpha: 0.1),
                     child: Icon(
                       Icons.business,
                       color: Theme.of(context).primaryColor,

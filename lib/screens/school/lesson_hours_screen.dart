@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -24,7 +24,7 @@ class LessonHoursScreen extends StatefulWidget {
 class _LessonHoursScreenState extends State<LessonHoursScreen> with WidgetsBindingObserver {
   String? _selectedPeriodId;
   Map<String, dynamic>? _selectedPeriod;
-  String _searchQuery = '';
+  final String _searchQuery = '';
   final DateFormat _dateFormat = DateFormat('dd.MM.yyyy');
   String? _currentTermId;
   bool _isViewingPastTerm = false;
@@ -209,7 +209,7 @@ class _LessonHoursScreenState extends State<LessonHoursScreen> with WidgetsBindi
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.04),
+                    color: Colors.black.withValues(alpha: 0.04),
                     blurRadius: 6,
                     offset: const Offset(0, 2),
                   ),
@@ -418,7 +418,7 @@ class _LessonHoursScreenState extends State<LessonHoursScreen> with WidgetsBindi
         .toList();
 
     if (periods.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Kopyalanacak başka dönem bulunamadı')),
       );
       return;
@@ -485,7 +485,7 @@ class _LessonHoursScreenState extends State<LessonHoursScreen> with WidgetsBindi
           .get();
 
       if (!sourceDoc.exists || sourceDoc.data()?['lessonHours'] == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Kaynak dönemde ders saati tanımı bulunamadı'),
             backgroundColor: Colors.orange,
@@ -504,7 +504,7 @@ class _LessonHoursScreenState extends State<LessonHoursScreen> with WidgetsBindi
           .doc(targetPeriodId)
           .update({'lessonHours': sourceData});
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Ders saatleri kopyalandı'),
           backgroundColor: Colors.green,
@@ -514,7 +514,7 @@ class _LessonHoursScreenState extends State<LessonHoursScreen> with WidgetsBindi
       // Refresh
       setState(() {});
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
       );
     }
@@ -636,7 +636,7 @@ class _LessonHoursDetailScreenState extends State<_LessonHoursDetailScreen> {
       
       setState(() => _isLoading = false);
     } catch (e) {
-      print('Ders saatleri yükleme hatası: $e');
+      debugPrint('Ders saatleri yükleme hatası: $e');
       _initializeDefaultTimes();
       setState(() => _isLoading = false);
     }
@@ -926,7 +926,7 @@ class _LessonHoursDetailScreenState extends State<_LessonHoursDetailScreen> {
                     border: Border.all(color: Colors.blue.shade200, width: 1.5),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.blue.withOpacity(0.1),
+                        color: Colors.blue.withValues(alpha: 0.1),
                         blurRadius: 8,
                         offset: Offset(0, 2),
                       ),
@@ -1222,9 +1222,9 @@ class _LessonHoursDetailScreenState extends State<_LessonHoursDetailScreen> {
         if (lessonIndex > 0) {
           final prevLesson = _lessonTimes[day]?[lessonIndex - 1];
           if (prevLesson != null) {
-            final prevEnd = prevLesson['end'] as TimeOfDay?;
+            final prevEnd = prevLesson['end'];
             if (prevEnd != null && _timeToMinutes(picked) < _timeToMinutes(prevEnd)) {
-              ScaffoldMessenger.of(context).showSnackBar(
+              if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(
                     'Başlangıç saati bir önceki dersin bitiş saatinden (${_formatTime(prevEnd)}) önce olamaz!',

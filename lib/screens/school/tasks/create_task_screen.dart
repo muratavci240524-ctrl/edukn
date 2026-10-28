@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -30,7 +30,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   TimeOfDay? _selectedTime;
   String _recurrence = 'none';
 
-  List<Map<String, dynamic>> _selectedUsers = [];
+  final List<Map<String, dynamic>> _selectedUsers = [];
   bool _isLoading = false;
 
   @override
@@ -321,7 +321,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                 color: Colors.white,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
+                    color: Colors.black.withValues(alpha: 0.05),
                     blurRadius: 20,
                     offset: const Offset(0, -5),
                   ),
@@ -391,7 +391,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
+                color: color.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(icon, color: color, size: 22),

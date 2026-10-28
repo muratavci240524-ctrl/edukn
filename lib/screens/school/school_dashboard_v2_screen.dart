@@ -9,12 +9,12 @@ import 'package:flutter/foundation.dart' show kDebugMode;
 import 'dart:convert';
 import '../../widgets/edukn_logo.dart';
 import '../../widgets/web_image_renderer.dart';
+import '../../widgets/school_logo.dart';
 import '../../services/term_service.dart';
 import 'dart:async';
 import 'dart:ui';
 import 'assessment/assessment_dashboard_screen.dart';
 import 'terms_screen.dart';
-import 'notes/personal_notes_screen.dart';
 import 'hr/hr_hub_screen.dart';
 import 'guidance/demand/demand_dashboard_screen.dart';
 import '../portfolio/portfolio_screen.dart';
@@ -33,15 +33,11 @@ import 'student_registration_screen.dart';
 import '../../main.dart';
 import 'profile_settings_screen.dart';
 
-import 'school_types/school_type_announcements_screen.dart';
-import 'school_types/school_type_social_media_screen.dart';
-import 'school_types/chat/chat_screen.dart';
 import 'school_types/school_type_detail_screen.dart';
 import '../../widgets/stylish_bottom_nav.dart';
 import '../../widgets/haberlesme_hub_widget.dart';
 import '../../services/user_permission_service.dart';
 import '../../constants/app_modules.dart';
-import '../../constants/school_type_modules.dart';
 import 'settings/sms_integration_screen.dart';
 import 'accounting/accounting_dashboard_screen.dart';
 import '../../services/splash/splash_service.dart';
@@ -153,7 +149,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
                     _overlaySetState = setOverlayState;
                     return Material(
                       elevation: 8,
-                      shadowColor: Colors.black.withOpacity(0.05),
+                      shadowColor: Colors.black.withValues(alpha: 0.05),
                       borderRadius: BorderRadius.circular(24),
                       color: Colors.white,
                       child: Container(
@@ -173,7 +169,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
                                   shrinkWrap: true,
                                   padding: const EdgeInsets.symmetric(vertical: 12),
                                   itemCount: _searchResults.length,
-                                  separatorBuilder: (_, __) => Divider(height: 1, color: Colors.indigo.withOpacity(0.05)),
+                                  separatorBuilder: (_, __) => Divider(height: 1, color: Colors.indigo.withValues(alpha: 0.05)),
                                   itemBuilder: (_, index) {
                                     final item = _searchResults[index];
                                     final isStudent = item['type'] == 'student';
@@ -233,7 +229,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
                       _overlaySetState = setOverlayState;
                       return Material(
                         elevation: 8,
-                        shadowColor: Colors.black.withOpacity(0.05),
+                        shadowColor: Colors.black.withValues(alpha: 0.05),
                         borderRadius: BorderRadius.circular(24),
                         color: Colors.white,
                         child: Container(
@@ -253,7 +249,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
                                     shrinkWrap: true,
                                     padding: const EdgeInsets.symmetric(vertical: 12),
                                     itemCount: _searchResults.length,
-                                    separatorBuilder: (_, __) => Divider(height: 1, color: Colors.indigo.withOpacity(0.05)),
+                                    separatorBuilder: (_, __) => Divider(height: 1, color: Colors.indigo.withValues(alpha: 0.05)),
                                     itemBuilder: (_, index) {
                                       final item = _searchResults[index];
                                       final isStudent = item['type'] == 'student';
@@ -494,10 +490,6 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
 
       final institutionId = await UserPermissionService.resolveInstitutionId(email, userData: profileData);
       
-      if (institutionId == null) {
-        print('⚠️ Kritik: Institution ID çözümlenemedi!');
-      }
-      
       var instIdForQueries = institutionId;
       var schoolQuery = await FirebaseFirestore.instance.collection('schools').where('institutionId', isEqualTo: institutionId).limit(1).get();
       Map<String, dynamic>? data; if (schoolQuery.docs.isNotEmpty) { final schoolDoc = schoolQuery.docs.first; data = schoolDoc.data(); data['id'] = schoolDoc.id; } else { final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get(); if (userDoc.exists) { final u = userDoc.data() as Map<String, dynamic>; final fallbackSchoolId = u['schoolId'] as String?; if (fallbackSchoolId != null && fallbackSchoolId.isNotEmpty) { final schoolById = await FirebaseFirestore.instance.collection('schools').doc(fallbackSchoolId).get(); if (schoolById.exists) { data = schoolById.data() as Map<String, dynamic>; data['id'] = schoolById.id; final schInstId = (data['institutionId'] ?? '').toString(); if (schInstId.isNotEmpty) instIdForQueries = schInstId; } } } }
@@ -507,7 +499,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
         termsList.sort((a, b) { final aYear = a['startYear'] ?? 0; final bYear = b['startYear'] ?? 0; return bYear.compareTo(aYear); });
         Map<String, dynamic>? activeTermData; for (var term in termsList) if (term['isActive'] == true) { activeTermData = term; break; }
         final viewingTermId = await _termService.getSelectedTermId();
-        Map<String, dynamic>? currentViewingTerm; if (viewingTermId != null) try { currentViewingTerm = termsList.firstWhere((t) => t['id'] == viewingTermId); } catch (_) {}
+        Map<String, dynamic>? currentViewingTerm; if (viewingTermId != null) try { currentViewingTerm = termsList.firstWhere((t) => t['id'] == viewingTermId); } catch (silentError) { debugPrint('[school_dashboard_v2_screen] hata yutuldu: $silentError'); }
         final prefs = await SharedPreferences.getInstance(); final isImpersonating = prefs.getBool('is_impersonating') ?? false; final impersonatedEmail = prefs.getString('impersonated_user_email');
         Map<String, dynamic>? currentUserData;
         if (isImpersonating && impersonatedEmail != null) { final impUserQuery = await FirebaseFirestore.instance.collection('users').where('email', isEqualTo: impersonatedEmail).limit(1).get(); if (impUserQuery.docs.isNotEmpty) currentUserData = impUserQuery.docs.first.data(); } else { final username = email.split('@')[0]; final userQuery = await FirebaseFirestore.instance.collection('users').where('institutionId', isEqualTo: data['institutionId']).where('username', isEqualTo: username).limit(1).get(); if (userQuery.docs.isNotEmpty) currentUserData = userQuery.docs.first.data(); }
@@ -527,13 +519,13 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
                 hasParent = true;
               }
             } catch (e) {
-              print('Error checking parent role on dashboard: $e');
+              debugPrint('Error checking parent role on dashboard: $e');
             }
           }
         }
 
         // Rol şablonunu yükle (dashboard için — login cache'i kaybolmuş olabilir)
-        if (currentUserData != null && data != null) {
+        if (currentUserData != null) {
           final userRole = (currentUserData['role'] ?? 'ogretmen').toString().toLowerCase();
           final instId = (data['institutionId'] ?? '').toString();
           if (instId.isNotEmpty) {
@@ -561,20 +553,20 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
           }
 
           // Terminal Logları
-          print('--------------------------------------------------');
-          print('🚀 GİRİŞ YAPAN KULLANICI BİLGİLERİ:');
-          print('👤 İsim: ${_getUserDisplayName()}');
-          print('🔑 Rol: ${_getUserRole()}');
+          debugPrint('--------------------------------------------------');
+          debugPrint('🚀 GİRİŞ YAPAN KULLANICI BİLGİLERİ:');
+          debugPrint('👤 İsim: ${_getUserDisplayName()}');
+          debugPrint('🔑 Rol: ${_getUserRole()}');
           if (currentUserData != null) {
-            print('📋 Modül Yetkileri:');
+            debugPrint('📋 Modül Yetkileri:');
             final perms = currentUserData['modulePermissions'] as Map<String, dynamic>? ?? {};
             perms.forEach((key, val) {
               if (val is Map && val['enabled'] == true) {
-                print('   ✅ $key (${val['level'] == 'editor' ? 'DÜZENLEYEN' : 'GÖRÜNTÜLEYEN'})');
+                debugPrint('   ✅ $key (${val['level'] == 'editor' ? 'DÜZENLEYEN' : 'GÖRÜNTÜLEYEN'})');
               }
             });
           }
-          print('--------------------------------------------------');
+          debugPrint('--------------------------------------------------');
 
           // Otomatik Yönlendirme: Öğretmen ise doğrudan Öğretmen Ana Sayfasına git
           final role = currentUserData?['role']?.toString().toLowerCase() ?? '';
@@ -602,7 +594,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
           if (isTeacher || (activePortal == 'teacher' && (role.contains('ogretmen') || role.contains('teacher') || role.contains('öğretmen')))) {
             debugPrint('eduKN: Öğretmen portalı algılandı, Öğretmen Ana Sayfasına yönlendiriliyor...');
             final instId = (currentUserData?['institutionId'] ?? data['institutionId'] ?? '').toString();
-            Navigator.pushReplacement(
+            if (mounted) Navigator.pushReplacement(
               context,
               MaterialPageRoute(builder: (context) => TeacherMainScreen(institutionId: instId)),
             );
@@ -621,7 +613,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
           if (isStudentOrParent) {
             debugPrint('eduKN: Öğrenci / Veli portalı algılandı, Veli/Öğrenci Ana Sayfasına yönlendiriliyor...');
             final instId = (currentUserData?['institutionId'] ?? data['institutionId'] ?? '').toString();
-            Navigator.pushReplacement(
+            if (mounted) Navigator.pushReplacement(
               context,
               MaterialPageRoute(builder: (context) => ParentMainScreen(institutionId: instId)),
             );
@@ -665,7 +657,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
           }
         }
       } else {
-        debugPrint('⚠️ schoolData NULL kaldı! institutionId=$institutionId, email=${user?.email}');
+        debugPrint('⚠️ schoolData NULL kaldı! institutionId=$institutionId, email=${user.email}');
         if (mounted) setState(() => isLoading = false);
       }
     } catch (e, stack) {
@@ -736,7 +728,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
   Future<void> _switchToTerm(Map<String, dynamic> term) async { final isActive = term['isActive'] == true; if (isActive) await _termService.clearSelectedTerm(); else await _termService.setSelectedTerm(term['id'], term['termName'] ?? '${term['startYear']}-${term['endYear']}'); setState(() => isLoading = true); await _loadInitialData(); }
   bool _hasModuleAccess(String moduleKey) {
     if (schoolData == null) {
-      print('🔴 [$moduleKey] schoolData null');
+      debugPrint('🔴 [$moduleKey] schoolData null');
       return false;
     }
     
@@ -749,14 +741,14 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
       final appSettings = schoolData!['appSettings'] as Map<String, dynamic>?;
       final disabledModules = appSettings?['disabledModules'] as List<dynamic>? ?? [];
       if (disabledModules.contains(moduleKey)) {
-        print('🔴 [$moduleKey] disabledModules listesinde → GİZLİ');
+        debugPrint('🔴 [$moduleKey] disabledModules listesinde → GİZLİ');
         return false;
       }
 
       // Okulun bu modülü aktif mi? (Lisans kontrolü gibi)
       final activeModules = schoolData!['activeModules'] as List<dynamic>? ?? [];
       if (activeModules.isNotEmpty && !activeModules.contains(moduleKey)) {
-        print('🔴 [$moduleKey] activeModules listesinde YOK (activeModules: $activeModules)');
+        debugPrint('🔴 [$moduleKey] activeModules listesinde YOK (activeModules: $activeModules)');
         return false;
       }
     }
@@ -764,9 +756,9 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
     // Kullanıcının yetkisi var mı?
     final result = UserPermissionService.hasModuleAccess(moduleKey, userData);
     if (!result) {
-      print('🔴 [$moduleKey] UserPermissionService → ERİŞİM YOK (template: ${UserPermissionService.getCachedRoleTemplate()?.keys})');
+      debugPrint('🔴 [$moduleKey] UserPermissionService → ERİŞİM YOK (template: ${UserPermissionService.getCachedRoleTemplate()?.keys})');
     } else {
-      print('🟢 [$moduleKey] ERİŞİM VAR');
+      debugPrint('🟢 [$moduleKey] ERİŞİM VAR');
     }
     return result;
   }
@@ -872,7 +864,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
           UserPermissionService.clearCache();
           TermService().clearCache();
           await FirebaseAuth.instance.signOut();
-        } catch (_) {}
+        } catch (silentError) { debugPrint('[school_dashboard_v2_screen] hata yutuldu: $silentError'); }
         if (mounted) Navigator.pushReplacementNamed(context, '/school-login');
       });
       return _buildDashboardLoadingScreen();
@@ -962,7 +954,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: color.shade500.withOpacity(0.08),
+            color: color.shade500.withValues(alpha: 0.08),
             blurRadius: 24,
             offset: const Offset(0, 12),
           ),
@@ -991,7 +983,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
                       borderRadius: BorderRadius.circular(20),
                       boxShadow: [
                         BoxShadow(
-                          color: color.withOpacity(0.3),
+                          color: color.withValues(alpha: 0.3),
                           blurRadius: 12,
                           offset: const Offset(0, 6),
                         ),
@@ -1158,7 +1150,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
   PreferredSizeWidget _buildAppBar(bool isMobile) {
     String currentTermName = selectedTerm != null ? (selectedTerm!['termName'] ?? '${selectedTerm!['startYear']}-${selectedTerm!['endYear']}') : (activeTerm != null ? (activeTerm!['termName'] ?? 'Aktif Dönem') : 'Dönem Seçin');
     return AppBar(
-      backgroundColor: Colors.white.withOpacity(0.95),
+      backgroundColor: Colors.white.withValues(alpha: 0.95),
       elevation: 0,
       centerTitle: true,
       leadingWidth: _isMobileSearchActive ? 0 : 180,
@@ -1168,12 +1160,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
               padding: const EdgeInsets.only(left: 16.0),
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: buildWebImage(
-                  'assets/images/google_auth_full_logo_light.png',
-                  width: 140,
-                  height: 36,
-                  fit: BoxFit.contain,
-                ),
+                child: const SchoolLogoImage(width: 200, height: 38),
               ),
             ),
       title: _isMobileSearchActive
@@ -1204,7 +1191,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
     showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (context) => Container(decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(32))), padding: const EdgeInsets.fromLTRB(24, 16, 24, 32), child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)))), const SizedBox(height: 24), Row(children: [Icon(Icons.calendar_month_rounded, color: Colors.indigo.shade900, size: 28), const SizedBox(width: 12), const Text('Dönem Yönetimi', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Color(0xFF1E293B)))]), const SizedBox(height: 24), Flexible(child: ConstrainedBox(constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.4), child: ListView.separated(shrinkWrap: true, itemCount: allTerms.length, separatorBuilder: (_, __) => const SizedBox(height: 8), itemBuilder: (context, index) { final term = allTerms[index]; final isActive = term['isActive'] == true; final isCurrent = selectedTerm == null ? isActive : selectedTerm!['id'] == term['id']; return InkWell(onTap: () { Navigator.pop(context); _switchToTerm(term); }, borderRadius: BorderRadius.circular(16), child: Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: isCurrent ? Colors.indigo.shade50 : Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: isCurrent ? Colors.indigo.shade200 : Colors.grey.shade200)), child: Row(children: [CircleAvatar(backgroundColor: isActive ? Colors.green.shade100 : (isCurrent ? Colors.indigo.shade100 : Colors.grey.shade100), child: Icon(isActive ? Icons.check_circle_rounded : (isCurrent ? Icons.visibility : Icons.history), color: isActive ? Colors.green.shade700 : (isCurrent ? Colors.indigo : Colors.blueGrey.shade400), size: 20)), const SizedBox(width: 16), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(term['termName'] ?? '${term['startYear']}-${term['endYear']}', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: isCurrent ? Colors.indigo.shade900 : Colors.blueGrey.shade900)), Text(isActive ? 'Aktif Dönem' : 'Geçmiş Dönem', style: TextStyle(fontSize: 12, color: isActive ? Colors.green.shade700 : Colors.blueGrey.shade400))])), Icon(isCurrent ? Icons.radio_button_checked : Icons.radio_button_off, color: isCurrent ? Colors.indigo.shade700 : Colors.blueGrey.shade300)]))); }))), const SizedBox(height: 24), _buildSelectorAction(icon: Icons.sync_rounded, title: 'Verileri Aktif Döneme Ata', subtitle: 'Eksik dönem bilgisi olan verileri günceller.', color: Colors.blue, onTap: () { Navigator.pop(context); _migrateDataToActiveTerm(); }), _buildSelectorAction(icon: Icons.settings_rounded, title: 'Dönemleri Yönet', subtitle: 'Yeni dönem ekle veya ayarları düzenle.', color: Colors.indigo, onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const TermsScreen())).then((_) => _loadInitialData()); }), _buildSelectorAction(icon: Icons.delete_forever_rounded, title: 'Tüm Verileri Sıfırla', subtitle: 'Kurumun tüm verilerini kalıcı olarak siler.', color: Colors.red, onTap: () { Navigator.pop(context); _deleteAllData(); })])));
   }
 
-  Widget _buildSelectorAction({required IconData icon, required String title, required String subtitle, required Color color, required VoidCallback onTap}) { return ListTile(onTap: onTap, leading: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(10)), child: Icon(icon, color: color, size: 20)), title: Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.blueGrey.shade900)), subtitle: Text(subtitle, style: TextStyle(fontSize: 11, color: Colors.blueGrey.shade500)), trailing: const Icon(Icons.chevron_right, size: 20), contentPadding: EdgeInsets.zero); }
+  Widget _buildSelectorAction({required IconData icon, required String title, required String subtitle, required Color color, required VoidCallback onTap}) { return ListTile(onTap: onTap, leading: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)), child: Icon(icon, color: color, size: 20)), title: Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.blueGrey.shade900)), subtitle: Text(subtitle, style: TextStyle(fontSize: 11, color: Colors.blueGrey.shade500)), trailing: const Icon(Icons.chevron_right, size: 20), contentPadding: EdgeInsets.zero); }
 
   Widget _buildProfileButton() {
     final displayName = _getUserDisplayName();
@@ -1215,7 +1202,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
       offset: const Offset(0, 48),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       elevation: 8,
-      shadowColor: Colors.black.withOpacity(0.12),
+      shadowColor: Colors.black.withValues(alpha: 0.12),
       onSelected: (value) async {
         if (value == 'profile') {
           Navigator.push(
@@ -1469,13 +1456,13 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
                         borderRadius: BorderRadius.circular(16),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(isSelected ? 0.2 : 0.03),
+                            color: Colors.black.withValues(alpha: isSelected ? 0.2 : 0.03),
                             blurRadius: isSelected ? 12 : 8,
                             offset: const Offset(0, 4),
                           ),
                         ],
                         border: Border.all(
-                          color: isSelected ? Colors.indigo : Colors.indigo.withOpacity(0.05),
+                          color: isSelected ? Colors.indigo : Colors.indigo.withValues(alpha: 0.05),
                           width: 1,
                         ),
                       ),
@@ -1835,14 +1822,14 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(24),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 15, offset: const Offset(0, 8))],
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 15, offset: const Offset(0, 8))],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
               padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: color.withOpacity(0.08), borderRadius: BorderRadius.circular(12)),
+              decoration: BoxDecoration(color: color.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(12)),
               child: Icon(icon, color: color, size: 24),
             ),
             const Spacer(),
@@ -1862,7 +1849,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
       decoration: BoxDecoration(
         color: Colors.indigo,
         borderRadius: BorderRadius.circular(28),
-        boxShadow: [BoxShadow(color: Colors.indigo.withOpacity(0.3), blurRadius: 20, offset: const Offset(0, 10))],
+        boxShadow: [BoxShadow(color: Colors.indigo.withValues(alpha: 0.3), blurRadius: 20, offset: const Offset(0, 10))],
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -1877,7 +1864,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
               children: [
                 Text(title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
                 const SizedBox(height: 8),
-                Text(subtitle, style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.8), height: 1.5)),
+                Text(subtitle, style: TextStyle(fontSize: 13, color: Colors.white.withValues(alpha: 0.8), height: 1.5)),
               ],
             ),
           ),
@@ -1972,7 +1959,7 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
                       title: const Text('Tüm Okula Erişimi Aç'),
                       subtitle: const Text('Tüm öğretmen ve öğrenciler LinGoKN portalına geçiş yapabilir.'),
                       value: enabledAll,
-                      activeColor: Colors.teal,
+                      activeThumbColor: Colors.teal,
                       onChanged: (val) => setDialogState(() => enabledAll = val),
                     ),
                     const Divider(),
@@ -2030,8 +2017,8 @@ class _SchoolDashboardV2ScreenState extends State<SchoolDashboardV2Screen> {
                       setState(() {
                         schoolData!['lingoknAccess'] = updatedAccess;
                       });
-                      Navigator.pop(context);
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      if (mounted) Navigator.pop(context);
+                      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('LinGoKN erişim izinleri başarıyla güncellendi.')),
                       );
                     }
@@ -2151,13 +2138,13 @@ class _ModuleCardWidgetState extends State<_ModuleCardWidget> {
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(isCardHovered || widget.showAllItems ? 0.08 : 0.03),
+              color: Colors.black.withValues(alpha: isCardHovered || widget.showAllItems ? 0.08 : 0.03),
               blurRadius: isCardHovered || widget.showAllItems ? 30 : 20,
               offset: const Offset(0, 10),
             ),
           ],
           border: Border.all(
-            color: isCardHovered || widget.showAllItems ? widget.color.withOpacity(0.3) : Colors.indigo.withOpacity(0.05),
+            color: isCardHovered || widget.showAllItems ? widget.color.withValues(alpha: 0.3) : Colors.indigo.withValues(alpha: 0.05),
             width: 1.5,
           ),
         ),
@@ -2172,7 +2159,7 @@ class _ModuleCardWidgetState extends State<_ModuleCardWidget> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: widget.color.withOpacity(0.1),
+                    color: widget.color.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Icon(widget.icon, color: widget.color, size: 28),
@@ -2180,7 +2167,7 @@ class _ModuleCardWidgetState extends State<_ModuleCardWidget> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: widget.color.withOpacity(0.1),
+                    color: widget.color.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
@@ -2292,7 +2279,7 @@ class DoodlePainter extends CustomPainter {
   const DoodlePainter();
   @override void paint(Canvas canvas, Size size) {
     const iconSize = 40.0; const spacing = 120.0; final icons = [Icons.school, Icons.book, Icons.edit, Icons.science, Icons.calculate, Icons.public, Icons.history_edu, Icons.psychology, Icons.menu_book, Icons.biotech, Icons.brush, Icons.music_note]; final random = math.Random(42); 
-    for (double x = 0; x < size.width + spacing; x += spacing) { for (double y = 0; y < size.height + spacing; y += spacing) { final iconData = icons[random.nextInt(icons.length)]; final jitterX = random.nextDouble() * 40 - 20; final jitterY = random.nextDouble() * 40 - 20; final rotation = random.nextDouble() * 0.5 - 0.25; final textPainter = TextPainter(textDirection: TextDirection.ltr, text: TextSpan(text: String.fromCharCode(iconData.codePoint), style: TextStyle(fontSize: iconSize, fontFamily: iconData.fontFamily, package: iconData.fontPackage, color: Colors.indigo.withOpacity(0.02 + random.nextDouble() * 0.03)))); textPainter.layout(); canvas.save(); canvas.translate(x + jitterX, y + jitterY); canvas.rotate(rotation); textPainter.paint(canvas, Offset(-textPainter.width / 2, -textPainter.height / 2)); canvas.restore(); } }
+    for (double x = 0; x < size.width + spacing; x += spacing) { for (double y = 0; y < size.height + spacing; y += spacing) { final iconData = icons[random.nextInt(icons.length)]; final jitterX = random.nextDouble() * 40 - 20; final jitterY = random.nextDouble() * 40 - 20; final rotation = random.nextDouble() * 0.5 - 0.25; final textPainter = TextPainter(textDirection: TextDirection.ltr, text: TextSpan(text: String.fromCharCode(iconData.codePoint), style: TextStyle(fontSize: iconSize, fontFamily: iconData.fontFamily, package: iconData.fontPackage, color: Colors.indigo.withValues(alpha: 0.02 + random.nextDouble() * 0.03)))); textPainter.layout(); canvas.save(); canvas.translate(x + jitterX, y + jitterY); canvas.rotate(rotation); textPainter.paint(canvas, Offset(-textPainter.width / 2, -textPainter.height / 2)); canvas.restore(); } }
   }
   @override bool shouldRepaint(CustomPainter oldDelegate) => false;
 }

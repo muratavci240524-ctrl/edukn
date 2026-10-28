@@ -74,7 +74,7 @@ class _ClassLessonHubScreenState extends State<ClassLessonHubScreen> {
                 borderRadius: BorderRadius.circular(18),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.12),
+                    color: Colors.black.withValues(alpha: 0.12),
                     blurRadius: 18,
                     offset: Offset(0, 8),
                   ),
@@ -341,7 +341,7 @@ class _ActionTile extends StatelessWidget {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: Colors.blue.withOpacity(0.10),
+                color: Colors.blue.withValues(alpha: 0.10),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(icon, color: Colors.blue.shade700),

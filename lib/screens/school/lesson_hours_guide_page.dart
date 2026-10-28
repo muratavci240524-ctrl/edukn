@@ -97,14 +97,14 @@ class LessonHoursGuidePage extends StatelessWidget {
                 child: Icon(
                   Icons.access_time_filled_rounded,
                   size: 250,
-                  color: Colors.white.withOpacity(0.1),
+                  color: Colors.white.withValues(alpha: 0.1),
                 ),
               ),
               Center(
                 child: Icon(
                   Icons.av_timer_rounded,
                   size: 80,
-                  color: Colors.white.withOpacity(0.2),
+                  color: Colors.white.withValues(alpha: 0.2),
                 ),
               ),
             ],
@@ -157,7 +157,7 @@ class LessonHoursGuidePage extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
+              color: color.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(16),
             ),
             child: Icon(icon, color: color, size: 28),
@@ -219,7 +219,7 @@ class LessonHoursGuidePage extends StatelessWidget {
                   'Ders programı yapıldıktan sonra saatleri değiştirmek verilerde kaymaya neden olabilir. Bu nedenle programı kesinleştirmeden saatleri netleştirmeniz önerilir.',
                   style: GoogleFonts.poppins(
                     fontSize: 13,
-                    color: Colors.blue.shade900.withOpacity(0.8),
+                    color: Colors.blue.shade900.withValues(alpha: 0.8),
                   ),
                 ),
               ],

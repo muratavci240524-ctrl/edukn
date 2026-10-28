@@ -165,7 +165,7 @@ class _ExternalExamMessagingScreenState
               Text('Mesaj Türü', style: _labelStyle()),
               const SizedBox(height: 8),
               DropdownButtonFormField<MessageType>(
-                value: _messageType,
+                initialValue: _messageType,
                 decoration: _inputDecoration('Seçin'),
                 items: MessageType.values.map((t) {
                   final name = t == MessageType.duyuru
@@ -315,7 +315,7 @@ class _ExternalExamMessagingScreenState
                                 ),
                               ),
                               child: Text(
-                                '${s.displayTime}',
+                                s.displayTime,
                                 style: GoogleFonts.inter(
                                   fontSize: 12,
                                   fontWeight: FontWeight.bold,
@@ -458,7 +458,7 @@ class _ExternalExamMessagingScreenState
         border: Border.all(color: Colors.grey.shade100),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.02),
+            color: Colors.black.withValues(alpha: 0.02),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),

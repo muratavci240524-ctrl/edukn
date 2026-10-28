@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -67,7 +67,7 @@ class _AnnouncementDetailScreenState extends State<AnnouncementDetailScreen> {
         await _loadRecipientDetails();
       }
     } catch (e) {
-      print('Duyuru yüklenirken hata: $e');
+      debugPrint('Duyuru yüklenirken hata: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -117,7 +117,7 @@ class _AnnouncementDetailScreenState extends State<AnnouncementDetailScreen> {
           return;
         }
       } catch (e) {
-        print('Alıcı çözümleme hatası: $e');
+        debugPrint('Alıcı çözümleme hatası: $e');
       }
     }
 
@@ -175,7 +175,7 @@ class _AnnouncementDetailScreenState extends State<AnnouncementDetailScreen> {
             });
           }
         } catch (e) {
-          print('Kullanıcı yüklenirken hata: $e');
+          debugPrint('Kullanıcı yüklenirken hata: $e');
         }
       } else {
         details.add({
@@ -228,7 +228,7 @@ class _AnnouncementDetailScreenState extends State<AnnouncementDetailScreen> {
             'readBy': FieldValue.arrayUnion([userId]),
           });
     } catch (e) {
-      print('Okundu işaretlenirken hata: $e');
+      debugPrint('Okundu işaretlenirken hata: $e');
     }
   }
 
@@ -290,8 +290,8 @@ class _AnnouncementDetailScreenState extends State<AnnouncementDetailScreen> {
             .doc(widget.announcementId)
             .delete();
         if (mounted) {
-          Navigator.pop(context);
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Duyuru silindi')));
+          if (mounted) Navigator.pop(context);
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Duyuru silindi')));
         }
       } catch (e) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Silme hatası: $e'), backgroundColor: Colors.red));
@@ -517,7 +517,7 @@ class _AnnouncementDetailScreenState extends State<AnnouncementDetailScreen> {
                               else if (title.contains('Öğretmen')) { groupIcon = Icons.badge_outlined; iconColor = Colors.teal; }
 
                               return ExpansionTile(
-                                leading: CircleAvatar(radius: 18, backgroundColor: iconColor.withOpacity(0.12), child: Icon(groupIcon, size: 20, color: iconColor)),
+                                leading: CircleAvatar(radius: 18, backgroundColor: iconColor.withValues(alpha: 0.12), child: Icon(groupIcon, size: 20, color: iconColor)),
                                 title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                                 subtitle: Padding(
                                   padding: const EdgeInsets.only(top: 4),

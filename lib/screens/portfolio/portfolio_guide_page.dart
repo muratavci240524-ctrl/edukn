@@ -171,7 +171,7 @@ class PortfolioGuidePage extends StatelessWidget {
                 child: Icon(
                   Icons.folder_copy_rounded,
                   size: 250,
-                  color: Colors.white.withOpacity(0.05),
+                  color: Colors.white.withValues(alpha: 0.05),
                 ),
               ),
               Positioned(
@@ -180,7 +180,7 @@ class PortfolioGuidePage extends StatelessWidget {
                 child: Icon(
                   Icons.account_tree_rounded,
                   size: 150,
-                  color: Colors.white.withOpacity(0.08),
+                  color: Colors.white.withValues(alpha: 0.08),
                 ),
               ),
               Center(
@@ -190,7 +190,7 @@ class PortfolioGuidePage extends StatelessWidget {
                     Icon(
                       Icons.manage_search_rounded,
                       size: 80,
-                      color: Colors.white.withOpacity(0.9),
+                      color: Colors.white.withValues(alpha: 0.9),
                     ),
                     const SizedBox(height: 10),
                   ],
@@ -243,9 +243,9 @@ class PortfolioGuidePage extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.03),
+          color: color.withValues(alpha: 0.03),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: color.withOpacity(0.1)),
+          border: Border.all(color: color.withValues(alpha: 0.1)),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -253,7 +253,7 @@ class PortfolioGuidePage extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
+                color: color.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(16),
               ),
               child: Icon(icon, color: color, size: 28),
@@ -317,7 +317,7 @@ class PortfolioGuidePage extends StatelessWidget {
                   'Portfolyo verileri birbiriyle ilişkilidir. Örneğin; devamsızlık kayıtlarındaki bir artışın deneme sınavı netlerine yansımasını bu panelden hızlıca analiz edebilirsiniz.',
                   style: GoogleFonts.poppins(
                     fontSize: 13,
-                    color: Colors.indigo.shade900.withOpacity(0.8),
+                    color: Colors.indigo.shade900.withValues(alpha: 0.8),
                     height: 1.5,
                   ),
                 ),

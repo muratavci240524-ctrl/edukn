@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -92,7 +92,7 @@ class _PreRegistrationSettingsScreenState extends State<PreRegistrationSettingsS
         setState(() => _isLoading = false);
       }
     } catch (e) {
-      print('Error loading settings: $e');
+      debugPrint('Error loading settings: $e');
       setState(() => _isLoading = false);
     }
   }
@@ -553,7 +553,7 @@ class _PreRegistrationSettingsScreenState extends State<PreRegistrationSettingsS
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: Colors.indigo.withOpacity(0.1),
+              color: Colors.indigo.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(icon, color: Colors.indigo, size: 24),
@@ -660,7 +660,7 @@ class _PreRegistrationSettingsScreenState extends State<PreRegistrationSettingsS
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: const Color(0xFFE2E8F0)),
             boxShadow: [
-              BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4)),
+              BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4)),
             ],
           ),
           child: InkWell(
@@ -674,7 +674,7 @@ class _PreRegistrationSettingsScreenState extends State<PreRegistrationSettingsS
                     width: 48,
                     height: 48,
                     decoration: BoxDecoration(
-                      color: Colors.indigo.withOpacity(0.05),
+                      color: Colors.indigo.withValues(alpha: 0.05),
                       shape: BoxShape.circle,
                     ),
                     child: Center(
@@ -778,7 +778,7 @@ class _PreRegistrationSettingsScreenState extends State<PreRegistrationSettingsS
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(16),
-                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
+                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4))],
               ),
               child: TextField(
                 controller: entry.value,
@@ -837,14 +837,14 @@ class _PreRegistrationSettingsScreenState extends State<PreRegistrationSettingsS
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: const Color(0xFFF1F5F9)),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
+            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4))],
           ),
           child: ListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             leading: Container(
               width: 44,
               height: 44,
-              decoration: BoxDecoration(color: Colors.orange.withOpacity(0.1), shape: BoxShape.circle),
+              decoration: BoxDecoration(color: Colors.orange.withValues(alpha: 0.1), shape: BoxShape.circle),
               child: const Icon(Icons.sell_outlined, color: Colors.orange, size: 20),
             ),
             title: Text(d['name'] ?? '', style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: const Color(0xFF334155), fontSize: 16)),
@@ -863,7 +863,7 @@ class _PreRegistrationSettingsScreenState extends State<PreRegistrationSettingsS
               child: Switch(
                 value: d['enabled'] ?? true,
                 onChanged: (val) => setState(() => d['enabled'] = val),
-                activeColor: Colors.indigo,
+                activeThumbColor: Colors.indigo,
               ),
             ),
           ),
@@ -893,7 +893,7 @@ class _PreRegistrationSettingsScreenState extends State<PreRegistrationSettingsS
                       child: Container(
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(20),
-                          boxShadow: [BoxShadow(color: Colors.indigo.withOpacity(0.1), blurRadius: 20)],
+                          boxShadow: [BoxShadow(color: Colors.indigo.withValues(alpha: 0.1), blurRadius: 20)],
                         ),
                         child: child,
                       ),
@@ -918,7 +918,7 @@ class _PreRegistrationSettingsScreenState extends State<PreRegistrationSettingsS
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(color: const Color(0xFFF1F5F9)),
-                            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
+                            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4))],
                           ),
                           child: ListTile(
                             contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
@@ -995,7 +995,7 @@ class _PreRegistrationSettingsScreenState extends State<PreRegistrationSettingsS
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(16),
-                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
+                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4))],
               ),
               child: TextField(
                 controller: nameCtrl, 
@@ -1015,7 +1015,7 @@ class _PreRegistrationSettingsScreenState extends State<PreRegistrationSettingsS
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(16),
-                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
+                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4))],
               ),
               child: TextField(
                 controller: percentCtrl, 
@@ -1052,7 +1052,7 @@ class _PreRegistrationSettingsScreenState extends State<PreRegistrationSettingsS
                       else selectedApplyTo.remove(type);
                     });
                   },
-                  selectedColor: const Color(0xFF4C59BC).withOpacity(0.2),
+                  selectedColor: const Color(0xFF4C59BC).withValues(alpha: 0.2),
                   checkmarkColor: const Color(0xFF4C59BC),
                   labelStyle: GoogleFonts.inter(
                     fontSize: 12, 
@@ -1167,7 +1167,7 @@ class _PreRegistrationSettingsScreenState extends State<PreRegistrationSettingsS
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(color: const Color(0xFFF1F5F9)),
-                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
+                          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4))],
                         ),
                         child: ListTile(
                           contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
@@ -1228,7 +1228,7 @@ class _PreRegistrationSettingsScreenState extends State<PreRegistrationSettingsS
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(16),
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
+              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4))],
             ),
             child: TextField(
               controller: nameCtrl, 
@@ -1248,7 +1248,7 @@ class _PreRegistrationSettingsScreenState extends State<PreRegistrationSettingsS
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(16),
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
+              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4))],
             ),
             child: TextField(
               controller: discountCtrl, 
@@ -1349,14 +1349,14 @@ class _PreRegistrationSettingsScreenState extends State<PreRegistrationSettingsS
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: const Color(0xFFF1F5F9)),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
+            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4))],
           ),
           child: ListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             leading: Container(
               width: 44,
               height: 44,
-              decoration: BoxDecoration(color: Colors.blue.withOpacity(0.1), shape: BoxShape.circle),
+              decoration: BoxDecoration(color: Colors.blue.withValues(alpha: 0.1), shape: BoxShape.circle),
               child: const Icon(Icons.payment, color: Colors.blue, size: 20),
             ),
             title: Text(m['name'] ?? '', style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: const Color(0xFF334155), fontSize: 16)),

@@ -248,8 +248,8 @@ class _SprintIconPainter extends CustomPainter {
     // 1. Parça
     final shader1 = LinearGradient(
       colors: [
-        Color(0xFF1E3A8A).withOpacity(op1),
-        Color(0xFF2563EB).withOpacity(op1),
+        Color(0xFF1E3A8A).withValues(alpha: op1),
+        Color(0xFF2563EB).withValues(alpha: op1),
       ],
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
@@ -276,8 +276,8 @@ class _SprintIconPainter extends CustomPainter {
     // 2. Parça
     final shader2 = LinearGradient(
       colors: [
-        Color(0xFF2563EB).withOpacity(op2),
-        Color(0xFF60A5FA).withOpacity(op2),
+        Color(0xFF2563EB).withValues(alpha: op2),
+        Color(0xFF60A5FA).withValues(alpha: op2),
       ],
       begin: Alignment.bottomLeft,
       end: Alignment.topRight,
@@ -302,7 +302,7 @@ class _SprintIconPainter extends CustomPainter {
     );
 
     // 3. Parça (parlama efekti animasyondayken)
-    final color3 = Color(0xFF60A5FA).withOpacity(op3);
+    final color3 = Color(0xFF60A5FA).withValues(alpha: op3);
     final paint3Fill = Paint()
       ..isAntiAlias = true
       ..style = PaintingStyle.fill

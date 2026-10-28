@@ -31,7 +31,7 @@ class _BurdonAttentionReportState extends State<BurdonAttentionReport>
   String? _selectedStudent;
 
   List<Map<String, dynamic>> _branches = [];
-  Map<String, dynamic> _userDetails = {};
+  final Map<String, dynamic> _userDetails = {};
   bool _isLoadingFilters = false;
 
   @override
@@ -75,7 +75,7 @@ class _BurdonAttentionReportState extends State<BurdonAttentionReport>
           .where((b) => respondentBranches.contains(b['id']))
           .toList();
     } catch (e) {
-      print('Load filters error: $e');
+      debugPrint('Load filters error: $e');
     }
     if (mounted) setState(() => _isLoadingFilters = false);
   }
@@ -501,21 +501,21 @@ class _BurdonAttentionReportState extends State<BurdonAttentionReport>
                   // Correct
                   textColor = Colors.green;
                   decoration = BoxDecoration(
-                    color: Colors.green.withOpacity(0.1),
+                    color: Colors.green.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(4),
                   );
                 } else if (isSelected && !isTarget) {
                   // Wrong choice
                   textColor = Colors.red;
                   decoration = BoxDecoration(
-                    color: Colors.red.withOpacity(0.1),
+                    color: Colors.red.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(4),
                   );
                 } else if (!isSelected && isTarget) {
                   // Missed
                   textColor = Colors.orange.shade800;
                   decoration = BoxDecoration(
-                    border: Border.all(color: Colors.orange.withOpacity(0.5)),
+                    border: Border.all(color: Colors.orange.withValues(alpha: 0.5)),
                     borderRadius: BorderRadius.circular(4),
                   );
                 }
@@ -693,7 +693,7 @@ class _BurdonAttentionReportState extends State<BurdonAttentionReport>
     required ValueChanged<dynamic> onChanged,
   }) {
     return DropdownButtonFormField(
-      value: value,
+      initialValue: value,
       decoration: InputDecoration(
         labelText: label,
         filled: true,
@@ -751,9 +751,9 @@ class _BurdonAttentionReportState extends State<BurdonAttentionReport>
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
+          color: color.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withOpacity(0.3)),
+          border: Border.all(color: color.withValues(alpha: 0.3)),
         ),
         child: Column(
           children: [
@@ -797,11 +797,11 @@ class _BurdonAttentionReportState extends State<BurdonAttentionReport>
                 maxY: 1.1,
                 lineTouchData: LineTouchData(
                   touchTooltipData: LineTouchTooltipData(
-                    getTooltipColor: (spot) => Colors.indigo.withOpacity(0.9),
+                    getTooltipColor: (spot) => Colors.indigo.withValues(alpha: 0.9),
                     getTooltipItems: (List<LineBarSpot> touchedSpots) {
                       return touchedSpots.map((spot) {
                         return LineTooltipItem(
-                          '${spot.y.toStringAsFixed(2)}',
+                          spot.y.toStringAsFixed(2),
                           const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
@@ -876,7 +876,7 @@ class _BurdonAttentionReportState extends State<BurdonAttentionReport>
                     dotData: const FlDotData(show: false),
                     belowBarData: BarAreaData(
                       show: true,
-                      color: Colors.indigo.withOpacity(0.05),
+                      color: Colors.indigo.withValues(alpha: 0.05),
                     ),
                   ),
                 ],
@@ -911,8 +911,8 @@ class _BurdonAttentionReportState extends State<BurdonAttentionReport>
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.05),
-        border: Border.all(color: color.withOpacity(0.2)),
+        color: color.withValues(alpha: 0.05),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -946,7 +946,7 @@ class _BurdonAttentionReportState extends State<BurdonAttentionReport>
 
         return ListTile(
           onTap: () => _showStudentDetail(r),
-          hoverColor: Colors.indigo.withOpacity(0.05),
+          hoverColor: Colors.indigo.withValues(alpha: 0.05),
           leading: CircleAvatar(
             backgroundColor: Colors.indigo.shade50,
             child: Text(
@@ -965,7 +965,7 @@ class _BurdonAttentionReportState extends State<BurdonAttentionReport>
           trailing: Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
-              color: Colors.indigo.withOpacity(0.1),
+              color: Colors.indigo.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(

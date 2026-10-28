@@ -1,13 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:html' as html;
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:pdfx/pdfx.dart';
-import 'package:image/image.dart' as img;
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -37,8 +35,8 @@ Future<Uint8List> _cropNativeCanvas(
   await loadedC.future;
   html.Url.revokeObjectUrl(url); // free memory
 
-  final nw = imgEl.naturalWidth!;
-  final nh = imgEl.naturalHeight!;
+  final nw = imgEl.naturalWidth;
+  final nh = imgEl.naturalHeight;
 
   // 3. Map display-space selection → pixel coords
   final scaleX = nw / displayW;
@@ -85,7 +83,7 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
   late List<int> _currentPage;
 
   bool _isLoadingPdf = false;
-  bool _isRenderingPage = false;
+  final bool _isRenderingPage = false;
 
   // ─── Zoom & Pan ───────────────────────────────────────────────────────────
   final TransformationController _tx = TransformationController();
@@ -105,7 +103,7 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
   List<Map<String, dynamic>> _localCrops = [];
   
   // Subject -> QuestionNo -> { 'success': 85.0, 'outcome': 'Topic Name', 'correctAnswer': 'A' }
-  Map<String, Map<int, Map<String, dynamic>>> _questionStats = {};
+  final Map<String, Map<int, Map<String, dynamic>>> _questionStats = {};
 
   bool _isPublishing = false;
   int _publishCount = 0;
@@ -1280,7 +1278,7 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
                   color: Colors.white,
                   boxShadow: [
                     BoxShadow(
-                        color: Colors.black.withOpacity(0.2),
+                        color: Colors.black.withValues(alpha: 0.2),
                         blurRadius: 20,
                         offset: const Offset(0, 4))
                   ],
@@ -1312,7 +1310,7 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
             bottom: 16, right: 16,
             child: Container(
               decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.75),
+                  color: Colors.black.withValues(alpha: 0.75),
                   borderRadius: BorderRadius.circular(24)),
               child: Row(mainAxisSize: MainAxisSize.min, children: [
                 IconButton(
@@ -1385,7 +1383,7 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
               color: Colors.white,
               borderRadius: BorderRadius.circular(24),
               boxShadow: [
-                BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 24)
+                BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 24)
               ]),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Icon(Icons.picture_as_pdf_outlined,
@@ -1617,9 +1615,9 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                 decoration: BoxDecoration(
-                                  color: _getDifficultyColor((c['difficulty'] as num).toDouble()).withOpacity(0.1),
+                                  color: _getDifficultyColor((c['difficulty'] as num).toDouble()).withValues(alpha: 0.1),
                                   borderRadius: BorderRadius.circular(4),
-                                  border: Border.all(color: _getDifficultyColor((c['difficulty'] as num).toDouble()).withOpacity(0.3)),
+                                  border: Border.all(color: _getDifficultyColor((c['difficulty'] as num).toDouble()).withValues(alpha: 0.3)),
                                 ),
                                 child: Text(
                                   _getDifficultyLabel((c['difficulty'] as num).toDouble()),
@@ -1897,9 +1895,9 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: _getDifficultyColor((crop['difficulty'] as num).toDouble()).withOpacity(0.1),
+                        color: _getDifficultyColor((crop['difficulty'] as num).toDouble()).withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: _getDifficultyColor((crop['difficulty'] as num).toDouble()).withOpacity(0.3)),
+                        border: Border.all(color: _getDifficultyColor((crop['difficulty'] as num).toDouble()).withValues(alpha: 0.3)),
                       ),
                       child: Text(
                         'Zorluk: ${_getDifficultyLabel((crop['difficulty'] as num).toDouble())}',
@@ -2166,7 +2164,7 @@ class _ErrorBookletEditorScreenState extends State<ErrorBookletEditorScreen> {
         _isLoadingPdf = false;
       });
       
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PDF başarıyla kaldırıldı.')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PDF başarıyla kaldırıldı.')));
     } catch (e) {
       if (mounted) {
         setState(() => _isLoadingPdf = false);
@@ -2187,7 +2185,7 @@ class _SelectionPainter extends CustomPainter {
     if (start == null || end == null) return;
     final rect = Rect.fromPoints(start!, end!);
     canvas.drawRect(
-        rect, Paint()..color = Colors.indigo.withOpacity(0.18)..style = PaintingStyle.fill);
+        rect, Paint()..color = Colors.indigo.withValues(alpha: 0.18)..style = PaintingStyle.fill);
     canvas.drawRect(
         rect, Paint()..color = Colors.indigo..style = PaintingStyle.stroke..strokeWidth = 2);
     const r = 5.0;

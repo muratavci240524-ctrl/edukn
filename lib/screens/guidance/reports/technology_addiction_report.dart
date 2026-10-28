@@ -60,7 +60,7 @@ class _TechnologyAddictionReportState extends State<TechnologyAddictionReport>
   };
 
   List<Map<String, dynamic>> _branches = [];
-  Map<String, Map<String, dynamic>> _userDetails = {};
+  final Map<String, Map<String, dynamic>> _userDetails = {};
   bool _isLoadingFilters = false;
 
   @override
@@ -104,7 +104,7 @@ class _TechnologyAddictionReportState extends State<TechnologyAddictionReport>
           .where((b) => respondentBranches.contains(b['id']))
           .toList();
     } catch (e) {
-      print('Load filters error: $e');
+      debugPrint('Load filters error: $e');
     }
     if (mounted) setState(() => _isLoadingFilters = false);
   }
@@ -289,7 +289,7 @@ class _TechnologyAddictionReportState extends State<TechnologyAddictionReport>
     return Container(
       width: double.infinity,
       child: DropdownButtonFormField(
-        value: value,
+        initialValue: value,
         decoration: InputDecoration(
           labelText: label,
           labelStyle: TextStyle(color: Colors.grey.shade600, fontSize: 14),
@@ -416,7 +416,7 @@ class _TechnologyAddictionReportState extends State<TechnologyAddictionReport>
         width: double.infinity,
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [color.withOpacity(0.1), color.withOpacity(0.05)],
+            colors: [color.withValues(alpha: 0.1), color.withValues(alpha: 0.05)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -443,7 +443,7 @@ class _TechnologyAddictionReportState extends State<TechnologyAddictionReport>
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                color: color.withOpacity(0.8),
+                color: color.withValues(alpha: 0.8),
               ),
               textAlign: TextAlign.center,
             ),
@@ -476,7 +476,7 @@ class _TechnologyAddictionReportState extends State<TechnologyAddictionReport>
             RadarChartData(
               dataSets: [
                 RadarDataSet(
-                  fillColor: Colors.indigo.withOpacity(0.2),
+                  fillColor: Colors.indigo.withValues(alpha: 0.2),
                   borderColor: Colors.indigo,
                   entryRadius: 3,
                   dataEntries: normalizedData
@@ -618,7 +618,7 @@ class _TechnologyAddictionReportState extends State<TechnologyAddictionReport>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: color),
       ),
@@ -880,7 +880,7 @@ class _TechnologyAddictionReportState extends State<TechnologyAddictionReport>
         mimeType: MimeType.pdf,
       );
     } catch (e) {
-      print('PDF export error: $e');
+      debugPrint('PDF export error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('PDF oluşturulurken hata oluştu: $e')),
@@ -1013,7 +1013,7 @@ class _TechnologyAddictionReportState extends State<TechnologyAddictionReport>
         );
       }
     } catch (e) {
-      print('Excel export error: $e');
+      debugPrint('Excel export error: $e');
     }
   }
 }

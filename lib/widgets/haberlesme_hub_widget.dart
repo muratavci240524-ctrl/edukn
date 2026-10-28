@@ -3,7 +3,6 @@ import 'dart:math' as math;
 import '../screens/school/school_types/school_type_announcements_screen.dart';
 import '../screens/school/school_types/school_type_social_media_screen.dart';
 import '../screens/school/school_types/chat/chat_screen.dart';
-import '../screens/announcements/announcements_screen.dart';
 import '../services/user_permission_service.dart';
 
 class HaberlesmeHubWidget extends StatelessWidget {
@@ -36,7 +35,7 @@ class HaberlesmeHubWidget extends StatelessWidget {
               children: [
                 // Centered Header
                 Padding(
-                  padding: const EdgeInsets.only(left: 24, right: 24, top: 32, bottom: 16),
+                  padding: EdgeInsets.only(left: 24, right: 24, top: MediaQuery.of(context).size.height < 640 ? 10 : 32, bottom: MediaQuery.of(context).size.height < 640 ? 4 : 16),
                   child: SizedBox(
                     width: double.infinity,
                     child: Column(
@@ -46,13 +45,13 @@ class HaberlesmeHubWidget extends StatelessWidget {
                           'Haberleşme',
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            fontSize: 28,
+                            fontSize: MediaQuery.of(context).size.height < 640 ? 22 : 28,
                             fontWeight: FontWeight.w900,
                             color: Colors.indigo.shade900,
                             letterSpacing: -0.5,
                           ),
                         ),
-                        const SizedBox(height: 8),
+                        SizedBox(height: MediaQuery.of(context).size.height < 640 ? 2 : 8),
                         Text(
                           isTeacher
                               ? 'Öğretmenlere özel duyurular ve mesajlaşma merkezi.'
@@ -71,87 +70,107 @@ class HaberlesmeHubWidget extends StatelessWidget {
                   ),
                 ),
 
-                // Action Cards list
+                // Kartlar: ekran yüksekliğine göre eşit dağıtılır, ortalanır, kaymaz
                 Expanded(
-                  child: ListView(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                    physics: const BouncingScrollPhysics(),
-                    children: [
-                      // 1. Duyurular
-                      if (_hasSubModuleAccess('haberlesme', 'genel_duyurular')) ...[
-                        _buildCommCard(
-                          title: 'Duyurular',
-                          description: schoolTypeId.isEmpty
-                              ? 'Tüm okul türlerinin duyurularını görüntüleyin ve yönetin.'
-                              : 'Okul ve kurum içi güncel duyuruları takip edin.',
-                          icon: Icons.campaign_rounded,
-                          color: Colors.orange,
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => SchoolTypeAnnouncementsScreen(
-                                  schoolTypeId: schoolTypeId,
-                                  schoolTypeName: schoolTypeName.isEmpty ? 'Tüm Okul Türleri' : schoolTypeName,
-                                  institutionId: institutionId,
-                                ),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final entries = <Widget Function(double)>[
+                        if (_hasSubModuleAccess('haberlesme', 'genel_duyurular'))
+                          (h) => _buildCommCard(
+                                height: h,
+                                title: 'Duyurular',
+                                description: schoolTypeId.isEmpty
+                                    ? 'Tüm okul türlerinin duyurularını görüntüleyin ve yönetin.'
+                                    : 'Okul ve kurum içi güncel duyuruları takip edin.',
+                                icon: Icons.campaign_rounded,
+                                color: Colors.orange,
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => SchoolTypeAnnouncementsScreen(
+                                        schoolTypeId: schoolTypeId,
+                                        schoolTypeName: schoolTypeName.isEmpty ? 'Tüm Okul Türleri' : schoolTypeName,
+                                        institutionId: institutionId,
+                                      ),
+                                    ),
+                                  );
+                                },
                               ),
-                            );
-                          },
-                        ),
-                        const SizedBox(height: 20),
-                      ],
+                        if (_hasSubModuleAccess('haberlesme', 'sosyal_medya'))
+                          (h) => _buildCommCard(
+                                height: h,
+                                title: 'Sosyal Medya',
+                                description: schoolTypeId.isEmpty
+                                    ? 'Okulun global sosyal medya paylaşımlarını inceleyin.'
+                                    : 'Okulun sosyal medya paylaşımlarını inceleyin.',
+                                icon: Icons.share_rounded,
+                                color: Colors.blue,
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => SchoolTypeSocialMediaScreen(
+                                        schoolTypeId: schoolTypeId,
+                                        schoolTypeName: schoolTypeName.isEmpty ? 'Tüm Okul Türleri' : schoolTypeName,
+                                        institutionId: institutionId,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                        if (_hasSubModuleAccess('haberlesme', 'mesajlar'))
+                          (h) => _buildCommCard(
+                                height: h,
+                                title: 'Mesajlar',
+                                description: schoolTypeId.isEmpty
+                                    ? 'Tüm kullanıcılara ve okul türlerine mesajlaşın.'
+                                    : 'Öğrenciler, veliler ve personelle mesajlaşın.',
+                                icon: Icons.forum_rounded,
+                                color: Colors.green,
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => ChatScreen(
+                                        schoolTypeId: schoolTypeId,
+                                        schoolTypeName: schoolTypeName.isEmpty ? 'Tüm Okul Türleri' : schoolTypeName,
+                                        institutionId: institutionId,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                      ];
+                      if (entries.isEmpty) return const SizedBox.shrink();
 
-                      // 2. Sosyal Medya
-                      if (_hasSubModuleAccess('haberlesme', 'sosyal_medya')) ...[
-                        _buildCommCard(
-                          title: 'Sosyal Medya',
-                          description: schoolTypeId.isEmpty
-                              ? 'Okulun global sosyal medya paylaşımlarını inceleyin.'
-                              : 'Okulun sosyal medya paylaşımlarını inceleyin.',
-                          icon: Icons.share_rounded,
-                          color: Colors.blue,
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => SchoolTypeSocialMediaScreen(
-                                  schoolTypeId: schoolTypeId,
-                                  schoolTypeName: schoolTypeName.isEmpty ? 'Tüm Okul Türleri' : schoolTypeName,
-                                  institutionId: institutionId,
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                        const SizedBox(height: 20),
-                      ],
+                      // Alttaki yüzen menü için boşluk bırak, kalan yüksekliği kartlara paylaştır
+                      const gap = 14.0;
+                      final bottomReserve = constraints.maxHeight < 420 ? 72.0 : 96.0;
+                      const vPad = 8.0;
+                      final avail = constraints.maxHeight - bottomReserve - vPad * 2;
+                      final raw = (avail - gap * (entries.length - 1)) / entries.length;
+                      final cardH = raw.clamp(58.0, 150.0).toDouble();
 
-                      // 3. Mesajlar
-                      if (_hasSubModuleAccess('haberlesme', 'mesajlar')) ...[
-                        _buildCommCard(
-                          title: 'Mesajlar',
-                          description: schoolTypeId.isEmpty
-                              ? 'Tüm kullanıcılara ve okul türlerine mesajlaşın.'
-                              : 'Öğrenciler, veliler ve personelle mesajlaşın.',
-                          icon: Icons.forum_rounded,
-                          color: Colors.green,
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => ChatScreen(
-                                  schoolTypeId: schoolTypeId,
-                                  schoolTypeName: schoolTypeName.isEmpty ? 'Tüm Okul Türleri' : schoolTypeName,
-                                  institutionId: institutionId,
-                                ),
-                              ),
-                            );
-                          },
+                      return Padding(
+                        padding: EdgeInsets.only(left: 20, right: 20, top: vPad, bottom: bottomReserve),
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 560),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                for (int i = 0; i < entries.length; i++) ...[
+                                  if (i > 0) const SizedBox(height: gap),
+                                  entries[i](cardH),
+                                ],
+                              ],
+                            ),
+                          ),
                         ),
-                        const SizedBox(height: 100),
-                      ],
-                    ],
+                      );
+                    },
                   ),
                 ),
               ],
@@ -161,6 +180,7 @@ class HaberlesmeHubWidget extends StatelessWidget {
   }
 
   Widget _buildCommCard({
+    required double height,
     required String title,
     required String description,
     required IconData icon,
@@ -168,13 +188,13 @@ class HaberlesmeHubWidget extends StatelessWidget {
     required VoidCallback onTap,
   }) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 16),
+      height: height,
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: color.shade500.withOpacity(0.08),
+            color: color.shade500.withValues(alpha: 0.08),
             blurRadius: 24,
             offset: const Offset(0, 12),
           ),
@@ -189,11 +209,11 @@ class HaberlesmeHubWidget extends StatelessWidget {
             splashColor: color.shade50,
             highlightColor: Colors.transparent,
             child: Padding(
-              padding: const EdgeInsets.all(24.0),
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: height < 100 ? 4 : 14),
               child: Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(16),
+                    padding: EdgeInsets.all(height < 100 ? 8 : 16),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: [color.shade400, color.shade600],
@@ -203,13 +223,13 @@ class HaberlesmeHubWidget extends StatelessWidget {
                       borderRadius: BorderRadius.circular(20),
                       boxShadow: [
                         BoxShadow(
-                          color: color.withOpacity(0.3),
+                          color: color.withValues(alpha: 0.3),
                           blurRadius: 12,
                           offset: const Offset(0, 6),
                         ),
                       ],
                     ),
-                    child: Icon(icon, size: 32, color: Colors.white),
+                    child: Icon(icon, size: height < 100 ? 22 : 32, color: Colors.white),
                   ),
                   const SizedBox(width: 20),
                   Expanded(
@@ -219,15 +239,17 @@ class HaberlesmeHubWidget extends StatelessWidget {
                         Text(
                           title,
                           style: TextStyle(
-                            fontSize: 18,
+                            fontSize: height < 100 ? 16 : 18,
                             fontWeight: FontWeight.w900,
                             color: Colors.indigo.shade900,
                             letterSpacing: -0.5,
                           ),
                         ),
-                        const SizedBox(height: 6),
+                        SizedBox(height: height < 100 ? 2 : 6),
                         Text(
                           description,
+                          maxLines: height < 100 ? 1 : 2,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 13,
                             color: Colors.blueGrey.shade600,
@@ -295,7 +317,7 @@ class DoodlePainter extends CustomPainter {
                     fontFamily: iconData.fontFamily,
                     package: iconData.fontPackage,
                     color: Colors.indigo
-                        .withOpacity(0.02 + random.nextDouble() * 0.03))));
+                        .withValues(alpha: 0.02 + random.nextDouble() * 0.03))));
         textPainter.layout();
         canvas.save();
         canvas.translate(x + jitterX, y + jitterY);

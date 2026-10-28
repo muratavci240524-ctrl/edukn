@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../models/field_trip_model.dart';
@@ -139,7 +139,7 @@ class _FieldTripGroupManagerScreenState
       }
     } catch (e) {
       if (mounted) setState(() => _isLoading = false);
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata: $e')));
     }
@@ -185,7 +185,7 @@ class _FieldTripGroupManagerScreenState
         name: 'gezi_gruplari.pdf',
       );
     } catch (e) {
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('PDF oluşturma hatası: $e')));
     }
@@ -311,7 +311,7 @@ class _FieldTripGroupManagerScreenState
         _trip = updatedTrip;
         _cancelEditing();
       });
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             _editingGroupId != null ? 'Grup güncellendi' : 'Grup oluşturuldu',
@@ -319,7 +319,7 @@ class _FieldTripGroupManagerScreenState
         ),
       );
     } catch (e) {
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata: $e')));
     }
@@ -379,11 +379,11 @@ class _FieldTripGroupManagerScreenState
       setState(() {
         _trip = updatedTrip;
       });
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Grup silindi')));
     } catch (e) {
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata: $e')));
     }
@@ -642,7 +642,7 @@ class _FieldTripGroupManagerScreenState
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.indigo.shade100),
         boxShadow: [
-          BoxShadow(color: Colors.indigo.withOpacity(0.05), blurRadius: 10),
+          BoxShadow(color: Colors.indigo.withValues(alpha: 0.05), blurRadius: 10),
         ],
       ),
       child: Column(

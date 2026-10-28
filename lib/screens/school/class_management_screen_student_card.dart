@@ -37,9 +37,9 @@ class _StudentListCardState extends State<StudentListCard> {
 
   Future<void> _loadStudentCount() async {
     try {
-      print('📊 Öğrenci sayısı yükleniyor...');
-      print('   classId: ${widget.classId}');
-      print('   className: ${widget.className}');
+      debugPrint('📊 Öğrenci sayısı yükleniyor...');
+      debugPrint('   classId: ${widget.classId}');
+      debugPrint('   className: ${widget.className}');
       
       // Sadece bu şubeye ait (classId) öğrencileri sorgula
       final snapshotById = await FirebaseFirestore.instance
@@ -47,7 +47,7 @@ class _StudentListCardState extends State<StudentListCard> {
           .where('classId', isEqualTo: widget.classId)
           .get();
 
-      print('   classId ile bulunan: ${snapshotById.docs.length}');
+      debugPrint('   classId ile bulunan: ${snapshotById.docs.length}');
 
       final allIds = <String>{...snapshotById.docs.map((d) => d.id)};
 
@@ -67,10 +67,10 @@ class _StudentListCardState extends State<StudentListCard> {
         }
       }
 
-      print('   className filtresi sonrası tekrarsız toplam: ${allIds.length}');
+      debugPrint('   className filtresi sonrası tekrarsız toplam: ${allIds.length}');
 
       final count = allIds.length;
-      print('✅ Toplam öğrenci sayısı: $count (tekrarsız)');
+      debugPrint('✅ Toplam öğrenci sayısı: $count (tekrarsız)');
 
       if (mounted) {
         setState(() {
@@ -79,7 +79,7 @@ class _StudentListCardState extends State<StudentListCard> {
         });
       }
     } catch (e) {
-      print('❌ Öğrenci sayısı yükleme hatası: $e');
+      debugPrint('❌ Öğrenci sayısı yükleme hatası: $e');
       if (mounted) {
         setState(() => _isLoading = false);
       }
@@ -227,15 +227,15 @@ class _StudentListDialogState extends State<StudentListDialog> {
 
   Future<void> _loadStudents() async {
     try {
-      print('🔍 Öğrenciler yükleniyor...');
-      print('   classId: ${widget.classId}');
-      print('   className: ${widget.className}');
+      debugPrint('🔍 Öğrenciler yükleniyor...');
+      debugPrint('   classId: ${widget.classId}');
+      debugPrint('   className: ${widget.className}');
       
       // Seçili veya aktif dönemi al
       final selectedTermId = await TermService().getSelectedTermId();
       final activeTermId = await TermService().getActiveTermId();
       final effectiveTermId = selectedTermId ?? activeTermId;
-      print('   effectiveTermId: $effectiveTermId');
+      debugPrint('   effectiveTermId: $effectiveTermId');
       
       // Hem classId hem className ile sorgula
       final snapshotById = await FirebaseFirestore.instance
@@ -243,7 +243,7 @@ class _StudentListDialogState extends State<StudentListDialog> {
           .where('classId', isEqualTo: widget.classId)
           .get();
 
-      print('   classId ile bulunan: ${snapshotById.docs.length}');
+      debugPrint('   classId ile bulunan: ${snapshotById.docs.length}');
 
       final snapshotByName = await FirebaseFirestore.instance
           .collection('students')
@@ -252,7 +252,7 @@ class _StudentListDialogState extends State<StudentListDialog> {
           .where('institutionId', isEqualTo: widget.institutionId)
           .get();
       
-      print('   className + schoolTypeId + institutionId ile bulunan: ${snapshotByName.docs.length}');
+      debugPrint('   className + schoolTypeId + institutionId ile bulunan: ${snapshotByName.docs.length}');
 
       // İki sonucu birleştir ve tekrarları kaldır
       final allDocs = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
@@ -286,7 +286,7 @@ class _StudentListDialogState extends State<StudentListDialog> {
         // Manuel sıralama
         students.sort((a, b) => (a['fullName']?.toString() ?? '').compareTo(b['fullName']?.toString() ?? ''));
         
-        print('✅ Toplam ${students.length} öğrenci yüklendi (dönem filtreli)');
+        debugPrint('✅ Toplam ${students.length} öğrenci yüklendi (dönem filtreli)');
         
         setState(() {
           _students = students;
@@ -294,7 +294,7 @@ class _StudentListDialogState extends State<StudentListDialog> {
         });
       }
     } catch (e) {
-      print('❌ Öğrenci yükleme hatası: $e');
+      debugPrint('❌ Öğrenci yükleme hatası: $e');
       if (mounted) {
         setState(() => _isLoading = false);
       }
@@ -323,7 +323,7 @@ class _StudentListDialogState extends State<StudentListDialog> {
 
     if (confirm == true) {
       try {
-        print('🗑️ Öğrenci sınıftan çıkarılıyor: $studentId');
+        debugPrint('🗑️ Öğrenci sınıftan çıkarılıyor: $studentId');
         
         await FirebaseFirestore.instance
             .collection('students')
@@ -335,9 +335,9 @@ class _StudentListDialogState extends State<StudentListDialog> {
           'updatedAt': DateTime.now().toIso8601String(),
         });
 
-        print('✅ Öğrenci başarıyla çıkarıldı');
+        debugPrint('✅ Öğrenci başarıyla çıkarıldı');
 
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('✅ Öğrenci sınıftan çıkarıldı')),
         );
 
@@ -346,8 +346,8 @@ class _StudentListDialogState extends State<StudentListDialog> {
         _loadStudents();
         widget.onStudentsChanged();
       } catch (e) {
-        print('❌ Sınıftan çıkarma hatası: $e');
-        ScaffoldMessenger.of(context).showSnackBar(
+        debugPrint('❌ Sınıftan çıkarma hatası: $e');
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('❌ Hata: $e')),
         );
       }
@@ -462,7 +462,7 @@ class _StudentListDialogState extends State<StudentListDialog> {
             border: Border.all(color: Colors.grey.shade100),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.02),
+                color: Colors.black.withValues(alpha: 0.02),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
@@ -482,7 +482,7 @@ class _StudentListDialogState extends State<StudentListDialog> {
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.indigo.withOpacity(0.2),
+                    color: Colors.indigo.withValues(alpha: 0.2),
                     blurRadius: 8,
                     offset: const Offset(0, 4),
                   ),
@@ -520,7 +520,7 @@ class _StudentListDialogState extends State<StudentListDialog> {
               icon: Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Colors.red.withOpacity(0.05),
+                  color: Colors.red.withValues(alpha: 0.05),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(Icons.person_remove_rounded, color: Colors.red, size: 20),
@@ -555,7 +555,7 @@ class _StudentListDialogState extends State<StudentListDialog> {
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
+                    color: Colors.white.withValues(alpha: 0.2),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(Icons.people_rounded, color: Colors.white, size: 24),
@@ -572,7 +572,7 @@ class _StudentListDialogState extends State<StudentListDialog> {
                       ),
                       Text(
                         '${_students.length} Öğrenci',
-                        style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 14),
+                        style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 14),
                       ),
                     ],
                   ),
@@ -585,7 +585,7 @@ class _StudentListDialogState extends State<StudentListDialog> {
                       icon: const Icon(Icons.person_add_rounded, color: Colors.white),
                       tooltip: 'Yeni Öğrenci Ekle',
                       style: IconButton.styleFrom(
-                        backgroundColor: Colors.white.withOpacity(0.15),
+                        backgroundColor: Colors.white.withValues(alpha: 0.15),
                         padding: const EdgeInsets.all(10),
                       ),
                     ),
@@ -596,7 +596,7 @@ class _StudentListDialogState extends State<StudentListDialog> {
                         icon: const Icon(Icons.copy_all_rounded, color: Colors.white),
                         tooltip: 'Öğrencileri Kopyala',
                         style: IconButton.styleFrom(
-                          backgroundColor: Colors.white.withOpacity(0.15),
+                          backgroundColor: Colors.white.withValues(alpha: 0.15),
                           padding: const EdgeInsets.all(10),
                         ),
                       ),
@@ -606,7 +606,7 @@ class _StudentListDialogState extends State<StudentListDialog> {
                       onPressed: () => Navigator.pop(context),
                       icon: const Icon(Icons.close_rounded, color: Colors.white),
                       style: IconButton.styleFrom(
-                        backgroundColor: Colors.white.withOpacity(0.15),
+                        backgroundColor: Colors.white.withValues(alpha: 0.15),
                         padding: const EdgeInsets.all(10),
                       ),
                     ),
@@ -793,7 +793,7 @@ class _CopyStudentsDialogState extends State<CopyStudentsDialog> {
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.class_),
                 ),
-                value: _selectedTargetClassId,
+                initialValue: _selectedTargetClassId,
                 items: _targetClasses.map((c) {
                   return DropdownMenuItem<String>(
                     value: c['id'] as String,
@@ -849,7 +849,7 @@ class AddStudentToClassDialog extends StatefulWidget {
 }
 
 class _AddStudentToClassDialogState extends State<AddStudentToClassDialog> {
-  List<String> _selectedStudentIds = [];
+  final List<String> _selectedStudentIds = [];
   String _searchQuery = '';
   bool _isAdding = false;
 
@@ -862,7 +862,7 @@ class _AddStudentToClassDialogState extends State<AddStudentToClassDialog> {
 
   List<Map<String, dynamic>> get _filteredStudents {
     if (_searchQuery.isEmpty) {
-      print('🔍 Arama boş, tüm öğrenciler gösteriliyor: ${widget.availableStudents.length}');
+      debugPrint('🔍 Arama boş, tüm öğrenciler gösteriliyor: ${widget.availableStudents.length}');
       return widget.availableStudents;
     }
     
@@ -873,7 +873,7 @@ class _AddStudentToClassDialogState extends State<AddStudentToClassDialog> {
       return fullName.contains(query) || studentNo.contains(query);
     }).toList();
     
-    print('🔍 Arama: "$_searchQuery" - Bulunan: ${filtered.length}');
+    debugPrint('🔍 Arama: "$_searchQuery" - Bulunan: ${filtered.length}');
     return filtered;
   }
 
@@ -962,7 +962,7 @@ class _AddStudentToClassDialogState extends State<AddStudentToClassDialog> {
         await Future.delayed(Duration(milliseconds: 300));
         widget.onStudentAdded();
         
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('✅ ${_selectedStudentIds.length} öğrenci sınıfa eklendi'),
           ),

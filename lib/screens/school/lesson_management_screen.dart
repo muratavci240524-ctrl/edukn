@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/lesson_model.dart';
 import '../../services/term_service.dart';
@@ -43,7 +42,7 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
   String? _selectedBranchFilter; // Branş filtresi
   List<String> _branchNames = []; // Branş adları listesi
   List<Map<String, dynamic>> _teachers = [];
-  String _assignmentSortBy = 'class'; // 'class' veya 'teacher'
+  final String _assignmentSortBy = 'class'; // 'class' veya 'teacher'
   String? _currentTermId; // Seçili dönem
   bool _isViewingPastTerm = false; // Geçmiş dönem görüntüleniyor mu?
   Stream<QuerySnapshot>? _lessonsStream; // Caching Stream object for lessons
@@ -243,7 +242,7 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
         }
       }
     } catch (e) {
-      print('Özel branş yükleme hatası: $e');
+      debugPrint('Özel branş yükleme hatası: $e');
     }
 
     final sortedList = allBranches.toList()..sort();
@@ -274,7 +273,7 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
         }).toList();
       });
     } catch (e) {
-      print('Öğretmen yükleme hatası: $e');
+      debugPrint('Öğretmen yükleme hatası: $e');
     }
   }
 
@@ -469,6 +468,145 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  /// Alt dönemi boş (atanmamış) dersleri ve atamalarını seçilen alt döneme bağlar.
+  /// Seçili alt dönemde zaten görünen dersler dokunulmadan kalır.
+  Future<void> _repairMissingSubTerms() async {
+    if (_currentTermId == null || _workPeriods.length < 2) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Onarım için dönemde en az 2 alt dönem olmalı.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+    final others =
+        _workPeriods.where((p) => p['id'] != _selectedSubTermId).toList();
+    String? targetId;
+    String? targetName;
+    if (others.length == 1) {
+      targetId = others.first['id'] as String;
+      targetName = (others.first['periodName'] ?? 'Alt Dönem').toString();
+    } else {
+      final picked = await showDialog<Map<String, dynamic>>(
+        context: context,
+        builder: (ctx) => SimpleDialog(
+          title: const Text('Alt dönemi boş dersler hangi alt döneme ait olsun?'),
+          children: others
+              .map((p) => SimpleDialogOption(
+                    onPressed: () => Navigator.pop(ctx, p),
+                    child: Text((p['periodName'] ?? 'Alt Dönem').toString()),
+                  ))
+              .toList(),
+        ),
+      );
+      if (picked == null) return;
+      targetId = picked['id'] as String;
+      targetName = (picked['periodName'] ?? 'Alt Dönem').toString();
+    }
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Alt Dönemleri Onar'),
+        content: Text(
+          'Alt dönemi belirlenmemiş dersler ve atamaları "$targetName" alt dönemine bağlanacak.\n\n'
+          '"${_selectedSubTermName ?? ''}" alt döneminde zaten görünen derslere dokunulmaz.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('İptal')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Onar')),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    try {
+      final db = FirebaseFirestore.instance;
+      final lessonsSnap = await db
+          .collection('lessons')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
+          .where('termId', isEqualTo: _currentTermId)
+          .get();
+
+      String sub(Map<String, dynamic> m) {
+        final a = (m['subTermId'] ?? '').toString();
+        return a.isNotEmpty ? a : (m['periodId'] ?? '').toString();
+      }
+
+      final Map<String, String> lessonFinalSub = {};
+      final Map<String, String> lessonFinalName = {};
+      final refs = <DocumentReference>[];
+      final updates = <Map<String, dynamic>>[];
+      int fixedLessons = 0;
+      for (final d in lessonsSnap.docs) {
+        final data = d.data();
+        var s = sub(data);
+        var n = (data['subTermName'] ?? data['periodName'] ?? '').toString();
+        if (s.isEmpty) {
+          s = targetId;
+          n = targetName;
+          refs.add(d.reference);
+          updates.add({
+            'subTermId': s,
+            'periodId': s,
+            'subTermName': n,
+            'periodName': n,
+          });
+          fixedLessons++;
+        }
+        lessonFinalSub[d.id] = s;
+        lessonFinalName[d.id] = n;
+      }
+
+      final asgSnap = await db
+          .collection('lessonAssignments')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .get();
+      int fixedAssignments = 0;
+      for (final d in asgSnap.docs) {
+        final data = d.data();
+        final lid = data['lessonId']?.toString();
+        if (lid == null || !lessonFinalSub.containsKey(lid)) continue;
+        final want = lessonFinalSub[lid]!;
+        if (sub(data) == want) continue;
+        refs.add(d.reference);
+        updates.add({
+          'subTermId': want,
+          'periodId': want,
+          'subTermName': lessonFinalName[lid],
+          'periodName': lessonFinalName[lid],
+        });
+        fixedAssignments++;
+      }
+
+      for (int i = 0; i < refs.length; i += 400) {
+        final batch = db.batch();
+        for (int j = i; j < refs.length && j < i + 400; j++) {
+          batch.update(refs[j], updates[j]);
+        }
+        await batch.commit();
+      }
+
+      if (mounted) {
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$fixedLessons ders ve $fixedAssignments atama güncellendi.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Onarım hatası: $e'), backgroundColor: Colors.red),
         );
       }
     }
@@ -1181,6 +1319,13 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
             label: Text('Branş Yönetimi'),
             style: TextButton.styleFrom(foregroundColor: Colors.indigo),
           ),
+          if (_selectedSubTermId != null && !_isViewingPastTerm)
+            TextButton.icon(
+              onPressed: () => _repairMissingSubTerms(),
+              icon: const Icon(Icons.build_circle_outlined, size: 18),
+              label: const Text('Alt Dönemleri Onar'),
+              style: TextButton.styleFrom(foregroundColor: Colors.orange.shade800),
+            ),
           if (_selectedSubTermId != null)
             TextButton.icon(
               onPressed: () => _showCopyLessonsFromTermDialog(),
@@ -1279,7 +1424,7 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
                   return Container(
                     padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.3),
+                      color: Colors.white.withValues(alpha: 0.3),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
@@ -1305,7 +1450,7 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
               hintStyle: TextStyle(color: Colors.white70),
               prefixIcon: Icon(Icons.search, size: 20, color: Colors.white70),
               filled: true,
-              fillColor: Colors.white.withOpacity(0.2),
+              fillColor: Colors.white.withValues(alpha: 0.2),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(25),
                 borderSide: BorderSide.none,
@@ -1337,7 +1482,7 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
                     decoration: BoxDecoration(
                       color: _selectedBranchFilter != null
                           ? Colors.white
-                          : Colors.white.withOpacity(0.2),
+                          : Colors.white.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Row(
@@ -1408,9 +1553,9 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.18),
+                    color: Colors.white.withValues(alpha: 0.18),
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.white.withOpacity(0.3)),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
                   ),
                   child: Row(
                     children: [
@@ -1533,7 +1678,7 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.white : Colors.white.withOpacity(0.2),
+          color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.2),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Text(
@@ -1637,7 +1782,7 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
                       stream: _getAssignmentCountStream(lesson.id!),
                       builder: (context, snap) {
                         if (snap.hasError) {
-                          print('Count Error: ${snap.error}');
+                          debugPrint('Count Error: ${snap.error}');
                           return Icon(Icons.error, size: 16, color: Colors.red);
                         }
                         final count = snap.data ?? 0;
@@ -1903,8 +2048,8 @@ class _LessonManagementScreenState extends State<LessonManagementScreen> {
                   .collection('lessonAssignments')
                   .doc(assignmentId)
                   .update({'isActive': false});
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
+              if (mounted) Navigator.pop(context);
+              if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text('Atama silindi')),
               );
             },
@@ -2021,10 +2166,10 @@ class _LessonFormSheetState extends State<_LessonFormSheet> {
       }
 
       widget.onLessonSaved();
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ Ders başarıyla kaydedildi'), backgroundColor: Colors.green));
+      if (mounted) Navigator.pop(context);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ Ders başarıyla kaydedildi'), backgroundColor: Colors.green));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Hata: $e'), backgroundColor: Colors.red));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Hata: $e'), backgroundColor: Colors.red));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -2091,7 +2236,7 @@ class _LessonFormSheetState extends State<_LessonFormSheet> {
 
   Widget _buildDropdown() {
     return DropdownButtonFormField<String>(
-      value: widget.branchNames.contains(_selectedBranchName) ? _selectedBranchName : null,
+      initialValue: widget.branchNames.contains(_selectedBranchName) ? _selectedBranchName : null,
       menuMaxHeight: 260,
       borderRadius: BorderRadius.circular(16),
       elevation: 8,
@@ -2155,7 +2300,7 @@ class _ClassAssignmentSheet extends StatefulWidget {
 class _ClassAssignmentSheetState extends State<_ClassAssignmentSheet> {
   List<Map<String, dynamic>> _classes = [];
   List<Map<String, dynamic>> _allTeachers = [];
-  List<String> _selectedClassIds = [];
+  final List<String> _selectedClassIds = [];
   List<Map<String, dynamic>> _assignments = [];
   bool _isLoading = true;
   bool _isSaving = false;
@@ -2607,7 +2752,7 @@ class _EditAssignmentSheetState extends State<_EditAssignmentSheet> {
     try {
       await FirebaseFirestore.instance.collection('lessonAssignments').doc(widget.assignmentId).update({'weeklyHours': int.tryParse(_hoursController.text) ?? 0, 'teacherIds': _teacherIds, 'teacherNames': _teacherNames});
       widget.onSaved();
-      Navigator.pop(context);
+      if (mounted) Navigator.pop(context);
     } catch (e) { print(e); } finally { if (mounted) setState(() => _isSaving = false); }
   }
 }
@@ -3222,7 +3367,7 @@ class _LessonAssignmentsPanelState extends State<_LessonAssignmentsPanel> {
       stream: _stream,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          print('Panel Error: ${snapshot.error}');
+          debugPrint('Panel Error: ${snapshot.error}');
           return Padding(
             padding: const EdgeInsets.all(24),
             child: Text('Bir hata oluştu: ${snapshot.error}', style: TextStyle(color: Colors.red)),

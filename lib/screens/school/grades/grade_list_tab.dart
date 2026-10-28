@@ -179,7 +179,7 @@ class _GradeListTabState extends State<GradeListTab> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const SizedBox(height: 4),
-                          Text('$dateStr'),
+                          Text(dateStr),
                           const SizedBox(height: 4),
                           Row(
                             children: [
@@ -292,11 +292,11 @@ class _GradeListTabState extends State<GradeListTab> {
             .collection('class_exams')
             .doc(docId)
             .delete();
-        ScaffoldMessenger.of(
+        if (mounted) ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Sınav silindi.')));
       } catch (e) {
-        ScaffoldMessenger.of(
+        if (mounted) ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Hata: $e')));
       }

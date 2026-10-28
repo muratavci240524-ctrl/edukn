@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -617,7 +617,7 @@ class _GuidanceStatisticsScreenState extends State<GuidanceStatisticsScreen> {
             width: double.infinity,
             padding: EdgeInsets.all(12), // Reduced padding
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
+              color: color.withValues(alpha: 0.1),
               borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
             ),
             child: Row(
@@ -661,7 +661,7 @@ class _GuidanceStatisticsScreenState extends State<GuidanceStatisticsScreen> {
                     itemBuilder: (ctx, i) => ListTile(
                       dense: true,
                       leading: CircleAvatar(
-                        backgroundColor: color.withOpacity(0.2),
+                        backgroundColor: color.withValues(alpha: 0.2),
                         child: Text(
                           '${i + 1}',
                           style: TextStyle(
@@ -728,12 +728,12 @@ class _GuidanceStatisticsScreenState extends State<GuidanceStatisticsScreen> {
           ext: 'xlsx',
           mimeType: MimeType.microsoftExcel,
         );
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Rapor indirildi: $fileName.xlsx')),
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Rapor oluşturulurken hata: $e')));
     }

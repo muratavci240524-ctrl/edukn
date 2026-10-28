@@ -118,7 +118,7 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
           }
         }
       } catch (e) {
-        print('Özel branş yükleme hatası: $e');
+        debugPrint('Özel branş yükleme hatası: $e');
       }
     }
 
@@ -335,7 +335,7 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
               .where('institutionId', isEqualTo: _institutionId)
               .get();
           assignedSchoolTypes = stSnap.docs.map((d) => d.id).toList();
-        } catch (_) {}
+        } catch (silentError) { debugPrint('[staff_form_screen] hata yutuldu: $silentError'); }
       }
 
       final Map<String, dynamic> defaultModulePermissions = {
@@ -513,7 +513,7 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 15,
               offset: const Offset(0, 5),
             ),
@@ -648,7 +648,7 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
                     // Ünvan / Görev (+ Branş varsa)
                     DropdownButtonFormField<String>(
                       decoration: _inputDecoration('Ünvan / Görev', isRequired: true, icon: Icons.work_outline),
-                      value: _title,
+                      initialValue: _title,
                       isExpanded: true,
                       items: const [
                         DropdownMenuItem(value: 'ogretmen', child: Text('Öğretmen')),
@@ -673,7 +673,7 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
                       const SizedBox(height: 14),
                       DropdownButtonFormField<String>(
                         decoration: _inputDecoration('Branş', isRequired: true, icon: Icons.school_outlined),
-                        value: _branchList.contains(_branch) ? _branch : null,
+                        initialValue: _branchList.contains(_branch) ? _branch : null,
                         isExpanded: true,
                         items: _branchList.map((name) => DropdownMenuItem(value: name, child: Text(name))).toList(),
                         onChanged: (value) => setState(() => _branch = value),
@@ -714,7 +714,7 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
                     // Cinsiyet (tek satır — tam genişlik mobilde)
                     DropdownButtonFormField<String>(
                       decoration: _inputDecoration('Cinsiyet', icon: Icons.wc_outlined),
-                      value: _gender,
+                      initialValue: _gender,
                       isExpanded: true,
                       items: const [
                         DropdownMenuItem(value: 'erkek', child: Text('Erkek')),
@@ -728,7 +728,7 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
                     _buildRow(
                       DropdownButtonFormField<String>(
                         decoration: _inputDecoration('Medeni Durum', icon: Icons.favorite_outline),
-                        value: _maritalStatus,
+                        initialValue: _maritalStatus,
                         isExpanded: true,
                         items: const [
                           DropdownMenuItem(value: 'bekar', child: Text('Bekar')),
@@ -738,7 +738,7 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
                       ),
                       DropdownButtonFormField<String>(
                         decoration: _inputDecoration('Kan Grubu', icon: Icons.bloodtype_outlined),
-                        value: _bloodGroup,
+                        initialValue: _bloodGroup,
                         isExpanded: true,
                         items: const ['0+', '0-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-']
                             .map((g) => DropdownMenuItem(value: g, child: Text(g)))

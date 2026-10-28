@@ -282,7 +282,7 @@ class _QuestionPoolScreenState extends State<QuestionPoolScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4))],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 10, offset: const Offset(0, 4))],
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -345,7 +345,7 @@ class _QuestionPoolScreenState extends State<QuestionPoolScreen> {
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: Colors.indigo.withOpacity(0.35),
+            color: Colors.indigo.withValues(alpha: 0.35),
             blurRadius: 32,
             offset: const Offset(0, 12),
           ),
@@ -361,14 +361,14 @@ class _QuestionPoolScreenState extends State<QuestionPoolScreen> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.15),
+                    color: Colors.white.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
                     '✦  Soru Havuzu Modülü',
                     style: GoogleFonts.inter(
                         fontSize: 12,
-                        color: Colors.white.withOpacity(0.9),
+                        color: Colors.white.withValues(alpha: 0.9),
                         fontWeight: FontWeight.w600),
                   ),
                 ),
@@ -389,7 +389,7 @@ class _QuestionPoolScreenState extends State<QuestionPoolScreen> {
                   'Fixed ve Smart sıralama algoritmaları ile optimum soru dizgisi elde edin.',
                   style: GoogleFonts.inter(
                     fontSize: 14,
-                    color: Colors.white.withOpacity(0.85),
+                    color: Colors.white.withValues(alpha: 0.85),
                     height: 1.6,
                   ),
                 ),
@@ -411,7 +411,7 @@ class _QuestionPoolScreenState extends State<QuestionPoolScreen> {
             width: 120,
             height: 120,
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.12),
+              color: Colors.white.withValues(alpha: 0.12),
               shape: BoxShape.circle,
             ),
             child: const Icon(
@@ -428,9 +428,9 @@ class _QuestionPoolScreenState extends State<QuestionPoolScreen> {
   Widget _buildFeatureChip(IconData icon, String label) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.15),
+          color: Colors.white.withValues(alpha: 0.15),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.white.withOpacity(0.2)),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           Icon(icon, size: 14, color: Colors.white),
@@ -452,7 +452,7 @@ class _QuestionPoolScreenState extends State<QuestionPoolScreen> {
             borderRadius: BorderRadius.circular(24),
             boxShadow: [
               BoxShadow(
-                  color: Colors.black.withOpacity(0.04),
+                  color: Colors.black.withValues(alpha: 0.04),
                   blurRadius: 20,
                   offset: const Offset(0, 4))
             ],
@@ -565,7 +565,7 @@ class _QuestionPoolScreenState extends State<QuestionPoolScreen> {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withOpacity(0.04),
+              color: Colors.black.withValues(alpha: 0.04),
               blurRadius: 20,
               offset: const Offset(0, 4))
         ],
@@ -585,7 +585,7 @@ class _QuestionPoolScreenState extends State<QuestionPoolScreen> {
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: type.color.withOpacity(0.1),
+                  color: type.color.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: Icon(type.icon, color: type.color, size: 24),
@@ -690,7 +690,7 @@ class _QuestionPoolScreenState extends State<QuestionPoolScreen> {
   Widget _buildTypeBadge(TestType type) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
-          color: type.color.withOpacity(0.1),
+          color: type.color.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Text(
@@ -705,16 +705,16 @@ class _QuestionPoolScreenState extends State<QuestionPoolScreen> {
   Widget _buildInfoChip(IconData icon, String label, Color color) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.07),
+          color: color.withValues(alpha: 0.07),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, size: 12, color: color.withOpacity(0.8)),
+          Icon(icon, size: 12, color: color.withValues(alpha: 0.8)),
           const SizedBox(width: 4),
           Text(label,
               style: GoogleFonts.inter(
                   fontSize: 11,
-                  color: color.withOpacity(0.9),
+                  color: color.withValues(alpha: 0.9),
                   fontWeight: FontWeight.w500)),
         ]),
       );
@@ -912,7 +912,7 @@ class _TestCreationWizardState extends State<_TestCreationWizard>
     return FadeTransition(
       opacity: _fadeAnim,
       child: Container(
-        color: Colors.black.withOpacity(0.45),
+        color: Colors.black.withValues(alpha: 0.45),
         child: Center(
           child: Material(
             borderRadius: BorderRadius.circular(24),
@@ -985,7 +985,7 @@ class _TestCreationWizardState extends State<_TestCreationWizard>
                         shape: BoxShape.circle,
                         boxShadow: active
                             ? [BoxShadow(
-                                color: Colors.indigo.withOpacity(0.35),
+                                color: Colors.indigo.withValues(alpha: 0.35),
                                 blurRadius: 10,
                                 offset: const Offset(0, 4))]
                             : null,
@@ -1383,7 +1383,7 @@ class _TestCreationWizardState extends State<_TestCreationWizard>
           margin: const EdgeInsets.only(bottom: 10),
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: selected ? color.withOpacity(0.06) : Colors.grey.shade50,
+            color: selected ? color.withValues(alpha: 0.06) : Colors.grey.shade50,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: selected ? color : Colors.grey.shade200,
@@ -1396,7 +1396,7 @@ class _TestCreationWizardState extends State<_TestCreationWizard>
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
                   color: selected
-                      ? color.withOpacity(0.15)
+                      ? color.withValues(alpha: 0.15)
                       : Colors.grey.shade200,
                   borderRadius: BorderRadius.circular(8),
                 ),

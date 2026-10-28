@@ -6,6 +6,7 @@ class AgmCycle {
   final String id;
   final String institutionId;
   final String schoolTypeId;
+  final String? workPeriodId;
   final String? title;
   final String referansDenemeSinavId;
   final String referansDenemeSinavAdi;
@@ -17,27 +18,46 @@ class AgmCycle {
   final DateTime olusturulmaZamani;
   final String olusturanKullaniciId;
 
-  final int? haftalikMaksimumSaat; // soft constraint
-  final int? minimumDersSayisi; // soft constraint
-  final int? minimumGrupOgrenciSayisi; // Minimum quota for a group to exist
+  final int? haftalikMaksimumSaat;
+  final int? minimumDersSayisi;
+  final int? minimumGrupOgrenciSayisi;
 
-  // Taslak istatistikleri (Persistence için)
+  // Özel Sınıf Ayarları
+  final bool isSpecialClassActive;
+  final int? specialClassCapacity;
+  final String? specialClassRoomId;
+  final String? specialClassRoomName;
+  final String specialClassCriteria; // 'success_rate' veya 'exam_score'
+  final bool specialClassGenerated;
+
+  // Kapsam dışı öğrenciler (kullanıcı tarafından manuel olarak çıkarılanlar)
+  final List<String> excludedStudentIds;
+
+  // Taslak istatistikleri
   final List<String> unassignedStudentIds;
   final List<String> absentStudentIds;
   final List<String> underAssignedStudentIds;
-
-  /// ogrenciId -> List<Neden Mesajları>
   final Map<String, List<String>> unassignedReasons;
   
-  // Draft Generation Settings
   final double draftThreshold;
   final bool draftOnlyLowSuccess;
   final Map<String, double> draftSubjectThresholds;
+
+  // Başarılı Sınıflar Soru Çözüm Ayarı
+  final bool highSuccessSoruCozumActive;
+  final double highSuccessSoruCozumThreshold;
+
+  // Ders Bazlı Saat Sınırları
+  /// dersId -> {'min': 3, 'max': 3}
+  final Map<String, Map<String, int>> dersBazliSaatSinirlari;
+  /// Minimum saate ulaşamayan öğrencileri zorla atasın mı?
+  final bool dersBazliZorlaAtama;
 
   AgmCycle({
     required this.id,
     required this.institutionId,
     required this.schoolTypeId,
+    this.workPeriodId,
     this.title,
     required this.referansDenemeSinavId,
     required this.referansDenemeSinavAdi,
@@ -51,6 +71,13 @@ class AgmCycle {
     this.haftalikMaksimumSaat,
     this.minimumDersSayisi,
     this.minimumGrupOgrenciSayisi,
+    this.isSpecialClassActive = false,
+    this.specialClassCapacity,
+    this.specialClassRoomId,
+    this.specialClassRoomName,
+    this.specialClassCriteria = 'success_rate',
+    this.specialClassGenerated = false,
+    this.excludedStudentIds = const [],
     this.unassignedStudentIds = const [],
     this.absentStudentIds = const [],
     this.underAssignedStudentIds = const [],
@@ -58,6 +85,10 @@ class AgmCycle {
     this.draftThreshold = 0.6,
     this.draftOnlyLowSuccess = true,
     this.draftSubjectThresholds = const {},
+    this.highSuccessSoruCozumActive = true,
+    this.highSuccessSoruCozumThreshold = 0.95,
+    this.dersBazliSaatSinirlari = const {},
+    this.dersBazliZorlaAtama = true,
   });
 
   String get statusLabel {
@@ -72,10 +103,10 @@ class AgmCycle {
   }
 
   Map<String, dynamic> toMap() {
-    print('DEBUG: AgmCycle.toMap started');
-    final data = {
+    return {
       'institutionId': institutionId,
       'schoolTypeId': schoolTypeId,
+      'workPeriodId': workPeriodId,
       'title': title,
       'referansDenemeSinavId': referansDenemeSinavId,
       'referansDenemeSinavAdi': referansDenemeSinavAdi,
@@ -89,6 +120,13 @@ class AgmCycle {
       'haftalikMaksimumSaat': haftalikMaksimumSaat,
       'minimumDersSayisi': minimumDersSayisi,
       'minimumGrupOgrenciSayisi': minimumGrupOgrenciSayisi,
+      'isSpecialClassActive': isSpecialClassActive,
+      'specialClassCapacity': specialClassCapacity,
+      'specialClassRoomId': specialClassRoomId,
+      'specialClassRoomName': specialClassRoomName,
+      'specialClassCriteria': specialClassCriteria,
+      'specialClassGenerated': specialClassGenerated,
+      'excludedStudentIds': excludedStudentIds,
       'unassignedStudentIds': unassignedStudentIds,
       'absentStudentIds': absentStudentIds,
       'underAssignedStudentIds': underAssignedStudentIds,
@@ -96,9 +134,11 @@ class AgmCycle {
       'draftThreshold': draftThreshold,
       'draftOnlyLowSuccess': draftOnlyLowSuccess,
       'draftSubjectThresholds': draftSubjectThresholds,
+      'highSuccessSoruCozumActive': highSuccessSoruCozumActive,
+      'highSuccessSoruCozumThreshold': highSuccessSoruCozumThreshold,
+      'dersBazliSaatSinirlari': dersBazliSaatSinirlari.map((k, v) => MapEntry(k, Map<String, dynamic>.from(v))),
+      'dersBazliZorlaAtama': dersBazliZorlaAtama,
     };
-    print('DEBUG: AgmCycle.toMap finished');
-    return data;
   }
 
   factory AgmCycle.fromMap(Map<String, dynamic> map, String id) {
@@ -106,47 +146,47 @@ class AgmCycle {
       id: id,
       institutionId: map['institutionId'] ?? '',
       schoolTypeId: map['schoolTypeId'] ?? '',
+      workPeriodId: map['workPeriodId'] as String?,
       title: map['title'],
       referansDenemeSinavId: map['referansDenemeSinavId'] ?? '',
       referansDenemeSinavAdi: map['referansDenemeSinavAdi'] ?? '',
-      referansDenemeSinavIds: List<String>.from(
-        map['referansDenemeSinavIds'] ?? [],
-      ),
-      referansDenemeSinavAdlari: List<String>.from(
-        map['referansDenemeSinavAdlari'] ?? [],
-      ),
-      baslangicTarihi:
-          (map['baslangicTarihi'] as Timestamp?)?.toDate() ?? DateTime.now(),
-      bitisTarihi:
-          (map['bitisTarihi'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      referansDenemeSinavIds: List<String>.from(map['referansDenemeSinavIds'] ?? []),
+      referansDenemeSinavAdlari: List<String>.from(map['referansDenemeSinavAdlari'] ?? []),
+      baslangicTarihi: (map['baslangicTarihi'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      bitisTarihi: (map['bitisTarihi'] as Timestamp?)?.toDate() ?? DateTime.now(),
       status: AgmCycleStatus.values.firstWhere(
         (e) => e.name == map['status'],
         orElse: () => AgmCycleStatus.draft,
       ),
-      olusturulmaZamani:
-          (map['olusturulmaZamani'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      olusturulmaZamani: (map['olusturulmaZamani'] as Timestamp?)?.toDate() ?? DateTime.now(),
       olusturanKullaniciId: map['olusturanKullaniciId'] ?? '',
       haftalikMaksimumSaat: map['haftalikMaksimumSaat'],
       minimumDersSayisi: map['minimumDersSayisi'],
       minimumGrupOgrenciSayisi: map['minimumGrupOgrenciSayisi'],
-      unassignedStudentIds: List<String>.from(
-        map['unassignedStudentIds'] ?? [],
-      ),
+      isSpecialClassActive: map['isSpecialClassActive'] ?? false,
+      specialClassCapacity: map['specialClassCapacity'],
+      specialClassRoomId: map['specialClassRoomId'] as String?,
+      specialClassRoomName: map['specialClassRoomName'] as String?,
+      specialClassCriteria: map['specialClassCriteria'] ?? 'success_rate',
+      specialClassGenerated: map['specialClassGenerated'] ?? false,
+      excludedStudentIds: (map['excludedStudentIds'] as List<dynamic>? ?? []).map((e) => e.toString()).toList(),
+      unassignedStudentIds: List<String>.from(map['unassignedStudentIds'] ?? []),
       absentStudentIds: List<String>.from(map['absentStudentIds'] ?? []),
-      underAssignedStudentIds: List<String>.from(
-        map['underAssignedStudentIds'] ?? [],
-      ),
-      unassignedReasons:
-          (map['unassignedReasons'] as Map<String, dynamic>?)?.map(
+      underAssignedStudentIds: List<String>.from(map['underAssignedStudentIds'] ?? []),
+      unassignedReasons: (map['unassignedReasons'] as Map<String, dynamic>?)?.map(
             (k, v) => MapEntry(k, List<String>.from(v)),
-          ) ??
-          {},
+          ) ?? {},
       draftThreshold: (map['draftThreshold'] as num?)?.toDouble() ?? 0.6,
       draftOnlyLowSuccess: map['draftOnlyLowSuccess'] ?? true,
       draftSubjectThresholds: (map['draftSubjectThresholds'] as Map<String, dynamic>?)?.map(
             (k, v) => MapEntry(k, (v as num).toDouble()),
-          ) ??
-          {},
+          ) ?? {},
+      highSuccessSoruCozumActive: map['highSuccessSoruCozumActive'] ?? true,
+      highSuccessSoruCozumThreshold: (map['highSuccessSoruCozumThreshold'] as num?)?.toDouble() ?? 0.95,
+      dersBazliSaatSinirlari: (map['dersBazliSaatSinirlari'] as Map<String, dynamic>?)?.map(
+            (k, v) => MapEntry(k, (v as Map<String, dynamic>).map((ik, iv) => MapEntry(ik, (iv as num).toInt()))),
+          ) ?? {},
+      dersBazliZorlaAtama: map['dersBazliZorlaAtama'] ?? true,
     );
   }
 
@@ -154,6 +194,7 @@ class AgmCycle {
     String? id,
     String? institutionId,
     String? schoolTypeId,
+    String? workPeriodId,
     String? title,
     String? referansDenemeSinavId,
     String? referansDenemeSinavAdi,
@@ -167,6 +208,13 @@ class AgmCycle {
     int? haftalikMaksimumSaat,
     int? minimumDersSayisi,
     int? minimumGrupOgrenciSayisi,
+    bool? isSpecialClassActive,
+    int? specialClassCapacity,
+    String? specialClassRoomId,
+    String? specialClassRoomName,
+    String? specialClassCriteria,
+    bool? specialClassGenerated,
+    List<String>? excludedStudentIds,
     List<String>? unassignedStudentIds,
     List<String>? absentStudentIds,
     List<String>? underAssignedStudentIds,
@@ -174,20 +222,21 @@ class AgmCycle {
     double? draftThreshold,
     bool? draftOnlyLowSuccess,
     Map<String, double>? draftSubjectThresholds,
+    bool? highSuccessSoruCozumActive,
+    double? highSuccessSoruCozumThreshold,
+    Map<String, Map<String, int>>? dersBazliSaatSinirlari,
+    bool? dersBazliZorlaAtama,
   }) {
     return AgmCycle(
       id: id ?? this.id,
       institutionId: institutionId ?? this.institutionId,
       schoolTypeId: schoolTypeId ?? this.schoolTypeId,
+      workPeriodId: workPeriodId ?? this.workPeriodId,
       title: title ?? this.title,
-      referansDenemeSinavId:
-          referansDenemeSinavId ?? this.referansDenemeSinavId,
-      referansDenemeSinavAdi:
-          referansDenemeSinavAdi ?? this.referansDenemeSinavAdi,
-      referansDenemeSinavIds:
-          referansDenemeSinavIds ?? this.referansDenemeSinavIds,
-      referansDenemeSinavAdlari:
-          referansDenemeSinavAdlari ?? this.referansDenemeSinavAdlari,
+      referansDenemeSinavId: referansDenemeSinavId ?? this.referansDenemeSinavId,
+      referansDenemeSinavAdi: referansDenemeSinavAdi ?? this.referansDenemeSinavAdi,
+      referansDenemeSinavIds: referansDenemeSinavIds ?? this.referansDenemeSinavIds,
+      referansDenemeSinavAdlari: referansDenemeSinavAdlari ?? this.referansDenemeSinavAdlari,
       baslangicTarihi: baslangicTarihi ?? this.baslangicTarihi,
       bitisTarihi: bitisTarihi ?? this.bitisTarihi,
       status: status ?? this.status,
@@ -195,16 +244,25 @@ class AgmCycle {
       olusturanKullaniciId: olusturanKullaniciId ?? this.olusturanKullaniciId,
       haftalikMaksimumSaat: haftalikMaksimumSaat ?? this.haftalikMaksimumSaat,
       minimumDersSayisi: minimumDersSayisi ?? this.minimumDersSayisi,
-      minimumGrupOgrenciSayisi:
-          minimumGrupOgrenciSayisi ?? this.minimumGrupOgrenciSayisi,
+      minimumGrupOgrenciSayisi: minimumGrupOgrenciSayisi ?? this.minimumGrupOgrenciSayisi,
+      isSpecialClassActive: isSpecialClassActive ?? this.isSpecialClassActive,
+      specialClassCapacity: specialClassCapacity ?? this.specialClassCapacity,
+      specialClassRoomId: specialClassRoomId ?? this.specialClassRoomId,
+      specialClassRoomName: specialClassRoomName ?? this.specialClassRoomName,
+      specialClassCriteria: specialClassCriteria ?? this.specialClassCriteria,
+      specialClassGenerated: specialClassGenerated ?? this.specialClassGenerated,
+      excludedStudentIds: excludedStudentIds ?? this.excludedStudentIds,
       unassignedStudentIds: unassignedStudentIds ?? this.unassignedStudentIds,
       absentStudentIds: absentStudentIds ?? this.absentStudentIds,
-      underAssignedStudentIds:
-          underAssignedStudentIds ?? this.underAssignedStudentIds,
+      underAssignedStudentIds: underAssignedStudentIds ?? this.underAssignedStudentIds,
       unassignedReasons: unassignedReasons ?? this.unassignedReasons,
       draftThreshold: draftThreshold ?? this.draftThreshold,
       draftOnlyLowSuccess: draftOnlyLowSuccess ?? this.draftOnlyLowSuccess,
       draftSubjectThresholds: draftSubjectThresholds ?? this.draftSubjectThresholds,
+      highSuccessSoruCozumActive: highSuccessSoruCozumActive ?? this.highSuccessSoruCozumActive,
+      highSuccessSoruCozumThreshold: highSuccessSoruCozumThreshold ?? this.highSuccessSoruCozumThreshold,
+      dersBazliSaatSinirlari: dersBazliSaatSinirlari ?? this.dersBazliSaatSinirlari,
+      dersBazliZorlaAtama: dersBazliZorlaAtama ?? this.dersBazliZorlaAtama,
     );
   }
 }

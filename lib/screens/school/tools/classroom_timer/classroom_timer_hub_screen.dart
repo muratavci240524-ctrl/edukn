@@ -84,7 +84,7 @@ class _ClassroomTimerHubScreenState extends State<ClassroomTimerHubScreen>
           _templates = [...TimerTemplate.defaultTemplates, ...customs];
         });
       }
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[classroom_timer_hub_screen] hata yutuldu: $silentError'); }
   }
 
   @override
@@ -1102,7 +1102,7 @@ class _ClassroomTimerHubScreenState extends State<ClassroomTimerHubScreen>
         } else {
           SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
         }
-      } catch (_) {}
+      } catch (silentError) { debugPrint('[classroom_timer_hub_screen] hata yutuldu: $silentError'); }
     }
 
     setState(() {

@@ -71,7 +71,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
             if (annSettingsDoc.exists) {
               _teacherAnnouncementMode = annSettingsDoc.data()?['teacherAnnouncementMode'] ?? _teacherAnnouncementMode;
             }
-          } catch (_) {}
+          } catch (silentError) { debugPrint('[app_settings_screen] hata yutuldu: $silentError'); }
         }
       }
     } catch (e) {
@@ -214,12 +214,12 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
             borderRadius: BorderRadius.circular(20),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.04),
+                color: Colors.black.withValues(alpha: 0.04),
                 blurRadius: 15,
                 offset: const Offset(0, 5),
               ),
             ],
-            border: Border.all(color: isModuleEnabled ? module.color.withOpacity(0.3) : Colors.grey.shade300, width: 1.5),
+            border: Border.all(color: isModuleEnabled ? module.color.withValues(alpha: 0.3) : Colors.grey.shade300, width: 1.5),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -228,7 +228,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: isModuleEnabled ? module.color.withOpacity(0.05) : Colors.grey.shade50,
+                  color: isModuleEnabled ? module.color.withValues(alpha: 0.05) : Colors.grey.shade50,
                   borderRadius: const BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
                 ),
                 child: Row(
@@ -236,7 +236,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: isModuleEnabled ? module.color.withOpacity(0.2) : Colors.grey.shade200,
+                        color: isModuleEnabled ? module.color.withValues(alpha: 0.2) : Colors.grey.shade200,
                         shape: BoxShape.circle,
                       ),
                       child: Icon(module.icon, color: isModuleEnabled ? module.color : Colors.grey.shade600, size: 28),
@@ -268,7 +268,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
                       scale: 1.1,
                       child: Switch(
                         value: isModuleEnabled,
-                        activeColor: module.color,
+                        activeThumbColor: module.color,
                         onChanged: (val) => _toggleModule(module.key, val),
                       ),
                     ),
@@ -317,7 +317,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
                                 scale: 0.85,
                                 child: Switch(
                                   value: isSubModuleEnabled,
-                                  activeColor: module.color,
+                                  activeThumbColor: module.color,
                                   onChanged: isModuleEnabled ? (val) => _toggleModule(subModuleKey, val) : null,
                                 ),
                               ),
@@ -343,12 +343,12 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 15,
             offset: const Offset(0, 5),
           ),
         ],
-        border: Border.all(color: Colors.blue.withOpacity(0.3), width: 1.5),
+        border: Border.all(color: Colors.blue.withValues(alpha: 0.3), width: 1.5),
       ),
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -360,7 +360,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.2),
+                    color: Colors.blue.withValues(alpha: 0.2),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(Icons.campaign, color: Colors.blue.shade700, size: 28),
@@ -391,7 +391,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
-              value: _teacherAnnouncementMode,
+              initialValue: _teacherAnnouncementMode,
               decoration: InputDecoration(
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -426,7 +426,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: Colors.amber.withOpacity(0.15),
+                    color: Colors.amber.withValues(alpha: 0.15),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(Icons.event_busy_rounded, color: Colors.amber.shade800, size: 24),
@@ -455,7 +455,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
                 ),
                 Switch(
                   value: _notifyTeacherMissingAttendance,
-                  activeColor: Colors.indigo,
+                  activeThumbColor: Colors.indigo,
                   onChanged: (val) {
                     setState(() => _notifyTeacherMissingAttendance = val);
                   },

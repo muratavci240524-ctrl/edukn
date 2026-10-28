@@ -1,4 +1,4 @@
-﻿import 'package:edukn/services/user_permission_service.dart';
+import 'package:edukn/services/user_permission_service.dart';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -155,7 +155,7 @@ class _ShiftManagementScreenState extends State<ShiftManagementScreen>
       padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 10, left: 20, right: 20, bottom: 10),
       decoration: BoxDecoration(
         color: Colors.white,
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4))],
       ),
       child: Row(
         children: [
@@ -244,7 +244,7 @@ class _ShiftManagementScreenState extends State<ShiftManagementScreen>
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(20),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4))],
+            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 10, offset: const Offset(0, 4))],
             border: Border.all(color: Colors.white, width: 2),
           ),
           child: Padding(
@@ -300,7 +300,7 @@ class _ShiftManagementScreenState extends State<ShiftManagementScreen>
           width: double.infinity,
           margin: const EdgeInsets.all(16),
           padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(color: const Color(0xFFEEF2FF), borderRadius: BorderRadius.circular(15), border: Border.all(color: const Color(0xFF6366F1).withOpacity(0.1))),
+          decoration: BoxDecoration(color: const Color(0xFFEEF2FF), borderRadius: BorderRadius.circular(15), border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.1))),
           child: const Row(
             children: [
               Icon(Icons.info_outline, color: Color(0xFF6366F1)),
@@ -338,7 +338,7 @@ class _ShiftManagementScreenState extends State<ShiftManagementScreen>
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(16),
-                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 5, offset: const Offset(0, 2))],
+                  boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 5, offset: const Offset(0, 2))],
                 ),
                 child: ListTile(
                   leading: CircleAvatar(
@@ -511,7 +511,7 @@ class _ShiftManagementScreenState extends State<ShiftManagementScreen>
               borderRadius: BorderRadius.circular(12),
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFF6366F1).withOpacity(0.3))),
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.3))),
                 child: Row(children: [
                   const Icon(Icons.person_search, color: Color(0xFF6366F1), size: 18),
                   const SizedBox(width: 10),
@@ -631,7 +631,7 @@ class _ShiftManagementScreenState extends State<ShiftManagementScreen>
     if (status == 'izinli') color = const Color(0xFF3B82F6);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(20)),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(20)),
       child: Text(status.toUpperCase(), style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold)),
     );
   }
@@ -838,7 +838,7 @@ class _ManualAttendanceScreenState extends State<_ManualAttendanceScreen> {
                     final s = filtered[i];
                     return Container(
                       margin: const EdgeInsets.only(bottom: 12),
-                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 5)]),
+                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 5)]),
                       child: ListTile(
                         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                         leading: CircleAvatar(backgroundColor: const Color(0xFFEEF2FF), child: Text(s['name']?[0] ?? 'P', style: const TextStyle(color: Color(0xFF6366F1), fontWeight: FontWeight.bold))),
@@ -1020,7 +1020,7 @@ class _StaffPickerState extends State<_StaffPicker> {
       decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       child: Column(children: [
         const SizedBox(height: 12),
-        Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.withOpacity(0.3), borderRadius: BorderRadius.circular(2))),
+        Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.withValues(alpha: 0.3), borderRadius: BorderRadius.circular(2))),
         Padding(padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10), child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [

@@ -33,6 +33,8 @@ class ButterflyDistributionParams {
   final DistributionMode distributionMode;
   final bool balanceEmptySeats; // true: Boşlukları eşit dağıt, false: Boşlukları son sınıfa ver
   final bool showExamTitleOnPdf; // true: Sınav adını yaz, false: 'Deneme Sınavı' yaz
+  final List<Map<String, dynamic>> sessionSlots;
+  final List<String> instructions;
 
   ButterflyDistributionParams({
     required this.title,
@@ -51,6 +53,8 @@ class ButterflyDistributionParams {
     this.distributionMode = DistributionMode.fullCross,
     this.balanceEmptySeats = true,
     this.showExamTitleOnPdf = true,
+    this.sessionSlots = const [],
+    this.instructions = const [],
   });
 }
 
@@ -74,7 +78,8 @@ class ButterflyDistributionService {
   /// ÇAPRAZ DAĞITIM ALGORİTMASI ÇEKİRDEĞİ (DETERMİNİSTİK & OFF-LINE)
   /// ===========================================================================
   static ExamDistribution _executeButterflyAlgorithm(ButterflyDistributionParams params) {
-    final rand = Random(42);
+    // Her çalıştırmada tamamen benzersiz ve rastgele bir dağıtım üret
+    final rand = Random();
 
     // -------------------------------------------------------------------------
     // 1. ADIM: DERSLİKLERİ VE BOŞ KOLTUKLARI ÇIKARMA (ÖNDEN ARKAYA SIRALAMA)
@@ -129,18 +134,22 @@ class ButterflyDistributionService {
         }
       }
 
-      generatedRooms.add(ExamRoom(
-        id: 'room_${rIdx + 1}',
-        classroomId: classroomId,
-        classroomName: classroomName,
-        layoutId: layoutSnapshot.id ?? 'layout_$rIdx',
-        layoutName: layoutSnapshot.name,
-        layoutSnapshot: layoutSnapshot,
-        supervisorId: supervisorId,
-        supervisorName: supervisorName,
-        seats: roomSeats,
-      ));
-    }
+        final rawSups = (config['supervisors'] as List<dynamic>?) ?? [];
+        final supervisors = rawSups.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+
+        generatedRooms.add(ExamRoom(
+          id: 'room_${rIdx + 1}',
+          classroomId: classroomId,
+          classroomName: classroomName,
+          layoutId: layoutSnapshot.id ?? 'layout_$rIdx',
+          layoutName: layoutSnapshot.name,
+          layoutSnapshot: layoutSnapshot,
+          supervisorId: supervisorId,
+          supervisorName: supervisorName,
+          supervisors: supervisors,
+          seats: roomSeats,
+        ));
+      }
 
     // -------------------------------------------------------------------------
     // 2. ADIM: EŞİT / DENGELİ SALON KONTENJANLARI HESAPLAMA
@@ -204,6 +213,9 @@ class ButterflyDistributionService {
       createdAt: DateTime.now(),
       notes: params.notes,
       showExamTitleOnPdf: params.showExamTitleOnPdf,
+      sessionSlots: params.sessionSlots,
+      instructions: params.instructions,
+      distributionMode: params.distributionMode.name,
     );
   }
 
@@ -216,17 +228,22 @@ class ButterflyDistributionService {
     Random rand,
     Map<int, int> roomQuotas,
   ) {
+    // 1) Her şube için ayrı kova oluştur (asla tüm şubeleri tek sepete atma!)
+    // Anahtar: Şube Adı (örn: '8-A', '8-B', '5-A')
     final Map<String, List<ExamStudent>> studentBuckets = {};
 
     for (final student in params.students) {
-      final key = student.gradeLevel.isNotEmpty ? student.gradeLevel : student.className;
+      final key = student.className;
       studentBuckets.putIfAbsent(key, () => []).add(student.clone());
     }
 
+    // 2) HER ŞUBENİN ÖĞRENCİLERİNİ BAĞIMSIZ VE TAMAMEN RASTGELE KARIŞTIR!
+    // Böylece her dağıtımda şubenin içindeki sıra tamamen değişir (hep aynı ilk 4 kişi gelmez!)
     for (final list in studentBuckets.values) {
       list.shuffle(rand);
     }
 
+    // 3) Salonlar arasında dağıtım
     for (int rIdx = 0; rIdx < generatedRooms.length; rIdx++) {
       final room = generatedRooms[rIdx];
       final allowedQuota = roomQuotas[rIdx] ?? room.seats.length;
@@ -247,21 +264,26 @@ class ButterflyDistributionService {
         final forbiddenGradeLevels = surroundingStudents.map((s) => s.gradeLevel).toSet();
         final forbiddenClassNames = surroundingStudents.map((s) => s.className).toSet();
 
+        // 1. Tercih: Hem sınıf seviyesi hem şube farklı olsun
         ExamStudent? selectedStudent = _pickBestStudent(
           studentBuckets: studentBuckets,
           forbiddenGradeLevels: forbiddenGradeLevels,
           forbiddenClassNames: forbiddenClassNames,
           hasMultipleGrades: params.gradeLevels.length > 1,
+          rand: rand,
         );
 
+        // 2. Tercih: Aynı seviye olabilir ama şube mutlaka farklı olsun
         selectedStudent ??= _pickBestStudent(
           studentBuckets: studentBuckets,
           forbiddenGradeLevels: {},
           forbiddenClassNames: forbiddenClassNames,
           hasMultipleGrades: params.gradeLevels.length > 1,
+          rand: rand,
         );
 
-        selectedStudent ??= _pickAnyRemainingStudent(studentBuckets);
+        // 3. Tercih: Kurala uyan kalmadıysa kalanlardan rastgele seç
+        selectedStudent ??= _pickAnyRemainingStudent(studentBuckets, rand);
 
         if (selectedStudent != null) {
           currentSeat.student = selectedStudent;
@@ -275,7 +297,7 @@ class ButterflyDistributionService {
       for (final room in generatedRooms) {
         for (final seat in room.seats) {
           if (!seat.isOccupied) {
-            final st = _pickAnyRemainingStudent(studentBuckets);
+            final st = _pickAnyRemainingStudent(studentBuckets, rand);
             if (st != null) seat.student = st;
           }
         }
@@ -292,26 +314,18 @@ class ButterflyDistributionService {
     Random rand,
     Map<int, int> roomQuotas,
   ) {
-    final Map<String, List<ExamStudent>> gradeGroups = {};
+    // 1) Şubeleri kovalara ayır
+    final Map<String, List<ExamStudent>> branchBuckets = {};
     for (final s in params.students) {
-      final gKey = s.gradeLevel.isNotEmpty ? s.gradeLevel : 'Genel';
-      gradeGroups.putIfAbsent(gKey, () => []).add(s);
+      branchBuckets.putIfAbsent(s.className, () => []).add(s.clone());
     }
 
-    final List<Map<String, List<ExamStudent>>> gradeBucketList = [];
-    for (final entry in gradeGroups.entries) {
-      final Map<String, List<ExamStudent>> branchBuckets = {};
-      for (final s in entry.value) {
-        branchBuckets.putIfAbsent(s.className, () => []).add(s.clone());
-      }
-      for (final l in branchBuckets.values) {
-        l.shuffle(rand);
-      }
-      gradeBucketList.add(branchBuckets);
+    // 2) Her şubenin kendi öğrencilerini tamamen rastgele karıştır
+    for (final l in branchBuckets.values) {
+      l.shuffle(rand);
     }
 
-    int currentGradeIdx = 0;
-
+    // 3) Salonlar arasında dağıtım
     for (int rIdx = 0; rIdx < generatedRooms.length; rIdx++) {
       final room = generatedRooms[rIdx];
       final allowedQuota = roomQuotas[rIdx] ?? room.seats.length;
@@ -323,35 +337,38 @@ class ButterflyDistributionService {
 
       for (final currentSeat in room.seats) {
         if (currentSeat.isOccupied) continue;
-        if (seatedInRoom >= allowedQuota) {
-          // Bu salondaki dengeli kota doldu, diğer salonlara geç
+        if (seatedInRoom >= allowedQuota && _hasRemainingStudents(branchBuckets)) {
           break;
         }
-
-        while (currentGradeIdx < gradeBucketList.length &&
-            _isAllBucketsEmpty(gradeBucketList[currentGradeIdx])) {
-          currentGradeIdx++;
-        }
-
-        if (currentGradeIdx >= gradeBucketList.length) break;
-
-        final activeBuckets = gradeBucketList[currentGradeIdx];
 
         final surroundingStudents = _getSurroundingStudents(roomSeatMap, currentSeat);
         final forbiddenClassNames = surroundingStudents.map((s) => s.className).toSet();
 
         ExamStudent? selected = _pickBestStudent(
-          studentBuckets: activeBuckets,
+          studentBuckets: branchBuckets,
           forbiddenGradeLevels: {},
           forbiddenClassNames: forbiddenClassNames,
           hasMultipleGrades: false,
+          rand: rand,
         );
 
-        selected ??= _pickAnyRemainingStudent(activeBuckets);
+        selected ??= _pickAnyRemainingStudent(branchBuckets, rand);
 
         if (selected != null) {
           currentSeat.student = selected;
           seatedInRoom++;
+        }
+      }
+    }
+
+    // Kalan öğrenci varsa boş koltuklara yerleştir
+    if (_hasRemainingStudents(branchBuckets)) {
+      for (final room in generatedRooms) {
+        for (final seat in room.seats) {
+          if (!seat.isOccupied) {
+            final st = _pickAnyRemainingStudent(branchBuckets, rand);
+            if (st != null) seat.student = st;
+          }
         }
       }
     }
@@ -360,29 +377,69 @@ class ButterflyDistributionService {
   // ===========================================================================
   // MOD 3: SIRALI DAĞITIM (Şube ve Numaraya Göre Standart Sıralı)
   // ===========================================================================
+  static int _naturalCompare(String a, String b) {
+    final re = RegExp(r'(\d+)|(\D+)');
+    final pa = re.allMatches(a.trim().toLowerCase()).map((m) => m.group(0)!).toList();
+    final pb = re.allMatches(b.trim().toLowerCase()).map((m) => m.group(0)!).toList();
+    for (int i = 0; i < pa.length && i < pb.length; i++) {
+      final na = int.tryParse(pa[i]);
+      final nb = int.tryParse(pb[i]);
+      final c = (na != null && nb != null)
+          ? na.compareTo(nb)
+          : pa[i].compareTo(pb[i]);
+      if (c != 0) return c;
+    }
+    return pa.length.compareTo(pb.length);
+  }
+
   static void _distributeSequentially(
     ButterflyDistributionParams params,
     List<ExamRoom> generatedRooms,
     Map<int, int> roomQuotas,
   ) {
+    // Öğrencilerin şubeleri değiştirilmez; yalnızca şube sırasına göre dizilir.
     final sorted = List<ExamStudent>.from(params.students);
     sorted.sort((a, b) {
-      final cComp = a.className.compareTo(b.className);
+      final cComp = _naturalCompare(a.className, b.className);
       if (cComp != 0) return cComp;
-      return a.studentNumber.compareTo(b.studentNumber);
+      return _naturalCompare(a.studentNumber, b.studentNumber);
     });
 
-    int sIdx = 0;
-    for (int rIdx = 0; rIdx < generatedRooms.length; rIdx++) {
-      final room = generatedRooms[rIdx];
-      final allowedQuota = roomQuotas[rIdx] ?? room.seats.length;
-      int seatedInRoom = 0;
+    String norm(String s) => s.toLowerCase().replaceAll(RegExp(r'[\s\-_/.]'), '');
 
-      for (final seat in room.seats) {
-        if (sIdx < sorted.length && seatedInRoom < allowedQuota) {
-          seat.student = sorted[sIdx++].clone();
-          seatedInRoom++;
+    // 1) Her şube, adı eşleşen salona (501 -> 501 dersliği) yerleştirilir.
+    final leftovers = <ExamStudent>[];
+    final byClass = <String, List<ExamStudent>>{};
+    for (final s in sorted) {
+      byClass.putIfAbsent(s.className, () => []).add(s);
+    }
+    final usedRooms = <int>{};
+    for (final entry in byClass.entries) {
+      final rIdx = generatedRooms.indexWhere((r) =>
+          !usedRooms.contains(generatedRooms.indexOf(r)) &&
+          norm(r.classroomName) == norm(entry.key));
+      if (rIdx < 0) {
+        leftovers.addAll(entry.value);
+        continue;
+      }
+      usedRooms.add(rIdx);
+      final seats = generatedRooms[rIdx].seats;
+      int i = 0;
+      for (final st in entry.value) {
+        if (i < seats.length) {
+          seats[i++].student = st.clone();
+        } else {
+          leftovers.add(st);
         }
+      }
+    }
+
+    // 2) Eşleşen salonu olmayan / taşan öğrenciler kalan boş koltuklara sırayla yerleşir.
+    int li = 0;
+    for (final room in generatedRooms) {
+      for (final seat in room.seats) {
+        if (li >= leftovers.length) return;
+        seat.student ??= leftovers[li++].clone();
       }
     }
   }
@@ -394,9 +451,6 @@ class ButterflyDistributionService {
     return buckets.values.any((l) => l.isNotEmpty);
   }
 
-  static bool _isAllBucketsEmpty(Map<String, List<ExamStudent>> buckets) {
-    return buckets.values.every((l) => l.isEmpty);
-  }
 
   static List<ExamStudent> _getSurroundingStudents(
     Map<String, SeatCoordinate> roomSeatMap,
@@ -426,9 +480,10 @@ class ButterflyDistributionService {
     required Set<String> forbiddenGradeLevels,
     required Set<String> forbiddenClassNames,
     required bool hasMultipleGrades,
+    required Random rand,
   }) {
-    String? bestKey;
-    int maxRemaining = -1;
+    final candidateKeys = <String>[];
+    int maxRemaining = 0;
 
     for (final entry in studentBuckets.entries) {
       final key = entry.key;
@@ -447,32 +502,35 @@ class ButterflyDistributionService {
 
       if (bucket.length > maxRemaining) {
         maxRemaining = bucket.length;
-        bestKey = key;
       }
+      candidateKeys.add(key);
     }
 
-    if (bestKey != null) {
-      return studentBuckets[bestKey]!.removeAt(0);
-    }
+    if (candidateKeys.isEmpty) return null;
 
-    return null;
+    // En çok öğrencisi kalan şubeler (veya bunlara çok yakın olanlar) arasından rastgele bir şube seç
+    final topCandidates = candidateKeys.where((k) => studentBuckets[k]!.length >= maxRemaining - 2).toList();
+    final chosenKey = topCandidates[rand.nextInt(topCandidates.length)];
+
+    return studentBuckets[chosenKey]!.removeAt(0);
   }
 
-  static ExamStudent? _pickAnyRemainingStudent(Map<String, List<ExamStudent>> studentBuckets) {
-    String? bestKey;
-    int maxRemaining = -1;
+  static ExamStudent? _pickAnyRemainingStudent(
+    Map<String, List<ExamStudent>> studentBuckets,
+    Random rand,
+  ) {
+    final nonEmpty = studentBuckets.entries.where((e) => e.value.isNotEmpty).map((e) => e.key).toList();
+    if (nonEmpty.isEmpty) return null;
 
-    for (final entry in studentBuckets.entries) {
-      if (entry.value.isNotEmpty && entry.value.length > maxRemaining) {
-        maxRemaining = entry.value.length;
-        bestKey = entry.key;
-      }
+    int maxRemaining = 0;
+    for (final k in nonEmpty) {
+      final len = studentBuckets[k]!.length;
+      if (len > maxRemaining) maxRemaining = len;
     }
 
-    if (bestKey != null) {
-      return studentBuckets[bestKey]!.removeAt(0);
-    }
-    return null;
+    final top = nonEmpty.where((k) => studentBuckets[k]!.length >= maxRemaining - 2).toList();
+    final chosenKey = top[rand.nextInt(top.length)];
+    return studentBuckets[chosenKey]!.removeAt(0);
   }
 
   /// ===========================================================================

@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -31,7 +31,7 @@ class _WorkCalendarScreenState extends State<WorkCalendarScreen>
     with WidgetsBindingObserver {
   String? _selectedPeriodId;
   Map<String, dynamic>? _selectedPeriod;
-  String _searchQuery = '';
+  final String _searchQuery = '';
   final DateFormat _dateFormat = DateFormat('dd.MM.yyyy');
   String? _currentTermId;
   bool _isViewingPastTerm = false;
@@ -154,7 +154,7 @@ class _WorkCalendarScreenState extends State<WorkCalendarScreen>
         }
 
         if (snapshot.hasError) {
-          print('❌ Firestore Error: ${snapshot.error}');
+          debugPrint('❌ Firestore Error: ${snapshot.error}');
           return Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -195,9 +195,9 @@ class _WorkCalendarScreenState extends State<WorkCalendarScreen>
           );
         }
 
-        print('📋 Alt dönemler yüklendi: ${snapshot.data!.docs.length} adet');
-        print('   schoolTypeId: ${widget.schoolTypeId}');
-        print('   institutionId: ${widget.institutionId}');
+        debugPrint('📋 Alt dönemler yüklendi: ${snapshot.data!.docs.length} adet');
+        debugPrint('   schoolTypeId: ${widget.schoolTypeId}');
+        debugPrint('   institutionId: ${widget.institutionId}');
 
         var periods = snapshot.data!.docs.toList();
 
@@ -252,7 +252,7 @@ class _WorkCalendarScreenState extends State<WorkCalendarScreen>
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.04),
+                    color: Colors.black.withValues(alpha: 0.04),
                     blurRadius: 6,
                     offset: const Offset(0, 2),
                   ),
@@ -647,7 +647,7 @@ class _WorkCalendarScreenState extends State<WorkCalendarScreen>
     );
 
     if (result == true) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             periodId != null
@@ -696,14 +696,14 @@ class _WorkCalendarScreenState extends State<WorkCalendarScreen>
           });
         }
 
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Alt dönem silindi'),
             backgroundColor: Colors.green,
           ),
         );
       } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
         );
       }
@@ -1920,16 +1920,16 @@ class _CreatePlanWizardState extends State<_CreatePlanWizard> {
       });
 
       widget.onPlanCreated();
-      Navigator.pop(context);
+      if (mounted) Navigator.pop(context);
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Yıllık plan oluşturuldu'),
           backgroundColor: Colors.green,
         ),
       );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
       );
     }
@@ -1989,7 +1989,7 @@ class _PlanDetailScreenState extends State<_PlanDetailScreen> {
   }
 
   Future<void> _loadPeriodAndWeeks() async {
-    print('📅 Plan detay yükleniyor... periodId: ${widget.periodId}');
+    debugPrint('📅 Plan detay yükleniyor... periodId: ${widget.periodId}');
 
     try {
       // Alt dönem bilgilerini yükle
@@ -1999,7 +1999,7 @@ class _PlanDetailScreenState extends State<_PlanDetailScreen> {
           .get();
 
       if (!periodDoc.exists) {
-        print('❌ Period bulunamadı!');
+        debugPrint('❌ Period bulunamadı!');
         // Period bulunamadıysa planData'dan tarihleri almayı dene
         _createWeeksFromPlanData();
         return;
@@ -2009,18 +2009,18 @@ class _PlanDetailScreenState extends State<_PlanDetailScreen> {
       _periodStartDate = (periodData['startDate'] as Timestamp?)?.toDate();
       _periodEndDate = (periodData['endDate'] as Timestamp?)?.toDate();
 
-      print('📅 Dönem tarihleri: $_periodStartDate - $_periodEndDate');
+      debugPrint('📅 Dönem tarihleri: $_periodStartDate - $_periodEndDate');
 
       if (_periodStartDate == null || _periodEndDate == null) {
-        print('❌ Tarihler null! planData\'dan almayı dene');
+        debugPrint('❌ Tarihler null! planData\'dan almayı dene');
         _createWeeksFromPlanData();
         return;
       }
 
       await _createWeeksFromDates();
     } catch (e, stackTrace) {
-      print('❌ Haftalık plan yükleme hatası: $e');
-      print('Stack trace: $stackTrace');
+      debugPrint('❌ Haftalık plan yükleme hatası: $e');
+      debugPrint('Stack trace: $stackTrace');
       _createWeeksFromPlanData();
     }
   }
@@ -2031,7 +2031,7 @@ class _PlanDetailScreenState extends State<_PlanDetailScreen> {
     _totalWeeks = (daysDiff / 7).ceil();
     if (_totalWeeks < 1) _totalWeeks = 1;
 
-    print('📅 Gün farkı: $daysDiff, Toplam hafta: $_totalWeeks');
+    debugPrint('📅 Gün farkı: $daysDiff, Toplam hafta: $_totalWeeks');
 
     // Mevcut haftalık planları yükle
     Map<int, Map<String, dynamic>> existingPlans = {};
@@ -2042,7 +2042,7 @@ class _PlanDetailScreenState extends State<_PlanDetailScreen> {
           .collection('weeklyPlans')
           .get();
 
-      print(
+      debugPrint(
         '📅 Mevcut haftalık plan sayısı: ${weeklyPlansSnapshot.docs.length}',
       );
 
@@ -2054,7 +2054,7 @@ class _PlanDetailScreenState extends State<_PlanDetailScreen> {
         }
       }
     } catch (e) {
-      print('⚠️ Mevcut planlar yüklenemedi: $e');
+      debugPrint('⚠️ Mevcut planlar yüklenemedi: $e');
     }
 
     // Haftalık planları oluştur
@@ -2079,7 +2079,7 @@ class _PlanDetailScreenState extends State<_PlanDetailScreen> {
       });
     }
 
-    print('✅ Haftalık planlar oluşturuldu: ${_weeklyPlans.length} adet');
+    debugPrint('✅ Haftalık planlar oluşturuldu: ${_weeklyPlans.length} adet');
 
     if (mounted) {
       setState(() => _isLoading = false);
@@ -2087,7 +2087,7 @@ class _PlanDetailScreenState extends State<_PlanDetailScreen> {
   }
 
   void _createWeeksFromPlanData() {
-    print('📅 PlanData\'dan hafta oluşturuluyor...');
+    debugPrint('📅 PlanData\'dan hafta oluşturuluyor...');
 
     // Varsayılan olarak 9 hafta oluştur (görüntüde 9 hafta yazıyor)
     _totalWeeks = 9;
@@ -2110,7 +2110,7 @@ class _PlanDetailScreenState extends State<_PlanDetailScreen> {
       });
     }
 
-    print(
+    debugPrint(
       '✅ Varsayılan haftalık planlar oluşturuldu: ${_weeklyPlans.length} adet',
     );
 
@@ -2293,7 +2293,7 @@ class _PlanDetailScreenState extends State<_PlanDetailScreen> {
             if (row.isEmpty) continue;
 
             // Hafta Numarasını al (0. Sütun)
-            var weekNumCell = row.length > 0 ? row[0] : null;
+            var weekNumCell = row.isNotEmpty ? row[0] : null;
             if (weekNumCell == null || weekNumCell.value == null) continue;
 
             int? weekNum;
@@ -2339,7 +2339,7 @@ class _PlanDetailScreenState extends State<_PlanDetailScreen> {
 
           if (updatedCount > 0) {
             setState(() {});
-            ScaffoldMessenger.of(context).showSnackBar(
+            if (mounted) ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(
                   '$updatedCount hafta güncellendi. Kaydetmeyi unutmayın!',
@@ -2348,7 +2348,7 @@ class _PlanDetailScreenState extends State<_PlanDetailScreen> {
               ),
             );
           } else {
-            ScaffoldMessenger.of(context).showSnackBar(
+            if (mounted) ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text('Eşleşen hafta bulunamadı'),
                 backgroundColor: Colors.orange,
@@ -2358,7 +2358,7 @@ class _PlanDetailScreenState extends State<_PlanDetailScreen> {
         }
       }
     } catch (e) {
-      print('Excel Import Error: $e');
+      debugPrint('Excel Import Error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

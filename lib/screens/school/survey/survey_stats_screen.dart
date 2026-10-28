@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/gestures.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -77,34 +77,34 @@ class _SurveyStatsScreenState extends State<SurveyStatsScreen>
   }
 
   Future<void> _loadData() async {
-    print(
+    debugPrint(
       '📊 SurveyStatsScreen: Starting to load data for survey ${widget.survey.id}',
     );
 
     try {
       // 1. Fetch Responses with timeout
-      print('📊 Fetching survey responses...');
+      debugPrint('📊 Fetching survey responses...');
       final responses = await _surveyService
           .getSurveyResponses(widget.survey.id)
           .timeout(
             Duration(seconds: 10),
             onTimeout: () {
-              print('⚠️ Survey responses fetch timed out');
+              debugPrint('⚠️ Survey responses fetch timed out');
               return [];
             },
           );
-      print('✅ Got ${responses.length} responses');
+      debugPrint('✅ Got ${responses.length} responses');
 
       // 2. Fetch Target Audience with timeout
-      print('📊 Fetching target users...');
+      debugPrint('📊 Fetching target users...');
       final allUsers = await _announcementService.getAllUsers().timeout(
         Duration(seconds: 10),
         onTimeout: () {
-          print('⚠️ getAllUsers timed out');
+          debugPrint('⚠️ getAllUsers timed out');
           return [];
         },
       );
-      print('✅ Got ${allUsers.length} total users');
+      debugPrint('✅ Got ${allUsers.length} total users');
 
       List<Map<String, dynamic>> targets = [];
 
@@ -117,7 +117,7 @@ class _SurveyStatsScreenState extends State<SurveyStatsScreen>
       } else if (widget.survey.targetType == SurveyTargetType.parents) {
         targets = allUsers.where((u) => u['role'] == 'Veli').toList();
       }
-      print('✅ Filtered to ${targets.length} target users');
+      debugPrint('✅ Filtered to ${targets.length} target users');
 
       // Create user map for quick lookup
       final nameMap = <String, String>{};
@@ -134,11 +134,11 @@ class _SurveyStatsScreenState extends State<SurveyStatsScreen>
           _userNames = nameMap;
           _isLoading = false;
         });
-        print('✅ SurveyStatsScreen: Data loaded successfully');
+        debugPrint('✅ SurveyStatsScreen: Data loaded successfully');
       }
     } catch (e, stackTrace) {
-      print('❌ SurveyStatsScreen error: $e');
-      print('Stack trace: $stackTrace');
+      debugPrint('❌ SurveyStatsScreen error: $e');
+      debugPrint('Stack trace: $stackTrace');
 
       if (mounted) {
         setState(() => _isLoading = false);
@@ -184,7 +184,7 @@ class _SurveyStatsScreenState extends State<SurveyStatsScreen>
         // Let's just pop back to list to refresh list
         Navigator.pop(context);
       });
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Anket kapatıldı.')));
     }
@@ -216,7 +216,7 @@ class _SurveyStatsScreenState extends State<SurveyStatsScreen>
       if (mounted) {
         Navigator.pop(context); // Close stats screen
       }
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Anket silindi.')));
     }
@@ -310,10 +310,10 @@ class _SurveyStatsScreenState extends State<SurveyStatsScreen>
                               height: 40,
                               alignment: Alignment.center,
                               decoration: BoxDecoration(
-                                color: isSelected ? Colors.blue.shade700.withOpacity(0.08) : Colors.transparent,
+                                color: isSelected ? Colors.blue.shade700.withValues(alpha: 0.08) : Colors.transparent,
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
-                                  color: isSelected ? Colors.blue.shade700 : Colors.grey.withOpacity(0.3),
+                                  color: isSelected ? Colors.blue.shade700 : Colors.grey.withValues(alpha: 0.3),
                                   width: isSelected ? 1.8 : 1.0,
                                 ),
                               ),
@@ -346,10 +346,10 @@ class _SurveyStatsScreenState extends State<SurveyStatsScreen>
                               height: 40,
                               alignment: Alignment.center,
                               decoration: BoxDecoration(
-                                color: isSelected ? Colors.blue.shade700.withOpacity(0.08) : Colors.transparent,
+                                color: isSelected ? Colors.blue.shade700.withValues(alpha: 0.08) : Colors.transparent,
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
-                                  color: isSelected ? Colors.blue.shade700 : Colors.grey.withOpacity(0.3),
+                                  color: isSelected ? Colors.blue.shade700 : Colors.grey.withValues(alpha: 0.3),
                                   width: isSelected ? 1.8 : 1.0,
                                 ),
                               ),
@@ -750,7 +750,7 @@ class _SurveyStatsScreenState extends State<SurveyStatsScreen>
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: Offset(0, 4),
           ),
@@ -764,7 +764,7 @@ class _SurveyStatsScreenState extends State<SurveyStatsScreen>
               Container(
                 padding: EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
+                  color: color.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Icon(icon, color: color, size: 20),
@@ -814,7 +814,7 @@ class _SurveyStatsScreenState extends State<SurveyStatsScreen>
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 8),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 8),
         ],
       ),
       child: Column(
@@ -882,7 +882,7 @@ class _SurveyStatsScreenState extends State<SurveyStatsScreen>
 
     // Convert to Pie or Bar chart data
     // Let's use simple Bar rows for readability
-    final total = _responses.length == 0
+    final total = _responses.isEmpty
         ? 1
         : _responses.length; // avoid div by 0 for percentages
 
@@ -1027,7 +1027,7 @@ class _SurveyStatsScreenState extends State<SurveyStatsScreen>
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: DataTable(
-            headingRowColor: MaterialStateProperty.all(Colors.grey[100]),
+            headingRowColor: WidgetStateProperty.all(Colors.grey[100]),
             columns: [
               DataColumn(
                 label: Text(

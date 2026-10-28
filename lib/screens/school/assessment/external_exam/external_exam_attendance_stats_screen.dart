@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -9,7 +9,6 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
 import 'dart:async';
 import 'package:edukn/widgets/safe_stream_builder.dart';
 
@@ -330,9 +329,9 @@ class _ExternalExamAttendanceStatsScreenState extends State<ExternalExamAttendan
                 ],
                 bottom: TabBar(
                   controller: _tabController,
-                  indicatorColor: Colors.white,
-                  labelColor: Colors.white,
-                  unselectedLabelColor: Colors.white70,
+                  indicatorColor: Colors.indigo.shade700,
+                  labelColor: Colors.indigo.shade900,
+                  unselectedLabelColor: Colors.indigo.shade300,
                   labelStyle: GoogleFonts.inter(fontWeight: FontWeight.bold),
                   tabs: [
                     const Tab(text: 'Genel Durum & Salonlar'),
@@ -350,7 +349,7 @@ class _ExternalExamAttendanceStatsScreenState extends State<ExternalExamAttendan
             ),
             if (_isLoading || _isLoadingAttendance)
               Container(
-                color: Colors.black.withOpacity(0.3),
+                color: Colors.black.withValues(alpha: 0.3),
                 child: const Center(child: CircularProgressIndicator(color: _primaryColor)),
               )
           ],
@@ -487,7 +486,7 @@ class _ExternalExamAttendanceStatsScreenState extends State<ExternalExamAttendan
               Expanded(
                 flex: 2,
                 child: DropdownButtonFormField<String>(
-                  value: _selectedSchool,
+                  initialValue: _selectedSchool,
                   hint: const Text('Tüm Okullar'),
                   decoration: InputDecoration(
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
@@ -504,7 +503,7 @@ class _ExternalExamAttendanceStatsScreenState extends State<ExternalExamAttendan
               Expanded(
                 flex: 1,
                 child: DropdownButtonFormField<String>(
-                  value: _selectedGrade,
+                  initialValue: _selectedGrade,
                   hint: const Text('Tüm Sınıflar'),
                   decoration: InputDecoration(
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
@@ -567,15 +566,15 @@ class _ExternalExamAttendanceStatsScreenState extends State<ExternalExamAttendan
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
-          BoxShadow(color: color.withOpacity(0.1), blurRadius: 20, offset: const Offset(0, 4)),
+          BoxShadow(color: color.withValues(alpha: 0.1), blurRadius: 20, offset: const Offset(0, 4)),
         ],
-        border: Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
       child: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
+            decoration: BoxDecoration(color: color.withValues(alpha: 0.1), shape: BoxShape.circle),
             child: Icon(icon, color: color, size: 28),
           ),
           const SizedBox(width: 16),

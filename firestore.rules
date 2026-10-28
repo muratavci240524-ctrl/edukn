@@ -58,17 +58,17 @@ service cloud.firestore {
 
     // Admin veya Müdür mü? (En yetkili rol grubu)
     function isAdminOrManager() {
-      return myRole() in ['admin', 'manager', 'genel_mudur', 'mudur'];
+      return myRole() in ['admin', 'manager', 'genel_mudur', 'mudur', 'kurum_yoneticisi', 'kurum_muduru', 'müdür'];
     }
 
     // Yönetim (Müdür yardımcısı dahil)
     function isManagement() {
-      return myRole() in ['admin', 'manager', 'genel_mudur', 'mudur', 'mudur_yardimcisi'];
+      return myRole() in ['admin', 'manager', 'genel_mudur', 'mudur', 'mudur_yardimcisi', 'kurum_yoneticisi', 'kurum_muduru', 'müdür'];
     }
 
     // Öğretmen veya üstü
     function isTeacherOrAbove() {
-      return myRole() == '__NONE__' || myRole() in ['admin', 'manager', 'genel_mudur', 'mudur', 'mudur_yardimcisi', 'ogretmen', 'rehber_ogretmen'];
+      return myRole() == '__NONE__' || myRole() in ['admin', 'manager', 'genel_mudur', 'mudur', 'mudur_yardimcisi', 'ogretmen', 'rehber_ogretmen', 'teacher', 'öğretmen', 'kurum_yoneticisi', 'kurum_muduru', 'müdür'];
     }
 
     // Sistem genelinde süper admin (kurumlar arası erişim)
@@ -89,6 +89,47 @@ service cloud.firestore {
     // 📊 DEĞERLENDİRMELER (ASSESSMENTS)
     // ═══════════════════════════════════════════════════════════════
     match /assessments/{assessmentId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+
+    match /outcome_lists/{listId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 🚀 AKADEMİK GÜÇLENDİRME MATRİSİ (AGM) & KAMP PROGRAMI
+    // ═══════════════════════════════════════════════════════════════
+    match /agm_cycles/{cycleId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /agm_groups/{groupId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /agm_assignments/{assignmentId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /agm_assignment_logs/{logId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /agm_time_slots/{slotId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /student_preferences/{prefId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /camp_cycles/{cycleId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /camp_groups/{groupId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /camp_assignments/{assignmentId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /camp_assignment_logs/{logId} {
+      allow read, write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /camp_time_slots/{slotId} {
       allow read, write: if isAuthenticated() || isSuperAdmin();
     }
 
@@ -171,16 +212,16 @@ service cloud.firestore {
       allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /seating_layouts/{layoutId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /butterfly_exams/{examId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /butterflyExams/{examId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /notifications/{notifId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /random_student_picks/{pickId} {
       allow read, write: if isAuthenticated() || isSuperAdmin();
@@ -198,13 +239,13 @@ service cloud.firestore {
       allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /dutyScheduleItems/{itemId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /duty_schedule_items/{itemId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /dutyLocations/{locId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /duty_locations/{locId} {
       allow read, write: if isAuthenticated() || isSuperAdmin();
@@ -213,121 +254,132 @@ service cloud.firestore {
       allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /payment_plans/{planId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /paymentPlans/{planId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /cashes/{cashId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /transactions/{transId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /pre_registration_settings/{settingId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAuthenticated() || isSuperAdmin();
     }
     match /preRegistrationSettings/{settingId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAuthenticated() || isSuperAdmin();
     }
     match /pre_registrations/{preRegId} {
-      allow read, write: if true;
+      allow read: if isAuthenticated() || isSuperAdmin();
+      allow create: if true; // Ön kayıt formu — login olmadan
+      allow update, delete: if isAuthenticated() || isSuperAdmin();
     }
     match /terms/{termId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAuthenticated() || isSuperAdmin();
     }
     match /workPeriods/{periodId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /homeworks/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /etut_requests/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /lessonAttendance/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /lesson_attendance/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /role_templates/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /roleTemplates/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /lessonAssignments/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /classSchedules/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /attendance/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /etut_settings/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /etut_teacher_availability/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /activities/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /field_trips/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /class_exams/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /lessons/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /announcements/{docId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAuthenticated() || isSuperAdmin();
+    }
+    match /{path=**}/announcements/{docId} {
+      allow read: if true;
     }
     match /guidance_demands/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /demands/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /development_reports/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /applied_tests/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /guidance_tests/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /guidance_test_results/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /activity_reports/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /guidance_interviews/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /student_interviews/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /assessment_action_plans/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /book_assignments/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /books/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
     match /institutions/{instId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAuthenticated() || isSuperAdmin();
 
       match /{allSubcollections=**} {
-        allow read, write: if true;
+        allow read: if isAuthenticated() || isSuperAdmin();
+        allow write: if isAuthenticated() || isSuperAdmin();
       }
     }
 
@@ -615,7 +667,7 @@ service cloud.firestore {
       );
       // Admin/Manager veya kendi gönderisini silebilir
       allow delete: if isAuthenticated() && (
-        isAdminOrManager() ||
+        isManagement() ||
         resource.data.get('createdBy', '') == request.auth.token.email ||
         resource.data.get('userId', '') == request.auth.uid
       );
@@ -860,6 +912,34 @@ service cloud.firestore {
     }
 
     // ═══════════════════════════════════════════════════════════════
+    // 🎓 GÖZETMENLİK İŞLEMLERİ
+    // ═══════════════════════════════════════════════════════════════
+    match /proctoringSlots/{slotId} {
+      // list sorgularında resource.data null gelebilir; kurum yalıtımı periodId üzerinden sağlanıyor
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isAdminOrManager();
+      allow update: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
+      allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
+    }
+
+    match /proctoringSettings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isAdminOrManager();
+    }
+
+    match /proctoringGlobalSettings/{institutionId} {
+      allow read: if isAuthenticated() && belongsToInstitution(institutionId);
+      allow write: if isAuthenticated() && belongsToInstitution(institutionId) && isAdminOrManager();
+    }
+
+    match /proctoringExams/{examId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isSameInstitution(request.resource.data) && isAdminOrManager();
+      allow update: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
+      allow delete: if isAuthenticated() && isSameInstitution(resource.data) && isAdminOrManager();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     // 📆 DÖNEM / ŞUBE
     // ═══════════════════════════════════════════════════════════════
     match /terms/{termId} {
@@ -1033,17 +1113,16 @@ service cloud.firestore {
     // ═══════════════════════════════════════════════════════════════
     match /exam_types/{examTypeId} {
       allow read: if isAuthenticated();
-      allow create, update, delete: if isAuthenticated() && isAdminOrManager();
+      allow create, update, delete: if isAuthenticated() && (isAdminOrManager() || isTeacherOrAbove() || isSuperAdmin());
     }
 
     match /outcome_lists/{listId} {
-      allow read: if isAuthenticated();
-      allow create, update, delete: if isAuthenticated() && isAdminOrManager();
+      allow read, write: if isAuthenticated() || isSuperAdmin();
     }
 
     match /development_criteria/{criterionId} {
       allow read: if isAuthenticated();
-      allow create, update, delete: if isAuthenticated() && isAdminOrManager();
+      allow create, update, delete: if isAuthenticated() && (isAdminOrManager() || isTeacherOrAbove() || isSuperAdmin());
     }
 
     // ═══════════════════════════════════════════════════════════════

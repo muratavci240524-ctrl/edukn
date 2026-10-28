@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import '../guidance/reports/development_report_pdf_helper.dart';
 import '../../models/guidance/development_report/development_report_model.dart';
@@ -203,12 +203,12 @@ class DevelopmentReportContent extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.indigo.withOpacity(0.04),
+            color: Colors.indigo.withValues(alpha: 0.04),
             blurRadius: 20,
             offset: Offset(0, 10),
           ),
         ],
-        border: Border.all(color: Colors.indigo.withOpacity(0.05)),
+        border: Border.all(color: Colors.indigo.withValues(alpha: 0.05)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -292,12 +292,12 @@ class DevelopmentReportContent extends StatelessWidget {
                             percentage,
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
-                            colors: [color.withOpacity(0.6), color],
+                            colors: [color.withValues(alpha: 0.6), color],
                           ),
                           borderRadius: BorderRadius.circular(4),
                           boxShadow: [
                             BoxShadow(
-                              color: color.withOpacity(0.2),
+                              color: color.withValues(alpha: 0.2),
                               blurRadius: 4,
                               offset: Offset(0, 2),
                             ),
@@ -325,7 +325,7 @@ class DevelopmentReportContent extends StatelessWidget {
       decoration: BoxDecoration(
         color: Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.purple.withOpacity(0.1)),
+        border: Border.all(color: Colors.purple.withValues(alpha: 0.1)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -367,7 +367,7 @@ class DevelopmentReportContent extends StatelessWidget {
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.orange.withOpacity(0.1)),
+                border: Border.all(color: Colors.orange.withValues(alpha: 0.1)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -474,7 +474,7 @@ class DevelopmentReportContent extends StatelessWidget {
                       border: Border.all(color: Color(0xFFE2E8F0)),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.02),
+                          color: Colors.black.withValues(alpha: 0.02),
                           blurRadius: 5,
                           offset: Offset(0, 2),
                         ),

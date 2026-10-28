@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -366,7 +366,7 @@ class _ToDoListScreenState extends State<ToDoListScreen>
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 8,
             offset: const Offset(0, 4),
           ),
@@ -541,7 +541,7 @@ class _ToDoListScreenState extends State<ToDoListScreen>
                                 ),
                                 child: CircleAvatar(
                                   backgroundColor: const Color(0xFF4F46E5)
-                                      .withOpacity(0.2),
+                                      .withValues(alpha: 0.2),
                                   child: const Icon(Icons.person,
                                       size: 12, color: Color(0xFF4F46E5)),
                                 ),

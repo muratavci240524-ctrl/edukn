@@ -51,7 +51,7 @@ class _FieldTripListScreenState extends State<FieldTripListScreen> {
           termName = (termDoc.data()?['name'] ?? termDoc.data()?['termName'])
               ?.toString();
         }
-      } catch (_) {}
+      } catch (silentError) { debugPrint('[field_trip_list_screen] hata yutuldu: $silentError'); }
     }
 
     final userData = await UserPermissionService.loadUserData();
@@ -155,10 +155,10 @@ class _FieldTripListScreenState extends State<FieldTripListScreen> {
                             vertical: 5,
                           ),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
+                            color: Colors.white.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
-                              color: Colors.white.withOpacity(0.3),
+                              color: Colors.white.withValues(alpha: 0.3),
                             ),
                           ),
                           child: Row(
@@ -210,7 +210,7 @@ class _FieldTripListScreenState extends State<FieldTripListScreen> {
                       child: Icon(
                         Icons.directions_bus,
                         size: 150,
-                        color: Colors.white.withOpacity(0.1),
+                        color: Colors.white.withValues(alpha: 0.1),
                       ),
                     ),
                   ],
@@ -356,7 +356,7 @@ class _FieldTripListScreenState extends State<FieldTripListScreen> {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             offset: const Offset(0, 4),
             blurRadius: 12,
           ),

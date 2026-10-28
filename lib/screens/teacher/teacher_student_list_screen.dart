@@ -81,7 +81,7 @@ class _TeacherStudentListScreenState extends State<TeacherStudentListScreen> {
           _cachedStudents = list;
         }
       }
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[teacher_student_list_screen] hata yutuldu: $silentError'); }
   }
 
   @override
@@ -275,10 +275,10 @@ class _TeacherStudentListScreenState extends State<TeacherStudentListScreen> {
                   style: const TextStyle(color: Colors.white),
                   decoration: InputDecoration(
                     hintText: 'Öğrenci ara...',
-                    hintStyle: TextStyle(color: Colors.white.withOpacity(0.6)),
+                    hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
                     prefixIcon: const Icon(Icons.search, color: Colors.white),
                     filled: true,
-                    fillColor: Colors.white.withOpacity(0.1),
+                    fillColor: Colors.white.withValues(alpha: 0.1),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide.none,
@@ -291,9 +291,9 @@ class _TeacherStudentListScreenState extends State<TeacherStudentListScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.18),
+                  color: Colors.white.withValues(alpha: 0.18),
                   borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: Colors.white.withOpacity(0.35), width: 1),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.35), width: 1),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -322,7 +322,7 @@ class _TeacherStudentListScreenState extends State<TeacherStudentListScreen> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.1),
+                        color: Colors.white.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: DropdownButtonHideUnderline(
@@ -348,7 +348,7 @@ class _TeacherStudentListScreenState extends State<TeacherStudentListScreen> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.1),
+                        color: Colors.white.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: DropdownButtonHideUnderline(

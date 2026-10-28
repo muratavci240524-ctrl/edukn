@@ -161,7 +161,7 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
         final targetDate = _weekStart;
 
         for (var doc in periodsSnapshot.docs) {
-          final data = doc.data() as Map<String, dynamic>;
+          final data = doc.data();
           final start = (data['startDate'] as Timestamp?)?.toDate();
           final end = (data['endDate'] as Timestamp?)?.toDate();
 
@@ -319,7 +319,7 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
         _isScheduleLoading = false;
       });
     } catch (e) {
-      print('Veri yükleme hatası: $e');
+      debugPrint('Veri yükleme hatası: $e');
       setState(() {
         _isLoading = false;
         _isScheduleLoading = false;
@@ -489,7 +489,7 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
         _isScheduleLoading = false;
       });
     } catch (e) {
-      print('Program yükleme hatası: $e');
+      debugPrint('Program yükleme hatası: $e');
       setState(() => _isScheduleLoading = false);
     }
   }
@@ -524,7 +524,7 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.white : Colors.white.withOpacity(0.2),
+          color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.2),
           borderRadius: BorderRadius.circular(16),
         ),
         child: Text(
@@ -624,7 +624,7 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
                   Container(
                     padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.3),
+                      color: Colors.white.withValues(alpha: 0.3),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
@@ -670,7 +670,7 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
                           )
                         : null,
                     filled: true,
-                    fillColor: Colors.white.withOpacity(0.2),
+                    fillColor: Colors.white.withValues(alpha: 0.2),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide.none,
@@ -716,7 +716,7 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
                         decoration: BoxDecoration(
                           color: _selectedClassLevel != null
                               ? Colors.white
-                              : Colors.white.withOpacity(0.2),
+                              : Colors.white.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Row(
@@ -775,7 +775,7 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
                         decoration: BoxDecoration(
                           color: _selectedClassType != null
                               ? Colors.white
-                              : Colors.white.withOpacity(0.2),
+                              : Colors.white.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Row(
@@ -922,7 +922,7 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
           borderRadius: BorderRadius.circular(24),
           boxShadow: [
             BoxShadow(
-              color: Colors.purple.shade900.withOpacity(0.04),
+              color: Colors.purple.shade900.withValues(alpha: 0.04),
               blurRadius: 20,
               offset: const Offset(0, 8),
             ),
@@ -1002,7 +1002,7 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
         border: Border.all(color: Colors.purple.shade50),
         boxShadow: [
           BoxShadow(
-            color: Colors.purple.shade900.withOpacity(0.04),
+            color: Colors.purple.shade900.withValues(alpha: 0.04),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -1117,7 +1117,7 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.08),
+                    color: Colors.black.withValues(alpha: 0.08),
                     blurRadius: 12,
                     offset: Offset(0, 4),
                   ),
@@ -1442,7 +1442,7 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
+                    color: Colors.black.withValues(alpha: 0.05),
                     blurRadius: 10,
                     offset: Offset(0, 4),
                   ),
@@ -1489,7 +1489,7 @@ class _StudentLessonsScreenState extends State<StudentLessonsScreen> {
                             vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
+                            color: Colors.white.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
@@ -1846,7 +1846,7 @@ class _ClassScheduleDetailViewState extends State<_ClassScheduleDetailView> {
         _scheduleData = scheduleData;
       });
     } catch (e) {
-      print('Program yükleme hatası: $e');
+      debugPrint('Program yükleme hatası: $e');
     }
   }
 
@@ -1900,7 +1900,7 @@ class _ClassScheduleDetailViewState extends State<_ClassScheduleDetailView> {
         border: Border.all(color: Colors.purple.shade50),
         boxShadow: [
           BoxShadow(
-            color: Colors.purple.shade900.withOpacity(0.04),
+            color: Colors.purple.shade900.withValues(alpha: 0.04),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -2036,7 +2036,7 @@ class _ClassScheduleDetailViewState extends State<_ClassScheduleDetailView> {
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.08),
+                          color: Colors.black.withValues(alpha: 0.08),
                           blurRadius: 12,
                           offset: Offset(0, 4),
                         ),
@@ -2390,7 +2390,7 @@ class _ClassScheduleDetailViewState extends State<_ClassScheduleDetailView> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: Offset(0, 4),
           ),

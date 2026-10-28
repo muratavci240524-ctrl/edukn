@@ -1,9 +1,8 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../../services/user_permission_service.dart';
 
 /// 🔐 Veri Şifreleme Yönetim Ekranı
 /// Sadece super_admin görebilir.
@@ -20,7 +19,7 @@ class _DataEncryptionScreenState extends State<DataEncryptionScreen> {
   bool _isMigrating = false;
   Map<String, dynamic>? _stats;
   String? _institutionId;
-  List<String> _logs = [];
+  final List<String> _logs = [];
   bool _migrationDone = false;
   List<Map<String, dynamic>> _schools = [];
 
@@ -204,7 +203,7 @@ class _DataEncryptionScreenState extends State<DataEncryptionScreen> {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: (allEncrypted ? const Color(0xFF059669) : const Color(0xFF4F46E5)).withOpacity(0.3),
+            color: (allEncrypted ? const Color(0xFF059669) : const Color(0xFF4F46E5)).withValues(alpha: 0.3),
             blurRadius: 20,
             offset: const Offset(0, 8),
           ),
@@ -215,7 +214,7 @@ class _DataEncryptionScreenState extends State<DataEncryptionScreen> {
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
+              color: Colors.white.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(14),
             ),
             child: Icon(
@@ -238,7 +237,7 @@ class _DataEncryptionScreenState extends State<DataEncryptionScreen> {
                   allEncrypted
                       ? 'Tüm hassas veriler AES-256 ile korunuyor.'
                       : 'Aşağıdaki butonu kullanarak tüm verileri şifreleyin.',
-                  style: GoogleFonts.inter(fontSize: 13, color: Colors.white.withOpacity(0.85)),
+                  style: GoogleFonts.inter(fontSize: 13, color: Colors.white.withValues(alpha: 0.85)),
                 ),
               ],
             ),
@@ -280,7 +279,7 @@ class _DataEncryptionScreenState extends State<DataEncryptionScreen> {
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
-              BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4)),
+              BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 10, offset: const Offset(0, 4)),
             ],
           ),
           child: Column(
@@ -387,7 +386,7 @@ class _DataEncryptionScreenState extends State<DataEncryptionScreen> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4)),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 10, offset: const Offset(0, 4)),
         ],
       ),
       child: Column(
@@ -399,7 +398,7 @@ class _DataEncryptionScreenState extends State<DataEncryptionScreen> {
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
-            value: _institutionId,
+            initialValue: _institutionId,
             decoration: InputDecoration(
               filled: true,
               fillColor: const Color(0xFFF1F5F9),

@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -150,7 +150,7 @@ class _CreateDemandDialogState extends State<CreateDemandDialog> {
             children: [
               Expanded(
                 child: DropdownButtonFormField<String>(
-                  value: _category,
+                  initialValue: _category,
                   isExpanded: true,
                   decoration: _inputDecoration('Kategori'),
                   items: ['Akademik', 'Disiplin', 'Rehberlik', 'Sosyal', 'Diğer']
@@ -162,7 +162,7 @@ class _CreateDemandDialogState extends State<CreateDemandDialog> {
               const SizedBox(width: 16),
               Expanded(
                 child: DropdownButtonFormField<DemandPriority>(
-                  value: _priority,
+                  initialValue: _priority,
                   isExpanded: true,
                   decoration: _inputDecoration('Aciliyet'),
                   items: [
@@ -222,10 +222,10 @@ class _CreateDemandDialogState extends State<CreateDemandDialog> {
               runSpacing: 8,
               children: _selectedReceivers.map((r) => Chip(
                 label: Text(r['name']!, style: const TextStyle(fontSize: 12, color: Colors.indigo, fontWeight: FontWeight.w500)),
-                backgroundColor: Colors.indigo.shade50.withOpacity(0.5),
+                backgroundColor: Colors.indigo.shade50.withValues(alpha: 0.5),
                 deleteIcon: const Icon(Icons.close, size: 14, color: Colors.indigo),
                 onDeleted: () => setState(() => _selectedReceivers.remove(r)),
-                side: BorderSide(color: Colors.indigo.withOpacity(0.2)),
+                side: BorderSide(color: Colors.indigo.withValues(alpha: 0.2)),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               )).toList(),
             ),
@@ -239,7 +239,7 @@ class _CreateDemandDialogState extends State<CreateDemandDialog> {
               color: Colors.white,
               border: Border.all(color: Colors.grey.shade300), 
               borderRadius: BorderRadius.circular(12),
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 4, offset: const Offset(0, 2))],
+              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 4, offset: const Offset(0, 2))],
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -264,7 +264,7 @@ class _CreateDemandDialogState extends State<CreateDemandDialog> {
           color: Colors.white,
           border: Border.all(color: Colors.grey.shade300), 
           borderRadius: BorderRadius.circular(12),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 4, offset: const Offset(0, 2))],
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 4, offset: const Offset(0, 2))],
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -363,10 +363,10 @@ class _CreateDemandDialogState extends State<CreateDemandDialog> {
       );
 
       await DemandService().createDemand(demand);
-      Navigator.pop(context);
+      if (mounted) Navigator.pop(context);
     } catch (e) {
       setState(() => _isSaving = false);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Kaydedilirken hata oluştu: $e')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Kaydedilirken hata oluştu: $e')));
     }
   }
 }

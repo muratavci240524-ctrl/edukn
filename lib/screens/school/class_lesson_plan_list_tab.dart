@@ -156,7 +156,7 @@ class _ClassLessonPlanListTabState extends State<ClassLessonPlanListTab> {
               borderRadius: BorderRadius.circular(16),
               child: Card(
                 elevation: 2,
-                shadowColor: Colors.black.withOpacity(0.05),
+                shadowColor: Colors.black.withValues(alpha: 0.05),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
                   side: BorderSide(color: Colors.grey.shade100),
@@ -172,9 +172,9 @@ class _ClassLessonPlanListTabState extends State<ClassLessonPlanListTab> {
                         Container(
                           width: 80,
                           decoration: BoxDecoration(
-                            color: color.withOpacity(0.1),
+                            color: color.withValues(alpha: 0.1),
                             border: Border(
-                              right: BorderSide(color: color.withOpacity(0.2)),
+                              right: BorderSide(color: color.withValues(alpha: 0.2)),
                             ),
                           ),
                           child: Column(
@@ -194,7 +194,7 @@ class _ClassLessonPlanListTabState extends State<ClassLessonPlanListTab> {
                                 style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
-                                  color: color.withOpacity(0.8),
+                                  color: color.withValues(alpha: 0.8),
                                 ),
                               ),
                             ],

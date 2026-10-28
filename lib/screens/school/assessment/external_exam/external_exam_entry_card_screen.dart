@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -1512,7 +1512,7 @@ class _ExternalExamEntryCardScreenState
         duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: selected ? color.withOpacity(0.07) : Colors.grey.shade50,
+          color: selected ? color.withValues(alpha: 0.07) : Colors.grey.shade50,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: selected ? color : Colors.grey.shade200,
@@ -1570,7 +1570,7 @@ class _ExternalExamEntryCardScreenState
               width: 36,
               height: 36,
               decoration: BoxDecoration(
-                color: selected ? _primaryColor.withOpacity(0.12) : Colors.grey.shade100,
+                color: selected ? _primaryColor.withValues(alpha: 0.12) : Colors.grey.shade100,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Icon(
@@ -1898,7 +1898,7 @@ class _ExternalExamEntryCardScreenState
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.15),
+                      color: Colors.black.withValues(alpha: 0.15),
                       blurRadius: 30,
                       offset: const Offset(0, 8),
                     ),

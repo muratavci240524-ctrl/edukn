@@ -24,7 +24,7 @@ class TeacherDutyScreen extends StatefulWidget {
 }
 
 class _TeacherDutyScreenState extends State<TeacherDutyScreen> {
-  // ⚡ Cache-First RAM & Disk Önbelleği (Anında açılır, sıfır bekleme)
+  // ⚡ Cache-First RAM & Disk Önbelleği
   static List<DutyScheduleItem>? _cachedMyDuties;
   static Map<String, DutyLocation>? _cachedLocations;
   static Map<String, String>? _cachedDutyAmirs;
@@ -82,7 +82,7 @@ class _TeacherDutyScreenState extends State<TeacherDutyScreen> {
           _cachedTermName = cachedTerm;
         }
       }
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[teacher_duty_screen] hata yutuldu: $silentError'); }
   }
 
   @override
@@ -219,8 +219,6 @@ class _TeacherDutyScreenState extends State<TeacherDutyScreen> {
           matches = (itemTermId == _effectiveTermId);
         } else if (itemPeriodId == _effectiveTermId || validWorkPeriodIds.contains(itemPeriodId)) {
           matches = true;
-          // Arka planda termId'yi otomatik olarak Firestore'a kaydet (self-healing migration)
-          doc.reference.update({'termId': _effectiveTermId}).catchError((_) {});
         }
 
         if (matches) {
@@ -234,6 +232,18 @@ class _TeacherDutyScreenState extends State<TeacherDutyScreen> {
           filteredItems.add(DutyScheduleItem.fromMap(doc.data(), doc.id));
         }
       }
+
+      // Aynı tarihe ait mükerrer / değiştirilmiş eski nöbetleri filtrele (sadece tekil gösterim)
+      final uniqueDutyItems = <DutyScheduleItem>[];
+      final seenDutyDateKeys = <String>{};
+      for (var it in filteredItems) {
+        final dKey = it.dutyDate ?? (it.weekStart != null ? '${DateFormat('yyyy-MM-dd').format(it.weekStart!)}_${it.dayOfWeek}' : it.id);
+        if (seenDutyDateKeys.add(dKey)) {
+          uniqueDutyItems.add(it);
+        }
+      }
+      filteredItems.clear();
+      filteredItems.addAll(uniqueDutyItems);
 
       // 4. Load locations and discover Nöbetçi Amir locations
       _locations.clear();
@@ -271,7 +281,7 @@ class _TeacherDutyScreenState extends State<TeacherDutyScreen> {
                 }
               });
             }
-          } catch (_) {}
+          } catch (silentError) { debugPrint('[teacher_duty_screen] hata yutuldu: $silentError'); }
         }
       }
 
@@ -462,15 +472,15 @@ class _TeacherDutyScreenState extends State<TeacherDutyScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: EduknAppBar(
-        title: 'Nöbetlerim',
-      ),
+      appBar: EduknAppBar(title: 'Nöbetlerim'),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
               onRefresh: _loadData,
-              child: Column(
+              child: ListView(
+                padding: EdgeInsets.zero,
                 children: [
+                  // ─ Dönem bilgisi ─
                   if (_termName != null && _termName!.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
@@ -483,14 +493,7 @@ class _TeacherDutyScreenState extends State<TeacherDutyScreen> {
                             end: Alignment.bottomRight,
                           ),
                           borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: Colors.blue.shade200.withOpacity(0.6)),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.02),
-                              blurRadius: 6,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
+                          border: Border.all(color: Colors.blue.shade200.withValues(alpha: 0.6)),
                         ),
                         child: Row(
                           children: [
@@ -499,13 +502,6 @@ class _TeacherDutyScreenState extends State<TeacherDutyScreen> {
                               decoration: BoxDecoration(
                                 color: Colors.white,
                                 borderRadius: BorderRadius.circular(10),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.blue.withOpacity(0.12),
-                                    blurRadius: 4,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ],
                               ),
                               child: Icon(Icons.school_rounded, size: 18, color: Colors.blue.shade700),
                             ),
@@ -514,113 +510,92 @@ class _TeacherDutyScreenState extends State<TeacherDutyScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    'Görüntülenen Dönem',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w500,
-                                      color: Colors.blue.shade800.withOpacity(0.8),
-                                    ),
-                                  ),
+                                  Text('Görüntülenen Dönem',
+                                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Colors.blue.shade800.withValues(alpha: 0.8))),
                                   const SizedBox(height: 2),
-                                  Text(
-                                    _termName!,
-                                    style: const TextStyle(
-                                      fontSize: 13.5,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF1E3A8A),
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
+                                  Text(_termName!,
+                                      style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold, color: Color(0xFF1E3A8A)),
+                                      overflow: TextOverflow.ellipsis),
                                 ],
                               ),
                             ),
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.blue.shade600,
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: const Text(
-                                'Aktif Dönem',
-                                style: TextStyle(
-                                  fontSize: 10.5,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                ),
-                              ),
+                              decoration: BoxDecoration(color: Colors.blue.shade600, borderRadius: BorderRadius.circular(20)),
+                              child: const Text('Aktif Dönem', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Colors.white)),
                             ),
                           ],
                         ),
                       ),
                     ),
-                  Expanded(
-                    child: _myDuties.isEmpty
-                        ? _buildEmptyState()
-                        : ListView.builder(
-                            padding: const EdgeInsets.all(16),
-                            itemCount: _myDuties.length,
-                            itemBuilder: (context, index) {
-                              final duty = _myDuties[index];
-                              final loc = _locations[duty.locationId];
 
-                              final dutyDate = duty.dutyDate != null
-                                  ? DateTime.tryParse(duty.dutyDate!)
-                                  : duty.weekStart?.add(Duration(days: duty.dayOfWeek - 1));
+                  // ─ Nöbet listesi ─
+                  if (_myDuties.isEmpty)
+                    _buildEmptyState()
+                  else
+                    ...List.generate(_myDuties.length, (index) {
+                      final duty = _myDuties[index];
+                      final loc = _locations[duty.locationId];
+                      final dutyDate = duty.dutyDate != null
+                          ? DateTime.tryParse(duty.dutyDate!)
+                          : duty.weekStart?.add(Duration(days: duty.dayOfWeek - 1));
+                      final now = DateTime.now();
+                      final isToday = dutyDate != null &&
+                          dutyDate.year == now.year &&
+                          dutyDate.month == now.month &&
+                          dutyDate.day == now.day;
+                      final isPast = dutyDate != null &&
+                          !isToday &&
+                          dutyDate.isBefore(DateTime(now.year, now.month, now.day));
+                      return Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                        child: _buildDutyCard(duty, loc, dutyDate, isToday, isPast),
+                      );
+                    }),
 
-                              final now = DateTime.now();
-                              final isToday = dutyDate != null &&
-                                  dutyDate.year == now.year &&
-                                  dutyDate.month == now.month &&
-                                  dutyDate.day == now.day;
-                              final isPast = dutyDate != null &&
-                                  !isToday &&
-                                  dutyDate.isBefore(DateTime(now.year, now.month, now.day));
-
-                              return _buildDutyCard(duty, loc, dutyDate, isToday, isPast);
-                            },
-                          ),
-                  ),
+                  const SizedBox(height: 24),
                 ],
               ),
             ),
     );
   }
 
+
   Widget _buildEmptyState() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey.shade100),
+        ),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.security_rounded, size: 64, color: Colors.blue.shade300),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(color: Colors.blue.shade50, shape: BoxShape.circle),
+              child: Icon(Icons.security_rounded, size: 40, color: Colors.blue.shade300),
             ),
-            const SizedBox(height: 18),
-            Text(
-              _termName != null
-                  ? '$_termName için nöbetiniz bulunmuyor'
-                  : 'Aktif dönemde tanımlı nöbetiniz bulunmuyor',
+            const SizedBox(height: 12),
+            const Text(
+              'Aktif dönemde tanımlı nöbetiniz bulunmuyor',
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             const Text(
               'Nöbet programı yayınlandığında nöbet gün ve yerlerinizi burada görebilirsiniz.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, color: Colors.grey),
+              style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
           ],
         ),
       ),
     );
   }
+
 
   Widget _buildDutyCard(
     DutyScheduleItem duty,
@@ -637,7 +612,7 @@ class _TeacherDutyScreenState extends State<TeacherDutyScreen> {
       margin: const EdgeInsets.only(bottom: 12),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       elevation: isToday ? 2 : 0,
-      shadowColor: isToday ? Colors.green.withOpacity(0.2) : Colors.transparent,
+      shadowColor: isToday ? Colors.green.withValues(alpha: 0.2) : Colors.transparent,
       color: isPast ? Colors.grey.shade50 : Colors.white,
       child: Container(
         padding: const EdgeInsets.all(16),

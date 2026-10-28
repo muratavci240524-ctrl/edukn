@@ -26,12 +26,12 @@ class _AssessmentActionPlanSelectionDialogState extends State<AssessmentActionPl
   int _currentStep = 0; // 0: Exams, 1: Thresholds
   List<TrialExam> _allExams = [];
   List<TrialExam> _filteredExams = [];
-  Set<String> _selectedExamIds = {};
+  final Set<String> _selectedExamIds = {};
   String? _selectedClassLevel;
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
 
-  Map<String, double> _subjectThresholds = {};
+  final Map<String, double> _subjectThresholds = {};
   List<String> _availableSubjects = [];
   double _globalThreshold = 70.0;
   bool _isLoading = true;
@@ -218,7 +218,7 @@ class _AssessmentActionPlanSelectionDialogState extends State<AssessmentActionPl
                       hint: const Text('Tüm Sınıflar', style: TextStyle(fontSize: 13)),
                       items: [
                         const DropdownMenuItem(value: null, child: Text('Tüm Sınıflar', style: TextStyle(fontSize: 13))),
-                        ...levels.map((l) => DropdownMenuItem(value: l, child: Text(l.toString().contains('Sınıf') ? l : '$l. Sınıf', style: const TextStyle(fontSize: 13)))),
+                        ...levels.map((l) => DropdownMenuItem(value: l, child: Text(l.toString().toLowerCase().contains('sınıf') ? l : '$l. Sınıf', style: const TextStyle(fontSize: 13)))),
                       ],
                       onChanged: (val) => setState(() { _selectedClassLevel = val; _filterExams(); }),
                     ),
@@ -283,7 +283,7 @@ class _AssessmentActionPlanSelectionDialogState extends State<AssessmentActionPl
                             color: isSelected ? Colors.indigo.shade50 : Colors.white,
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(color: isSelected ? Colors.indigo.shade200 : Colors.grey.shade100),
-                            boxShadow: isSelected ? null : [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 4)],
+                            boxShadow: isSelected ? null : [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 4)],
                           ),
                           child: Row(
                             children: [
@@ -293,7 +293,7 @@ class _AssessmentActionPlanSelectionDialogState extends State<AssessmentActionPl
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Text(exam.name, style: TextStyle(fontSize: 13, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal), maxLines: 1, overflow: TextOverflow.ellipsis),
-                                    Text('${DateFormat('dd.MM.yyyy').format(exam.date)} • ${exam.classLevel.toString().contains('Sınıf') ? exam.classLevel : '${exam.classLevel}. Sınıf'}', style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+                                    Text('${DateFormat('dd.MM.yyyy').format(exam.date)} • ${exam.classLevel.toString().toLowerCase().contains('sınıf') ? exam.classLevel : '${exam.classLevel}. Sınıf'}', style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
                                   ],
                                 ),
                               ),
@@ -356,7 +356,7 @@ class _AssessmentActionPlanSelectionDialogState extends State<AssessmentActionPl
       decoration: BoxDecoration(
         gradient: LinearGradient(colors: [Colors.indigo.shade800, Colors.indigo.shade600]),
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: Colors.indigo.withOpacity(0.2), blurRadius: 15, offset: const Offset(0, 8))],
+        boxShadow: [BoxShadow(color: Colors.indigo.withValues(alpha: 0.2), blurRadius: 15, offset: const Offset(0, 8))],
       ),
       child: isSmall 
         ? Column(
@@ -427,7 +427,7 @@ class _AssessmentActionPlanSelectionDialogState extends State<AssessmentActionPl
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.white, borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 5)],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 5)],
         border: Border.all(color: Colors.grey.shade100),
       ),
       child: Column(
@@ -441,7 +441,7 @@ class _AssessmentActionPlanSelectionDialogState extends State<AssessmentActionPl
           ),
           Slider(
             value: value, min: 0, max: 100, divisions: 20,
-            activeColor: Colors.indigo, inactiveColor: Colors.indigo.withOpacity(0.1),
+            activeColor: Colors.indigo, inactiveColor: Colors.indigo.withValues(alpha: 0.1),
             onChanged: (v) => setState(() => _subjectThresholds[subject] = v),
           ),
         ],

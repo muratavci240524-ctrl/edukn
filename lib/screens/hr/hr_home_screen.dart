@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'staff/staff_list_screen.dart';
 import 'attendance_screen.dart';
@@ -113,7 +113,7 @@ class _HrHorizontalCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.indigo.withOpacity(0.08),
+                  color: Colors.indigo.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Icon(item.icon, size: 28, color: Colors.indigo),

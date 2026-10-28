@@ -1,4 +1,4 @@
-﻿import 'dart:typed_data';
+import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -206,7 +206,7 @@ class _ParentWeeklyUpdateDetailScreenState extends State<ParentWeeklyUpdateDetai
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(color: Colors.grey.shade200),
                         boxShadow: [
-                          BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 6)),
+                          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 10, offset: const Offset(0, 6)),
                         ],
                       ),
                       child: Column(
@@ -226,7 +226,7 @@ class _ParentWeeklyUpdateDetailScreenState extends State<ParentWeeklyUpdateDetai
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(color: Colors.grey.shade200),
                         boxShadow: [
-                          BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 6)),
+                          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 10, offset: const Offset(0, 6)),
                         ],
                       ),
                       child: _content.trim().isEmpty

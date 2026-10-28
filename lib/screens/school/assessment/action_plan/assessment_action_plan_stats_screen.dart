@@ -1,7 +1,8 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../../../../models/assessment/assessment_action_plan_model.dart';
+import '../../../../services/user_permission_service.dart';
 
 class AssessmentActionPlanStatsScreen extends StatefulWidget {
   final List<AssessmentActionPlan> plans;
@@ -21,7 +22,7 @@ class _AssessmentActionPlanStatsScreenState extends State<AssessmentActionPlanSt
   String _selectedClassFilter = 'Tümü';
 
   String _getResolvedLevel(AssessmentActionPlan plan) {
-    String level = plan.classLevel;
+    String level = plan.classLevel.trim();
     if (level == 'Tümü' || level.isEmpty || level == 'GENEL') {
       if (plan.branchActionPlans.isNotEmpty) {
         for (var branchKey in plan.branchActionPlans.keys) {
@@ -37,7 +38,11 @@ class _AssessmentActionPlanStatsScreenState extends State<AssessmentActionPlanSt
       }
       return 'GENEL';
     }
-    return level;
+    final match = RegExp(r'^(\d+)').firstMatch(level);
+    if (match != null) {
+      return match.group(1)!;
+    }
+    return level.replaceAll(RegExp(r'\.?\s*sınıf', caseSensitive: false), '').trim();
   }
 
   List<String> _getAvailableLevels() {
@@ -132,7 +137,9 @@ class _AssessmentActionPlanStatsScreenState extends State<AssessmentActionPlanSt
         itemBuilder: (context, index) {
           final level = levels[index];
           final isSelected = _selectedClassFilter == level;
-          final displayLabel = level == 'Tümü' ? 'Tüm Planlar' : '$level. Sınıf';
+          final displayLabel = level == 'Tümü'
+              ? 'Tüm Planlar'
+              : (level.toLowerCase().contains('sınıf') ? level : '$level. Sınıf');
 
           return Padding(
             padding: const EdgeInsets.only(right: 12),
@@ -142,7 +149,7 @@ class _AssessmentActionPlanStatsScreenState extends State<AssessmentActionPlanSt
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                 decoration: BoxDecoration(
-                  color: isSelected ? Colors.white : Colors.white.withOpacity(0.1),
+                  color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
@@ -199,7 +206,7 @@ class _AssessmentActionPlanStatsScreenState extends State<AssessmentActionPlanSt
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(20),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10)],
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10)],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -223,7 +230,7 @@ class _AssessmentActionPlanStatsScreenState extends State<AssessmentActionPlanSt
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10)],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10)],
       ),
       child: Row(
         children: [
@@ -290,7 +297,7 @@ class _AssessmentActionPlanStatsScreenState extends State<AssessmentActionPlanSt
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10)],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10)],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -329,10 +336,10 @@ class _AssessmentActionPlanStatsScreenState extends State<AssessmentActionPlanSt
   Widget _buildBranchDistribution(List<AssessmentActionPlan> plans) {
     Map<String, int> branchCounts = {};
     for (var plan in plans) {
-      plan.branchActionPlans.keys.forEach((branch) {
+      for (var branch in plan.branchActionPlans.keys) {
         String label = branch.split('_').last;
         branchCounts[label] = (branchCounts[label] ?? 0) + 1;
-      });
+      }
     }
 
     var sortedBranches = branchCounts.entries.toList()
@@ -343,7 +350,7 @@ class _AssessmentActionPlanStatsScreenState extends State<AssessmentActionPlanSt
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10)],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10)],
       ),
       child: Column(
         children: sortedBranches.take(6).map((e) => Padding(
@@ -370,7 +377,9 @@ class _AssessmentActionPlanStatsScreenState extends State<AssessmentActionPlanSt
     Map<String, int> teacherCounts = {};
     for (var plan in plans) {
       String name = plan.creatorName;
-      if (name == 'Kullanıcı') name = 'Sistem Yöneticisi';
+      if (name == 'Kullanıcı' || name == 'Sistem Yöneticisi' || name.isEmpty) {
+        name = UserPermissionService.getCachedUserFullName(plan.createdBy) ?? 'Yönetici';
+      }
       teacherCounts[name] = (teacherCounts[name] ?? 0) + 1;
     }
 
@@ -382,7 +391,7 @@ class _AssessmentActionPlanStatsScreenState extends State<AssessmentActionPlanSt
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10)],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10)],
       ),
       child: Column(
         children: sortedTeachers.take(5).map((e) => Padding(

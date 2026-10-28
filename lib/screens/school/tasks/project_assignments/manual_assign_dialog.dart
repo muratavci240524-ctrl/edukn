@@ -288,7 +288,7 @@ class _ManualAssignDialogState extends State<ManualAssignDialog> {
                           vertical: 12,
                         ),
                       ),
-                      value: _selectedSubjectId,
+                      initialValue: _selectedSubjectId,
                       items: _availableSubjects
                           .map(
                             (s) => DropdownMenuItem(
@@ -323,7 +323,7 @@ class _ManualAssignDialogState extends State<ManualAssignDialog> {
                             vertical: 12,
                           ),
                         ),
-                        value: _selectedTopicId,
+                        initialValue: _selectedTopicId,
                         items: widget.assignment.subjects
                             .firstWhere((s) => s.id == _selectedSubjectId)
                             .topics
@@ -417,7 +417,7 @@ class _ManualAssignDialogState extends State<ManualAssignDialog> {
                           filled: true,
                           fillColor: Colors.orange.shade50,
                         ),
-                        value: _selectedTeacherId,
+                        initialValue: _selectedTeacherId,
                         items: _foundTeachers
                             .map(
                               (t) => DropdownMenuItem(

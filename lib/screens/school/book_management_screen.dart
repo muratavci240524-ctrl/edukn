@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/school/book_model.dart';
@@ -130,7 +130,7 @@ class _BookManagementScreenState extends State<BookManagementScreen>
         });
       }
     } catch (e) {
-      print('Error loading metadata: $e');
+      debugPrint('Error loading metadata: $e');
     }
 
     // 2. Load Books
@@ -150,7 +150,7 @@ class _BookManagementScreenState extends State<BookManagementScreen>
         });
       }
     } catch (e) {
-      print('Error loading book list: $e');
+      debugPrint('Error loading book list: $e');
       if (mounted && e.toString().contains('permission-denied')) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -331,7 +331,7 @@ class _BookManagementScreenState extends State<BookManagementScreen>
               hintStyle: TextStyle(color: Colors.white60),
               prefixIcon: Icon(Icons.search, color: Colors.white70),
               filled: true,
-              fillColor: Colors.white.withOpacity(0.15),
+              fillColor: Colors.white.withValues(alpha: 0.15),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(30),
                 borderSide: BorderSide.none,
@@ -420,7 +420,7 @@ class _BookManagementScreenState extends State<BookManagementScreen>
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.white : Colors.white.withOpacity(0.15),
+          color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.15),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(color: isSelected ? Colors.white : Colors.white24),
         ),
@@ -447,7 +447,7 @@ class _BookManagementScreenState extends State<BookManagementScreen>
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.12),
+          color: Colors.white.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: Colors.white24),
         ),
@@ -561,12 +561,12 @@ class _BookManagementScreenState extends State<BookManagementScreen>
           ext: 'xlsx',
           mimeType: MimeType.microsoftExcel,
         );
-        ScaffoldMessenger.of(
+        if (mounted) ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Şablon indirildi.')));
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Şablon indirilirken hata oluştu: $e')),
       );
     }
@@ -673,7 +673,7 @@ class _BookManagementScreenState extends State<BookManagementScreen>
         }
 
         if (booksToSave.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('Yüklenecek geçerli veri bulunamadı.'),
             ),
@@ -690,12 +690,12 @@ class _BookManagementScreenState extends State<BookManagementScreen>
         }
         await batch.commit();
 
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('$count kitap başarıyla yüklendi.')),
         );
         _loadAll();
       } catch (e) {
-        ScaffoldMessenger.of(
+        if (mounted) ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Yükleme hatası: $e')));
       }
@@ -831,7 +831,7 @@ class _BookManagementScreenState extends State<BookManagementScreen>
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
+                  color: Colors.black.withValues(alpha: 0.05),
                   blurRadius: 20,
                 ),
               ],
@@ -1046,7 +1046,7 @@ class _BookManagementScreenState extends State<BookManagementScreen>
                 leading: CircleAvatar(
                   backgroundColor: _getTargetColor(
                     assignment.targetType,
-                  ).withOpacity(0.1),
+                  ).withValues(alpha: 0.1),
                   child: Icon(
                     _getTargetIcon(assignment.targetType),
                     color: _getTargetColor(assignment.targetType),
@@ -1212,7 +1212,7 @@ class _BookDetailViewState extends State<BookDetailView> {
             : BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -1248,11 +1248,10 @@ class _BookDetailViewState extends State<BookDetailView> {
               children: [
                 Expanded(
                   child: ListView(
-                    padding: const EdgeInsets.symmetric(
+                    cacheExtent: 1000, padding: const EdgeInsets.symmetric(
                       horizontal: 24,
                       vertical: 12,
-                    ),
-                    cacheExtent: 1000, // Optimize rendering
+                    ), // Optimize rendering
                     children: [
                       // Type Toggle
                       Container(
@@ -1401,7 +1400,7 @@ class _BookDetailViewState extends State<BookDetailView> {
                       ] else ...[
                         SizedBox(height: 16),
                         DropdownButtonFormField<String>(
-                          value: _selectedBranch,
+                          initialValue: _selectedBranch,
                           decoration: InputDecoration(
                             labelText: 'Branş',
                             prefixIcon: Icon(Icons.category),
@@ -1497,7 +1496,7 @@ class _BookDetailViewState extends State<BookDetailView> {
                     color: Colors.white,
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
+                        color: Colors.black.withValues(alpha: 0.05),
                         offset: Offset(0, -4),
                         blurRadius: 10,
                       ),
@@ -1552,7 +1551,7 @@ class _BookDetailViewState extends State<BookDetailView> {
           boxShadow: isSelected
               ? [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
+                    color: Colors.black.withValues(alpha: 0.05),
                     blurRadius: 4,
                     offset: Offset(0, 2),
                   ),
@@ -1628,7 +1627,7 @@ class _BookDetailViewState extends State<BookDetailView> {
       }
       widget.onSaved();
     } catch (e) {
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata: $e')));
     }
@@ -1750,7 +1749,7 @@ class _BookAssignmentDialogState extends State<BookAssignmentDialog> {
             .map((d) => {'id': d.id, 'name': d.data()['fullName'].toString()})
             .toList();
       }
-    } catch (e) {}
+    } catch (silentError) { debugPrint('[book_management_screen] hata yutuldu: $silentError'); }
     if (mounted) setState(() => _isLoadingTargets = false);
   }
 
@@ -1829,7 +1828,7 @@ class _BookAssignmentDialogState extends State<BookAssignmentDialog> {
                               boxShadow: isSelected
                                   ? [
                                       BoxShadow(
-                                        color: Colors.indigo.withOpacity(0.2),
+                                        color: Colors.indigo.withValues(alpha: 0.2),
                                         blurRadius: 8,
                                         offset: const Offset(0, 4),
                                       ),
@@ -1945,7 +1944,7 @@ class _BookAssignmentDialogState extends State<BookAssignmentDialog> {
                   Container(
                     height: 200,
                     decoration: BoxDecoration(
-                      color: Colors.blueGrey.shade50.withOpacity(0.3),
+                      color: Colors.blueGrey.shade50.withValues(alpha: 0.3),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: Colors.grey.shade200),
                     ),
@@ -2128,7 +2127,7 @@ class _TopicEditorItemState extends State<_TopicEditorItem> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.indigo.withOpacity(0.03),
+              color: Colors.indigo.withValues(alpha: 0.03),
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(12),
               ),

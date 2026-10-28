@@ -250,7 +250,7 @@ class _SchoolTypeLeaveManagementScreenState extends State<SchoolTypeLeaveManagem
                                 CircleAvatar(
                                   backgroundColor: const Color(
                                     0xFF4F46E5,
-                                  ).withOpacity(0.1),
+                                  ).withValues(alpha: 0.1),
                                   child: const Icon(
                                     Icons.person_outline,
                                     color: Color(0xFF4F46E5),
@@ -305,7 +305,7 @@ class _SchoolTypeLeaveManagementScreenState extends State<SchoolTypeLeaveManagem
                               ),
                             ),
                           ),
-                          value: type,
+                          initialValue: type,
                           items:
                               [
                                     'Yıllık İzin',
@@ -471,7 +471,7 @@ class _SchoolTypeLeaveManagementScreenState extends State<SchoolTypeLeaveManagem
                                     ),
                                   ),
                                   value: isFullDay,
-                                  activeColor: const Color(0xFF4F46E5),
+                                  activeThumbColor: const Color(0xFF4F46E5),
                                   onChanged: (val) =>
                                       setDialogState(() => isFullDay = val),
                                 ),
@@ -565,7 +565,7 @@ class _SchoolTypeLeaveManagementScreenState extends State<SchoolTypeLeaveManagem
                     color: Colors.white,
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
+                        color: Colors.black.withValues(alpha: 0.05),
                         blurRadius: 10,
                         offset: const Offset(0, -5),
                       ),
@@ -643,16 +643,16 @@ class _SchoolTypeLeaveManagementScreenState extends State<SchoolTypeLeaveManagem
                                 termId: _activeTermId, // Aktif döneme kaydet
                               );
                               if (mounted) {
-                                Navigator.pop(context);
+                                if (mounted) Navigator.pop(context);
                                 _loadData();
-                                ScaffoldMessenger.of(context).showSnackBar(
+                                if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
                                     content: Text('Talep oluşturuldu'),
                                   ),
                                 );
                               }
                             } catch (e) {
-                              ScaffoldMessenger.of(context).showSnackBar(
+                              if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(content: Text('Hata: $e')),
                               );
                             } finally {
@@ -935,7 +935,7 @@ class _SchoolTypeLeaveManagementScreenState extends State<SchoolTypeLeaveManagem
   }
 
   Widget _buildStatusChip(String status) {
-    Color bg = _getStatusColor(status).withOpacity(0.1);
+    Color bg = _getStatusColor(status).withValues(alpha: 0.1);
     Color text = _getStatusColor(status);
     String label = _getStatusText(status);
 
@@ -1111,7 +1111,7 @@ class _SchoolTypeLeaveManagementScreenState extends State<SchoolTypeLeaveManagem
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -1262,7 +1262,7 @@ class _SchoolTypeLeaveManagementScreenState extends State<SchoolTypeLeaveManagem
                   backDrawRodData: BackgroundBarChartRodData(
                     show: true,
                     toY: top5.first.value.toDouble() + 1,
-                    color: Colors.white.withOpacity(0.2),
+                    color: Colors.white.withValues(alpha: 0.2),
                   ),
                 ),
               ],

@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -145,7 +145,7 @@ class _SurveyPreviewScreenState extends State<SurveyPreviewScreen> {
                               ),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black.withOpacity(0.05),
+                                  color: Colors.black.withValues(alpha: 0.05),
                                   blurRadius: 10,
                                   offset: Offset(0, 4),
                                 ),
@@ -372,7 +372,7 @@ class _SurveyPreviewScreenState extends State<SurveyPreviewScreen> {
         border: Border.all(color: Colors.grey.shade200),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.02),
+            color: Colors.black.withValues(alpha: 0.02),
             blurRadius: 4,
             offset: Offset(0, 2),
           ),
@@ -502,7 +502,7 @@ class _SurveyPreviewScreenState extends State<SurveyPreviewScreen> {
                     Expanded(
                       flex: 2,
                       child: DropdownButtonFormField<int>(
-                        value: null,
+                        initialValue: null,
                         decoration: InputDecoration(
                           labelText: 'Öncelik',
                           border: OutlineInputBorder(),

@@ -449,7 +449,7 @@ class _QuickPerformanceTrackerHubScreenState extends State<QuickPerformanceTrack
       isDense: true,
       dropdownColor: Colors.white,
       borderRadius: BorderRadius.circular(16),
-      value: _selectedClassLevel,
+      initialValue: _selectedClassLevel,
       icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 20, color: Color(0xFF64748B)),
       decoration: InputDecoration(
         labelText: 'Seviye',
@@ -484,7 +484,7 @@ class _QuickPerformanceTrackerHubScreenState extends State<QuickPerformanceTrack
       isDense: true,
       dropdownColor: Colors.white,
       borderRadius: BorderRadius.circular(16),
-      value: _selectedBranchId,
+      initialValue: _selectedBranchId,
       icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 20, color: Color(0xFF64748B)),
       decoration: InputDecoration(
         labelText: 'Şube',

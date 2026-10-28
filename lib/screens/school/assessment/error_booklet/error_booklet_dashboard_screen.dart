@@ -149,7 +149,7 @@ class _ErrorBookletDashboardScreenState extends State<ErrorBookletDashboardScree
           );
         },
       ),
-      floatingActionButton: _selectedExamIds.length >= 1
+      floatingActionButton: _selectedExamIds.isNotEmpty
           ? FloatingActionButton.extended(
               onPressed: _openStudentListForSelected,
               backgroundColor: Colors.indigo,
@@ -184,7 +184,7 @@ class _ErrorBookletDashboardScreenState extends State<ErrorBookletDashboardScree
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.indigo.withOpacity(0.04),
+            color: Colors.indigo.withValues(alpha: 0.04),
             blurRadius: 10,
             offset: const Offset(0, 4),
           )

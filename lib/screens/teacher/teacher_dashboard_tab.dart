@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
@@ -17,6 +16,9 @@ import '../school/class_lesson_attendance_screen.dart';
 import '../school/school_types/school_type_detail_screen.dart';
 import '../school/school_types/school_type_announcements_screen.dart';
 import 'teacher_messages_screen.dart';
+import '../../widgets/edukn_app_bar.dart';
+import '../school/profile_settings_screen.dart';
+import 'teacher_qr_scan_screen.dart';
 
 class TeacherDashboardTab extends StatefulWidget {
   final String institutionId;
@@ -45,6 +47,146 @@ class _TeacherDashboardTabState extends State<TeacherDashboardTab> {
     );
   }
 
+  Future<void> _logout() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Çıkış Yap'),
+        content: const Text('Hesabınızdan çıkış yapmak istediğinize emin misiniz?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('İptal'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Çıkış Yap'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('active_portal');
+      UserPermissionService.clearCache();
+      TermService().clearCache();
+      await FirebaseAuth.instance.signOut();
+      if (mounted) {
+        Navigator.pushNamedAndRemoveUntil(context, '/school-login', (route) => false);
+      }
+    }
+  }
+
+  Widget _buildProfileButton() {
+    return PopupMenuButton<String>(
+      offset: const Offset(0, 48),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 8,
+      shadowColor: Colors.black.withValues(alpha: 0.12),
+      onSelected: (value) {
+        if (value == 'profile') {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (ctx) => const ProfileSettingsScreen(),
+            ),
+          );
+        } else if (value == 'qr_scan') {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (ctx) => const TeacherQrScanScreen(),
+            ),
+          );
+        } else if (value == 'logout') {
+          _logout();
+        }
+      },
+      itemBuilder: (BuildContext context) => [
+        PopupMenuItem<String>(
+          value: 'profile',
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: Colors.indigo.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(Icons.person_outline_rounded, color: Colors.indigo.shade700, size: 18),
+              ),
+              const SizedBox(width: 12),
+              const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Profilim', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  Text('Profili Düzenle', style: TextStyle(fontSize: 11, color: Colors.blueGrey)),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem<String>(
+          value: 'qr_scan',
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(Icons.qr_code_scanner_rounded, color: Colors.orange.shade700, size: 18),
+              ),
+              const SizedBox(width: 12),
+              const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Giriş / Çıkış (QR)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  Text('Kamera ile QR tarama', style: TextStyle(fontSize: 11, color: Colors.blueGrey)),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem<String>(
+          value: 'logout',
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(Icons.logout_rounded, color: Colors.red.shade600, size: 18),
+              ),
+              const SizedBox(width: 12),
+              Text('Çıkış Yap', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.red.shade700)),
+            ],
+          ),
+        ),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: CircleAvatar(
+          radius: 17,
+          backgroundColor: Colors.indigo.shade50,
+          child: const Icon(Icons.person, color: Colors.indigo, size: 18),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
@@ -54,6 +196,13 @@ class _TeacherDashboardTabState extends State<TeacherDashboardTab> {
         if (isWideScreen) {
           return Scaffold(
             backgroundColor: Colors.grey.shade50,
+            appBar: EduknAppBar(
+              institutionId: widget.institutionId,
+              title: 'Bildirimler ve Takvim',
+              subtitle: 'Öğretmen Bilgilendirme ve Akış',
+              showBackButton: false,
+              actions: [_buildProfileButton()],
+            ),
             body: Row(
               children: [
                 Expanded(
@@ -73,40 +222,60 @@ class _TeacherDashboardTabState extends State<TeacherDashboardTab> {
             child: Scaffold(
               backgroundColor: Colors.white,
               appBar: EduknAppBar(
-                title: 'Dashboard',
-                bottom: TabBar(
-                  labelColor: Colors.indigo,
-                  unselectedLabelColor: Colors.grey,
-                  indicatorColor: Colors.indigo,
-                  indicatorSize: TabBarIndicatorSize.label,
-                  tabs: [
-                    Tab(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.notifications_none_rounded, size: 20),
-                          SizedBox(width: 8),
-                          Text('Bildirimler'),
-                        ],
-                      ),
-                    ),
-                    Tab(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.calendar_today_rounded, size: 18),
-                          SizedBox(width: 8),
-                          Text('Takvim'),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+                institutionId: widget.institutionId,
+                title: 'Bildirimler ve Takvim',
+                subtitle: 'Öğretmen Bilgilendirme ve Akış',
+                showBackButton: false,
+                actions: [_buildProfileButton()],
               ),
-              body: TabBarView(
+              body: Column(
                 children: [
-                  _notificationSection,
-                  _calendarSection,
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      border: Border(
+                        bottom: BorderSide(
+                          color: Colors.indigo.withValues(alpha: 0.08),
+                        ),
+                      ),
+                    ),
+                    child: const TabBar(
+                      labelColor: Colors.indigo,
+                      unselectedLabelColor: Colors.grey,
+                      indicatorColor: Colors.indigo,
+                      indicatorSize: TabBarIndicatorSize.label,
+                      tabs: [
+                        Tab(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.notifications_none_rounded, size: 20),
+                              SizedBox(width: 8),
+                              Text('Bildirimler'),
+                            ],
+                          ),
+                        ),
+                        Tab(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.calendar_today_rounded, size: 18),
+                              SizedBox(width: 8),
+                              Text('Takvim'),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: TabBarView(
+                      children: [
+                        _notificationSection,
+                        _calendarSection,
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -255,7 +424,7 @@ class _NotificationSectionState extends State<_NotificationSection>
           });
         }
       }
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[teacher_dashboard_tab] hata yutuldu: $silentError'); }
   }
 
   Future<void> _saveCachedNotifications(List<Map<String, dynamic>> items) async {
@@ -266,7 +435,7 @@ class _NotificationSectionState extends State<_NotificationSection>
       final prefs = await SharedPreferences.getInstance();
       final serialized = items.take(30).map((e) => _serializeNotif(e)).toList();
       await prefs.setString('edukn_teacher_notifs_${user.uid}', json.encode(serialized));
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[teacher_dashboard_tab] hata yutuldu: $silentError'); }
   }
 
   @override
@@ -304,7 +473,7 @@ class _NotificationSectionState extends State<_NotificationSection>
       final prefs = await SharedPreferences.getInstance();
       _shownDutyBanners.add(bannerKey);
       await prefs.setStringList('shown_duty_banner_keys', _shownDutyBanners.toList());
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[teacher_dashboard_tab] hata yutuldu: $silentError'); }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -321,7 +490,7 @@ class _NotificationSectionState extends State<_NotificationSection>
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: Colors.amber.shade500.withOpacity(0.2),
+                  color: Colors.amber.shade500.withValues(alpha: 0.2),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(Icons.shield_rounded, color: Colors.amber, size: 26),
@@ -386,7 +555,7 @@ class _NotificationSectionState extends State<_NotificationSection>
           final minute = match.group(5) != null ? int.parse(match.group(5)!) : 0;
           return DateTime(year, month, day, hour, minute);
         }
-      } catch (_) {}
+      } catch (silentError) { debugPrint('[teacher_dashboard_tab] hata yutuldu: $silentError'); }
     }
     return null;
   }
@@ -520,7 +689,7 @@ class _NotificationSectionState extends State<_NotificationSection>
                 .get();
             _validPeriodIds = wpSnap.docs.map((d) => d.id).toSet();
             _globalValidPeriodIds.addAll(_validPeriodIds);
-          } catch (_) {}
+          } catch (silentError) { debugPrint('[teacher_dashboard_tab] hata yutuldu: $silentError'); }
         } else {
           _validPeriodIds = Set.from(_globalValidPeriodIds);
         }
@@ -535,7 +704,7 @@ class _NotificationSectionState extends State<_NotificationSection>
                 _globalCachedNotifyMissingAttendance = _notifyTeacherMissingAttendance;
               }
             }
-          } catch (_) {}
+          } catch (silentError) { debugPrint('[teacher_dashboard_tab] hata yutuldu: $silentError'); }
         } else if (_globalCachedNotifyMissingAttendance != null) {
           _notifyTeacherMissingAttendance = _globalCachedNotifyMissingAttendance!;
         }
@@ -738,7 +907,7 @@ class _NotificationSectionState extends State<_NotificationSection>
         debugPrint('--- Stream error ($type) ---');
         debugPrint(e.toString());
         if (e.toString().contains('index')) {
-          print('💡 İpucu: $type için Firestore indeksi eksik olabilir.');
+          debugPrint('💡 İpucu: $type için Firestore indeksi eksik olabilir.');
         }
       });
       _streams[type] = sub;
@@ -1338,7 +1507,7 @@ class _NotificationSectionState extends State<_NotificationSection>
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: Colors.white, borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.05), spreadRadius: 2, blurRadius: 10, offset: const Offset(0, 4))],
+        boxShadow: [BoxShadow(color: Colors.grey.withValues(alpha: 0.05), spreadRadius: 2, blurRadius: 10, offset: const Offset(0, 4))],
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(16),
@@ -1355,7 +1524,7 @@ class _NotificationSectionState extends State<_NotificationSection>
                       await FirebaseFirestore.instance.collection('schools').doc(sId).collection('announcements').doc(id).update({
                         'readBy': FieldValue.arrayUnion([userEmail])
                       });
-                    } catch (_) {}
+                    } catch (silentError) { debugPrint('[teacher_dashboard_tab] hata yutuldu: $silentError'); }
                     if (mounted) {
                       Navigator.push(
                         context,
@@ -1473,7 +1642,7 @@ class _NotificationSectionState extends State<_NotificationSection>
                         children: [
                           Container(
                             padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
+                            decoration: BoxDecoration(color: color.withValues(alpha: 0.1), shape: BoxShape.circle),
                             child: Icon(icon, color: color, size: 20),
                           ),
                           const SizedBox(width: 16),
@@ -1710,7 +1879,7 @@ class _NotificationSectionState extends State<_NotificationSection>
                               borderRadius: BorderRadius.circular(16),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black.withOpacity(0.02),
+                                  color: Colors.black.withValues(alpha: 0.02),
                                   blurRadius: 10,
                                   offset: const Offset(0, 4),
                                 ),
@@ -1854,7 +2023,7 @@ class _NotificationSectionState extends State<_NotificationSection>
                     color: Colors.white,
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
+                        color: Colors.black.withValues(alpha: 0.05),
                         blurRadius: 10,
                         offset: const Offset(0, -5),
                       ),

@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -667,7 +667,7 @@ class StudentSelectorDialog extends StatefulWidget {
   final String schoolTypeId;
   final Function(List<String>) onConfirm;
 
-  const StudentSelectorDialog({
+  const StudentSelectorDialog({super.key, 
     required this.institutionId,
     required this.schoolTypeId,
     required this.onConfirm,

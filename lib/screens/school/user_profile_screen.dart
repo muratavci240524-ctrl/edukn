@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -91,7 +91,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         }
       }
     } catch (e) {
-      print('Kullanıcı bilgileri yüklenirken hata: $e');
+      debugPrint('Kullanıcı bilgileri yüklenirken hata: $e');
       setState(() => _isLoading = false);
     }
   }
@@ -200,7 +200,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             await d.reference.set({'passwordStatus': 'degistirildi', 'updatedAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
           }
         }
-      } catch (_) {}
+      } catch (silentError) { debugPrint('[user_profile_screen] hata yutuldu: $silentError'); }
 
       _currentPasswordController.clear();
       _newPasswordController.clear();

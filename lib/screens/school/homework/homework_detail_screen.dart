@@ -1,4 +1,4 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:intl/intl.dart';
@@ -209,7 +209,7 @@ class _HomeworkDetailScreenState extends State<HomeworkDetailScreen> {
         height: 28,
         decoration: BoxDecoration(
           color: Colors.white,
-          border: Border.all(color: color.withOpacity(0.5)),
+          border: Border.all(color: color.withValues(alpha: 0.5)),
           borderRadius: BorderRadius.circular(6),
         ),
         child: Icon(icon, size: 16, color: color),
@@ -412,7 +412,7 @@ class _HomeworkDetailScreenState extends State<HomeworkDetailScreen> {
                                 launchUrlString(a.url);
                               } else {
                                 if (mounted)
-                                  ScaffoldMessenger.of(context).showSnackBar(
+                                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(
                                       content: Text('Link açılamadı.'),
                                     ),
@@ -497,7 +497,7 @@ class _HomeworkDetailScreenState extends State<HomeworkDetailScreen> {
                           border: Border.all(color: Colors.grey.shade200),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.02),
+                              color: Colors.black.withValues(alpha: 0.02),
                               blurRadius: 4,
                               offset: const Offset(0, 2),
                             ),

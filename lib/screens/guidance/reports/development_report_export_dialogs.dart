@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../models/guidance/development_report/development_report_session_model.dart';
@@ -150,25 +150,25 @@ class __IndividualExportDialogState extends State<_IndividualExportDialog> {
           child: TextField(
             decoration: InputDecoration(
               hintText: "Kişi Ara...",
-              hintStyle: TextStyle(color: Colors.indigo.withOpacity(0.4)),
+              hintStyle: TextStyle(color: Colors.indigo.withValues(alpha: 0.4)),
               prefixIcon: Icon(
                 Icons.search,
-                color: Colors.indigo.withOpacity(0.6),
+                color: Colors.indigo.withValues(alpha: 0.6),
               ),
               filled: true,
-              fillColor: Colors.indigo.withOpacity(0.04),
+              fillColor: Colors.indigo.withValues(alpha: 0.04),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
                 borderSide: BorderSide.none,
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: Colors.indigo.withOpacity(0.1)),
+                borderSide: BorderSide(color: Colors.indigo.withValues(alpha: 0.1)),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
                 borderSide: BorderSide(
-                  color: Colors.indigo.withOpacity(0.3),
+                  color: Colors.indigo.withValues(alpha: 0.3),
                   width: 1.5,
                 ),
               ),
@@ -211,11 +211,11 @@ class __IndividualExportDialogState extends State<_IndividualExportDialog> {
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
-                          color: Colors.indigo.withOpacity(0.08),
+                          color: Colors.indigo.withValues(alpha: 0.08),
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.02),
+                            color: Colors.black.withValues(alpha: 0.02),
                             blurRadius: 10,
                             offset: Offset(0, 4),
                           ),
@@ -326,8 +326,8 @@ class __BulkExportDialogState extends State<_BulkExportDialog> {
   String? _selectedFilter1; // Could be Grade or Branch
   String? _selectedFilter2; // Could be Section or Title
 
-  Set<String> _availableFilter1s = {};
-  Set<String> _availableFilter2s = {};
+  final Set<String> _availableFilter1s = {};
+  final Set<String> _availableFilter2s = {};
 
   @override
   void initState() {
@@ -505,7 +505,7 @@ class __BulkExportDialogState extends State<_BulkExportDialog> {
                         fontSize: 13,
                       ),
                       filled: true,
-                      fillColor: Colors.indigo.withOpacity(0.04),
+                      fillColor: Colors.indigo.withValues(alpha: 0.04),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide.none,
@@ -513,7 +513,7 @@ class __BulkExportDialogState extends State<_BulkExportDialog> {
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide(
-                          color: Colors.indigo.withOpacity(0.1),
+                          color: Colors.indigo.withValues(alpha: 0.1),
                         ),
                       ),
                       contentPadding: EdgeInsets.symmetric(
@@ -521,7 +521,7 @@ class __BulkExportDialogState extends State<_BulkExportDialog> {
                         vertical: 8,
                       ),
                     ),
-                    value: _selectedFilter1,
+                    initialValue: _selectedFilter1,
                     items: [
                       DropdownMenuItem(value: null, child: Text("Tümü")),
                       ..._availableFilter1s
@@ -548,7 +548,7 @@ class __BulkExportDialogState extends State<_BulkExportDialog> {
                         fontSize: 13,
                       ),
                       filled: true,
-                      fillColor: Colors.indigo.withOpacity(0.04),
+                      fillColor: Colors.indigo.withValues(alpha: 0.04),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide.none,
@@ -556,7 +556,7 @@ class __BulkExportDialogState extends State<_BulkExportDialog> {
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide(
-                          color: Colors.indigo.withOpacity(0.1),
+                          color: Colors.indigo.withValues(alpha: 0.1),
                         ),
                       ),
                       contentPadding: EdgeInsets.symmetric(
@@ -564,7 +564,7 @@ class __BulkExportDialogState extends State<_BulkExportDialog> {
                         vertical: 8,
                       ),
                     ),
-                    value: _selectedFilter2,
+                    initialValue: _selectedFilter2,
                     items: [
                       DropdownMenuItem(value: null, child: Text("Tümü")),
                       ..._availableFilter2s
@@ -615,7 +615,7 @@ class __BulkExportDialogState extends State<_BulkExportDialog> {
             ],
           ),
         ),
-        Divider(height: 1, color: Colors.indigo.withOpacity(0.1)),
+        Divider(height: 1, color: Colors.indigo.withValues(alpha: 0.1)),
         Expanded(
           child: _isLoading
               ? Center(child: CircularProgressIndicator(strokeWidth: 2))
@@ -641,12 +641,12 @@ class __BulkExportDialogState extends State<_BulkExportDialog> {
                       margin: EdgeInsets.only(top: 8),
                       decoration: BoxDecoration(
                         color: isSelected
-                            ? Colors.indigo.withOpacity(0.04)
+                            ? Colors.indigo.withValues(alpha: 0.04)
                             : Colors.transparent,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
                           color: isSelected
-                              ? Colors.indigo.withOpacity(0.2)
+                              ? Colors.indigo.withValues(alpha: 0.2)
                               : Colors.transparent,
                         ),
                       ),
@@ -699,7 +699,7 @@ class __BulkExportDialogState extends State<_BulkExportDialog> {
               color: Colors.white,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
+                  color: Colors.black.withValues(alpha: 0.05),
                   blurRadius: 10,
                   offset: Offset(0, -2),
                 ),
@@ -823,7 +823,7 @@ Widget _buildActionIcon({
       child: Container(
         padding: EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
+          color: color.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Icon(icon, color: color, size: 20),

@@ -1,5 +1,6 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 
 import '../models/agm_cycle_model.dart';
@@ -7,18 +8,20 @@ import '../repository/agm_repository.dart';
 import '../services/agm_service.dart';
 import 'agm_cycle_setup_screen.dart';
 import 'agm_group_grid_screen.dart';
-import '../../../classroom_management_screen.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+import '../../../classroom_management_screen.dart';
+import 'package:edukn/widgets/safe_stream_builder.dart';
+import 'package:edukn/services/term_service.dart';
 
-
-/// AGM Ana Ekranı – Tüm cycle'ların listesi
 class AgmDashboardScreen extends StatefulWidget {
   final String institutionId;
   final String schoolTypeId;
+  final String? workPeriodId;
 
   const AgmDashboardScreen({
     Key? key,
     required this.institutionId,
     required this.schoolTypeId,
+    this.workPeriodId,
   }) : super(key: key);
 
   @override
@@ -28,6 +31,76 @@ class AgmDashboardScreen extends StatefulWidget {
 class _AgmDashboardScreenState extends State<AgmDashboardScreen> {
   final _service = AgmService();
   final _repo = AgmRepository();
+  final _termService = TermService();
+
+  String? _displayedPeriodId;
+  String? _displayedPeriodName;
+  String? _activePeriodId;
+  bool _isPastPeriod = false;
+  bool _loadingPeriod = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolvePeriod();
+  }
+
+  Future<void> _resolvePeriod() async {
+    try {
+      // 1. Kurumun aktif dönemini bul
+      String? activeId = await _termService.getActiveTermId();
+      String activeName = '2025-2026';
+
+      final termsSnap = await FirebaseFirestore.instance
+          .collection('terms')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .get();
+
+      if (termsSnap.docs.isNotEmpty) {
+        final activeDoc = termsSnap.docs.firstWhere(
+          (d) => d.data()['isActive'] == true,
+          orElse: () => termsSnap.docs.first,
+        );
+        activeId = activeDoc.id;
+        activeName = activeDoc.data()['termName'] ?? '${activeDoc.data()['startYear']}-${activeDoc.data()['endYear']}';
+      }
+
+      _activePeriodId = activeId;
+
+      // 2. widget.workPeriodId öncelikli mi?
+      if (widget.workPeriodId != null && widget.workPeriodId!.isNotEmpty) {
+        _displayedPeriodId = widget.workPeriodId;
+        final matched = termsSnap.docs.where((d) => d.id == widget.workPeriodId).firstOrNull;
+        if (matched != null) {
+          _displayedPeriodName = matched.data()['termName'] ?? '${matched.data()['startYear']}-${matched.data()['endYear']}';
+          _isPastPeriod = matched.data()['isActive'] != true;
+        } else {
+          _displayedPeriodName = 'Seçili Dönem';
+          _isPastPeriod = (_displayedPeriodId != _activePeriodId);
+        }
+      } else {
+        // 3. Kullanıcının seçtiği geçmiş dönem var mı kontrol et
+        final selectedId = await _termService.getSelectedTermId();
+        final selectedName = await _termService.getSelectedTermName();
+
+        if (selectedId != null && selectedId.isNotEmpty && selectedId != activeId) {
+          _displayedPeriodId = selectedId;
+          _displayedPeriodName = selectedName ?? 'Geçmiş Dönem';
+          _isPastPeriod = true;
+        } else {
+          _displayedPeriodId = activeId;
+          _displayedPeriodName = activeName;
+          _isPastPeriod = false;
+        }
+      }
+    } catch (e) {
+      debugPrint('AGM Dönem getirme hatası: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _loadingPeriod = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -35,6 +108,7 @@ class _AgmDashboardScreenState extends State<AgmDashboardScreen> {
       backgroundColor: Colors.grey.shade50,
       appBar: EduknAppBar(
         title: 'AGM – Akademik Güçlendirme',
+        subtitle: 'Dönem: $_displayedPeriodName ${_isPastPeriod ? "(Geçmiş)" : "(Aktif)"}',
         actions: [
           IconButton(
             tooltip: 'Derslik Tanımlama',
@@ -46,7 +120,7 @@ class _AgmDashboardScreenState extends State<AgmDashboardScreen> {
                   builder: (_) => ClassroomManagementScreen(
                     institutionId: widget.institutionId,
                     schoolTypeId: widget.schoolTypeId,
-                    schoolTypeName: 'AGM', // Veya dinamik bir isim
+                    schoolTypeName: 'AGM', 
                   ),
                 ),
               );
@@ -54,47 +128,53 @@ class _AgmDashboardScreenState extends State<AgmDashboardScreen> {
           ),
         ],
       ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1200),
-          child: SafeStreamBuilder<List<AgmCycle>>(
-            stream: _service.watchCycles(
-              widget.institutionId,
-              widget.schoolTypeId,
+      body: _loadingPeriod
+          ? const Center(child: CircularProgressIndicator())
+          : Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1200),
+                child: SafeStreamBuilder<List<AgmCycle>>(
+                  stream: _service.watchCycles(
+                    widget.institutionId,
+                    widget.schoolTypeId,
+                    workPeriodId: _displayedPeriodId,
+                    isPastPeriod: _isPastPeriod,
+                  ),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (snapshot.hasError) {
+                      return Center(child: Text('Hata: ${snapshot.error}'));
+                    }
+                    final cycles = snapshot.data ?? [];
+
+                    if (cycles.isEmpty) {
+                      return _buildEmptyState(context);
+                    }
+
+                    return ListView(
+                      padding: const EdgeInsets.all(16),
+                      children: [
+                        _buildInfoBanner(),
+                        const SizedBox(height: 16),
+                        ...cycles.map((c) => _buildCycleCard(context, c)),
+                        const SizedBox(height: 80),
+                      ],
+                    );
+                  },
+                ),
+              ),
             ),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              if (snapshot.hasError) {
-                return Center(child: Text('Hata: ${snapshot.error}'));
-              }
-              final cycles = snapshot.data ?? [];
-
-              if (cycles.isEmpty) {
-                return _buildEmptyState(context);
-              }
-
-              return ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                  _buildInfoBanner(),
-                  const SizedBox(height: 16),
-                  ...cycles.map((c) => _buildCycleCard(context, c)),
-                  const SizedBox(height: 80),
-                ],
-              );
-            },
-          ),
-        ),
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _goToSetup(context),
-        label: const Text('Yeni Cycle'),
-        icon: const Icon(Icons.add),
-        backgroundColor: Colors.deepOrange,
-        foregroundColor: Colors.white,
-      ),
+      floatingActionButton: _isPastPeriod
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: () => _goToSetup(context),
+              label: const Text('Yeni AGM Programı'),
+              icon: const Icon(Icons.add),
+              backgroundColor: Colors.orange.shade700,
+              foregroundColor: Colors.white,
+            ),
     );
   }
 
@@ -104,13 +184,13 @@ class _AgmDashboardScreenState extends State<AgmDashboardScreen> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(
-            Icons.school_outlined,
+            Icons.auto_awesome_rounded,
             size: 72,
-            color: Colors.deepOrange.shade200,
+            color: Colors.deepPurple.shade200,
           ),
           const SizedBox(height: 16),
           Text(
-            'Henüz cycle yok',
+            _isPastPeriod ? 'Bu döneme ait AGM programı bulunamadı' : 'Henüz AGM programı yok',
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
@@ -119,24 +199,28 @@ class _AgmDashboardScreenState extends State<AgmDashboardScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Deneme sınavı sonuçlarına göre\notomatik etüt programı oluşturun.',
+            _isPastPeriod
+                ? 'Dönem değiştirerek diğer dönemlerdeki programları inceleyebilirsiniz.'
+                : 'Öğrenci başarı grafiklerine göre özel gruplar ve yoğunlaştırılmış\\nçalışma planlarınızı buradan başlatın.',
             textAlign: TextAlign.center,
             style: TextStyle(color: Colors.grey.shade500),
           ),
-          const SizedBox(height: 24),
-          ElevatedButton.icon(
-            onPressed: () => _goToSetup(context),
-            icon: const Icon(Icons.add),
-            label: const Text('İlk Cycle\'ı Oluştur'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.deepOrange,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+          if (!_isPastPeriod) ...[
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: () => _goToSetup(context),
+              icon: const Icon(Icons.add),
+              label: const Text('İlk AGM Programını Oluştur'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange.shade700,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -144,20 +228,37 @@ class _AgmDashboardScreenState extends State<AgmDashboardScreen> {
 
   Widget _buildInfoBanner() {
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.deepOrange.shade50,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.deepOrange.shade100),
+        color: Colors.deepPurple.shade50,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.deepPurple.shade100),
       ),
       child: Row(
         children: [
-          Icon(Icons.info_outline, color: Colors.deepOrange.shade700, size: 20),
-          const SizedBox(width: 10),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.deepPurple.shade100,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(Icons.auto_awesome_rounded, color: Colors.deepPurple.shade700, size: 24),
+          ),
+          const SizedBox(width: 14),
           Expanded(
-            child: Text(
-              'Her cycle, bir deneme sınavını referans alarak öğrencileri otomatik etüt gruplarına yerleştirir.',
-              style: TextStyle(fontSize: 12, color: Colors.deepOrange.shade800),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Akademik Güçlendirme Merkezi (AGM)',
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple.shade900, fontSize: 14),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Öğrenci başarı grafiklerine göre özel gruplar, seviye odaklı sınıflar ve yoğunlaştırılmış çalışma planları oluşturabilirsiniz.',
+                  style: TextStyle(fontSize: 12, color: Colors.deepPurple.shade800, height: 1.4),
+                ),
+              ],
             ),
           ),
         ],
@@ -166,227 +267,159 @@ class _AgmDashboardScreenState extends State<AgmDashboardScreen> {
   }
 
   Widget _buildCycleCard(BuildContext context, AgmCycle cycle) {
-    final Color statusColor;
-    final IconData statusIcon;
+    final dateFormat = DateFormat('dd.MM.yyyy');
+    final dateRange = '${dateFormat.format(cycle.baslangicTarihi)} – ${dateFormat.format(cycle.bitisTarihi)}';
+
+    Color statusColor;
     switch (cycle.status) {
       case AgmCycleStatus.draft:
         statusColor = Colors.orange;
-        statusIcon = Icons.edit_outlined;
         break;
       case AgmCycleStatus.locked:
-        statusColor = Colors.blue;
-        statusIcon = Icons.lock_outline;
+        statusColor = Colors.red;
         break;
       case AgmCycleStatus.published:
         statusColor = Colors.green;
-        statusIcon = Icons.check_circle_outline;
         break;
     }
 
-    final formatter = DateFormat('dd MMM yyyy', 'tr_TR');
-    final isDraft = cycle.status == AgmCycleStatus.draft;
-
     return Card(
+      elevation: 0,
       margin: const EdgeInsets.only(bottom: 12),
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: Colors.grey.shade200),
+      ),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        onTap: () => _goToGroupGrid(context, cycle),
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => AgmGroupGridScreen(cycle: cycle),
+            ),
+          );
+        },
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(18),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Expanded(
                     child: Text(
-                      (cycle.title != null && cycle.title!.isNotEmpty)
-                          ? cycle.title!
-                          : cycle.referansDenemeSinavAdi,
+                      cycle.title ?? 'AGM Programı',
                       style: const TextStyle(
+                        fontSize: 17,
                         fontWeight: FontWeight.bold,
-                        fontSize: 16,
                       ),
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 4,
-                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
-                      color: statusColor.withOpacity(0.12),
+                      color: statusColor.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: statusColor.withValues(alpha: 0.4)),
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(statusIcon, size: 14, color: statusColor),
-                        const SizedBox(width: 4),
-                        Text(
-                          cycle.statusLabel,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: statusColor,
-                          ),
-                        ),
-                      ],
+                    child: Text(
+                      cycle.statusLabel,
+                      style: TextStyle(
+                        color: statusColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
                     ),
-                  ),
-                  // ─── ÜÇ NOKTA MENÜ ───
-                  PopupMenuButton<String>(
-                    icon: Icon(
-                      Icons.more_vert,
-                      size: 20,
-                      color: Colors.grey.shade600,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    itemBuilder: (_) => [
-                      if (isDraft) ...[
-                        const PopupMenuItem(
-                          value: 'edit',
-                          child: ListTile(
-                            dense: true,
-                            contentPadding: EdgeInsets.zero,
-                            leading: Icon(Icons.edit_note, color: Colors.blue),
-                            title: Text('Düzenle'),
-                            subtitle: Text(
-                              'Cycle ayarlarını\ngüncelle',
-                              style: TextStyle(fontSize: 11),
-                            ),
-                          ),
-                        ),
-                        const PopupMenuDivider(),
-                        const PopupMenuItem(
-                          value: 'reset',
-                          child: ListTile(
-                            dense: true,
-                            contentPadding: EdgeInsets.zero,
-                            leading: Icon(Icons.refresh, color: Colors.orange),
-                            title: Text('Taslağı Sıfırla'),
-                            subtitle: Text(
-                              'Tüm atamaları siler,\ngrublar kalır',
-                              style: TextStyle(fontSize: 11),
-                            ),
-                          ),
-                        ),
-                        const PopupMenuDivider(),
-                        const PopupMenuItem(
-                          value: 'delete',
-                          child: ListTile(
-                            dense: true,
-                            contentPadding: EdgeInsets.zero,
-                            leading: Icon(
-                              Icons.delete_outline,
-                              color: Colors.red,
-                            ),
-                            title: Text(
-                              'Cycle\'\u0131 Sil',
-                              style: TextStyle(color: Colors.red),
-                            ),
-                            subtitle: Text(
-                              'Cycle + tüm atamalar silinir',
-                              style: TextStyle(fontSize: 11),
-                            ),
-                          ),
-                        ),
-                      ] else ...[
-                        const PopupMenuItem(
-                          value: 'view',
-                          child: ListTile(
-                            dense: true,
-                            contentPadding: EdgeInsets.zero,
-                            leading: Icon(
-                              Icons.open_in_new,
-                              color: Colors.deepOrange,
-                            ),
-                            title: Text('Detay'),
-                          ),
-                        ),
-                      ],
-                    ],
-                    onSelected: (val) => _onMenuAction(context, val, cycle),
                   ),
                 ],
               ),
               const SizedBox(height: 8),
               Row(
                 children: [
-                  Icon(
-                    Icons.calendar_today,
-                    size: 14,
-                    color: Colors.grey.shade500,
-                  ),
+                  Icon(Icons.calendar_today, size: 14, color: Colors.grey.shade600),
                   const SizedBox(width: 6),
                   Text(
-                    '${formatter.format(cycle.baslangicTarihi)} – ${formatter.format(cycle.bitisTarihi)}',
-                    style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                    dateRange,
+                    style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
                   ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              // ── Çoklu Deneme Sınavı Referansları ──
-              Row(
-                children: [
-                  Icon(
-                    Icons.quiz_outlined,
-                    size: 14,
-                    color: Colors.grey.shade500,
-                  ),
+                  const SizedBox(width: 16),
+                  Icon(Icons.assignment, size: 14, color: Colors.grey.shade600),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      cycle.referansDenemeSinavIds.isNotEmpty
+                      cycle.referansDenemeSinavAdlari.isNotEmpty
                           ? cycle.referansDenemeSinavAdlari.join(', ')
-                          : cycle.referansDenemeSinavAdi,
-                      maxLines: 1,
+                          : (cycle.referansDenemeSinavAdi.isNotEmpty ? cycle.referansDenemeSinavAdi : 'Sınav atanmadı'),
+                      style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade600,
-                        fontStyle: FontStyle.italic,
-                      ),
                     ),
                   ),
                 ],
               ),
-              if (cycle.haftalikMaksimumSaat != null) ...[
-                const SizedBox(height: 4),
+              if (cycle.isSpecialClassActive) ...[
+                const SizedBox(height: 8),
                 Row(
                   children: [
-                    Icon(
-                      Icons.timer_outlined,
-                      size: 14,
-                      color: Colors.grey.shade500,
-                    ),
+                    Icon(Icons.star, size: 14, color: Colors.amber.shade700),
                     const SizedBox(width: 6),
                     Text(
-                      'Haftalık maks: ${cycle.haftalikMaksimumSaat} saat',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade500,
-                      ),
+                      'Özel Sınıf: ${cycle.specialClassRoomName ?? "Derslik Atanmadı"} (Kota: ${cycle.specialClassCapacity ?? 24})',
+                      style: TextStyle(color: Colors.amber.shade900, fontSize: 12, fontWeight: FontWeight.w600),
                     ),
                   ],
                 ),
               ],
-              const Divider(height: 20),
+              const SizedBox(height: 12),
               Row(
+                mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  Icon(
-                    Icons.arrow_forward_ios,
-                    size: 14,
-                    color: Colors.grey.shade400,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    isDraft ? 'Düzenlemek için aç' : 'Detayları görüntüle',
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                  if (!_isPastPeriod && cycle.status == AgmCycleStatus.draft)
+                    TextButton.icon(
+                      icon: const Icon(Icons.edit, size: 16),
+                      label: const Text('Düzenle'),
+                      style: TextButton.styleFrom(foregroundColor: Colors.deepPurple.shade700),
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => AgmCycleSetupScreen(
+                              institutionId: widget.institutionId,
+                              schoolTypeId: widget.schoolTypeId,
+                              workPeriodId: _displayedPeriodId,
+                              initialCycle: cycle,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  if (!_isPastPeriod)
+                    IconButton(
+                      tooltip: 'Sil',
+                      icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                      onPressed: () => _confirmDeleteCycle(context, cycle),
+                    ),
+                  const SizedBox(width: 4),
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => AgmGroupGridScreen(cycle: cycle),
+                        ),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange.shade700,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    ),
+                    child: const Text('Grupları Yönet'),
                   ),
                 ],
               ),
@@ -397,165 +430,53 @@ class _AgmDashboardScreenState extends State<AgmDashboardScreen> {
     );
   }
 
-  Future<void> _onMenuAction(
-    BuildContext context,
-    String action,
-    AgmCycle cycle,
-  ) async {
-    switch (action) {
-      case 'edit':
-        _goToSetup(context, cycle: cycle);
-        break;
-      case 'reset':
-        await _confirmAndReset(context, cycle);
-        break;
-      case 'delete':
-        await _confirmAndDelete(context, cycle);
-        break;
-      case 'view':
-        _goToGroupGrid(context, cycle);
-        break;
-    }
-  }
-
-  Future<void> _confirmAndReset(BuildContext context, AgmCycle cycle) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
-          children: [
-            Icon(Icons.refresh, color: Colors.orange),
-            SizedBox(width: 8),
-            Text('Taslağı Sıfırla'),
-          ],
-        ),
-        content: const Text(
-          'Bu cycle\'a ait tüm öğrenci atamaları silinecek.\n'
-          'Gruplar (ders/saat dilimleri) korunur.\n\n'
-          'Sonra "Taslak Oluştur" ile yeniden algoritmayı \u00e7alıştırabilirsiniz.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('İptal'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.orange,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Sıfırla'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true) return;
-
-    try {
-      await _repo.rollbackAssignments(cycle.id);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Taslak sıfırlandı. Gruplar korundu.'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
-        );
-      }
-    }
-  }
-
-  Future<void> _confirmAndDelete(BuildContext context, AgmCycle cycle) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
-          children: [
-            Icon(Icons.delete_outline, color: Colors.red),
-            SizedBox(width: 8),
-            Text('Cycle\'\u0131 Sil', style: TextStyle(color: Colors.red)),
-          ],
-        ),
-        content: RichText(
-          text: TextSpan(
-            style: const TextStyle(color: Colors.black87, fontSize: 14),
-            children: [
-              TextSpan(
-                text: '"${cycle.referansDenemeSinavAdi}"',
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const TextSpan(
-                text:
-                    ' cycle\'u ve bu cycle\'a ait tüm gruplar, atamalar ve loglar kalıcı olarak silinecek.\n\n'
-                    'Bu işlem geri alınamaz.',
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('İptal'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Evet, Sil'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true) return;
-
-    try {
-      await _repo.deleteCycle(cycle.id);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Cycle silindi.'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
-        );
-      }
-    }
-  }
-
-  void _goToSetup(BuildContext context, {AgmCycle? cycle}) {
+  void _goToSetup(BuildContext context) {
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => AgmCycleSetupScreen(
           institutionId: widget.institutionId,
           schoolTypeId: widget.schoolTypeId,
-          initialCycle: cycle,
+          workPeriodId: _displayedPeriodId,
         ),
       ),
     );
   }
 
-  void _goToGroupGrid(BuildContext context, AgmCycle cycle) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => AgmGroupGridScreen(cycle: cycle)),
+  void _confirmDeleteCycle(BuildContext context, AgmCycle cycle) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('AGM Programını Sil', style: TextStyle(color: Colors.red)),
+        content: const Text('Bu AGM programı kalıcı olarak silinecek. Bu işlem geri alınamaz.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('İptal'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                await _repo.deleteCycle(cycle.id);
+                if (mounted) {
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('AGM programı silindi.'), backgroundColor: Colors.red),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+                  );
+                }
+              }
+            },
+            child: const Text('Sil'),
+          ),
+        ],
+      ),
     );
   }
 }

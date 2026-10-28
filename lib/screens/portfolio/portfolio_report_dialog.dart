@@ -1,4 +1,4 @@
-﻿import 'dart:math' as math;
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/services.dart';
@@ -228,12 +228,12 @@ class _PortfolioReportDialogState extends State<PortfolioReportDialog> {
           padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
           child: body,
         ),
-        bottomNavigationBar: footer != null ? Container(
+        bottomNavigationBar: Container(
           decoration: BoxDecoration(
             color: Colors.white,
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.05),
+                color: Colors.black.withValues(alpha: 0.05),
                 blurRadius: 10,
                 offset: const Offset(0, -5),
               ),
@@ -243,7 +243,7 @@ class _PortfolioReportDialogState extends State<PortfolioReportDialog> {
             24, 12, 24, 12 + MediaQuery.of(context).padding.bottom
           ),
           child: footer,
-        ) : null,
+        ),
       );
     }
 
@@ -261,14 +261,13 @@ class _PortfolioReportDialogState extends State<PortfolioReportDialog> {
                 child: body,
               ),
             ),
-            if (footer != null)
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  border: Border(top: BorderSide(color: Colors.grey.shade100)),
-                ),
-                child: footer,
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                border: Border(top: BorderSide(color: Colors.grey.shade100)),
               ),
+              child: footer,
+            ),
           ],
         ),
       ),
@@ -393,7 +392,7 @@ class _PortfolioReportDialogState extends State<PortfolioReportDialog> {
           subtitle: const Text('Raporu daha ferah ama daha fazla sayfa yapar', style: TextStyle(fontSize: 11)),
           value: _startEachOnNewPage,
           onChanged: (v) => setState(() => _startEachOnNewPage = v),
-          activeColor: Colors.indigo,
+          activeThumbColor: Colors.indigo,
           contentPadding: EdgeInsets.zero,
         ),
         const Divider(),
@@ -439,7 +438,7 @@ class _PortfolioReportDialogState extends State<PortfolioReportDialog> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: BoxDecoration(
-            color: Colors.indigo.withOpacity(0.05),
+            color: Colors.indigo.withValues(alpha: 0.05),
             borderRadius: BorderRadius.circular(20),
           ),
           child: Text(

@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'crypto_service.dart';
 import 'role_permission_service.dart';
 import '../constants/app_modules.dart';
+import '../widgets/school_logo.dart';
 
 /// Merkezi kullanıcı yetki yönetim servisi
 /// Tüm modüller bu servisi kullanarak kullanıcı verilerini ve yetkilerini alır
@@ -430,6 +431,45 @@ class UserPermissionService {
     return getTeacherModuleLevel(moduleKey, subModuleKey: subModuleKey) == 'editor';
   }
 
+  /// Sınav Yoklama Raporu Alma Yetkisi
+  static bool canViewExamReports([Map<String, dynamic>? user]) {
+    final u = user ?? _cachedUserData;
+    if (u == null) return true;
+    final role = (u['role'] as String?)?.toLowerCase() ?? '';
+    if (_isTopAdmin(role)) return true;
+    final isTeacher = role.contains('ogretmen') || role.contains('öğretmen') || role == 'teacher';
+    if (!isTeacher) return true;
+    final subPerm = _cachedRoleTemplate?['teacherPermissions']?['araclar']?['subModules']?['sinav_raporu_alma'];
+    if (subPerm is Map && subPerm['enabled'] == true) return true;
+    return false;
+  }
+
+  /// Sınavı Tamamlama / Pasife Alma Yetkisi
+  static bool canCompleteExam([Map<String, dynamic>? user]) {
+    final u = user ?? _cachedUserData;
+    if (u == null) return true;
+    final role = (u['role'] as String?)?.toLowerCase() ?? '';
+    if (_isTopAdmin(role)) return true;
+    final isTeacher = role.contains('ogretmen') || role.contains('öğretmen') || role == 'teacher';
+    if (!isTeacher) return true;
+    final subPerm = _cachedRoleTemplate?['teacherPermissions']?['araclar']?['subModules']?['sinav_tamamlama'];
+    if (subPerm is Map && subPerm['enabled'] == true) return true;
+    return false;
+  }
+
+  /// Sınav Gözetmenliklerini Yayınlama Yetkisi
+  static bool canPublishExam([Map<String, dynamic>? user]) {
+    final u = user ?? _cachedUserData;
+    if (u == null) return true;
+    final role = (u['role'] as String?)?.toLowerCase() ?? '';
+    if (_isTopAdmin(role)) return true;
+    final isTeacher = role.contains('ogretmen') || role.contains('öğretmen') || role == 'teacher';
+    if (!isTeacher) return true;
+    final subPerm = _cachedRoleTemplate?['teacherPermissions']?['araclar']?['subModules']?['sinav_yayinlama'];
+    if (subPerm is Map && subPerm['enabled'] == true) return true;
+    return false;
+  }
+
   /// Cache'lenmiş rol şablonunu al
   static Map<String, dynamic>? getCachedRoleTemplate() => _cachedRoleTemplate;
 
@@ -441,6 +481,7 @@ class UserPermissionService {
     _isImpersonating = false;
     _loadFuture = null;
     CryptoService.clearCache();
+    SchoolLogoService.clear();
   }
 
   // ─── Yardımcı: Rol kontrolü ───
@@ -661,6 +702,180 @@ class UserPermissionService {
     return _isImpersonating;
   }
 
+  static final Map<String, String> _resolvedNameCache = {};
+
+  /// Önbellekteki kullanıcı adını senkron olarak döner
+  static String? getCachedUserFullName(String? userId) {
+    if (userId == null || userId.isEmpty) return null;
+    final cached = _resolvedNameCache[userId.trim()];
+    return (cached != null &&
+            cached.isNotEmpty &&
+            cached != 'Kullanıcı' &&
+            cached != 'Sistem Yöneticisi')
+        ? cached
+        : null;
+  }
+
+  /// Kullanıcı ID'sinden (UID veya docId) veya kurumdan kullanıcının gerçek Adını ve Soyadını (fullName) çözümler.
+  static Future<String> resolveUserFullName(
+    String? userId, {
+    String? institutionId,
+    String fallback = '',
+  }) async {
+    final uid = userId?.trim() ?? '';
+    if (uid.isNotEmpty &&
+        _resolvedNameCache.containsKey(uid) &&
+        _resolvedNameCache[uid]!.isNotEmpty &&
+        _resolvedNameCache[uid] != 'Kullanıcı' &&
+        _resolvedNameCache[uid] != 'Sistem Yöneticisi') {
+      return _resolvedNameCache[uid]!;
+    }
+
+    try {
+      if (uid.isNotEmpty && uid != 'anon') {
+        // 1. users/{uid} doğrudan doküman sorgusu
+        final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+        if (doc.exists) {
+          final d = doc.data() ?? {};
+          final n = (d['fullName'] ?? d['displayName'] ?? d['name'] ?? '').toString().trim();
+          if (n.isNotEmpty && n != 'Kullanıcı' && n != 'Sistem Yöneticisi') {
+            _resolvedNameCache[uid] = n;
+            return n;
+          }
+        }
+
+        // 2. authUserId alanı ile sorgu
+        final q1 = await FirebaseFirestore.instance
+            .collection('users')
+            .where('authUserId', isEqualTo: uid)
+            .limit(1)
+            .get();
+        if (q1.docs.isNotEmpty) {
+          final d = q1.docs.first.data();
+          final n = (d['fullName'] ?? d['displayName'] ?? d['name'] ?? '').toString().trim();
+          if (n.isNotEmpty && n != 'Kullanıcı' && n != 'Sistem Yöneticisi') {
+            _resolvedNameCache[uid] = n;
+            return n;
+          }
+        }
+
+        // 3. googleUid alanı ile sorgu
+        final q2 = await FirebaseFirestore.instance
+            .collection('users')
+            .where('googleUid', isEqualTo: uid)
+            .limit(1)
+            .get();
+        if (q2.docs.isNotEmpty) {
+          final d = q2.docs.first.data();
+          final n = (d['fullName'] ?? d['displayName'] ?? d['name'] ?? '').toString().trim();
+          if (n.isNotEmpty && n != 'Kullanıcı' && n != 'Sistem Yöneticisi') {
+            _resolvedNameCache[uid] = n;
+            return n;
+          }
+        }
+
+        // 4. schools/{uid} dokümanı sorgusu (Kurum yöneticisi kontrolü)
+        final sDoc = await FirebaseFirestore.instance.collection('schools').doc(uid).get();
+        if (sDoc.exists) {
+          final d = sDoc.data() ?? {};
+          final n = (d['adminFullName'] ?? d['schoolName'] ?? d['name'] ?? '').toString().trim();
+          if (n.isNotEmpty && n != 'Kullanıcı' && n != 'Sistem Yöneticisi') {
+            _resolvedNameCache[uid] = n;
+            return n;
+          }
+        }
+
+        // 5. schools tablosunda adminId ile arama
+        final sAdminQ = await FirebaseFirestore.instance
+            .collection('schools')
+            .where('adminId', isEqualTo: uid)
+            .limit(1)
+            .get();
+        if (sAdminQ.docs.isNotEmpty) {
+          final d = sAdminQ.docs.first.data();
+          final n = (d['adminFullName'] ?? d['schoolName'] ?? '').toString().trim();
+          if (n.isNotEmpty && n != 'Kullanıcı' && n != 'Sistem Yöneticisi') {
+            _resolvedNameCache[uid] = n;
+            return n;
+          }
+        }
+      }
+
+      // 6. Giriş yapan kullanıcının kendi verileri (currentUser)
+      final authUser = FirebaseAuth.instance.currentUser;
+      if (authUser != null) {
+        final ud = await loadUserData();
+        if (ud != null) {
+          final n = (ud['fullName'] ?? ud['adminFullName'] ?? ud['displayName'] ?? ud['name'] ?? '').toString().trim();
+          if (n.isNotEmpty && n != 'Kullanıcı' && n != 'Sistem Yöneticisi') {
+            if (uid.isNotEmpty) _resolvedNameCache[uid] = n;
+            return n;
+          }
+        }
+        if (authUser.displayName != null && authUser.displayName!.trim().isNotEmpty) {
+          final n = authUser.displayName!.trim();
+          if (n != 'Kullanıcı' && n != 'Sistem Yöneticisi') {
+            if (uid.isNotEmpty) _resolvedNameCache[uid] = n;
+            return n;
+          }
+        }
+        // E-posta adresiyle users sorgusu
+        if (authUser.email != null && authUser.email!.isNotEmpty) {
+          final eQuery = await FirebaseFirestore.instance
+              .collection('users')
+              .where('email', isEqualTo: authUser.email!.toLowerCase())
+              .limit(1)
+              .get();
+          if (eQuery.docs.isNotEmpty) {
+            final d = eQuery.docs.first.data();
+            final n = (d['fullName'] ?? d['displayName'] ?? d['name'] ?? '').toString().trim();
+            if (n.isNotEmpty && n != 'Kullanıcı' && n != 'Sistem Yöneticisi') {
+              if (uid.isNotEmpty) _resolvedNameCache[uid] = n;
+              return n;
+            }
+          }
+        }
+      }
+
+      // 7. Kurum ID üzerinden schools dokümanındaki adminFullName'i çekme
+      if (institutionId != null && institutionId.isNotEmpty) {
+        final sInstQ = await FirebaseFirestore.instance
+            .collection('schools')
+            .where('institutionId', isEqualTo: institutionId)
+            .limit(1)
+            .get();
+        if (sInstQ.docs.isNotEmpty) {
+          final d = sInstQ.docs.first.data();
+          final n = (d['adminFullName'] ?? d['schoolName'] ?? '').toString().trim();
+          if (n.isNotEmpty && n != 'Kullanıcı' && n != 'Sistem Yöneticisi') {
+            if (uid.isNotEmpty) _resolvedNameCache[uid] = n;
+            return n;
+          }
+        }
+
+        // users tablosunda bu kurumun admin/müdür kullanıcısını arama
+        final uInstQ = await FirebaseFirestore.instance
+            .collection('users')
+            .where('institutionId', isEqualTo: institutionId)
+            .where('role', whereIn: ['admin', 'superadmin', 'mudur', 'genel_mudur'])
+            .limit(1)
+            .get();
+        if (uInstQ.docs.isNotEmpty) {
+          final d = uInstQ.docs.first.data();
+          final n = (d['fullName'] ?? d['displayName'] ?? '').toString().trim();
+          if (n.isNotEmpty && n != 'Kullanıcı' && n != 'Sistem Yöneticisi') {
+            if (uid.isNotEmpty) _resolvedNameCache[uid] = n;
+            return n;
+          }
+        }
+      }
+    } catch (e) {
+      print('resolveUserFullName hata: $e');
+    }
+
+    return fallback;
+  }
+
   /// Kullanıcı görünen adını al
   static String getUserDisplayName(Map<String, dynamic>? userData) {
     if (userData != null) {
@@ -692,9 +907,7 @@ class UserPermissionService {
 
     // userData verilmemişse cache veya loadUserData'dan al
     userData ??= _cachedUserData;
-    if (userData == null) {
-      userData = await loadUserData();
-    }
+    userData ??= await loadUserData();
 
     if (userData != null) {
       // 1. Varsa önce schoolId üzerinden schools koleksiyonundaki orijinal (canonical) institutionId'yi al.

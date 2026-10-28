@@ -234,9 +234,9 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
-              color: const Color(0xFF4F46E5).withOpacity(0.06),
+              color: const Color(0xFF4F46E5).withValues(alpha: 0.06),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: const Color(0xFF4F46E5).withOpacity(0.15)),
+              border: Border.all(color: const Color(0xFF4F46E5).withValues(alpha: 0.15)),
             ),
             child: Row(
               children: [
@@ -251,7 +251,7 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF4F46E5).withOpacity(0.12),
+                    color: const Color(0xFF4F46E5).withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
@@ -282,7 +282,7 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
                   border: Border.all(color: Colors.grey.shade200),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.03),
+                      color: Colors.black.withValues(alpha: 0.03),
                       blurRadius: 6,
                       offset: const Offset(0, 1),
                     ),
@@ -302,7 +302,7 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
                             height: 24,
                             alignment: Alignment.center,
                             decoration: BoxDecoration(
-                              color: const Color(0xFF4F46E5).withOpacity(0.1),
+                              color: const Color(0xFF4F46E5).withValues(alpha: 0.1),
                               shape: BoxShape.circle,
                             ),
                             child: Text(
@@ -442,9 +442,9 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
-              color: const Color(0xFF0891B2).withOpacity(0.06),
+              color: const Color(0xFF0891B2).withValues(alpha: 0.06),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: const Color(0xFF0891B2).withOpacity(0.2)),
+              border: Border.all(color: const Color(0xFF0891B2).withValues(alpha: 0.2)),
             ),
             child: Row(
               children: [
@@ -497,13 +497,13 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
                       color: isEnabled
-                          ? (hasOverride ? const Color(0xFF0891B2).withOpacity(0.3) : Colors.grey.shade200)
+                          ? (hasOverride ? const Color(0xFF0891B2).withValues(alpha: 0.3) : Colors.grey.shade200)
                           : Colors.grey.shade300,
                       width: hasOverride ? 1.5 : 1.0,
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.03),
+                        color: Colors.black.withValues(alpha: 0.03),
                         blurRadius: 6,
                         offset: const Offset(0, 1),
                       ),
@@ -532,7 +532,7 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
                                   height: 26,
                                   alignment: Alignment.center,
                                   decoration: BoxDecoration(
-                                    color: isEnabled ? const Color(0xFF4F46E5).withOpacity(0.1) : Colors.grey.shade200,
+                                    color: isEnabled ? const Color(0xFF4F46E5).withValues(alpha: 0.1) : Colors.grey.shade200,
                                     shape: BoxShape.circle,
                                   ),
                                   child: Text(
@@ -574,9 +574,9 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                                       decoration: BoxDecoration(
-                                        color: const Color(0xFF4F46E5).withOpacity(0.1),
+                                        color: const Color(0xFF4F46E5).withValues(alpha: 0.1),
                                         borderRadius: BorderRadius.circular(6),
-                                        border: Border.all(color: const Color(0xFF4F46E5).withOpacity(0.25)),
+                                        border: Border.all(color: const Color(0xFF4F46E5).withValues(alpha: 0.25)),
                                       ),
                                       child: Row(
                                         mainAxisSize: MainAxisSize.min,
@@ -600,7 +600,7 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                       decoration: BoxDecoration(
-                                        color: const Color(0xFF0891B2).withOpacity(0.12),
+                                        color: const Color(0xFF0891B2).withValues(alpha: 0.12),
                                         borderRadius: BorderRadius.circular(6),
                                       ),
                                       child: const Text(
@@ -709,7 +709,7 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
                         // Switch (Aç / Kapa)
                         Switch(
                           value: isEnabled,
-                          activeColor: const Color(0xFF4F46E5),
+                          activeThumbColor: const Color(0xFF4F46E5),
                           onChanged: (val) async {
                             try {
                               await FirebaseFirestore.instance
@@ -970,7 +970,7 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
       context: context,
       barrierDismissible: true,
       barrierLabel: 'Kapat',
-      barrierColor: Colors.black.withOpacity(0.55),
+      barrierColor: Colors.black.withValues(alpha: 0.55),
       transitionDuration: const Duration(milliseconds: 280),
       transitionBuilder: (context, anim, secondaryAnim, child) {
         return SlideTransition(
@@ -1031,7 +1031,7 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
                               borderRadius: BorderRadius.circular(12),
                               boxShadow: [
                                 BoxShadow(
-                                  color: const Color(0xFF4F46E5).withOpacity(0.25),
+                                  color: const Color(0xFF4F46E5).withValues(alpha: 0.25),
                                   blurRadius: 8,
                                   offset: const Offset(0, 3),
                                 ),
@@ -1100,7 +1100,7 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFF4F46E5).withOpacity(0.08),
+                                  color: const Color(0xFF4F46E5).withValues(alpha: 0.08),
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Row(
@@ -1127,7 +1127,7 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
                               ),
                               const SizedBox(height: 12),
                               DropdownButtonFormField<String>(
-                                value: groupOptions.contains(selectedGroup)
+                                initialValue: groupOptions.contains(selectedGroup)
                                     ? selectedGroup
                                     : (selectedGroup.isEmpty ? '' : null),
                                 isExpanded: true,
@@ -1174,7 +1174,7 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
                                             color: info['bgColor'] as Color,
                                             borderRadius: BorderRadius.circular(8),
                                             border: Border.all(
-                                              color: (info['borderColor'] as Color).withOpacity(0.8),
+                                              color: (info['borderColor'] as Color).withValues(alpha: 0.8),
                                               width: 1,
                                             ),
                                           ),
@@ -1199,10 +1199,10 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
                                         Container(
                                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                           decoration: BoxDecoration(
-                                            color: (info['bgColor'] as Color).withOpacity(0.8),
+                                            color: (info['bgColor'] as Color).withValues(alpha: 0.8),
                                             borderRadius: BorderRadius.circular(16),
                                             border: Border.all(
-                                              color: (info['borderColor'] as Color).withOpacity(0.9),
+                                              color: (info['borderColor'] as Color).withValues(alpha: 0.9),
                                               width: 1,
                                             ),
                                           ),
@@ -1234,7 +1234,7 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
                                               decoration: BoxDecoration(
                                                 color: info['bgColor'] as Color,
                                                 borderRadius: BorderRadius.circular(10),
-                                                border: Border.all(color: (info['borderColor'] as Color).withOpacity(0.6)),
+                                                border: Border.all(color: (info['borderColor'] as Color).withValues(alpha: 0.6)),
                                               ),
                                               child: Icon(info['icon'] as IconData, size: 18, color: info['color'] as Color),
                                             ),
@@ -1309,7 +1309,7 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
                                               decoration: BoxDecoration(
                                                 color: info['bgColor'] as Color,
                                                 borderRadius: BorderRadius.circular(10),
-                                                border: Border.all(color: (info['borderColor'] as Color).withOpacity(0.6)),
+                                                border: Border.all(color: (info['borderColor'] as Color).withValues(alpha: 0.6)),
                                               ),
                                               child: Icon(info['icon'] as IconData, size: 18, color: info['color'] as Color),
                                             ),
@@ -1385,7 +1385,7 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
                                               borderRadius: BorderRadius.circular(10),
                                               boxShadow: [
                                                 BoxShadow(
-                                                  color: const Color(0xFF10B981).withOpacity(0.3),
+                                                  color: const Color(0xFF10B981).withValues(alpha: 0.3),
                                                   blurRadius: 6,
                                                   offset: const Offset(0, 2),
                                                 ),
@@ -1445,7 +1445,7 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
                                     border: Border.all(color: const Color(0xFF86EFAC)),
                                     boxShadow: [
                                       BoxShadow(
-                                        color: const Color(0xFF10B981).withOpacity(0.08),
+                                        color: const Color(0xFF10B981).withValues(alpha: 0.08),
                                         blurRadius: 10,
                                         offset: const Offset(0, 3),
                                       ),
@@ -1459,7 +1459,7 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
                                           Container(
                                             padding: const EdgeInsets.all(4),
                                             decoration: BoxDecoration(
-                                              color: const Color(0xFF10B981).withOpacity(0.15),
+                                              color: const Color(0xFF10B981).withValues(alpha: 0.15),
                                               borderRadius: BorderRadius.circular(6),
                                             ),
                                             child: const Icon(Icons.auto_awesome_rounded, size: 15, color: Color(0xFF059669)),
@@ -1639,7 +1639,7 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
                                 return FilterChip(
                                   label: Text(_getDayShortName(day)),
                                   selected: isSelected,
-                                  selectedColor: const Color(0xFF4F46E5).withOpacity(0.18),
+                                  selectedColor: const Color(0xFF4F46E5).withValues(alpha: 0.18),
                                   checkmarkColor: const Color(0xFF4F46E5),
                                   labelStyle: TextStyle(
                                     color: isSelected ? const Color(0xFF4F46E5) : Colors.grey.shade700,
@@ -1716,7 +1716,7 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
                                     style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
                                   ),
                                 ),
-                                activeColor: const Color(0xFF4F46E5),
+                                activeThumbColor: const Color(0xFF4F46E5),
                                 value: isAmir,
                                 onChanged: (val) {
                                   setState(() {
@@ -1828,6 +1828,24 @@ class _DutySettingsScreenState extends State<DutySettingsScreen>
         .collection('dutyLocations')
         .doc(id)
         .delete();
+
+    // Silinen nöbet yerine ait tüm görevleri de Firestore'dan tamamen temizle
+    try {
+      final itemsSnap = await FirebaseFirestore.instance
+          .collection('dutyScheduleItems')
+          .where('institutionId', isEqualTo: widget.institutionId)
+          .where('locationId', isEqualTo: id)
+          .get();
+      if (itemsSnap.docs.isNotEmpty) {
+        final batch = FirebaseFirestore.instance.batch();
+        for (var d in itemsSnap.docs) {
+          batch.delete(d.reference);
+        }
+        await batch.commit();
+      }
+    } catch (e) {
+      debugPrint('Error cleaning up deleted location duty items: $e');
+    }
   }
 
   String _getDaysText(List<int> days) {
@@ -2682,7 +2700,7 @@ class _CopyPoolSheetState extends State<_CopyPoolSheet> {
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: Colors.orange.withOpacity(0.12),
+                      color: Colors.orange.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: const Icon(Icons.copy_rounded, color: Colors.orange, size: 22),
@@ -2877,7 +2895,7 @@ class _CopyPoolSheetState extends State<_CopyPoolSheet> {
 
                         return ListTile(
                           tileColor: isSelected
-                              ? const Color(0xFF4F46E5).withOpacity(0.06)
+                              ? const Color(0xFF4F46E5).withValues(alpha: 0.06)
                               : Colors.white,
                           leading: CircleAvatar(
                             radius: 18,
@@ -2931,7 +2949,7 @@ class _CopyPoolSheetState extends State<_CopyPoolSheet> {
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFF4F46E5).withOpacity(0.12),
+                                    color: const Color(0xFF4F46E5).withValues(alpha: 0.12),
                                     borderRadius: BorderRadius.circular(4),
                                   ),
                                   child: const Text(
@@ -3073,7 +3091,7 @@ class _CopyPoolSheetState extends State<_CopyPoolSheet> {
           boxShadow: isCurrent
               ? [
                   BoxShadow(
-                    color: const Color(0xFF4F46E5).withOpacity(0.25),
+                    color: const Color(0xFF4F46E5).withValues(alpha: 0.25),
                     blurRadius: 4,
                     offset: const Offset(0, 2),
                   ),
@@ -3143,14 +3161,14 @@ class _CopyPoolSheetState extends State<_CopyPoolSheet> {
           color: !isEnabled
               ? Colors.grey.shade100
               : highlight
-                  ? const Color(0xFF4F46E5).withOpacity(0.1)
+                  ? const Color(0xFF4F46E5).withValues(alpha: 0.1)
                   : Colors.grey.shade100,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
             color: !isEnabled
                 ? Colors.grey.shade200
                 : highlight
-                    ? const Color(0xFF4F46E5).withOpacity(0.35)
+                    ? const Color(0xFF4F46E5).withValues(alpha: 0.35)
                     : Colors.grey.shade300,
           ),
         ),
@@ -3240,7 +3258,7 @@ class _StaffSelectionSheetState extends State<_StaffSelectionSheet> {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF4F46E5).withOpacity(0.1),
+                  color: const Color(0xFF4F46E5).withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Icon(Icons.paste_rounded, color: Color(0xFF4F46E5), size: 20),
@@ -3576,9 +3594,9 @@ class _StaffSelectionSheetState extends State<_StaffSelectionSheet> {
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF4F46E5).withOpacity(0.08),
+                        color: const Color(0xFF4F46E5).withValues(alpha: 0.08),
                         borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: const Color(0xFF4F46E5).withOpacity(0.2)),
+                        border: Border.all(color: const Color(0xFF4F46E5).withValues(alpha: 0.2)),
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -3663,7 +3681,7 @@ class _StaffSelectionSheetState extends State<_StaffSelectionSheet> {
 
                         return ListTile(
                           tileColor: isSelected
-                              ? const Color(0xFF4F46E5).withOpacity(0.06)
+                              ? const Color(0xFF4F46E5).withValues(alpha: 0.06)
                               : Colors.white,
                           leading: CircleAvatar(
                             backgroundColor: isSelected

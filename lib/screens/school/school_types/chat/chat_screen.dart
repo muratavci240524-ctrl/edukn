@@ -8,7 +8,6 @@ import 'package:google_fonts/google_fonts.dart';
 import 'chat_models.dart';
 import 'chat_list_widget.dart';
 import 'chat_detail_widget.dart';
-import 'bulk_message_dialog.dart';
 import 'create_group_dialog.dart';
 import 'call/call_models.dart';
 import 'call/call_service.dart';
@@ -227,7 +226,7 @@ class _ChatScreenState extends State<ChatScreen>
               }
 
               if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text('Toplu mesaj $sentCount alıcıya başarıyla gönderildi!'),
                     backgroundColor: const Color(0xFF008069),
@@ -795,7 +794,7 @@ class _ChatScreenState extends State<ChatScreen>
 
       loadedContacts.sort((a, b) => a.name.compareTo(b.name));
     } catch (e) {
-      print('Error loading contacts: $e');
+      debugPrint('Error loading contacts: $e');
     }
 
     if (mounted) {
@@ -894,7 +893,7 @@ class _ChatScreenState extends State<ChatScreen>
 
     // Update filtered list (stream handles it automatically mostly)
 
-    ScaffoldMessenger.of(
+    if (mounted) ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text('$successCount sohbete iletildi.')));
   }

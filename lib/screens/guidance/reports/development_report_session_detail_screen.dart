@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -125,7 +125,7 @@ class _DevelopmentReportSessionDetailScreenState
         _isLoading = false;
       });
     } catch (e) {
-      print("Error loading session details: $e");
+      debugPrint("Error loading session details: $e");
       setState(() => _isLoading = false);
     }
   }
@@ -160,7 +160,7 @@ class _DevelopmentReportSessionDetailScreenState
         setState(() => _isLoadingReport = false);
       }
     } catch (e) {
-      print("Error loading target report: $e");
+      debugPrint("Error loading target report: $e");
       setState(() => _isLoadingReport = false);
     }
   }
@@ -235,7 +235,7 @@ class _DevelopmentReportSessionDetailScreenState
               boxShadow: isSelected
                   ? [
                       BoxShadow(
-                        color: Colors.indigo.withOpacity(0.05),
+                        color: Colors.indigo.withValues(alpha: 0.05),
                         blurRadius: 4,
                         offset: Offset(0, 2),
                       ),
@@ -434,7 +434,7 @@ class _DevelopmentReportSessionDetailScreenState
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.02),
+                        color: Colors.black.withValues(alpha: 0.02),
                         blurRadius: 4,
                         offset: Offset(0, 2),
                       ),
@@ -591,8 +591,8 @@ class _DevelopmentReportSessionDetailScreenState
                                     ),
                                     decoration: BoxDecoration(
                                       color: progress == 1.0
-                                          ? Colors.green.withOpacity(0.1)
-                                          : Colors.orange.withOpacity(0.1),
+                                          ? Colors.green.withValues(alpha: 0.1)
+                                          : Colors.orange.withValues(alpha: 0.1),
                                       borderRadius: BorderRadius.circular(12),
                                     ),
                                     child: Text(

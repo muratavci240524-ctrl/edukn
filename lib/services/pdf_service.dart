@@ -2538,11 +2538,7 @@ class PdfService {
       border: pw.TableBorder.all(color: PdfColors.black, width: 0.5),
       columnWidths: {
         0: const pw.FixedColumnWidth(dayColumnWidth),
-        ...Map.fromIterable(
-          List.generate(hours.length, (i) => i + 1),
-          key: (i) => i,
-          value: (_) => const pw.FixedColumnWidth(hourColumnWidth),
-        ),
+        ...{ for (var i in List.generate(hours.length, (i) => i + 1)) i : const pw.FixedColumnWidth(hourColumnWidth) },
       },
       children: [
         // Header Row
@@ -3017,7 +3013,9 @@ class PdfService {
     dynamic getNet(String code) {
       if (code == 'T.NET') {
         double total = 0;
-        ['TRK', 'MAT', 'FEN', 'SOS', 'İNG', 'DİN'].forEach((c) => total += (nets[c] as num? ?? 0.0).toDouble());
+        for (var c in ['TRK', 'MAT', 'FEN', 'SOS', 'İNG', 'DİN']) {
+          total += (nets[c] as num? ?? 0.0).toDouble();
+        }
         return total > 0 ? total : (nets['T.NET'] ?? 0.0);
       }
       return nets[code] ?? 0.0;

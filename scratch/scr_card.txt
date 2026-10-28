@@ -1,0 +1,14 @@
+
+              // 5. TÜM SINAV DAVRANIŞLARI GÖZLEM FORMLARI (YATAY)
+              SizedBox(
+                width: isMobile ? double.infinity : (MediaQuery.of(context).size.width - 64) / 2,
+                child: _buildReportActionCard(
+                  title: 'Sınav Davranışları Gözlem Formları',
+                  subtitle: 'Her salon için yatay, 25 öğrencilik gözlem kâğıdı (gözetmen doldurur)',
+                  icon: Icons.visibility_rounded,
+                  iconColor: const Color(0xFF9333EA),
+                  badgeText: 'Gözlem Formu',
+                  badgeColor: const Color(0xFFF3E8FF),
+                  onTap: _printAllObservationForms,
+                ),
+              ),

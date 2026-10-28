@@ -65,7 +65,14 @@ service firebase.storage {
 
     // ─── PDF Raporlar ─────────────────────────────────────────────
     match /reports/{allPaths=**} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated(); // paylaşım linkleri indirme token'ı ile çalışır
+      allow write: if isAuthenticated()
+        && isPdfFile()
+        && isValidFileSize();
+    }
+
+    match /shared_reports/{allPaths=**} {
+      allow read: if isAuthenticated(); // paylaşım linkleri indirme token'ı ile çalışır
       allow write: if isAuthenticated()
         && isPdfFile()
         && isValidFileSize();
@@ -77,6 +84,16 @@ service firebase.storage {
       allow write: if isAuthenticated()
         && isAudioFile()
         && request.resource.size < 100 * 1024 * 1024; // Max 100MB
+    }
+
+    // ─── Deneme Sınavı Optik Dosyaları (TXT/DAT) ─────────────────
+    match /trial_exams/{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated()
+        && (request.resource == null
+            || (request.resource.contentType.matches('text/.*')
+                || request.resource.contentType == 'application/octet-stream'))
+        && (request.resource == null || request.resource.size < 20 * 1024 * 1024);
     }
 
     // ─── Default: Her şeyi reddet ─────────────────────────────────

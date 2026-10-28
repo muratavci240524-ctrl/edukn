@@ -212,7 +212,7 @@ class _ClassroomLayoutEditorScreenState
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF5C6BC0).withOpacity(0.1),
+                      color: const Color(0xFF5C6BC0).withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: const Icon(Icons.tune_rounded, color: Color(0xFF5C6BC0), size: 20),
@@ -426,7 +426,7 @@ class _ClassroomLayoutEditorScreenState
                 color: Colors.white,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.08),
+                    color: Colors.black.withValues(alpha: 0.08),
                     blurRadius: 10,
                     offset: const Offset(0, -2),
                   ),
@@ -501,7 +501,7 @@ class _ClassroomLayoutEditorScreenState
         border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF1E293B).withOpacity(0.04),
+            color: const Color(0xFF1E293B).withValues(alpha: 0.04),
             blurRadius: 16,
             offset: const Offset(0, 4),
           ),
@@ -531,7 +531,7 @@ class _ClassroomLayoutEditorScreenState
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                value: _selectedClassroomId,
+                initialValue: _selectedClassroomId,
                 style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)),
                 dropdownColor: Colors.white,
                 borderRadius: BorderRadius.circular(16),
@@ -607,7 +607,7 @@ class _ClassroomLayoutEditorScreenState
                   Expanded(
                     flex: 2,
                     child: DropdownButtonFormField<String>(
-                      value: _selectedClassroomId,
+                      initialValue: _selectedClassroomId,
                       style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)),
                       dropdownColor: Colors.white,
                       borderRadius: BorderRadius.circular(16),
@@ -806,7 +806,7 @@ class _ClassroomLayoutEditorScreenState
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -825,7 +825,7 @@ class _ClassroomLayoutEditorScreenState
               borderRadius: BorderRadius.circular(12),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.15),
+                  color: Colors.black.withValues(alpha: 0.15),
                   blurRadius: 8,
                   offset: const Offset(0, 2),
                 ),
@@ -927,7 +927,7 @@ class _ClassroomLayoutEditorScreenState
           boxShadow: isDesk
               ? [
                   BoxShadow(
-                    color: const Color(0xFF5C6BC0).withOpacity(0.08),
+                    color: const Color(0xFF5C6BC0).withValues(alpha: 0.08),
                     blurRadius: 6,
                     offset: const Offset(0, 2),
                   ),
@@ -1019,7 +1019,7 @@ class _ClassroomLayoutEditorScreenState
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF5C6BC0).withOpacity(0.1),
+                      color: const Color(0xFF5C6BC0).withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: const Icon(Icons.auto_awesome_rounded, color: Color(0xFF5C6BC0), size: 22),
@@ -1122,7 +1122,7 @@ class _ClassroomLayoutEditorScreenState
       leading: Container(
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: const Color(0xFF5C6BC0).withOpacity(0.1),
+          color: const Color(0xFF5C6BC0).withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Icon(icon, color: const Color(0xFF5C6BC0), size: 22),

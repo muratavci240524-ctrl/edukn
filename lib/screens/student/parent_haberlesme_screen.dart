@@ -36,7 +36,7 @@ class _ParentHaberlesmeScreenState extends State<ParentHaberlesmeScreen> {
             _schoolTypeName = data['schoolTypeName']?.toString() ?? '';
           });
         }
-      } catch (_) {}
+      } catch (silentError) { debugPrint('[parent_haberlesme_screen] hata yutuldu: $silentError'); }
     }
   }
 

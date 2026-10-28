@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -8,7 +8,6 @@ import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
-import 'dart:ui';
 import '../../../widgets/custom_date_range_picker.dart';
 
 /// Türk Lirası Canlı Para Formatlayıcı (2000 -> 2.000, 2000,50 -> 2.000,50)
@@ -217,7 +216,7 @@ class _StudentPaymentPlanWidgetState extends State<StudentPaymentPlanWidget> {
               dueDate = DateTime(int.parse(parts[2]), int.parse(parts[1]), int.parse(parts[0]));
             }
           }
-        } catch (_) {}
+        } catch (silentError) { debugPrint('[student_payment_plan_widget] hata yutuldu: $silentError'); }
 
         if (isPaid) {
           totalCollected += amount;
@@ -253,7 +252,7 @@ class _StudentPaymentPlanWidgetState extends State<StudentPaymentPlanWidget> {
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF4F46E5).withOpacity(0.25),
+                      color: const Color(0xFF4F46E5).withValues(alpha: 0.25),
                       blurRadius: 20,
                       offset: const Offset(0, 8),
                     ),
@@ -264,9 +263,9 @@ class _StudentPaymentPlanWidgetState extends State<StudentPaymentPlanWidget> {
                     Container(
                       padding: EdgeInsets.all(isCompact ? 10 : 12),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.12),
+                        color: Colors.white.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Colors.white.withOpacity(0.2)),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
                       ),
                       child: Icon(Icons.account_balance_wallet_rounded, color: Colors.white, size: isCompact ? 22 : 28),
                     ),
@@ -353,7 +352,7 @@ class _StudentPaymentPlanWidgetState extends State<StudentPaymentPlanWidget> {
                   border: Border.all(color: const Color(0xFFF1F5F9)),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.03),
+                      color: Colors.black.withValues(alpha: 0.03),
                       blurRadius: 16,
                       offset: const Offset(0, 4),
                     ),
@@ -483,7 +482,7 @@ class _StudentPaymentPlanWidgetState extends State<StudentPaymentPlanWidget> {
           border: Border.all(color: const Color(0xFFE2E8F0)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.04),
+              color: Colors.black.withValues(alpha: 0.04),
               blurRadius: 20,
               offset: const Offset(0, 8),
             ),
@@ -538,7 +537,7 @@ class _StudentPaymentPlanWidgetState extends State<StudentPaymentPlanWidget> {
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -608,7 +607,7 @@ class _StudentPaymentPlanWidgetState extends State<StudentPaymentPlanWidget> {
         border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 14,
             offset: const Offset(0, 4),
           ),
@@ -1237,7 +1236,7 @@ class _StudentPaymentPlanWidgetState extends State<StudentPaymentPlanWidget> {
                 Text('Ödeme Yöntemi', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13, color: const Color(0xFF334155))),
                 const SizedBox(height: 6),
                 DropdownButtonFormField<String>(
-                  value: method,
+                  initialValue: method,
                   decoration: InputDecoration(
                     filled: true,
                     fillColor: const Color(0xFFF8FAFC),
@@ -1271,7 +1270,7 @@ class _StudentPaymentPlanWidgetState extends State<StudentPaymentPlanWidget> {
                 Text('Paranın Giriş Yapacağı Kasa / Hesap', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13, color: const Color(0xFF334155))),
                 const SizedBox(height: 6),
                 DropdownButtonFormField<String>(
-                  value: selectedKasaId,
+                  initialValue: selectedKasaId,
                   decoration: InputDecoration(
                     filled: true,
                     fillColor: const Color(0xFFF8FAFC),
@@ -1452,7 +1451,7 @@ class _StudentPaymentPlanWidgetState extends State<StudentPaymentPlanWidget> {
       if (transId != null) {
         try {
           await FirebaseFirestore.instance.collection('transactions').doc(transId).delete();
-        } catch (_) {}
+        } catch (silentError) { debugPrint('[student_payment_plan_widget] hata yutuldu: $silentError'); }
       }
 
       // Kasa bakiyesini geri düş
@@ -1466,7 +1465,7 @@ class _StudentPaymentPlanWidgetState extends State<StudentPaymentPlanWidget> {
               tx.update(kasaDoc, {'balance': (oldBal - amount).clamp(0.0, double.infinity)});
             }
           });
-        } catch (_) {}
+        } catch (silentError) { debugPrint('[student_payment_plan_widget] hata yutuldu: $silentError'); }
       }
 
       inst['status'] = 'unpaid';
@@ -1537,7 +1536,7 @@ class _StudentPaymentPlanWidgetState extends State<StudentPaymentPlanWidget> {
       if (transId != null) {
         try {
           await FirebaseFirestore.instance.collection('transactions').doc(transId).delete();
-        } catch (_) {}
+        } catch (silentError) { debugPrint('[student_payment_plan_widget] hata yutuldu: $silentError'); }
       }
       if (kasaId != null) {
         try {
@@ -1549,7 +1548,7 @@ class _StudentPaymentPlanWidgetState extends State<StudentPaymentPlanWidget> {
               tx.update(kasaDoc, {'balance': (oldBal - downPayment).clamp(0.0, double.infinity)});
             }
           });
-        } catch (_) {}
+        } catch (silentError) { debugPrint('[student_payment_plan_widget] hata yutuldu: $silentError'); }
       }
       transId = null;
       kasaId = null;
@@ -1791,9 +1790,9 @@ class __FullOfferPaymentPlanBuilderState
   DateTime _unifiedFirstDueDate = DateTime.now().add(const Duration(days: 15));
 
   List<Map<String, dynamic>> _discounts = [];
-  List<String> _selectedDiscountIds = [];
-  Map<String, double> _customDiscountPercentages = {};
-  Map<String, String> _customDiscountReasons = {};
+  final List<String> _selectedDiscountIds = [];
+  final Map<String, double> _customDiscountPercentages = {};
+  final Map<String, String> _customDiscountReasons = {};
 
   // Kalem bazlı üretilen taksit haritası (Kalem Adı -> Taksit Listesi)
   Map<String, List<Map<String, dynamic>>> _perCategoryInstallments = {};
@@ -2252,7 +2251,7 @@ class __FullOfferPaymentPlanBuilderState
               border: Border(bottom: BorderSide(color: const Color(0xFFE2E8F0))),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.02),
+                  color: Colors.black.withValues(alpha: 0.02),
                   blurRadius: 10,
                   offset: const Offset(0, 2),
                 ),
@@ -2360,7 +2359,7 @@ class __FullOfferPaymentPlanBuilderState
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(color: const Color(0xFFE2E8F0)),
                       boxShadow: [
-                        BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4)),
+                        BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4)),
                       ],
                     ),
                     padding: const EdgeInsets.all(20),
@@ -2489,8 +2488,8 @@ class __FullOfferPaymentPlanBuilderState
                               width: isSelected ? 2 : 1,
                             ),
                             boxShadow: isSelected
-                                ? [BoxShadow(color: const Color(0xFF4F46E5).withOpacity(0.12), blurRadius: 10, offset: const Offset(0, 4))]
-                                : [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 4)],
+                                ? [BoxShadow(color: const Color(0xFF4F46E5).withValues(alpha: 0.12), blurRadius: 10, offset: const Offset(0, 4))]
+                                : [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 4)],
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
@@ -2567,7 +2566,7 @@ class __FullOfferPaymentPlanBuilderState
                             const SizedBox(width: 8),
                             Switch(
                               value: _isUnifiedPlan,
-                              activeColor: const Color(0xFF4F46E5),
+                              activeThumbColor: const Color(0xFF4F46E5),
                               onChanged: (val) {
                                 setState(() => _isUnifiedPlan = val);
                                 _recomputeInstallments();
@@ -2599,7 +2598,7 @@ class __FullOfferPaymentPlanBuilderState
                                     Text('Ortak Taksit Sayısı', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700, color: const Color(0xFF475569))),
                                     const SizedBox(height: 6),
                                     DropdownButtonFormField<int>(
-                                      value: _unifiedInstallmentCount,
+                                      initialValue: _unifiedInstallmentCount,
                                       decoration: InputDecoration(
                                         filled: true,
                                         fillColor: const Color(0xFFF8FAFC),
@@ -2776,7 +2775,7 @@ class __FullOfferPaymentPlanBuilderState
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(color: const Color(0xFFE2E8F0)),
                           boxShadow: [
-                            BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4)),
+                            BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4)),
                           ],
                         ),
                         child: Column(
@@ -2913,7 +2912,7 @@ class __FullOfferPaymentPlanBuilderState
                                             if (parts.length == 3) {
                                               initDate = DateTime(int.parse(parts[2]), int.parse(parts[1]), int.parse(parts[0]));
                                             }
-                                          } catch (_) {}
+                                          } catch (silentError) { debugPrint('[student_payment_plan_widget] hata yutuldu: $silentError'); }
                                           final picked = await CustomDateRangePicker.showSingle(
                                             context,
                                             initialDate: initDate,
@@ -3077,7 +3076,7 @@ class __FullOfferPaymentPlanBuilderState
                           if (parts.length == 3) {
                             initDate = DateTime(int.parse(parts[2]), int.parse(parts[1]), int.parse(parts[0]));
                           }
-                        } catch (_) {}
+                        } catch (silentError) { debugPrint('[student_payment_plan_widget] hata yutuldu: $silentError'); }
                         final picked = await CustomDateRangePicker.showSingle(
                           context,
                           initialDate: initDate,
@@ -3155,12 +3154,12 @@ class __FullOfferPaymentPlanBuilderState
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.05),
+        color: color.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.25), width: 1.5),
+        border: Border.all(color: color.withValues(alpha: 0.25), width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: color.withOpacity(0.06),
+            color: color.withValues(alpha: 0.06),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -3174,7 +3173,7 @@ class __FullOfferPaymentPlanBuilderState
               Container(
                 padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.12),
+                  color: color.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Icon(icon, size: 16, color: color),

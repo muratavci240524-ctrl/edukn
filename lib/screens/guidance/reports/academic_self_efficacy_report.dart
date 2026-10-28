@@ -51,7 +51,7 @@ class _AcademicSelfEfficacyReportState extends State<AcademicSelfEfficacyReport>
   final List<int> _reverseItems = [7, 12, 13, 21, 23, 30, 37, 38, 48];
 
   List<Map<String, dynamic>> _branches = [];
-  Map<String, Map<String, dynamic>> _userDetails = {};
+  final Map<String, Map<String, dynamic>> _userDetails = {};
   bool _isLoadingFilters = false;
 
   @override
@@ -95,7 +95,7 @@ class _AcademicSelfEfficacyReportState extends State<AcademicSelfEfficacyReport>
           .where((b) => respondentBranches.contains(b['id']))
           .toList();
     } catch (e) {
-      print('Load filters error: $e');
+      debugPrint('Load filters error: $e');
     }
     if (mounted) setState(() => _isLoadingFilters = false);
   }
@@ -280,7 +280,7 @@ class _AcademicSelfEfficacyReportState extends State<AcademicSelfEfficacyReport>
     return Container(
       width: double.infinity,
       child: DropdownButtonFormField(
-        value: value,
+        initialValue: value,
         decoration: InputDecoration(
           labelText: label,
           labelStyle: TextStyle(color: Colors.grey.shade600, fontSize: 14),
@@ -529,7 +529,7 @@ class _AcademicSelfEfficacyReportState extends State<AcademicSelfEfficacyReport>
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10),
         ],
       ),
       child: Column(
@@ -544,7 +544,7 @@ class _AcademicSelfEfficacyReportState extends State<AcademicSelfEfficacyReport>
               RadarChartData(
                 dataSets: [
                   RadarDataSet(
-                    fillColor: Colors.deepPurple.withOpacity(0.2),
+                    fillColor: Colors.deepPurple.withValues(alpha: 0.2),
                     borderColor: Colors.deepPurple,
                     entryRadius: 3,
                     dataEntries: data.map((d) => RadarEntry(value: d)).toList(),
@@ -792,7 +792,7 @@ class _AcademicSelfEfficacyReportState extends State<AcademicSelfEfficacyReport>
         mimeType: MimeType.pdf,
       );
     } catch (e) {
-      print('PDF error: $e');
+      debugPrint('PDF error: $e');
     }
   }
 
@@ -834,7 +834,7 @@ class _AcademicSelfEfficacyReportState extends State<AcademicSelfEfficacyReport>
         );
       }
     } catch (e) {
-      print('Excel error: $e');
+      debugPrint('Excel error: $e');
     }
   }
 }

@@ -297,9 +297,9 @@ class AutoScheduleService {
     }
 
     final results = await Future.wait([assignmentsQuery.get(), lessonsQuery.get(), classesQuery.get()]);
-    final assignmentsSnap = results[0] as QuerySnapshot<Map<String, dynamic>>;
-    final lessonsSnap = results[1] as QuerySnapshot<Map<String, dynamic>>;
-    final classesSnap = results[2] as QuerySnapshot<Map<String, dynamic>>;
+    final assignmentsSnap = results[0];
+    final lessonsSnap = results[1];
+    final classesSnap = results[2];
 
     // Bu alt döneme ait dersleri filtrele (subTermId / periodId sadece bu döneme ait olmalı)
     final periodLessons = lessonsSnap.docs.where((d) {

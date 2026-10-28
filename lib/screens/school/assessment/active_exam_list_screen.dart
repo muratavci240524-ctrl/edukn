@@ -271,7 +271,7 @@ class _ActiveExamListScreenState extends State<ActiveExamListScreen> {
                   return Container(
                     padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.3),
+                      color: Colors.white.withValues(alpha: 0.3),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
@@ -296,7 +296,7 @@ class _ActiveExamListScreenState extends State<ActiveExamListScreen> {
               hintStyle: TextStyle(color: Colors.white70),
               prefixIcon: Icon(Icons.search, size: 20, color: Colors.white70),
               filled: true,
-              fillColor: Colors.white.withOpacity(0.2),
+              fillColor: Colors.white.withValues(alpha: 0.2),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(25),
                 borderSide: BorderSide.none,
@@ -433,7 +433,7 @@ class _ActiveExamListScreenState extends State<ActiveExamListScreen> {
                               vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: Colors.green.withOpacity(0.1),
+                              color: Colors.green.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text(

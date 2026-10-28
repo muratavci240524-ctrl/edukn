@@ -97,14 +97,14 @@ class WorkCalendarGuidePage extends StatelessWidget {
                 child: Icon(
                   Icons.calendar_today_rounded,
                   size: 250,
-                  color: Colors.white.withOpacity(0.1),
+                  color: Colors.white.withValues(alpha: 0.1),
                 ),
               ),
               Center(
                 child: Icon(
                   Icons.event_note_rounded,
                   size: 80,
-                  color: Colors.white.withOpacity(0.2),
+                  color: Colors.white.withValues(alpha: 0.2),
                 ),
               ),
             ],
@@ -157,7 +157,7 @@ class WorkCalendarGuidePage extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
+              color: color.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(16),
             ),
             child: Icon(icon, color: color, size: 28),
@@ -219,7 +219,7 @@ class WorkCalendarGuidePage extends StatelessWidget {
                   'Dönemleri oluştururken aralarında 1-2 günlük boşluklar bırakmak veya çakıştırmamak, raporlama doğruluğu için kritik öneme sahiptir.',
                   style: GoogleFonts.poppins(
                     fontSize: 13,
-                    color: Colors.green.shade900.withOpacity(0.8),
+                    color: Colors.green.shade900.withValues(alpha: 0.8),
                   ),
                 ),
               ],

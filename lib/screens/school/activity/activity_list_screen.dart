@@ -52,7 +52,7 @@ class _ActivityListScreenState extends State<ActivityListScreen>
         if (termDoc.exists) {
           termName = (termDoc.data()?['name'] ?? termDoc.data()?['termName'])?.toString();
         }
-      } catch (_) {}
+      } catch (silentError) { debugPrint('[activity_list_screen] hata yutuldu: $silentError'); }
     }
 
     final userData = await UserPermissionService.loadUserData();
@@ -257,7 +257,7 @@ class _ActivityListScreenState extends State<ActivityListScreen>
                 borderRadius: BorderRadius.circular(12),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
+                    color: Colors.black.withValues(alpha: 0.05),
                     blurRadius: 8,
                     offset: const Offset(0, 2),
                   ),

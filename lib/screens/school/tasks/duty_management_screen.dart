@@ -366,7 +366,7 @@ class _DutyManagementScreenState extends State<DutyManagementScreen> {
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       elevation: 2,
-      shadowColor: color.withOpacity(0.15),
+      shadowColor: color.withValues(alpha: 0.15),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: () => Navigator.push(
@@ -392,7 +392,7 @@ class _DutyManagementScreenState extends State<DutyManagementScreen> {
               Container(
                 width: 48, height: 48,
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
+                  color: color.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: Icon(icon, color: color, size: 24),
@@ -421,7 +421,7 @@ class _DutyManagementScreenState extends State<DutyManagementScreen> {
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 8, vertical: 2),
                             decoration: BoxDecoration(
-                              color: (badgeColor ?? Colors.green).withOpacity(0.1),
+                              color: (badgeColor ?? Colors.green).withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: Text(
@@ -514,7 +514,7 @@ class _ScopeOption extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: isSelected ? color.withOpacity(0.08) : Colors.grey.shade50,
+          color: isSelected ? color.withValues(alpha: 0.08) : Colors.grey.shade50,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: isSelected ? color : Colors.grey.shade200,
@@ -526,7 +526,7 @@ class _ScopeOption extends StatelessWidget {
             Container(
               width: 44, height: 44,
               decoration: BoxDecoration(
-                color: isSelected ? color.withOpacity(0.12) : Colors.grey.shade100,
+                color: isSelected ? color.withValues(alpha: 0.12) : Colors.grey.shade100,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(icon,

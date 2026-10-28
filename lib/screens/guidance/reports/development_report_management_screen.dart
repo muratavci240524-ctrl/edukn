@@ -54,7 +54,7 @@ class _DevelopmentReportManagementScreenState
         if (termDoc.exists) {
           termName = (termDoc.data()?['name'] ?? termDoc.data()?['termName'])?.toString();
         }
-      } catch (_) {}
+      } catch (silentError) { debugPrint('[development_report_management_screen] hata yutuldu: $silentError'); }
     }
 
     final userData = await UserPermissionService.loadUserData();
@@ -308,7 +308,7 @@ class _DevelopmentReportManagementScreenState
     try {
       final newStatus = !session.isPublished;
       await _service.updateSessionPublishStatus(session.id, newStatus);
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             newStatus
@@ -319,7 +319,7 @@ class _DevelopmentReportManagementScreenState
         ),
       );
     } catch (e) {
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text("Bir hata oluştu: $e")));
     }
@@ -329,7 +329,7 @@ class _DevelopmentReportManagementScreenState
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text(
@@ -391,14 +391,14 @@ class _DevelopmentReportManagementScreenState
           );
           try {
             await _service.recalculateSessionAnalysis(session.id);
-            ScaffoldMessenger.of(context).showSnackBar(
+            if (mounted) ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text("Analizler başarıyla güncellendi."),
                 backgroundColor: Colors.green,
               ),
             );
           } catch (e) {
-            ScaffoldMessenger.of(context).showSnackBar(
+            if (mounted) ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text("Hata oluştu: $e"),
                 backgroundColor: Colors.red,
@@ -466,7 +466,7 @@ class _DevelopmentReportManagementScreenState
       child: Container(
         padding: EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: Colors.grey.withOpacity(0.05),
+          color: Colors.grey.withValues(alpha: 0.05),
           shape: BoxShape.circle,
         ),
         child: Icon(Icons.more_horiz, color: Colors.grey.shade600),
@@ -645,7 +645,7 @@ class __CreateReportDialogState extends State<_CreateReportDialog> {
         _isLoadingReviewers = false;
       });
     } catch (e) {
-      print("Error loading reviewers: $e");
+      debugPrint("Error loading reviewers: $e");
       setState(() => _isLoadingReviewers = false);
     }
   }
@@ -689,7 +689,7 @@ class __CreateReportDialogState extends State<_CreateReportDialog> {
         setState(() => _isLoadingFilters = false);
       }
     } catch (e) {
-      print("Error loading filters: $e");
+      debugPrint("Error loading filters: $e");
       setState(() => _isLoadingFilters = false);
     }
   }
@@ -733,7 +733,7 @@ class __CreateReportDialogState extends State<_CreateReportDialog> {
         _isLoadingTargets = false;
       });
     } catch (e) {
-      print("Error target users: $e");
+      debugPrint("Error target users: $e");
       setState(() => _isLoadingTargets = false);
     }
   }
@@ -800,7 +800,7 @@ class __CreateReportDialogState extends State<_CreateReportDialog> {
         _isLoadingTargets = false;
       });
     } catch (e) {
-      print("Error loading students: $e");
+      debugPrint("Error loading students: $e");
       setState(() => _isLoadingTargets = false);
     }
   }
@@ -1074,7 +1074,7 @@ class __CreateReportDialogState extends State<_CreateReportDialog> {
         _sessionCriteria = List.from(criteria);
       });
     } catch (e) {
-      print("Error loading sample criteria: $e");
+      debugPrint("Error loading sample criteria: $e");
     } finally {
       setState(() => _isLoadingCriteria = false);
     }
@@ -1180,7 +1180,7 @@ class __CreateReportDialogState extends State<_CreateReportDialog> {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: Colors.indigo.withOpacity(0.3)),
+          border: Border.all(color: Colors.indigo.withValues(alpha: 0.3)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -1484,7 +1484,7 @@ class __CreateReportDialogState extends State<_CreateReportDialog> {
             ),
             const SizedBox(height: 20),
             DropdownButtonFormField<String>(
-              value: category,
+              initialValue: category,
               decoration: const InputDecoration(labelText: "Kategori"),
               items: const [
                 DropdownMenuItem(

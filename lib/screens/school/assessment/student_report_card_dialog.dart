@@ -1,6 +1,6 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
-import 'package:flutter/rendering.dart';
 
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -11,6 +11,13 @@ import '../../../models/assessment/trial_exam_model.dart';
 import '../../../models/assessment/external_exam_model.dart';
 import '../../../services/external_exam_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:edukn/services/web_share/web_file_share.dart';
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
+import 'exam_report_card_service.dart';
 
 class StudentReportCardDialog extends StatefulWidget {
   final StudentResult student;
@@ -22,6 +29,7 @@ class StudentReportCardDialog extends StatefulWidget {
   final int branchStudents;
   final bool isRankingVisible;
   final String? trialExamId;
+  final String? schoolTypeName;
 
   const StudentReportCardDialog({
     Key? key,
@@ -34,6 +42,7 @@ class StudentReportCardDialog extends StatefulWidget {
     this.branchStudents = 0,
     this.isRankingVisible = true,
     this.trialExamId,
+    this.schoolTypeName,
   }) : super(key: key);
 
   @override
@@ -57,13 +66,14 @@ class _StudentReportCardDialogState extends State<StudentReportCardDialog> {
   ExternalExam? _externalExam;
   ScholarshipTier? _scholarshipTier;
   bool _loadingScholarship = false;
+  String? _fetchedSchoolTypeName;
 
   @override
   void initState() {
     super.initState();
     student = widget.student;
     examName = widget.examName;
-    subjects = widget.subjects;
+    subjects = ExamReportCardService.sortSubjectsList(widget.subjects);
     outcomes = widget.outcomes;
     // restore original content
     totalStudents = widget.totalStudents;
@@ -76,6 +86,128 @@ class _StudentReportCardDialogState extends State<StudentReportCardDialog> {
       _selectedOutcomeSubject = subjects.first;
     }
     _checkScholarship();
+    _fetchSchoolTypeName();
+  }
+
+  Future<void> _fetchSchoolTypeName() async {
+    try {
+      if (widget.trialExamId != null && widget.trialExamId!.isNotEmpty) {
+        final examDoc = await FirebaseFirestore.instance
+            .collection('trial_exams')
+            .doc(widget.trialExamId)
+            .get();
+        if (examDoc.exists) {
+          final examData = examDoc.data();
+
+          // Fetch examType defined subject order if available
+          final examTypeId = examData?['examTypeId']?.toString();
+          if (examTypeId != null && examTypeId.isNotEmpty) {
+            try {
+              final etDoc = await FirebaseFirestore.instance
+                  .collection('exam_types')
+                  .doc(examTypeId)
+                  .get();
+              if (etDoc.exists) {
+                final rawSubjs = etDoc.data()?['subjects'];
+                if (rawSubjs is List) {
+                  final definedOrder = rawSubjs
+                      .map((s) => s is Map
+                          ? (s['branchName'] ?? s['name'] ?? '').toString()
+                          : s.toString())
+                      .where((s) => s.isNotEmpty)
+                      .toList();
+                  if (definedOrder.isNotEmpty && mounted) {
+                    setState(() {
+                      subjects = ExamReportCardService.sortSubjectsList(
+                        widget.subjects,
+                        definedOrder: definedOrder,
+                      );
+                      if (subjects.isNotEmpty) {
+                        if (!subjects.contains(_selectedKeySubject)) {
+                          _selectedKeySubject = subjects.first;
+                        }
+                        if (!subjects.contains(_selectedOutcomeSubject)) {
+                          _selectedOutcomeSubject = subjects.first;
+                        }
+                      }
+                    });
+                  }
+                }
+              }
+            } catch (e) {
+              debugPrint('Error fetching examType subjects: $e');
+            }
+          }
+
+          if (widget.schoolTypeName != null &&
+              widget.schoolTypeName!.trim().isNotEmpty &&
+              widget.schoolTypeName!.trim().toLowerCase() != 'eğitim kurumu' &&
+              widget.schoolTypeName!.trim().toLowerCase() != 'egitim kurumu') {
+            return;
+          }
+
+          final stName = examData?['schoolTypeName']?.toString().trim();
+          if (stName != null && stName.isNotEmpty) {
+            if (mounted) setState(() => _fetchedSchoolTypeName = stName);
+            return;
+          }
+          final stId = examData?['schoolTypeId']?.toString().trim();
+          if (stId != null && stId.isNotEmpty) {
+            final stDoc = await FirebaseFirestore.instance
+                .collection('schoolTypes')
+                .doc(stId)
+                .get();
+            if (stDoc.exists) {
+              final name = (stDoc.data()?['name'] ??
+                      stDoc.data()?['schoolTypeName'] ??
+                      stDoc.data()?['schoolType'] ??
+                      '')
+                  .toString()
+                  .trim();
+              if (name.isNotEmpty) {
+                if (mounted) setState(() => _fetchedSchoolTypeName = name);
+                return;
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error fetching schoolTypeName in dialog: $e');
+    }
+  }
+
+  String _resolveSchoolTypeName() {
+    if (widget.schoolTypeName != null &&
+        widget.schoolTypeName!.trim().isNotEmpty &&
+        widget.schoolTypeName!.trim().toLowerCase() != 'eğitim kurumu' &&
+        widget.schoolTypeName!.trim().toLowerCase() != 'egitim kurumu') {
+      return widget.schoolTypeName!.trim();
+    }
+    if (_fetchedSchoolTypeName != null &&
+        _fetchedSchoolTypeName!.trim().isNotEmpty &&
+        _fetchedSchoolTypeName!.trim().toLowerCase() != 'eğitim kurumu' &&
+        _fetchedSchoolTypeName!.trim().toLowerCase() != 'egitim kurumu') {
+      return _fetchedSchoolTypeName!.trim();
+    }
+    final level = student.classLevel;
+    final digits = RegExp(r'\d+').firstMatch(level)?.group(0);
+    if (digits != null) {
+      final grade = int.tryParse(digits);
+      if (grade != null) {
+        if (grade >= 1 && grade <= 4) return 'İlkokul';
+        if (grade >= 5 && grade <= 8) return 'Ortaokul';
+        if (grade >= 9 && grade <= 12) return 'Anadolu Lisesi';
+      }
+    }
+    final clean = level.toLowerCase();
+    if (clean.contains('anaokul') || clean.contains('kreş') || clean.contains('anasınıf') || clean.contains('okul öncesi')) {
+      return 'Anaokulu';
+    }
+    if (clean.contains('ilkokul')) return 'İlkokul';
+    if (clean.contains('ortaokul') || clean.contains('lgs')) return 'Ortaokul';
+    if (clean.contains('lise') || clean.contains('yks') || clean.contains('tyt')) return 'Anadolu Lisesi';
+    return 'Ortaokul';
   }
 
   Future<void> _checkScholarship() async {
@@ -132,7 +264,7 @@ class _StudentReportCardDialogState extends State<StudentReportCardDialog> {
         border: Border.all(color: Colors.amber.shade300, width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: Colors.amber.shade100.withOpacity(0.5),
+            color: Colors.amber.shade100.withValues(alpha: 0.5),
             blurRadius: 8,
             offset: const Offset(0, 4),
           ),
@@ -171,13 +303,7 @@ class _StudentReportCardDialogState extends State<StudentReportCardDialog> {
                     color: Colors.grey.shade800,
                   ),
                 ),
-                Text(
-                  '(${student.classLevel}. Sınıf Seviyesinde ${student.rankGeneral}. Sıradasınız)',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Colors.grey.shade600,
-                  ),
-                ),
+                // Karnede derece/sıralama gösterilmez.
               ],
             ),
           ),
@@ -220,13 +346,7 @@ class _StudentReportCardDialogState extends State<StudentReportCardDialog> {
               color: PdfColors.amber900,
             ),
           ),
-          pw.Text(
-            "(${student.classLevel}. Sınıf Seviyesinde ${student.rankGeneral}. Sıra)",
-            style: pw.TextStyle(
-              fontSize: 7,
-              color: PdfColors.grey800,
-            ),
-          ),
+          // Karnede derece/sıralama gösterilmez.
         ],
       ),
     );
@@ -242,6 +362,11 @@ class _StudentReportCardDialogState extends State<StudentReportCardDialog> {
             icon: Icon(Icons.print),
             tooltip: 'Yazdır / PDF',
             onPressed: () => _printReport(context),
+          ),
+          IconButton(
+            icon: const Icon(Icons.share_rounded),
+            tooltip: 'Paylaş (WhatsApp / PDF)',
+            onPressed: () => _showStudentShareDialog(context),
           ),
           IconButton(
             icon: Icon(Icons.close),
@@ -654,9 +779,9 @@ class _StudentReportCardDialogState extends State<StudentReportCardDialog> {
             Row(
               children: [
                 _buildRankCell("DERECE", isHeader: true, alignLeft: true),
-                _buildRankCell("${student.rankGeneral}", isBold: true),
-                _buildRankCell("${student.rankInstitution}", isBold: true),
-                _buildRankCell("${student.rankBranch}", isBold: true),
+                _buildRankCell(student.rankGeneral > 0 ? "${student.rankGeneral}" : "-", isBold: true),
+                _buildRankCell(student.rankInstitution > 0 ? "${student.rankInstitution}" : "-", isBold: true),
+                _buildRankCell(student.rankBranch > 0 ? "${student.rankBranch}" : "-", isBold: true),
               ],
             ),
           ],
@@ -876,7 +1001,7 @@ class _StudentReportCardDialogState extends State<StudentReportCardDialog> {
     int intTotal = 0;
     bool isDouble = title.contains("NET");
 
-    subjects.forEach((s) {
+    for (var s in subjects) {
       final stats = student.subjects[s];
       if (stats != null) {
         if (title.contains("DOĞRU")) intTotal += stats.correct;
@@ -886,7 +1011,7 @@ class _StudentReportCardDialogState extends State<StudentReportCardDialog> {
           intTotal += (stats.correct + stats.wrong + stats.empty);
         if (title.contains("NET")) total += stats.net;
       }
-    });
+    }
 
     return isDouble ? total.toStringAsFixed(2) : intTotal.toString();
   }
@@ -994,105 +1119,410 @@ class _StudentReportCardDialogState extends State<StudentReportCardDialog> {
   }
 
   Future<void> _printReport(BuildContext context) async {
-    try {
-      final doc = pw.Document();
-      pw.Font font;
-      pw.Font fontBold;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext ctx) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: CircularProgressIndicator(strokeWidth: 3, color: Colors.indigo),
+                ),
+                const SizedBox(width: 16),
+                const Text("Karne hazırlanıyor...", style: TextStyle(fontWeight: FontWeight.w600)),
+              ],
+            ),
+          ),
+        );
+      },
+    );
 
-      try {
-        font = await PdfGoogleFonts.openSansRegular();
-        fontBold = await PdfGoogleFonts.openSansBold();
-      } catch (e) {
-        debugPrint("Font loading failed: $e");
-        font = pw.Font.helvetica();
-        fontBold = pw.Font.helveticaBold();
+    try {
+      await Future.delayed(const Duration(milliseconds: 150));
+      final pdfBytes = await _buildStudentReportCardPdfBytes();
+
+      if (Navigator.of(context, rootNavigator: true).canPop()) {
+        if (mounted) Navigator.of(context, rootNavigator: true).pop();
       }
 
-      doc.addPage(
-        pw.MultiPage(
-          pageFormat: PdfPageFormat.a4,
-          margin: pw.EdgeInsets.all(15),
-          theme: pw.ThemeData.withFont(base: font, bold: fontBold),
-          build: (pw.Context context) {
-            List<String> validSubjects = [];
-            String lookup = student.booklet;
-            if (!outcomes.containsKey(lookup) &&
-                lookup.length > 1 &&
-                outcomes.containsKey(lookup[0]))
-              lookup = lookup[0];
-
-            if (outcomes.containsKey(lookup)) {
-              for (var s in subjects) {
-                if (outcomes[lookup]!.containsKey(s)) {
-                  validSubjects.add(s);
-                }
-              }
-            }
-
-            if (validSubjects.isEmpty)
-              return [pw.Text("Kazanım verisi bulunamadı.")];
-
-            final allWidgets = _buildAllTopicWidgets(validSubjects, lookup);
-            int mid = (allWidgets.length / 2).ceil();
-            final col1 = allWidgets.take(mid).toList();
-            final col2 = allWidgets.skip(mid).toList();
-
-            final headerRow1 = _buildPdfTopicHeaderRow();
-            final headerRow2 = _buildPdfTopicHeaderRow();
-
-            return [
-              _buildPdfHeader(),
-              pw.SizedBox(height: 4),
-              _buildPdfScoreRankSection(),
-              pw.SizedBox(height: 4),
-              if (_scholarshipTier != null) ...[
-                _buildPdfScholarshipBanner(),
-                pw.SizedBox(height: 4),
-              ],
-              _buildPdfAnswerKeyCompact(),
-              pw.SizedBox(height: 4),
-              pw.Center(
-                child: pw.Text(
-                  "DERSLERE VE KONULARA GÖRE SINAV ANALİZİ",
-                  style: pw.TextStyle(
-                    fontWeight: pw.FontWeight.bold,
-                    fontSize: 9,
-                    color: PdfColors.red900,
-                  ),
-                ),
-              ),
-              pw.SizedBox(height: 4),
-              pw.Row(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Expanded(
-                    child: pw.Column(children: [headerRow1, ...col1]),
-                  ),
-                  pw.SizedBox(width: 5),
-                  pw.Expanded(
-                    child: pw.Column(children: [headerRow2, ...col2]),
-                  ),
-                ],
-              ),
-            ];
-          },
-        ),
-      );
-
       await Printing.layoutPdf(
-        onLayout: (PdfPageFormat format) async => doc.save(),
-        name: 'sinav_sonuc_belgesi_${student.studentNo}.pdf',
+        onLayout: (PdfPageFormat format) async => pdfBytes,
+        name: sanitizeFileName('sinav_sonuc_belgesi_${student.studentNo}.pdf'),
       );
     } catch (e, stack) {
+      if (Navigator.of(context, rootNavigator: true).canPop()) {
+        if (mounted) Navigator.of(context, rootNavigator: true).pop();
+      }
       debugPrint("Print error: $e");
       debugPrint("$stack");
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text("Yazdırma sırasında bir hata oluştu: $e"),
           backgroundColor: Colors.red,
         ),
       );
     }
+  }
+
+  Future<Uint8List> _buildStudentReportCardPdfBytes() async {
+    final instName = _resolveSchoolTypeName();
+
+    return await ExamReportCardService().generateStudentReportCardsPdf(
+      students: [student],
+      examName: examName,
+      institutionName: instName,
+      subjects: subjects,
+      outcomes: outcomes,
+      totalStudents: totalStudents,
+      schoolStudents: schoolStudents,
+      branchStudentCounts: {student.branch: branchStudents},
+      isRankingVisible: isRankingVisible,
+    );
+  }
+
+  Future<void> _showStudentShareDialog(BuildContext context) async {
+    final pdfFileName = sanitizeFileName('karne_${student.studentNo}_${student.name}.pdf');
+
+    final sb = StringBuffer();
+    sb.writeln('🎓 *eduKN Öğrenci Sınav Sonuç Belgesi (Karne)*');
+    sb.writeln('👤 *Öğrenci:* ${student.name} (${student.studentNo})');
+    sb.writeln('🏫 *Sınıf / Şube:* ${student.classLevel}/${student.branch}');
+    sb.writeln('📝 *Sınav:* $examName');
+    sb.writeln('📊 *Toplam Net:* ${student.total.net.toStringAsFixed(2)} | *Toplam Puan:* ${student.score.toStringAsFixed(2)}');
+    // Karnede derece/sıralama gösterilmez.
+    final summaryText = sb.toString().trim();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.indigo.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(Icons.share_rounded, color: Colors.indigo.shade700, size: 24),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${student.name} - Karne Paylaş',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF1E293B),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Karne PDF belgesini veya özetini paylaşın',
+                          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              const Divider(height: 1),
+              const SizedBox(height: 16),
+
+              // 1. PDF Karnesini Paylaş (WhatsApp vb. - Doğrudan Belge)
+              _buildShareOptionItem(
+                icon: Icons.share_rounded,
+                iconColor: const Color(0xFF25D366),
+                bgColor: const Color(0xFFE8F5E9),
+                title: 'PDF Karnesini Paylaş (WhatsApp vb.)',
+                subtitle: 'Öğrenci karne PDF belgesini WhatsApp veya diğer uygulamalarla doğrudan iletin',
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  try {
+                    final bytes = await _buildStudentReportCardPdfBytes();
+                    final shared = await _tryShareFile(
+                      bytes: bytes,
+                      fileName: pdfFileName,
+                      mimeType: 'application/pdf',
+                      title: '$examName - ${student.name} Karnesi',
+                      text: summaryText,
+                    );
+                    if (shared) return;
+
+                    await Printing.sharePdf(bytes: bytes, filename: pdfFileName);
+                  } catch (e) {
+                    debugPrint('Student PDF share error: $e');
+                  }
+                },
+              ),
+              const SizedBox(height: 10),
+
+              // 2. PDF Karnesini İndir
+              _buildShareOptionItem(
+                icon: Icons.download_rounded,
+                iconColor: Colors.red.shade700,
+                bgColor: Colors.red.shade50,
+                title: 'PDF Karnesini İndir',
+                subtitle: 'Öğrenci karne PDF belgesini doğrudan bilgisayarınıza indirin',
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  try {
+                    final bytes = await _buildStudentReportCardPdfBytes();
+                    await Printing.sharePdf(bytes: bytes, filename: pdfFileName);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('📁 "$pdfFileName" bilgisayarınıza indirildi.'),
+                          backgroundColor: Colors.indigo.shade800,
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    }
+                  } catch (e) {
+                    debugPrint('Download error: $e');
+                  }
+                },
+              ),
+              const SizedBox(height: 6),
+              const Divider(height: 1),
+              const SizedBox(height: 8),
+
+              // Alt Butonlar: Link Olarak Paylaş & Metni Kopyala
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  TextButton.icon(
+                    icon: Icon(Icons.cloud_upload_outlined, size: 16, color: Colors.teal.shade700),
+                    label: Text(
+                      'WhatsApp İndirme Linki (Bulut)',
+                      style: TextStyle(fontSize: 12, color: Colors.teal.shade700, fontWeight: FontWeight.w600),
+                    ),
+                    onPressed: () async {
+                      Navigator.pop(ctx);
+                      await _shareStudentPdfToWhatsApp(summaryText, pdfFileName);
+                    },
+                  ),
+                  TextButton.icon(
+                    icon: Icon(Icons.copy_rounded, size: 16, color: Colors.grey.shade700),
+                    label: Text(
+                      'Metni Kopyala',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                    ),
+                    onPressed: () async {
+                      Navigator.pop(ctx);
+                      await Clipboard.setData(ClipboardData(text: summaryText));
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: const Text('Öğrenci karnesi metni panoya kopyalandı!'),
+                            backgroundColor: Colors.indigo.shade800,
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<bool> _tryShareFile({
+    required Uint8List bytes,
+    required String fileName,
+    required String mimeType,
+    required String title,
+    String? text,
+  }) async {
+    if (kIsWeb) {
+      return await shareFileWeb(
+        bytes: bytes,
+        fileName: fileName,
+        mimeType: mimeType,
+        title: title,
+        text: text,
+      );
+    }
+    try {
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile.fromData(bytes, mimeType: mimeType, name: fileName)],
+          fileNameOverrides: [fileName],
+          subject: title,
+          text: text,
+        ),
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _shareStudentPdfToWhatsApp(String summaryText, String pdfFileName) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const Dialog(
+        child: Padding(
+          padding: EdgeInsets.all(20.0),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 20),
+              Text("Karne PDF'i hazırlanıyor ve WhatsApp bağlantısı oluşturuluyor..."),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    try {
+      final bytes = await _buildStudentReportCardPdfBytes();
+      final safeName = sanitizeFileName(pdfFileName);
+      String? pdfUrl;
+      try {
+        final ref = FirebaseStorage.instance
+            .ref()
+            .child('reports/${student.studentNo}_${DateTime.now().millisecondsSinceEpoch}_$safeName');
+        final task = await ref.putData(
+          bytes,
+          SettableMetadata(contentType: 'application/pdf'),
+        );
+        pdfUrl = await task.ref.getDownloadURL();
+      } catch (e) {
+        debugPrint('Firebase Storage upload error: $e');
+      }
+
+      // Download file locally too
+      try {
+        await Printing.sharePdf(bytes: bytes, filename: safeName);
+      } catch (e) {
+        debugPrint('Printing share error: $e');
+      }
+
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        if (pdfUrl != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('✅ Karne PDF hazırlandı ve indirildi! WhatsApp mesajına doğrudan PDF bağlantısı eklendi.'),
+              backgroundColor: Colors.teal.shade800,
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('📁 Karne PDF bilgisayarınıza indirildi. İndirilen PDF dosyasını açılan WhatsApp Web sohbetine sürükleyebilirsiniz.'),
+              backgroundColor: Colors.indigo.shade800,
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
+      }
+
+      final dateStr = DateFormat('dd.MM.yyyy').format(DateTime.now());
+      final msgSb = StringBuffer();
+      msgSb.writeln('🎓 *eduKN Öğrenci Sınav Sonuç Belgesi (Karne)*');
+      msgSb.writeln('👤 *Öğrenci:* ${student.name} (${student.studentNo})');
+      msgSb.writeln('🏫 *Sınıf / Şube:* ${student.classLevel}/${student.branch}');
+      msgSb.writeln('📝 *Sınav:* $examName');
+      msgSb.writeln('📅 *Tarih:* $dateStr');
+      msgSb.writeln('');
+      if (pdfUrl != null) {
+        msgSb.writeln('📄 *Resmi Öğrenci Karnesi PDF Belgesini İncelemek ve İndirmek İçin Tıklayın:*');
+        msgSb.writeln('👉 $pdfUrl');
+        msgSb.writeln('');
+      }
+      msgSb.writeln(summaryText);
+
+      final waUrl = Uri.parse(
+          'https://api.whatsapp.com/send?text=${Uri.encodeComponent(msgSb.toString().trim())}');
+      await launchUrl(waUrl, mode: LaunchMode.externalApplication);
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Karne paylaşılırken hata oluştu: $e')),
+        );
+      }
+    }
+  }
+
+  Widget _buildShareOptionItem({
+    required IconData icon,
+    required Color iconColor,
+    required Color bgColor,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(12)),
+              child: Icon(icon, color: iconColor, size: 24),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+                  const SizedBox(height: 2),
+                  Text(subtitle, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                ],
+              ),
+            ),
+            Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Colors.grey.shade400),
+          ],
+        ),
+      ),
+    );
   }
 
   pw.Widget _buildPdfHeader() {
@@ -1259,9 +1689,7 @@ class _StudentReportCardDialogState extends State<StudentReportCardDialog> {
             ),
           ),
           pw.Divider(height: 1, thickness: 0.5),
-          _buildPdfRankRow("Genel", student.rankGeneral, totalStudents),
-          _buildPdfRankRow("Okul", student.rankInstitution, schoolStudents),
-          _buildPdfRankRow("Şube", student.rankBranch, branchStudents),
+          // Karnede derece/sıralama gösterilmez.
         ],
       ),
     );

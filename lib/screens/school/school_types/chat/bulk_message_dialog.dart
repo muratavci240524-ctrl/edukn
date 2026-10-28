@@ -23,8 +23,8 @@ class _BulkMessageDialogState extends State<BulkMessageDialog> {
 
   // Selections
   List<String> _selectedUserIds = [];
-  List<String> _selectedClasses = [];
-  List<String> _selectedBranches = [];
+  final List<String> _selectedClasses = [];
+  final List<String> _selectedBranches = [];
 
   // Target Audiences
   bool _sendToStudent = false;
@@ -247,7 +247,7 @@ class _BulkMessageDialogState extends State<BulkMessageDialog> {
             boxShadow: isSelected
                 ? [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
+                      color: Colors.black.withValues(alpha: 0.05),
                       blurRadius: 2,
                       offset: const Offset(0, 1),
                     ),
@@ -314,7 +314,7 @@ class _BulkMessageDialogState extends State<BulkMessageDialog> {
                 borderRadius: BorderRadius.circular(10),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.08),
+                    color: Colors.black.withValues(alpha: 0.08),
                     blurRadius: 3,
                     offset: const Offset(0, 1),
                   ),
@@ -353,7 +353,7 @@ class _BulkMessageDialogState extends State<BulkMessageDialog> {
                     // Toggle select all based on current filter context is tricky with tabs
                     // Better to just Clear All or Select All Visible
                     // For simplicity, let's keep it as Clear/Select All filtered
-                    if (_selectedUserIds.length > 0) {
+                    if (_selectedUserIds.isNotEmpty) {
                       _selectedUserIds.clear();
                     } else {
                       _selectedUserIds = _filteredContacts
@@ -472,7 +472,7 @@ class _BulkMessageDialogState extends State<BulkMessageDialog> {
               showCheckmark: false,
               label: Text('$cls. Sınıf'),
               selected: isSelected,
-              selectedColor: const Color(0xFF008069).withOpacity(0.15),
+              selectedColor: const Color(0xFF008069).withValues(alpha: 0.15),
               labelStyle: TextStyle(
                 color: isSelected ? const Color(0xFF008069) : Colors.black87,
                 fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
@@ -519,7 +519,7 @@ class _BulkMessageDialogState extends State<BulkMessageDialog> {
                   showCheckmark: false,
                   label: Text(br),
                   selected: isSelected,
-                  selectedColor: const Color(0xFF008069).withOpacity(0.15),
+                  selectedColor: const Color(0xFF008069).withValues(alpha: 0.15),
                   labelStyle: TextStyle(
                     color: isSelected
                         ? const Color(0xFF008069)
@@ -612,7 +612,7 @@ class _BulkMessageDialogState extends State<BulkMessageDialog> {
             boxShadow: [
               if (!isSelected)
                 BoxShadow(
-                  color: Colors.grey.withOpacity(0.1),
+                  color: Colors.grey.withValues(alpha: 0.1),
                   blurRadius: 2,
                   offset: const Offset(0, 1),
                 ),

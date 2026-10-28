@@ -135,8 +135,9 @@ class ExamRoom {
   final String layoutId;
   final String layoutName;
   final ClassroomLayout layoutSnapshot; // Dersliğin fiziksel grid düzeninin anlık kopyası
-  final String? supervisorId; // Sınav Gözetmen Öğretmeni ID
-  final String? supervisorName; // Sınav Gözetmen Öğretmeni
+  final String? supervisorId; // Sınav Gözetmen Öğretmeni ID (1. Oturum / Varsayılan)
+  final String? supervisorName; // Sınav Gözetmen Öğretmeni (1. Oturum / Varsayılan)
+  final List<Map<String, dynamic>> supervisors; // Her oturum için gözetmen atamaları: [{'slotIndex': 0, 'supervisorId': '...', 'supervisorName': '...', 'slotLabel': '1. Oturum', 'startTime': '...', 'endTime': '...'}]
   final List<SeatCoordinate> seats;
 
   ExamRoom({
@@ -148,6 +149,7 @@ class ExamRoom {
     required this.layoutSnapshot,
     this.supervisorId,
     this.supervisorName,
+    this.supervisors = const [],
     required this.seats,
   });
 
@@ -157,6 +159,18 @@ class ExamRoom {
 
   List<ExamStudent> get seatedStudents =>
       seats.where((s) => s.isOccupied).map((s) => s.student!).toList();
+
+  /// Belirli bir oturum için gözetmen ID ve Adını döner
+  (String? id, String? name) getSupervisorForSlot(int slotIndex) {
+    if (supervisors.isNotEmpty) {
+      final found = supervisors.where((s) => s['slotIndex'] == slotIndex).firstOrNull;
+      if (found != null) {
+        return (found['supervisorId']?.toString(), found['supervisorName']?.toString());
+      }
+    }
+    if (slotIndex == 0) return (supervisorId, supervisorName);
+    return (null, null);
+  }
 
   Map<String, dynamic> toMap() {
     return {
@@ -168,6 +182,7 @@ class ExamRoom {
       'layoutSnapshot': layoutSnapshot.toMap(),
       'supervisorId': supervisorId,
       'supervisorName': supervisorName,
+      'supervisors': supervisors,
       'seats': seats.map((s) => s.toMap()).toList(),
     };
   }
@@ -182,6 +197,11 @@ class ExamRoom {
         .map((s) => SeatCoordinate.fromMap(Map<String, dynamic>.from(s as Map)))
         .toList();
 
+    final rawSupervisors = (map['supervisors'] as List<dynamic>?) ?? [];
+    final supervisors = rawSupervisors
+        .map((s) => Map<String, dynamic>.from(s as Map))
+        .toList();
+
     return ExamRoom(
       id: map['id']?.toString() ?? '',
       classroomId: map['classroomId']?.toString() ?? '',
@@ -191,6 +211,7 @@ class ExamRoom {
       layoutSnapshot: layout,
       supervisorId: map['supervisorId']?.toString(),
       supervisorName: map['supervisorName']?.toString(),
+      supervisors: supervisors,
       seats: seats,
     );
   }
@@ -205,6 +226,7 @@ class ExamRoom {
       layoutSnapshot: layoutSnapshot.clone(),
       supervisorId: supervisorId,
       supervisorName: supervisorName,
+      supervisors: supervisors.map((s) => Map<String, dynamic>.from(s)).toList(),
       seats: seats.map((s) => s.clone()).toList(),
     );
   }
@@ -230,6 +252,12 @@ class ExamDistribution {
   final DateTime? updatedAt;
   final String? notes;
   final bool showExamTitleOnPdf;
+  final bool isCompleted; // Sınav çalışması tamamlandı (pasif)
+  final List<Map<String, dynamic>> sessionSlots; // [{'slotIndex': 0, 'label': '1. Oturum', 'startTime': '09:30', 'endTime': '10:45', 'breakMinutes': 15}, ...]
+  final List<String> instructions; // Sınav uygulama yönergesi maddeleri
+  final bool isProctoringPublished; // true ise gözetmenlere ve takvime yayınlanmıştır
+  final Map<String, dynamic> instructionApprovals; // {teacherId: {'teacherName': '...', 'approvedAt': Timestamp, ...}}
+  final String? distributionMode; // 'fullCross', 'gradeLevelCross', 'sequential'
 
   ExamDistribution({
     this.id,
@@ -250,7 +278,13 @@ class ExamDistribution {
     this.updatedAt,
     this.notes,
     this.showExamTitleOnPdf = true,
-  });
+    this.isCompleted = false,
+    this.sessionSlots = const [],
+    this.instructions = const [],
+    this.isProctoringPublished = false,
+    Map<String, dynamic>? instructionApprovals,
+    this.distributionMode,
+  }) : instructionApprovals = instructionApprovals != null ? Map<String, dynamic>.from(instructionApprovals) : <String, dynamic>{};
 
   int get totalRoomCapacity =>
       rooms.fold<int>(0, (total, room) => total + room.totalCapacity);
@@ -277,6 +311,12 @@ class ExamDistribution {
       'updatedAt': updatedAt != null ? Timestamp.fromDate(updatedAt!) : null,
       'notes': notes,
       'showExamTitleOnPdf': showExamTitleOnPdf,
+      'isCompleted': isCompleted,
+      'sessionSlots': sessionSlots,
+      'instructions': instructions,
+      'isProctoringPublished': isProctoringPublished,
+      'instructionApprovals': instructionApprovals,
+      'distributionMode': distributionMode,
     };
   }
 
@@ -286,6 +326,14 @@ class ExamDistribution {
         .map((r) => ExamRoom.fromMap(Map<String, dynamic>.from(r as Map)))
         .toList();
 
+    final rawSlots = (map['sessionSlots'] as List<dynamic>?) ?? [];
+    final sessionSlots = rawSlots
+        .map((s) => Map<String, dynamic>.from(s as Map))
+        .toList();
+
+    final rawInstructions = (map['instructions'] as List<dynamic>?) ?? [];
+    final instructions = rawInstructions.map((e) => e.toString()).toList();
+
     return ExamDistribution(
       id: id,
       title: map['title']?.toString() ?? 'Kelebek Sınav Dağıtımı',
@@ -293,7 +341,7 @@ class ExamDistribution {
       institutionId: map['institutionId']?.toString() ?? '',
       schoolTypeId: map['schoolTypeId']?.toString() ?? '',
       schoolTypeName: map['schoolTypeName']?.toString() ?? '',
-      examDate: (map['examDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      examDate: _toDate(map['examDate']) ?? DateTime.now(),
       examTime: map['examTime']?.toString() ?? '09:00',
       selectedClassIds: List<String>.from(map['selectedClassIds'] ?? []),
       selectedClassNames: List<String>.from(map['selectedClassNames'] ?? []),
@@ -301,10 +349,16 @@ class ExamDistribution {
       rooms: rooms,
       totalStudents: map['totalStudents'] ?? 0,
       seatedStudents: map['seatedStudents'] ?? 0,
-      createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
-      updatedAt: (map['updatedAt'] as Timestamp?)?.toDate(),
+      createdAt: _toDate(map['createdAt']) ?? DateTime.now(),
+      updatedAt: _toDate(map['updatedAt']),
       notes: map['notes']?.toString(),
       showExamTitleOnPdf: map['showExamTitleOnPdf'] ?? true,
+      isCompleted: map['isCompleted'] == true,
+      sessionSlots: sessionSlots,
+      instructions: instructions,
+      isProctoringPublished: map['isProctoringPublished'] == true,
+      instructionApprovals: Map<String, dynamic>.from(map['instructionApprovals'] as Map? ?? {}),
+      distributionMode: map['distributionMode']?.toString(),
     );
   }
 
@@ -328,6 +382,18 @@ class ExamDistribution {
       updatedAt: updatedAt,
       notes: notes,
       showExamTitleOnPdf: showExamTitleOnPdf,
+      isCompleted: isCompleted,
+      sessionSlots: sessionSlots.map((s) => Map<String, dynamic>.from(s)).toList(),
+      instructions: List<String>.from(instructions),
+      isProctoringPublished: isProctoringPublished,
+      instructionApprovals: Map<String, dynamic>.from(instructionApprovals),
+      distributionMode: distributionMode,
     );
   }
+}
+
+DateTime? _toDate(dynamic v) {
+  if (v is Timestamp) return v.toDate();
+  if (v is DateTime) return v;
+  return null;
 }

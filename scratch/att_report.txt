@@ -1,0 +1,208 @@
+  /// ===========================================================================
+  /// 0. YOKLAMA RAPORU (SALON ÖZETİ + GELMEYEN ÖĞRENCİLER)
+  /// ===========================================================================
+  static Future<Uint8List> generateAttendanceReportPdf({
+    required ExamDistribution distribution,
+    required Map<String, Map<String, bool>> attendance,
+  }) async {
+    final pdf = pw.Document();
+    final font = await PdfGoogleFonts.robotoRegular();
+    final fontBold = await PdfGoogleFonts.robotoBold();
+
+    String keyOf(ExamRoom r, int i) {
+      if (r.id.isNotEmpty) return r.id;
+      if (r.classroomId.isNotEmpty) return r.classroomId;
+      return 'room_$i';
+    }
+
+    final rows = <Map<String, dynamic>>[];
+    final absentees = <Map<String, dynamic>>[];
+    var total = 0, present = 0, absent = 0;
+
+    for (int i = 0; i < distribution.rooms.length; i++) {
+      final room = distribution.rooms[i];
+      final map = attendance[keyOf(room, i)] ?? const <String, bool>{};
+      final seats = room.seats.where((s) => s.student != null).toList()
+        ..sort((a, b) => a.seatNumber.compareTo(b.seatNumber));
+      var p = 0, a = 0;
+      for (final s in seats) {
+        final v = map[s.student!.id];
+        if (v == true) p++;
+        if (v == false) {
+          a++;
+          absentees.add({'room': room.classroomName, 'seat': s.seatNumber, 'student': s.student!});
+        }
+      }
+      rows.add({'room': room, 'total': seats.length, 'present': p, 'absent': a});
+      total += seats.length;
+      present += p;
+      absent += a;
+    }
+    final pending = total - present - absent;
+    final dateStr = DateFormat('dd.MM.yyyy').format(distribution.examDate);
+    final examTitle = _getExamTitle(distribution);
+
+    pw.Widget kpi(String label, int value, PdfColor c) => pw.Expanded(
+          child: pw.Container(
+            padding: const pw.EdgeInsets.symmetric(vertical: 8),
+            margin: const pw.EdgeInsets.symmetric(horizontal: 3),
+            decoration: pw.BoxDecoration(
+              color: _tint(c, 0.12),
+              borderRadius: pw.BorderRadius.circular(8),
+            ),
+            child: pw.Column(children: [
+              pw.Text('$value', style: pw.TextStyle(font: fontBold, fontSize: 20, color: c)),
+              pw.Text(label, style: pw.TextStyle(font: fontBold, fontSize: 8, color: c)),
+            ]),
+          ),
+        );
+
+    pw.Widget cell(String t, {bool bold = false, pw.TextAlign align = pw.TextAlign.left, PdfColor? color}) =>
+        pw.Padding(
+          padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+          child: pw.Text(t,
+              textAlign: align,
+              style: pw.TextStyle(font: bold ? fontBold : font, fontSize: 9, color: color ?? PdfColors.grey900)),
+        );
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+        footer: (ctx) => pw.Align(
+          alignment: pw.Alignment.centerRight,
+          child: pw.Text(
+            'Sayfa ${ctx.pageNumber} / ${ctx.pagesCount}  •  ${DateFormat('dd.MM.yyyy HH:mm').format(DateTime.now())}',
+            style: pw.TextStyle(font: font, fontSize: 8, color: PdfColors.grey600),
+          ),
+        ),
+        build: (ctx) => [
+          pw.Container(
+            padding: const pw.EdgeInsets.fromLTRB(14, 12, 14, 12),
+            decoration: pw.BoxDecoration(
+              gradient: const pw.LinearGradient(colors: [PdfColors.indigo900, PdfColors.indigo600]),
+              borderRadius: pw.BorderRadius.circular(10),
+            ),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text('SINAV YOKLAMA RAPORU',
+                    style: pw.TextStyle(font: fontBold, fontSize: 9, color: PdfColors.amber300, letterSpacing: 1.2)),
+                pw.SizedBox(height: 3),
+                pw.Text('${distribution.schoolTypeName} • $examTitle',
+                    style: pw.TextStyle(font: fontBold, fontSize: 15, color: PdfColors.white)),
+                pw.SizedBox(height: 3),
+                pw.Text('Tarih: $dateStr   •   Saat: ${distribution.examTime}',
+                    style: pw.TextStyle(font: font, fontSize: 9, color: PdfColors.indigo100)),
+              ],
+            ),
+          ),
+          pw.SizedBox(height: 10),
+          pw.Row(children: [
+            kpi('TOPLAM', total, PdfColors.indigo700),
+            kpi('GELDİ', present, PdfColors.green700),
+            kpi('GELMEDİ', absent, PdfColors.red600),
+            kpi('İŞARETLENMEDİ', pending, PdfColors.orange700),
+          ]),
+          pw.SizedBox(height: 12),
+          pw.Text('Salon Bazlı Özet', style: pw.TextStyle(font: fontBold, fontSize: 11, color: PdfColors.indigo900)),
+          pw.SizedBox(height: 4),
+          pw.Table(
+            border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.6),
+            columnWidths: const {
+              0: pw.FlexColumnWidth(1.2),
+              1: pw.FlexColumnWidth(3),
+              2: pw.FlexColumnWidth(1),
+              3: pw.FlexColumnWidth(1),
+              4: pw.FlexColumnWidth(1),
+              5: pw.FlexColumnWidth(1.3),
+            },
+            children: [
+              pw.TableRow(
+                decoration: const pw.BoxDecoration(color: PdfColors.indigo100),
+                children: [
+                  cell('SALON', bold: true),
+                  cell('GÖZETMEN', bold: true),
+                  cell('MEVCUT', bold: true, align: pw.TextAlign.center),
+                  cell('GELDİ', bold: true, align: pw.TextAlign.center),
+                  cell('GELMEDİ', bold: true, align: pw.TextAlign.center),
+                  cell('İŞARETLENMEDİ', bold: true, align: pw.TextAlign.center),
+                ],
+              ),
+              for (int i = 0; i < rows.length; i++)
+                pw.TableRow(
+                  decoration: pw.BoxDecoration(color: i.isOdd ? PdfColors.grey50 : PdfColors.white),
+                  children: [
+                    cell((rows[i]['room'] as ExamRoom).classroomName, bold: true),
+                    cell(((rows[i]['room'] as ExamRoom).supervisorName ?? '').trim() == 'Gözetmen Öğretmen'
+                        ? '-'
+                        : (((rows[i]['room'] as ExamRoom).supervisorName ?? '').trim().isEmpty
+                            ? '-'
+                            : (rows[i]['room'] as ExamRoom).supervisorName!.trim())),
+                    cell('${rows[i]['total']}', align: pw.TextAlign.center),
+                    cell('${rows[i]['present']}', align: pw.TextAlign.center, color: PdfColors.green800, bold: true),
+                    cell('${rows[i]['absent']}', align: pw.TextAlign.center, color: PdfColors.red700, bold: true),
+                    cell('${(rows[i]['total'] as int) - (rows[i]['present'] as int) - (rows[i]['absent'] as int)}',
+                        align: pw.TextAlign.center, color: PdfColors.orange800),
+                  ],
+                ),
+            ],
+          ),
+          pw.SizedBox(height: 14),
+          pw.Text('Gelmeyen Öğrenciler (${absentees.length})',
+              style: pw.TextStyle(font: fontBold, fontSize: 11, color: PdfColors.red800)),
+          pw.SizedBox(height: 4),
+          if (absentees.isEmpty)
+            pw.Container(
+              padding: const pw.EdgeInsets.all(10),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.green50,
+                borderRadius: pw.BorderRadius.circular(6),
+              ),
+              child: pw.Text('Gelmeyen öğrenci bulunmuyor.',
+                  style: pw.TextStyle(font: fontBold, fontSize: 9, color: PdfColors.green800)),
+            )
+          else
+            pw.Table(
+              border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.6),
+              columnWidths: const {
+                0: pw.FixedColumnWidth(26),
+                1: pw.FlexColumnWidth(1.1),
+                2: pw.FlexColumnWidth(0.8),
+                3: pw.FlexColumnWidth(3.4),
+                4: pw.FlexColumnWidth(1),
+                5: pw.FlexColumnWidth(1),
+              },
+              children: [
+                pw.TableRow(
+                  decoration: const pw.BoxDecoration(color: PdfColors.red100),
+                  children: [
+                    cell('#', bold: true, align: pw.TextAlign.center),
+                    cell('SALON', bold: true),
+                    cell('SIRA', bold: true, align: pw.TextAlign.center),
+                    cell('ÖĞRENCİ ADI SOYADI', bold: true),
+                    cell('ŞUBE', bold: true, align: pw.TextAlign.center),
+                    cell('NO', bold: true, align: pw.TextAlign.center),
+                  ],
+                ),
+                for (int i = 0; i < absentees.length; i++)
+                  pw.TableRow(
+                    decoration: pw.BoxDecoration(color: i.isOdd ? PdfColors.grey50 : PdfColors.white),
+                    children: [
+                      cell('${i + 1}', align: pw.TextAlign.center),
+                      cell(absentees[i]['room'] as String, bold: true),
+                      cell('${absentees[i]['seat']}', align: pw.TextAlign.center),
+                      cell((absentees[i]['student'] as ExamStudent).fullName, bold: true),
+                      cell((absentees[i]['student'] as ExamStudent).className, align: pw.TextAlign.center),
+                      cell((absentees[i]['student'] as ExamStudent).studentNumber, align: pw.TextAlign.center),
+                    ],
+                  ),
+              ],
+            ),
+        ],
+      ),
+    );
+
+    return pdf.save();
+  }
+

@@ -44,7 +44,7 @@ class _TeacherLessonsScreenState extends State<TeacherLessonsScreen> {
           _cachedUserData = userData;
         }
       }
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[teacher_lessons_screen] hata yutuldu: $silentError'); }
   }
 
   @override

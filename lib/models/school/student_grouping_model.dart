@@ -170,7 +170,7 @@ class StudentGroup {
     return {
       'id': id,
       'groupName': groupName,
-      'colorHex': '#${groupColor.value.toRadixString(16).padLeft(8, '0')}',
+      'colorHex': '#${groupColor.toARGB32().toRadixString(16).padLeft(8, '0')}',
       'students': students.map((s) => s.toMap()).toList(),
     };
   }
@@ -181,7 +181,7 @@ class StudentGroup {
       try {
         final hexStr = map['colorHex'].toString().replaceAll('#', '');
         parsedColor = Color(int.parse(hexStr, radix: 16));
-      } catch (_) {}
+      } catch (silentError) { debugPrint('[student_grouping_model] hata yutuldu: $silentError'); }
     }
 
     final rawStudents = (map['students'] as List?) ?? [];
@@ -325,13 +325,13 @@ class GroupingPlanModel {
     GroupingMode parsedMode = GroupingMode.balanced;
     try {
       parsedMode = GroupingMode.values.byName(map['mode'] ?? 'balanced');
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[student_grouping_model] hata yutuldu: $silentError'); }
 
     DateTime parsedDate = DateTime.now();
     if (map['createdAt'] != null) {
       try {
         parsedDate = DateTime.parse(map['createdAt']);
-      } catch (_) {}
+      } catch (silentError) { debugPrint('[student_grouping_model] hata yutuldu: $silentError'); }
     }
 
     final rawGroups = (map['groups'] as List?) ?? [];

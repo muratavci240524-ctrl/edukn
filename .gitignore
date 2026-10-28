@@ -54,3 +54,10 @@ functions/.runtimeconfig.json
 # OS related
 .DS_Store
 Thumbs.db
+
+node_modules/
+users.json
+analysis*.txt
+analyze*.txt
+flutter_*.log
+.dart_tool/

@@ -1,4 +1,4 @@
-﻿import 'package:edukn/services/user_permission_service.dart';
+import 'package:edukn/services/user_permission_service.dart';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -200,7 +200,7 @@ class _LibraryScreenState extends State<LibraryScreen>
 
     if (result != true) return;
     if (titleCtrl.text.trim().isEmpty || authorCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Kitap adı ve yazar zorunludur!'),
           backgroundColor: Colors.red,
@@ -288,7 +288,7 @@ class _LibraryScreenState extends State<LibraryScreen>
           .toList();
 
       if (lines.length < 2) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Dosya boş veya hatalı format!'),
             backgroundColor: Colors.red,
@@ -297,7 +297,7 @@ class _LibraryScreenState extends State<LibraryScreen>
         return;
       }
 
-      showDialog(
+      if (mounted) showDialog(
         context: context,
         barrierDismissible: false,
         builder: (_) => AlertDialog(
@@ -343,7 +343,7 @@ class _LibraryScreenState extends State<LibraryScreen>
         count++;
       }
 
-      Navigator.pop(context);
+      if (mounted) Navigator.pop(context);
       await _loadBooks();
 
       if (mounted) {
@@ -356,7 +356,7 @@ class _LibraryScreenState extends State<LibraryScreen>
       }
     } catch (e) {
       if (Navigator.canPop(context)) Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
       );
     }
@@ -463,7 +463,7 @@ class _LibraryScreenState extends State<LibraryScreen>
 
     if (result != true) return;
     if (studentNameCtrl.text.trim().isEmpty || dueDate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Öğrenci adı ve teslim tarihi zorunludur!'),
           backgroundColor: Colors.red,

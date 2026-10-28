@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -9,17 +9,22 @@ import 'dart:convert';
 import 'package:image/image.dart' as img;
 import '../../../widgets/recipient_selector_field.dart';
 import '../../../services/term_service.dart';
+import '../../../services/announcement_service.dart';
 
 class CreateSocialMediaPostScreen extends StatefulWidget {
   final String schoolTypeId;
   final String schoolTypeName;
   final String institutionId;
+  final String? postId; // doluysa düzenleme modu
+  final Map<String, dynamic>? initialData;
 
   const CreateSocialMediaPostScreen({
     Key? key,
     required this.schoolTypeId,
     required this.schoolTypeName,
     required this.institutionId,
+    this.postId,
+    this.initialData,
   }) : super(key: key);
 
   @override
@@ -30,10 +35,36 @@ class CreateSocialMediaPostScreen extends StatefulWidget {
 class _CreateSocialMediaPostScreenState
     extends State<CreateSocialMediaPostScreen> {
   final _captionController = TextEditingController();
+  final _titleController = TextEditingController();
+  final List<String> _existingImages = []; // düzenlemede mevcut (base64) görseller
+  bool get _isEdit => widget.postId != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final d = widget.initialData;
+    if (d != null) {
+      _titleController.text = (d['title'] ?? '').toString();
+      _captionController.text = (d['caption'] ?? '').toString();
+      _videoUrlController.text = (d['videoUrl'] ?? '').toString();
+      _selectedRecipients = List<String>.from(d['recipients'] ?? []);
+      final names = d['recipientNames'];
+      if (names is Map) {
+        _recipientNames = names.map((k, v) => MapEntry(k.toString(), v.toString()));
+      }
+      final items = d['mediaItems'];
+      if (items is List && items.isNotEmpty) {
+        _existingImages.addAll(items.map((e) => e.toString()));
+      } else if ((d['imageBase64'] ?? '').toString().isNotEmpty) {
+        _existingImages.add(d['imageBase64'].toString());
+      }
+      if (_videoUrlController.text.isNotEmpty) _mediaType = 'video';
+    }
+  }
   final _videoUrlController = TextEditingController();
 
   bool _isUploading = false;
-  List<PlatformFile> _selectedFiles = [];
+  final List<PlatformFile> _selectedFiles = [];
 
   // Recipient Logic
   List<String> _selectedRecipients = [];
@@ -43,6 +74,7 @@ class _CreateSocialMediaPostScreenState
   @override
   void dispose() {
     _captionController.dispose();
+    _titleController.dispose();
     _videoUrlController.dispose();
     super.dispose();
   }
@@ -73,7 +105,10 @@ class _CreateSocialMediaPostScreenState
     final videoUrl = _videoUrlController.text.trim();
     final captionText = _captionController.text.trim();
 
-    if (_selectedFiles.isEmpty && videoUrl.isEmpty && captionText.isEmpty) {
+    if (_selectedFiles.isEmpty &&
+        _existingImages.isEmpty &&
+        videoUrl.isEmpty &&
+        captionText.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Lütfen paylaşım içeriği yazın veya bir medya ekleyin'),
@@ -103,7 +138,7 @@ class _CreateSocialMediaPostScreenState
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.15),
+                  color: Colors.black.withValues(alpha: 0.15),
                   blurRadius: 20,
                   offset: const Offset(0, 10),
                 ),
@@ -164,7 +199,7 @@ class _CreateSocialMediaPostScreenState
       }
 
       // Upload / Process images
-      List<String> mediaItems = [];
+      List<String> mediaItems = [..._existingImages];
       int currentIndex = 0;
       int total = _selectedFiles.length;
 
@@ -189,9 +224,7 @@ class _CreateSocialMediaPostScreenState
             base64Image = base64Encode(dataToUpload);
           }
 
-          if (base64Image != null) {
-            mediaItems.add(base64Image);
-          }
+          mediaItems.add(base64Image);
         } catch (e) {
           debugPrint("Resim işleme hatası: $e");
         }
@@ -202,6 +235,31 @@ class _CreateSocialMediaPostScreenState
       }
 
       statusNotifier.value = "Veritabanına Kaydedildiği...";
+
+      if (_isEdit) {
+        await FirebaseFirestore.instance
+            .collection('social_media_posts')
+            .doc(widget.postId)
+            .update({
+          'title': _titleController.text.trim(),
+          'caption': _captionController.text.trim(),
+          'videoUrl': videoUrl,
+          'imageBase64': mediaItems.isNotEmpty ? mediaItems.first : '',
+          'mediaItems': mediaItems,
+          'recipients': _selectedRecipients,
+          'recipientNames': _recipientNames,
+          'isPublic': _selectedRecipients.isEmpty,
+          'editedAt': FieldValue.serverTimestamp(),
+        }).timeout(const Duration(seconds: 45));
+        if (mounted) {
+          Navigator.pop(context); // yükleniyor penceresi
+          Navigator.pop(context); // düzenleme ekranı
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Paylaşım güncellendi')),
+          );
+        }
+        return;
+      }
 
       final currentUserEmail = user.email ?? '';
       final termId = await TermService().getActiveTermId();
@@ -215,6 +273,7 @@ class _CreateSocialMediaPostScreenState
             'imageBase64': mediaItems.isNotEmpty ? mediaItems.first : '',
             'mediaItems': mediaItems,
             'videoUrl': videoUrl,
+            'title': _titleController.text.trim(),
             'caption': captionText,
             'createdAt': FieldValue.serverTimestamp(),
             'createdBy': currentUserEmail,
@@ -237,6 +296,15 @@ class _CreateSocialMediaPostScreenState
           );
 
       if (mounted) {
+        // Hedef kitleye bildirim (arka planda)
+        AnnouncementService().notifyRecipients(
+          recipients: _selectedRecipients,
+          title: '📱 Yeni Paylaşım${_titleController.text.trim().isNotEmpty ? ': ${_titleController.text.trim()}' : ''}',
+          body: '$creatorName: ${captionText.isNotEmpty ? captionText : (videoUrl.isNotEmpty ? 'Yeni bir video paylaştı' : 'Yeni bir görsel paylaştı')}',
+          type: 'social_post',
+          route: '/school-dashboard',
+          schoolTypeId: widget.schoolTypeId.isNotEmpty ? widget.schoolTypeId : null,
+        );
         Navigator.pop(context); // Close loading dialog
         Navigator.pop(context); // Close create screen
         ScaffoldMessenger.of(context).showSnackBar(
@@ -287,7 +355,7 @@ class _CreateSocialMediaPostScreenState
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: EduknAppBar(
-        title: 'Yeni Paylaşım Oluştur',
+        title: _isEdit ? 'Paylaşımı Düzenle' : 'Yeni Paylaşım Oluştur',
         leading: IconButton(
           icon: const Icon(Icons.close_rounded, color: Colors.blueGrey),
           onPressed: () => Navigator.pop(context),
@@ -309,7 +377,7 @@ class _CreateSocialMediaPostScreenState
                       )
                     : const Icon(Icons.send_rounded, size: 18, color: Colors.white),
                 label: Text(
-                  "Paylaş",
+                  _isEdit ? "Kaydet" : "Paylaş",
                   style: GoogleFonts.inter(
                     fontWeight: FontWeight.bold,
                     fontSize: 14,
@@ -319,7 +387,7 @@ class _CreateSocialMediaPostScreenState
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.indigo,
                   elevation: 2,
-                  shadowColor: Colors.indigo.withOpacity(0.3),
+                  shadowColor: Colors.indigo.withValues(alpha: 0.3),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(20),
                   ),
@@ -361,6 +429,35 @@ class _CreateSocialMediaPostScreenState
                         _recipientNames = names;
                       });
                     },
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                // ==================== BAŞLIK ====================
+                _buildCardSection(
+                  stepNumber: '2',
+                  title: 'Başlık',
+                  subtitle: 'Paylaşımın üstünde görünecek kısa bir başlık (isteğe bağlı).',
+                  icon: Icons.title_rounded,
+                  iconColor: Colors.teal.shade600,
+                  child: TextField(
+                    controller: _titleController,
+                    textCapitalization: TextCapitalization.sentences,
+                    style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w600),
+                    decoration: InputDecoration(
+                      hintText: 'Örn: Deneme Sınavı Sonuçları',
+                      filled: true,
+                      fillColor: Colors.grey.shade50,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: Colors.grey.shade200),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: Colors.grey.shade200),
+                      ),
+                    ),
                   ),
                 ),
 
@@ -446,6 +543,7 @@ class _CreateSocialMediaPostScreenState
                                   setState(() {
                                     _mediaType = 'video';
                                     _selectedFiles.clear();
+                                    _existingImages.clear();
                                   });
                                 },
                               ),
@@ -460,7 +558,7 @@ class _CreateSocialMediaPostScreenState
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.purple.shade50.withOpacity(0.5),
+                            color: Colors.purple.shade50.withValues(alpha: 0.5),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(color: Colors.purple.shade100),
                           ),
@@ -530,7 +628,48 @@ class _CreateSocialMediaPostScreenState
                               ],
                             ),
                             const SizedBox(height: 8),
-                            if (_selectedFiles.isEmpty)
+                            if (_existingImages.isNotEmpty) ...[
+                              SizedBox(
+                                height: 160,
+                                child: ListView.separated(
+                                  scrollDirection: Axis.horizontal,
+                                  itemCount: _existingImages.length,
+                                  separatorBuilder: (c, i) => const SizedBox(width: 12),
+                                  itemBuilder: (context, index) {
+                                    return Stack(
+                                      children: [
+                                        ClipRRect(
+                                          borderRadius: BorderRadius.circular(14),
+                                          child: Image.memory(
+                                            base64Decode(_existingImages[index]),
+                                            height: 160,
+                                            width: 160,
+                                            fit: BoxFit.cover,
+                                          ),
+                                        ),
+                                        Positioned(
+                                          top: 8,
+                                          right: 8,
+                                          child: InkWell(
+                                            onTap: () => setState(() => _existingImages.removeAt(index)),
+                                            child: Container(
+                                              padding: const EdgeInsets.all(6),
+                                              decoration: BoxDecoration(
+                                                color: Colors.black.withValues(alpha: 0.65),
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: const Icon(Icons.close_rounded, size: 16, color: Colors.white),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    );
+                                  },
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                            ],
+                            if (_selectedFiles.isEmpty && _existingImages.isEmpty)
                               InkWell(
                                 onTap: _pickImages,
                                 borderRadius: BorderRadius.circular(16),
@@ -538,7 +677,7 @@ class _CreateSocialMediaPostScreenState
                                   height: 140,
                                   width: double.infinity,
                                   decoration: BoxDecoration(
-                                    color: Colors.indigo.shade50.withOpacity(0.3),
+                                    color: Colors.indigo.shade50.withValues(alpha: 0.3),
                                     borderRadius: BorderRadius.circular(16),
                                     border: Border.all(
                                       color: Colors.indigo.shade100,
@@ -581,7 +720,7 @@ class _CreateSocialMediaPostScreenState
                                   ),
                                 ),
                               )
-                            else
+                            else if (_selectedFiles.isNotEmpty)
                               SizedBox(
                                 height: 160,
                                 child: ListView.separated(
@@ -618,7 +757,7 @@ class _CreateSocialMediaPostScreenState
                                             child: Container(
                                               padding: const EdgeInsets.all(6),
                                               decoration: BoxDecoration(
-                                                color: Colors.black.withOpacity(0.65),
+                                                color: Colors.black.withValues(alpha: 0.65),
                                                 shape: BoxShape.circle,
                                               ),
                                               child: const Icon(
@@ -664,7 +803,7 @@ class _CreateSocialMediaPostScreenState
         border: Border.all(color: Colors.grey.shade200),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -680,7 +819,7 @@ class _CreateSocialMediaPostScreenState
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: iconColor.withOpacity(0.1),
+                  color: iconColor.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(icon, color: iconColor, size: 20),
@@ -739,7 +878,7 @@ class _CreateSocialMediaPostScreenState
           boxShadow: isSelected
               ? [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.06),
+                    color: Colors.black.withValues(alpha: 0.06),
                     blurRadius: 4,
                     offset: const Offset(0, 2),
                   )

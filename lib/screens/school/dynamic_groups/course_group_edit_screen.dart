@@ -50,7 +50,7 @@ class _CourseGroupEditScreenState extends State<CourseGroupEditScreen> {
   Map<int, List<Map<String, dynamic>>> _classesByLevel = {};
   List<int> _sortedLevels = [];
   Set<String> _selectedClassIds = {};
-  Map<String, String> _classNamesById = {};
+  final Map<String, String> _classNamesById = {};
 
   // Öğretmenler
   List<Map<String, dynamic>> _teachers = [];
@@ -401,7 +401,14 @@ class _CourseGroupEditScreenState extends State<CourseGroupEditScreen> {
                 _selectedLessonName = clubMatch['name'];
               } else {
                 final engMatch = sortedLessons.firstWhere(
-                  (l) => l['name'].toString().toLowerCase().contains('ingilizce') || l['name'].toString().toLowerCase().contains('almanca'),
+                  (l) {
+                    final n = l['name'].toString().toLowerCase();
+                    return n.contains('main course') ||
+                        n.contains('maincourse') ||
+                        n.contains('ingilizce') ||
+                        n.contains('english') ||
+                        n.contains('almanca');
+                  },
                   orElse: () => sortedLessons.first,
                 );
                 _selectedLessonId = engMatch['id'];
@@ -521,7 +528,7 @@ class _CourseGroupEditScreenState extends State<CourseGroupEditScreen> {
                           return ListTile(
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                             selected: isSelected,
-                            selectedTileColor: _primaryLightColor.withOpacity(0.5),
+                            selectedTileColor: _primaryLightColor.withValues(alpha: 0.5),
                             leading: CircleAvatar(
                               radius: 18,
                               backgroundColor: isSelected ? _primaryColor : _primaryLightColor,
@@ -696,7 +703,7 @@ class _CourseGroupEditScreenState extends State<CourseGroupEditScreen> {
                               return ListTile(
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                 selected: isSelected,
-                                selectedTileColor: _primaryLightColor.withOpacity(0.5),
+                                selectedTileColor: _primaryLightColor.withValues(alpha: 0.5),
                                 leading: CircleAvatar(
                                   radius: 18,
                                   backgroundColor: isSelected ? _primaryColor : _primaryLightColor,
@@ -1221,7 +1228,7 @@ class _CourseGroupEditScreenState extends State<CourseGroupEditScreen> {
                             margin: const EdgeInsets.only(bottom: 8),
                             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                             decoration: BoxDecoration(
-                              color: selectedClassroom.isEmpty ? _primaryLightColor.withOpacity(0.5) : const Color(0xFFF8FAFC),
+                              color: selectedClassroom.isEmpty ? _primaryLightColor.withValues(alpha: 0.5) : const Color(0xFFF8FAFC),
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
                                 color: selectedClassroom.isEmpty ? _primaryColor : Colors.grey.shade200,
@@ -1292,7 +1299,7 @@ class _CourseGroupEditScreenState extends State<CourseGroupEditScreen> {
                               margin: const EdgeInsets.only(bottom: 8),
                               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                               decoration: BoxDecoration(
-                                color: isSelected ? _primaryLightColor.withOpacity(0.5) : Colors.white,
+                                color: isSelected ? _primaryLightColor.withValues(alpha: 0.5) : Colors.white,
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
                                   color: isSelected ? _primaryColor : Colors.grey.shade200,
@@ -1333,7 +1340,7 @@ class _CourseGroupEditScreenState extends State<CourseGroupEditScreen> {
                                               details.join(' • '),
                                               style: TextStyle(
                                                 fontSize: 12,
-                                                color: isSelected ? _primaryColor.withOpacity(0.8) : Colors.grey.shade600,
+                                                color: isSelected ? _primaryColor.withValues(alpha: 0.8) : Colors.grey.shade600,
                                               ),
                                             ),
                                           ),
@@ -1626,7 +1633,7 @@ class _CourseGroupEditScreenState extends State<CourseGroupEditScreen> {
                                 color: const Color(0xFFF8FAFC),
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
-                                  color: selTeacherIds.isNotEmpty ? _primaryColor.withOpacity(0.5) : Colors.grey.shade300,
+                                  color: selTeacherIds.isNotEmpty ? _primaryColor.withValues(alpha: 0.5) : Colors.grey.shade300,
                                 ),
                               ),
                               child: selTeacherIds.isEmpty
@@ -1729,7 +1736,7 @@ class _CourseGroupEditScreenState extends State<CourseGroupEditScreen> {
                                 color: const Color(0xFFF8FAFC),
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
-                                  color: selectedClassroom.isNotEmpty ? _primaryColor.withOpacity(0.6) : Colors.grey.shade300,
+                                  color: selectedClassroom.isNotEmpty ? _primaryColor.withValues(alpha: 0.6) : Colors.grey.shade300,
                                   width: selectedClassroom.isNotEmpty ? 1.5 : 1,
                                 ),
                               ),
@@ -2312,7 +2319,7 @@ class _CourseGroupEditScreenState extends State<CourseGroupEditScreen> {
                                       border: Border.all(color: Colors.grey.shade200),
                                       boxShadow: [
                                         BoxShadow(
-                                          color: Colors.black.withOpacity(0.015),
+                                          color: Colors.black.withValues(alpha: 0.015),
                                           blurRadius: 6,
                                           offset: const Offset(0, 2),
                                         ),
@@ -2355,7 +2362,7 @@ class _CourseGroupEditScreenState extends State<CourseGroupEditScreen> {
                                                       decoration: BoxDecoration(
                                                         color: _primaryLightColor,
                                                         borderRadius: BorderRadius.circular(6),
-                                                        border: Border.all(color: _primaryColor.withOpacity(0.3)),
+                                                        border: Border.all(color: _primaryColor.withValues(alpha: 0.3)),
                                                       ),
                                                       child: Text(
                                                         sub.shortName,
@@ -2466,7 +2473,7 @@ class _CourseGroupEditScreenState extends State<CourseGroupEditScreen> {
         border: Border.all(color: Colors.grey.shade200),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.02),
+            color: Colors.black.withValues(alpha: 0.02),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),

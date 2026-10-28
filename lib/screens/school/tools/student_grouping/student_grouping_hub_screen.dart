@@ -166,7 +166,7 @@ class _StudentGroupingHubScreenState extends State<StudentGroupingHubScreen>
         });
         _calculateLevelExamScores();
       }
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[student_grouping_hub_screen] hata yutuldu: $silentError'); }
   }
 
   /// Seçili sınıf seviyesindeki TÜM deneme sınavlarını ortaklaşa hesaplar
@@ -266,7 +266,7 @@ class _StudentGroupingHubScreenState extends State<StudentGroupingHubScreen>
             studentScoresMap.putIfAbsent('name_${_normalizeTurkish(sName)}', () => []).add(examScore);
           }
         }
-      } catch (_) {}
+      } catch (silentError) { debugPrint('[student_grouping_hub_screen] hata yutuldu: $silentError'); }
     }
 
     setState(() {
@@ -1273,7 +1273,7 @@ class _StudentGroupingHubScreenState extends State<StudentGroupingHubScreen>
               DropdownButtonFormField<int>(
                 isExpanded: true,
                 isDense: true,
-                value: _selectedClassLevel,
+                initialValue: _selectedClassLevel,
                 decoration: InputDecoration(
                   labelText: 'Sınıf Seviyesi',
                   filled: true,
@@ -1305,7 +1305,7 @@ class _StudentGroupingHubScreenState extends State<StudentGroupingHubScreen>
               DropdownButtonFormField<String>(
                 isExpanded: true,
                 isDense: true,
-                value: _selectedBranchId,
+                initialValue: _selectedBranchId,
                 decoration: InputDecoration(
                   labelText: 'Şube Seçiniz',
                   filled: true,
@@ -1366,7 +1366,7 @@ class _StudentGroupingHubScreenState extends State<StudentGroupingHubScreen>
                     child: DropdownButtonFormField<int>(
                       isExpanded: true,
                       isDense: true,
-                      value: _selectedClassLevel,
+                      initialValue: _selectedClassLevel,
                       decoration: InputDecoration(
                         labelText: 'Sınıf Seviyesi',
                         filled: true,
@@ -1399,7 +1399,7 @@ class _StudentGroupingHubScreenState extends State<StudentGroupingHubScreen>
                     child: DropdownButtonFormField<String>(
                       isExpanded: true,
                       isDense: true,
-                      value: _selectedBranchId,
+                      initialValue: _selectedBranchId,
                       decoration: InputDecoration(
                         labelText: 'Şube Seçiniz',
                         filled: true,
@@ -1840,7 +1840,7 @@ class _StudentGroupingHubScreenState extends State<StudentGroupingHubScreen>
               title: Text('Kız / Erkek Dağılımını Dengele', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
               subtitle: Text('Gruplardaki cinsiyet oranlarını mümkün olduğunca eşitler.', style: GoogleFonts.inter(fontSize: 11, color: Colors.grey.shade600)),
               value: _balanceGender,
-              activeColor: const Color(0xFF5C6BC0),
+              activeThumbColor: const Color(0xFF5C6BC0),
               onChanged: (v) => setState(() => _balanceGender = v),
             ),
           ],
@@ -2437,12 +2437,12 @@ class _StudentGroupingHubScreenState extends State<StudentGroupingHubScreen>
     final collisions = StudentGroupingService.findCollisionsInGroup(group, _blacklistRules);
 
     return DragTarget<GroupingStudent>(
-      onWillAccept: (incomingStudent) {
+      onWillAcceptWithDetails: (incomingStudent) {
         // Zaten bu grupta değilse kabul et
-        return incomingStudent != null && !group.students.any((s) => s.id == incomingStudent.id);
+        return !group.students.any((s) => s.id == incomingStudent.data.id);
       },
-      onAccept: (incomingStudent) {
-        _onStudentDropped(incomingStudent, group.id);
+      onAcceptWithDetails: (incomingStudent) {
+        _onStudentDropped(incomingStudent.data, group.id);
       },
       builder: (context, candidateData, rejectedData) {
         final isHovered = candidateData.isNotEmpty;
@@ -2455,14 +2455,14 @@ class _StudentGroupingHubScreenState extends State<StudentGroupingHubScreen>
             border: Border.all(
               color: isHovered
                   ? const Color(0xFF10B981)
-                  : (collisions.isNotEmpty ? Colors.red.shade400 : group.groupColor.withOpacity(0.5)),
+                  : (collisions.isNotEmpty ? Colors.red.shade400 : group.groupColor.withValues(alpha: 0.5)),
               width: isHovered ? 2.5 : (collisions.isNotEmpty ? 2.0 : 1.5),
             ),
             boxShadow: [
               BoxShadow(
                 color: isHovered
-                    ? const Color(0xFF10B981).withOpacity(0.15)
-                    : group.groupColor.withOpacity(0.06),
+                    ? const Color(0xFF10B981).withValues(alpha: 0.15)
+                    : group.groupColor.withValues(alpha: 0.06),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
@@ -2502,7 +2502,7 @@ class _StudentGroupingHubScreenState extends State<StudentGroupingHubScreen>
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
+                          color: Colors.white.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text(
@@ -2518,7 +2518,7 @@ class _StudentGroupingHubScreenState extends State<StudentGroupingHubScreen>
               // İstatistik Şeridi (Ortalama Puan & Kız/Erkek)
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                color: group.groupColor.withOpacity(0.08),
+                color: group.groupColor.withValues(alpha: 0.08),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -3157,7 +3157,7 @@ class _StudentGroupingHubScreenState extends State<StudentGroupingHubScreen>
                 leading: Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: plan.mode.color.withOpacity(0.12),
+                    color: plan.mode.color.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Icon(plan.mode.icon, color: plan.mode.color, size: 22),

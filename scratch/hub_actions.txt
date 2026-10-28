@@ -1,0 +1,34 @@
+              // Yoklama Al (geniş) + küçük Rapor butonu
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 11),
+                        backgroundColor: const Color(0xFF10B981),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: () => _navigateToAttendance(exam),
+                      icon: const Icon(Icons.how_to_reg_rounded, size: 18),
+                      label: Text('Yoklama Al',
+                          style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w800)),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Tooltip(
+                    message: 'Yoklama Raporu Al',
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                        foregroundColor: const Color(0xFF4F46E5),
+                        side: const BorderSide(color: Color(0xFFC7D2FE)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: () => _printAttendanceReport(exam),
+                      icon: const Icon(Icons.assignment_outlined, size: 16),
+                      label: Text('Rapor',
+                          style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                ],
+              ),

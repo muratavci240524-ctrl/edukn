@@ -87,7 +87,7 @@ class TermService {
               .where('institutionId', isEqualTo: inst)
               .get();
           if (snapshot.docs.isNotEmpty) break;
-        } catch (_) {}
+        } catch (silentError) { debugPrint('[term_service] hata yutuldu: $silentError'); }
       }
       
       if (snapshot != null && snapshot.docs.isNotEmpty) {
@@ -120,7 +120,7 @@ class TermService {
               return _cachedActiveTermId;
             }
           }
-        } catch (_) {}
+        } catch (silentError) { debugPrint('[term_service] hata yutuldu: $silentError'); }
       }
 
       // Fallback 2: trial_exams koleksiyonu üzerinden son aktif dönem
@@ -139,7 +139,7 @@ class TermService {
               return _cachedActiveTermId;
             }
           }
-        } catch (_) {}
+        } catch (silentError) { debugPrint('[term_service] hata yutuldu: $silentError'); }
       }
     } catch (e) {
       debugPrint('Aktif dönem alınırken hata: $e');
@@ -197,9 +197,14 @@ class TermService {
   /// Mevcut verileri (termId null olanları) aktif döneme ata
   /// Bu fonksiyon bir kez çalıştırılmalı - migration için
   Future<int> migrateDataToActiveTerm() async {
+    // Güvenlik: geçmiş dönem görüntülenirken çalıştırılırsa kayıtlar yanlış döneme yazılır
+    if (await getSelectedTermId() != null) {
+      debugPrint('Geçmiş dönem seçili, migration iptal edildi. Önce aktif döneme dönün.');
+      return 0;
+    }
     final activeTermId = await getActiveTermId();
     if (activeTermId == null) {
-      print('Aktif dönem bulunamadı, migration yapılamıyor');
+      debugPrint('Aktif dönem bulunamadı, migration yapılamıyor');
       return 0;
     }
 
@@ -225,9 +230,9 @@ class TermService {
             migratedCount++;
           }
         }
-        print('$collectionName: ${snapshot.docs.length} kayıt kontrol edildi');
+        debugPrint('$collectionName: ${snapshot.docs.length} kayıt kontrol edildi');
       } catch (e) {
-        print('$collectionName migration hatası: $e');
+        debugPrint('$collectionName migration hatası: $e');
       }
     }
 
@@ -254,13 +259,13 @@ class TermService {
             migratedCount++;
           }
         }
-        print('announcements: ${announcementsSnapshot.docs.length} kayıt kontrol edildi');
+        debugPrint('announcements: ${announcementsSnapshot.docs.length} kayıt kontrol edildi');
       }
     } catch (e) {
-      print('announcements migration hatası: $e');
+      debugPrint('announcements migration hatası: $e');
     }
 
-    print('Toplam $migratedCount kayıt aktif döneme atandı');
+    debugPrint('Toplam $migratedCount kayıt aktif döneme atandı');
     return migratedCount;
   }
 
@@ -293,9 +298,9 @@ class TermService {
           await doc.reference.delete();
           deletedCount++;
         }
-        print('$collectionName: ${snapshot.docs.length} kayıt silindi');
+        debugPrint('$collectionName: ${snapshot.docs.length} kayıt silindi');
       } catch (e) {
-        print('$collectionName silme hatası: $e');
+        debugPrint('$collectionName silme hatası: $e');
       }
     }
 
@@ -319,13 +324,13 @@ class TermService {
           await doc.reference.delete();
           deletedCount++;
         }
-        print('announcements: ${announcementsSnapshot.docs.length} kayıt silindi');
+        debugPrint('announcements: ${announcementsSnapshot.docs.length} kayıt silindi');
       }
     } catch (e) {
-      print('announcements silme hatası: $e');
+      debugPrint('announcements silme hatası: $e');
     }
 
-    print('Toplam $deletedCount kayıt silindi');
+    debugPrint('Toplam $deletedCount kayıt silindi');
     return deletedCount;
   }
 
@@ -334,13 +339,13 @@ class TermService {
     try {
       final institutionId = await getInstitutionId();
       if (institutionId == 'GMAIL' || institutionId.isEmpty) {
-        print('ℹ️ Oturum açılmamış veya geçersiz kurum, bütünlük taraması atlanıyor.');
+        debugPrint('ℹ️ Oturum açılmamış veya geçersiz kurum, bütünlük taraması atlanıyor.');
         return;
       }
       
       final db = FirebaseFirestore.instance;
-      print('=== STARTING DATABASE INTEGRITY SCAN & HEALING ===');
-      print('Kurum: $institutionId');
+      debugPrint('=== STARTING DATABASE INTEGRITY SCAN & HEALING ===');
+      debugPrint('Kurum: $institutionId');
       
       // 1. Tüm workPeriods yükle
       final periodsSnap = await db.collection('workPeriods')
@@ -353,9 +358,9 @@ class TermService {
           periodTermMap[doc.id] = termId;
         }
       }
-      print('Yüklenen alt dönem sayısı: ${periodTermMap.length}');
+      debugPrint('Yüklenen alt dönem sayısı: ${periodTermMap.length}');
       if (periodTermMap.isEmpty) {
-        print('ℹ️ Herhangi bir alt dönem bulunamadı, tarama sonlandırılıyor.');
+        debugPrint('ℹ️ Herhangi bir alt dönem bulunamadı, tarama sonlandırılıyor.');
         return;
       }
       
@@ -377,7 +382,7 @@ class TermService {
           classByNameAndTerm[className]![termId] = doc.id;
         }
       }
-      print('Yüklenen şube sayısı: ${classMap.length}');
+      debugPrint('Yüklenen şube sayısı: ${classMap.length}');
       
       // 3. Tüm dersleri yükle
       final lessonsSnap = await db.collection('lessons')
@@ -397,7 +402,7 @@ class TermService {
           lessonByNameAndTerm[lessonName]![termId] = doc.id;
         }
       }
-      print('Yüklenen ders tanımı sayısı: ${lessonMap.length}');
+      debugPrint('Yüklenen ders tanımı sayısı: ${lessonMap.length}');
       
       // 4. Mevcut atamaları yükle
       final assignmentsSnap = await db.collection('lessonAssignments')
@@ -413,13 +418,13 @@ class TermService {
           assignmentSet.add('${classId}_$lessonId');
         }
       }
-      print('Mevcut atama sayısı: ${assignmentSet.length}');
+      debugPrint('Mevcut atama sayısı: ${assignmentSet.length}');
 
       // 5. Ders programı slotlarını tara
       final schedulesSnap = await db.collection('classSchedules')
           .where('institutionId', isEqualTo: institutionId)
           .get();
-      print('Toplam program slot sayısı: ${schedulesSnap.docs.length}');
+      debugPrint('Toplam program slot sayısı: ${schedulesSnap.docs.length}');
       
       int schedulesMismatched = 0;
       int schedulesHealed = 0;
@@ -449,7 +454,7 @@ class TermService {
           existingCorrectDocIds.add(doc.id);
         }
       }
-      print('Mevcut doğru formatta slot sayısı: ${existingCorrectDocIds.length}');
+      debugPrint('Mevcut doğru formatta slot sayısı: ${existingCorrectDocIds.length}');
 
       var batch = db.batch();
       int batchOperations = 0;
@@ -592,13 +597,13 @@ class TermService {
         }
       }
       
-      print('=== INTEGRITY SCAN SUMMARY ===');
-      print('Tarama Yapılan Şube Sınıf Mismatch: $schedulesMismatched');
-      print('Onarılan Slot Sayısı: $schedulesHealed');
-      print('Yeni Oluşturulan Atama Sayısı: $assignmentsCreated');
-      print('=============================================');
+      debugPrint('=== INTEGRITY SCAN SUMMARY ===');
+      debugPrint('Tarama Yapılan Şube Sınıf Mismatch: $schedulesMismatched');
+      debugPrint('Onarılan Slot Sayısı: $schedulesHealed');
+      debugPrint('Yeni Oluşturulan Atama Sayısı: $assignmentsCreated');
+      debugPrint('=============================================');
     } catch (e) {
-      print('❌ healDatabaseMismatches Hatası: $e');
+      debugPrint('❌ healDatabaseMismatches Hatası: $e');
     }
   }
 }

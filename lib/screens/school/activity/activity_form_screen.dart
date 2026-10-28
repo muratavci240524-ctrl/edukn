@@ -239,7 +239,7 @@ class _ActivityFormScreenState extends State<ActivityFormScreen> {
           ),
           if (_isLoading || _isCalculating)
             Container(
-              color: Colors.black.withOpacity(0.3),
+              color: Colors.black.withValues(alpha: 0.3),
               child: const Center(child: CircularProgressIndicator()),
             ),
         ],
@@ -371,7 +371,7 @@ class _ActivityFormScreenState extends State<ActivityFormScreen> {
         ),
         const SizedBox(height: 16),
         DropdownButtonFormField<String>(
-          value: _responsibleTeacherId,
+          initialValue: _responsibleTeacherId,
           decoration: InputDecoration(
             labelText: 'Sorumlu Öğretmen',
             filled: true,
@@ -572,7 +572,7 @@ class _ActivityFormScreenState extends State<ActivityFormScreen> {
           border: Border.all(color: Colors.grey.shade300),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.03),
+              color: Colors.black.withValues(alpha: 0.03),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -807,7 +807,7 @@ class _ActivityFormScreenState extends State<ActivityFormScreen> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<SurveyQuestionType>(
-                value: qType,
+                initialValue: qType,
                 items: const [
                   DropdownMenuItem(
                     value: SurveyQuestionType.rating,

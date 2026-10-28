@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:edukn/screens/school/school_login_screen.dart'; 
 
 class SafeStreamBuilder<T> extends StatelessWidget {
   final Stream<T>? stream;

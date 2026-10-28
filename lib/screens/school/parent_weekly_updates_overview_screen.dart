@@ -1,4 +1,4 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 
@@ -183,7 +183,7 @@ class _ParentWeeklyUpdatesOverviewScreenState extends State<ParentWeeklyUpdatesO
                         borderRadius: BorderRadius.circular(16),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.05),
+                            color: Colors.black.withValues(alpha: 0.05),
                             blurRadius: 12,
                             offset: const Offset(0, 6),
                           )
@@ -268,7 +268,7 @@ class _ParentWeeklyUpdatesOverviewScreenState extends State<ParentWeeklyUpdatesO
                                 borderRadius: BorderRadius.circular(16),
                                 border: Border.all(color: Colors.grey.shade200),
                                 boxShadow: [
-                                  BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 6)),
+                                  BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 10, offset: const Offset(0, 6)),
                                 ],
                               ),
                               child: Row(

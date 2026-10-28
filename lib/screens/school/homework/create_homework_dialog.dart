@@ -1,4 +1,4 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:intl/intl.dart';
@@ -32,7 +32,7 @@ class _CreateHomeworkDialogState extends State<CreateHomeworkDialog> {
   DateTime _assignedDate = DateTime.now();
   DateTime _dueDate = DateTime.now().add(const Duration(days: 1));
 
-  List<HomeworkAttachment> _attachments = [];
+  final List<HomeworkAttachment> _attachments = [];
   List<Map<String, dynamic>> _students = [];
   List<String> _selectedStudentIds = [];
   bool _isLoading = true;
@@ -496,7 +496,7 @@ class _CreateHomeworkDialogState extends State<CreateHomeworkDialog> {
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.03),
+                color: Colors.black.withValues(alpha: 0.03),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),

@@ -1,10 +1,11 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:html' as html;
 import 'dart:math' as math;
 import '../../services/user_permission_service.dart';
+import '../../widgets/school_logo.dart';
 
 
 class ProfileSettingsScreen extends StatefulWidget {
@@ -57,7 +58,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     _loadSchoolData(); // Cache'den aninda yukler, ek query yok
   }
 
-  Map<String, bool> _notificationSettings = {
+  final Map<String, bool> _notificationSettings = {
     'announcements': true,
     'studies': true,
     'homeworks': true,
@@ -133,34 +134,71 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   // Okul istatistiklerini paralel olarak getirir (okul ayarlari ekrani icin)
   Future<void> _loadSchoolDetails(String instId) async {
     try {
-      final results = await Future.wait([
-        FirebaseFirestore.instance.collection('schools').doc(instId).get(),
-        FirebaseFirestore.instance
-            .collection('students')
-            .where('institutionId', isEqualTo: instId)
-            .get(),
-      ]);
+      final instIds = {instId, instId.toLowerCase(), instId.toUpperCase()}.toList();
 
-      final schoolDoc     = results[0] as DocumentSnapshot;
-      final studentsSnap  = results[1] as QuerySnapshot;
+      // 1) Okul dokümanı: institutionId alanıyla bul (doküman ID'si kurum kodu olmayabilir)
+      DocumentSnapshot<Map<String, dynamic>>? schoolDoc;
+      final byField = await FirebaseFirestore.instance
+          .collection('schools')
+          .where('institutionId', whereIn: instIds)
+          .limit(1)
+          .get();
+      if (byField.docs.isNotEmpty) {
+        schoolDoc = byField.docs.first;
+      } else {
+        // 2) Doküman ID'si kurum koduyla aynıysa
+        final byId = await FirebaseFirestore.instance.collection('schools').doc(instId).get();
+        if (byId.exists) {
+          schoolDoc = byId;
+        } else {
+          // 3) Kullanıcı kaydındaki schoolId
+          final sid = _userData?['schoolId']?.toString();
+          if (sid != null && sid.isNotEmpty) {
+            final bySchoolId = await FirebaseFirestore.instance.collection('schools').doc(sid).get();
+            if (bySchoolId.exists) schoolDoc = bySchoolId;
+          }
+        }
+      }
 
-      if (schoolDoc.exists && mounted) {
-        final data = schoolDoc.data() as Map<String, dynamic>;
+      // Öğrenci sayısı: sadece aktif öğrenciler
+      final studentsSnap = await FirebaseFirestore.instance
+          .collection('students')
+          .where('institutionId', whereIn: instIds)
+          .get();
+      final activeStudents = studentsSnap.docs.where((d) {
+        final s = d.data();
+        final status = (s['status'] ?? '').toString().toLowerCase();
+        return s['isActive'] != false &&
+            status != 'passive' &&
+            status != 'pasif' &&
+            status != 'inactive';
+      }).length;
+
+      if (schoolDoc != null && schoolDoc.exists && mounted) {
+        final data = schoolDoc.data()!;
         _schoolData  = data;
         _schoolId    = schoolDoc.id;
-        _schoolNameController.text    = data['schoolName'] ?? '';
-        _schoolAddressController.text = data['schoolAddress'] ?? '';
-        _schoolPhoneController.text   = data['schoolPhone'] ?? '';
-        _schoolEmailController.text   = data['schoolEmail'] ?? '';
-        _logoUrl      = data['logoUrl'];
-        studentQuota  = data['studentQuota'] ?? 0;
+        _schoolNameController.text    = (data['schoolName'] ?? data['name'] ?? '').toString();
+        _schoolAddressController.text = (data['schoolAddress'] ?? data['address'] ?? '').toString();
+        _schoolPhoneController.text   = (data['schoolPhone'] ?? data['phone'] ?? '').toString();
+        _schoolEmailController.text   = (data['schoolEmail'] ?? data['email'] ?? '').toString();
+        _logoUrl      = data['logoUrl']?.toString();
+        studentQuota  = (data['studentQuota'] as num?)?.toInt() ?? 0;
         isActive      = data['isActive'] ?? false;
-        studentCount  = studentsSnap.docs.length;
-        if (data['licenseExpiresAt'] != null) {
-          final expires = (data['licenseExpiresAt'] as Timestamp).toDate();
-          remainingDays = expires.difference(DateTime.now()).inDays;
+        studentCount  = activeStudents;
+        final expiresRaw = data['licenseExpiresAt'];
+        if (expiresRaw is Timestamp) {
+          remainingDays = expiresRaw.toDate().difference(DateTime.now()).inDays;
+        } else {
+          remainingDays = null;
         }
         if (mounted) setState(() {});
+      } else if (mounted) {
+        studentCount = activeStudents;
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Okul kaydı bulunamadı.'), backgroundColor: Colors.orange),
+        );
       }
     } catch (e) {
       debugPrint('Okul detay hatasi: $e');
@@ -225,6 +263,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   }
 
 
+
   Future<void> _pickImage({bool isLogo = true}) async {
     final uploadInput = html.FileUploadInputElement()..accept = 'image/*';
     uploadInput.click();
@@ -240,8 +279,16 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
         if (dataUrl == null) return;
 
         if (isLogo) {
-          // Logo için direkt kaydet (kırpma yok)
-          if (mounted) setState(() => _logoUrl = dataUrl);
+          // Logo için yatay zoom/pan düzenleme ve kırpma dialogu aç
+          if (!mounted) return;
+          final croppedUrl = await showDialog<String>(
+            context: context,
+            barrierDismissible: false,
+            builder: (ctx) => LogoCropDialog(imageDataUrl: dataUrl),
+          );
+          if (croppedUrl != null && mounted) {
+            setState(() => _logoUrl = croppedUrl);
+          }
         } else {
           // Profil fotoğrafı için kırpma dialogu aç
           if (!mounted) return;
@@ -258,6 +305,19 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     });
   }
 
+  /// Mevcut okul logosunu yeniden yakınlaştırıp/konumlandırmak için açar
+  Future<void> _editCurrentLogo() async {
+    if (_logoUrl == null || _logoUrl!.isEmpty) return;
+    final croppedUrl = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => LogoCropDialog(imageDataUrl: _logoUrl!),
+    );
+    if (croppedUrl != null && mounted) {
+      setState(() => _logoUrl = croppedUrl);
+    }
+  }
+
   Future<void> _saveChanges() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isSaving = true);
@@ -265,6 +325,9 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     try {
       if (widget.isSchoolSettings) {
         // OKUL BİLGİLERİNİ GÜNCELLE
+        if (_schoolId == null) {
+          throw Exception('Okul kaydı bulunamadı, kaydedilemedi.');
+        }
         await FirebaseFirestore.instance
             .collection('schools')
             .doc(_schoolId)
@@ -276,6 +339,8 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
           'logoUrl': _logoUrl,
           'updatedAt': FieldValue.serverTimestamp(),
         });
+        // App bar'lardaki logo anında güncellensin
+        SchoolLogoService.update(institutionId, _logoUrl);
       } else {
         // KİŞİSEL PROFİLİ GÜNCELLE
         if (_userId != null) {
@@ -321,7 +386,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                 await d.reference.set({'passwordStatus': 'degistirildi', 'updatedAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
               }
             }
-          } catch (_) {}
+          } catch (silentError) { debugPrint('[profile_settings_screen] hata yutuldu: $silentError'); }
           _currentPasswordController.clear();
           _newPasswordController.clear();
           _confirmPasswordController.clear();
@@ -389,13 +454,43 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
         ),
         SizedBox(height: 32),
         Text('Okul Logosu', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-        SizedBox(height: 12),
+        const SizedBox(height: 4),
+        Text(
+          'Okul logosu başlık ve menülerde yatay olarak görüntülenir. Şeffaf PNG veya JPG yükleyebilirsiniz.',
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+        ),
+        const SizedBox(height: 12),
         Center(
           child: Column(
             children: [
-              _buildImageFrame(_logoUrl, Icons.school),
-              SizedBox(height: 12),
-              ElevatedButton.icon(onPressed: () => _pickImage(isLogo: true), icon: Icon(Icons.upload), label: Text('Logo Değiştir')),
+              _buildImageFrame(_logoUrl, Icons.school, isLogo: true),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 10,
+                runSpacing: 8,
+                alignment: WrapAlignment.center,
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: () => _pickImage(isLogo: true),
+                    icon: const Icon(Icons.upload, size: 18),
+                    label: Text(_logoUrl != null ? 'Yeni Logo Yükle' : 'Logo Yükle'),
+                  ),
+                  if (_logoUrl != null && _logoUrl!.isNotEmpty) ...[
+                    OutlinedButton.icon(
+                      onPressed: _editCurrentLogo,
+                      icon: const Icon(Icons.tune, size: 18),
+                      label: const Text('Yakınlaştır / Düzenle'),
+                    ),
+                    TextButton.icon(
+                      onPressed: () {
+                        setState(() => _logoUrl = null);
+                      },
+                      icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                      label: const Text('Logoyu Kaldır', style: TextStyle(color: Colors.red)),
+                    ),
+                  ],
+                ],
+              ),
             ],
           ),
         ),
@@ -501,20 +596,57 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   }
 
 
-  Widget _buildImageFrame(String? url, IconData fallbackIcon, {bool isCircle = false}) {
+  Widget _buildImageFrame(String? url, IconData fallbackIcon, {bool isCircle = false, bool isLogo = false}) {
+    final double w = isLogo ? 320 : 120;
+    final double h = isLogo ? 110 : 120;
     return Container(
-      width: 120, height: 120,
+      width: w,
+      height: h,
+      padding: isLogo ? const EdgeInsets.all(10) : EdgeInsets.zero,
       decoration: BoxDecoration(
-        color: Colors.grey.shade100,
+        color: isLogo ? const Color(0xFFF8FAFC) : Colors.grey.shade100,
         shape: isCircle ? BoxShape.circle : BoxShape.rectangle,
         borderRadius: isCircle ? null : BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade300, width: 2),
+        border: Border.all(
+          color: isLogo ? Colors.indigo.shade100 : Colors.grey.shade300,
+          width: 2,
+        ),
+        boxShadow: isLogo
+            ? [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                )
+              ]
+            : null,
       ),
       child: ClipRRect(
-        borderRadius: isCircle ? BorderRadius.circular(60) : BorderRadius.circular(14),
+        borderRadius: isCircle ? BorderRadius.circular(60) : BorderRadius.circular(12),
         child: url != null && url.isNotEmpty
-            ? Image.network(url, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Icon(fallbackIcon, size: 48, color: Colors.grey))
-            : Icon(fallbackIcon, size: 48, color: Colors.grey),
+            ? Image.network(
+                url,
+                fit: isLogo ? BoxFit.contain : BoxFit.cover,
+                errorBuilder: (_, __, ___) => Center(
+                  child: Icon(fallbackIcon, size: isLogo ? 36 : 48, color: Colors.grey),
+                ),
+              )
+            : Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(fallbackIcon, size: isLogo ? 32 : 48, color: Colors.grey.shade400),
+                    if (isLogo) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'Henüz logo yüklenmedi (varsayılan eduKN logosu kullanılır)',
+                        style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
       ),
     );
   }
@@ -543,7 +675,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   Widget _buildStatCard({required IconData icon, required Color iconColor, required String title, required String value, required Color bgColor}) {
     return Container(
       padding: EdgeInsets.all(12),
-      decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(8), border: Border.all(color: iconColor.withOpacity(0.2))),
+      decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(8), border: Border.all(color: iconColor.withValues(alpha: 0.2))),
       child: Column(
         children: [
           Icon(icon, color: iconColor, size: 20),
@@ -561,7 +693,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
       onChanged: (val) => setState(() => _notificationSettings[key] = val),
       title: Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
       secondary: Icon(icon, color: Colors.indigo, size: 20),
-      activeColor: Colors.indigo,
+      activeThumbColor: Colors.indigo,
       contentPadding: EdgeInsets.zero,
     );
   }
@@ -666,8 +798,8 @@ class _PhotoCropDialogState extends State<PhotoCropDialog> {
   void _loadImageDimensions() {
     final img = html.ImageElement()..src = widget.imageDataUrl;
     img.onLoad.listen((_) {
-      final naturalW = (img.naturalWidth ?? 100).toDouble();
-      final naturalH = (img.naturalHeight ?? 100).toDouble();
+      final naturalW = (img.naturalWidth).toDouble();
+      final naturalH = (img.naturalHeight).toDouble();
       // Görüntü daireyi tam kapatsın diye başlangıç scale hesapla
       final scaleX = _cropSize / naturalW;
       final scaleY = _cropSize / naturalH;
@@ -778,7 +910,7 @@ class _PhotoCropDialogState extends State<PhotoCropDialog> {
                 border: Border.all(color: Colors.indigo, width: 3),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.indigo.withOpacity(0.15),
+                    color: Colors.indigo.withValues(alpha: 0.15),
                     blurRadius: 16,
                     spreadRadius: 2,
                   ),
@@ -908,9 +1040,9 @@ class _PhotoCropDialogState extends State<PhotoCropDialog> {
                             setState(() => _isCropping = true);
                             try {
                               final cropped = await _renderCroppedImage();
-                              if (mounted) Navigator.pop(context, cropped);
+                              if (mounted) Navigator.of(context).pop(cropped);
                             } catch (e) {
-                              if (mounted) Navigator.pop(context, null);
+                              if (mounted) Navigator.of(context).pop(null);
                             }
                           },
                     style: ElevatedButton.styleFrom(
@@ -926,6 +1058,446 @@ class _PhotoCropDialogState extends State<PhotoCropDialog> {
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// ŞEFFAFLIK DAMA DESENİ (CHECKERBOARD)
+// ─────────────────────────────────────────────────────────────────────
+class _CheckerboardPainter extends CustomPainter {
+  const _CheckerboardPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const double cellSize = 12.0;
+    final paint1 = Paint()..color = const Color(0xFFF1F5F9);
+    final paint2 = Paint()..color = const Color(0xFFE2E8F0);
+    canvas.drawRect(Offset.zero & size, paint1);
+    for (double y = 0; y < size.height; y += cellSize) {
+      for (double x = 0; x < size.width; x += cellSize) {
+        final isEven = ((x / cellSize).floor() + (y / cellSize).floor()) % 2 == 0;
+        if (!isEven) {
+          canvas.drawRect(Rect.fromLTWH(x, y, cellSize, cellSize), paint2);
+        }
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _CheckerboardPainter oldDelegate) => false;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// OKUL LOGOSU DÜZENLEME & KIRPMA DİALOGU (YATAY / GENİŞ FORMAT VE ZOOM)
+// ─────────────────────────────────────────────────────────────────────
+class LogoCropDialog extends StatefulWidget {
+  final String imageDataUrl;
+  const LogoCropDialog({Key? key, required this.imageDataUrl}) : super(key: key);
+
+  @override
+  State<LogoCropDialog> createState() => _LogoCropDialogState();
+}
+
+class _LogoCropDialogState extends State<LogoCropDialog> {
+  // En-boy oranı modları: 0: Yatay Geniş (2.6:1 - App Bar formatı), 1: Standart (16:9), 2: Kare (1:1)
+  int _aspectRatioIndex = 0;
+
+  double get _cropWidth {
+    switch (_aspectRatioIndex) {
+      case 0: return 360.0; // Yatay Geniş
+      case 1: return 360.0; // 16:9
+      case 2: return 240.0; // Kare
+      default: return 360.0;
+    }
+  }
+
+  double get _cropHeight {
+    switch (_aspectRatioIndex) {
+      case 0: return 138.0; // 360 / 2.6
+      case 1: return 202.0; // 360 / (16/9)
+      case 2: return 240.0; // 240 / 1
+      default: return 138.0;
+    }
+  }
+
+  double _imgNaturalWidth = 0;
+  double _imgNaturalHeight = 0;
+  double _scale = 1.0;
+  double _minScale = 0.05;
+  double _maxScale = 4.0;
+  Offset _offset = Offset.zero;
+  Offset _dragStart = Offset.zero;
+  Offset _offsetAtDragStart = Offset.zero;
+  bool _ready = false;
+  bool _isCropping = false;
+  bool _darkPreview = false; // Koyu zemin üzerinde önizleme modu
+
+  @override
+  void initState() {
+    super.initState();
+    _loadImageDimensions();
+  }
+
+  void _loadImageDimensions() {
+    final img = html.ImageElement()..src = widget.imageDataUrl;
+    img.onLoad.listen((_) {
+      final naturalW = (img.naturalWidth).toDouble();
+      final naturalH = (img.naturalHeight).toDouble();
+      _setupInitialScale(naturalW, naturalH);
+    });
+  }
+
+  void _setupInitialScale(double naturalW, double naturalH) {
+    // Logoyu kırpma kutusuna tam sığdıracak ölçek (%5 iç boşlukla)
+    final scaleX = _cropWidth / naturalW;
+    final scaleY = _cropHeight / naturalH;
+    final fitScale = math.min(scaleX, scaleY) * 0.95;
+
+    if (mounted) {
+      setState(() {
+        _imgNaturalWidth = naturalW;
+        _imgNaturalHeight = naturalH;
+        _minScale = math.max(0.05, fitScale * 0.25);
+        _maxScale = math.max(fitScale * 4.5, 3.0);
+        _scale = fitScale;
+        _offset = Offset.zero;
+        _ready = true;
+      });
+    }
+  }
+
+  void _fitAndCenter() {
+    if (_imgNaturalWidth == 0 || _imgNaturalHeight == 0) return;
+    final scaleX = _cropWidth / _imgNaturalWidth;
+    final scaleY = _cropHeight / _imgNaturalHeight;
+    final fitScale = math.min(scaleX, scaleY) * 0.95;
+    setState(() {
+      _scale = fitScale;
+      _offset = Offset.zero;
+    });
+  }
+
+  Offset _clamp(Offset offset) {
+    if (_imgNaturalWidth == 0) return offset;
+    final scaledW = _imgNaturalWidth * _scale;
+    final scaledH = _imgNaturalHeight * _scale;
+
+    // Kullanıcının logoyu serbestçe kutu içinde kaydırmasına izin ver
+    final maxDx = math.max(scaledW, _cropWidth) / 1.5;
+    final maxDy = math.max(scaledH, _cropHeight) / 1.5;
+    return Offset(
+      offset.dx.clamp(-maxDx, maxDx),
+      offset.dy.clamp(-maxDy, maxDy),
+    );
+  }
+
+  Future<String> _renderCroppedImage() async {
+    final double cropW = _cropWidth;
+    final double cropH = _cropHeight;
+    // Çıktı boyutu: 2 katı (Retina için keskin), maksimum genişlik 720
+    final double scaleFactor = math.min(2.0, 720.0 / cropW);
+    final int outW = (cropW * scaleFactor).round();
+    final int outH = (cropH * scaleFactor).round();
+
+    final canvas = html.CanvasElement(width: outW, height: outH);
+    final ctx = canvas.context2D;
+
+    final img = html.ImageElement()..src = widget.imageDataUrl;
+    await img.onLoad.first;
+
+    // Şeffaf arka planı temizle
+    ctx.clearRect(0, 0, outW, outH);
+
+    // Ekranda görünen göreli konumu hesapla
+    final scaledW = _imgNaturalWidth * _scale;
+    final scaledH = _imgNaturalHeight * _scale;
+    final imgLeft = (cropW - scaledW) / 2 + _offset.dx;
+    final imgTop = (cropH - scaledH) / 2 + _offset.dy;
+
+    ctx.drawImageScaled(
+      img,
+      imgLeft * scaleFactor,
+      imgTop * scaleFactor,
+      scaledW * scaleFactor,
+      scaledH * scaleFactor,
+    );
+
+    return canvas.toDataUrl('image/png');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: Container(
+        width: 520,
+        padding: const EdgeInsets.all(24),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Başlık
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.indigo.shade50,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.tune, color: Colors.indigo, size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Okul Logosunu Düzenle',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          'Yatayda konumlandırın, yakınlaştırıp uzaklaştırın.',
+                          style: TextStyle(fontSize: 12, color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 20),
+                    onPressed: () => Navigator.pop(context, null),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              // Oran Seçimi & Zemin Seçimi
+              Row(
+                children: [
+                  const Text('Format:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: SegmentedButton<int>(
+                      segments: const [
+                        ButtonSegment(value: 0, label: Text('Yatay Geniş')),
+                        ButtonSegment(value: 1, label: Text('16:9')),
+                        ButtonSegment(value: 2, label: Text('Kare (1:1)')),
+                      ],
+                      selected: {_aspectRatioIndex},
+                      onSelectionChanged: (val) {
+                        setState(() {
+                          _aspectRatioIndex = val.first;
+                          _offset = _clamp(_offset);
+                        });
+                      },
+                      style: ButtonStyle(
+                        visualDensity: VisualDensity.compact,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Tooltip(
+                    message: _darkPreview ? 'Açık Zemin' : 'Koyu Zemin Önizleme',
+                    child: IconButton(
+                      icon: Icon(_darkPreview ? Icons.light_mode : Icons.dark_mode, size: 20),
+                      color: Colors.indigo,
+                      onPressed: () => setState(() => _darkPreview = !_darkPreview),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              // Kırpma Alanı (Canvas / Sürükleme)
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                width: _cropWidth,
+                height: _cropHeight,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.indigo, width: 2.5),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.indigo.withValues(alpha: 0.15),
+                      blurRadius: 16,
+                      spreadRadius: 2,
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(9.5),
+                  child: !_ready
+                      ? const Center(child: CircularProgressIndicator())
+                      : GestureDetector(
+                          onPanStart: (d) {
+                            _dragStart = d.localPosition;
+                            _offsetAtDragStart = _offset;
+                          },
+                          onPanUpdate: (d) {
+                            final delta = d.localPosition - _dragStart;
+                            setState(() {
+                              _offset = _clamp(_offsetAtDragStart + delta);
+                            });
+                          },
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              // Arka plan: Dama deseni veya Koyu zemin
+                              Positioned.fill(
+                                child: _darkPreview
+                                    ? Container(color: const Color(0xFF1E293B))
+                                    : CustomPaint(painter: const _CheckerboardPainter()),
+                              ),
+                              // Görüntü
+                              Transform.translate(
+                                offset: _offset,
+                                child: Image.network(
+                                  widget.imageDataUrl,
+                                  width: _imgNaturalWidth * _scale,
+                                  height: _imgNaturalHeight * _scale,
+                                  fit: BoxFit.fill,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                ),
+              ),
+
+              const SizedBox(height: 14),
+
+              // Zoom kontrolleri (+ / - ve Slider ve Sığdır butonu)
+              Row(
+                children: [
+                  Material(
+                    color: Colors.indigo.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(8),
+                      onTap: _ready
+                          ? () {
+                              final step = (_maxScale - _minScale) / 15;
+                              setState(() {
+                                _scale = math.max(_minScale, _scale - step);
+                                _offset = _clamp(_offset);
+                              });
+                            }
+                          : null,
+                      child: const Padding(
+                        padding: EdgeInsets.all(8),
+                        child: Icon(Icons.remove, color: Colors.indigo, size: 20),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Slider(
+                      value: _scale.clamp(_minScale, _maxScale),
+                      min: _minScale,
+                      max: _maxScale,
+                      activeColor: Colors.indigo,
+                      onChanged: (v) {
+                        setState(() {
+                          _scale = v;
+                          _offset = _clamp(_offset);
+                        });
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Material(
+                    color: Colors.indigo.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(8),
+                      onTap: _ready
+                          ? () {
+                              final step = (_maxScale - _minScale) / 15;
+                              setState(() {
+                                _scale = math.min(_maxScale, _scale + step);
+                                _offset = _clamp(_offset);
+                              });
+                            }
+                          : null,
+                      child: const Padding(
+                        padding: EdgeInsets.all(8),
+                        child: Icon(Icons.add, color: Colors.indigo, size: 20),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  TextButton.icon(
+                    onPressed: _ready ? _fitAndCenter : null,
+                    icon: const Icon(Icons.filter_center_focus, size: 16),
+                    label: const Text('Ortala & Sığdır', style: TextStyle(fontSize: 12)),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 8),
+              Text(
+                'İpucu: Logoyu fare ile tutarak istediğiniz konuma sürükleyebilirsiniz.',
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+              ),
+
+              const SizedBox(height: 20),
+
+              // Butonlar
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context, null),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: const Text('İptal'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _isCropping
+                          ? null
+                          : () async {
+                              setState(() => _isCropping = true);
+                              try {
+                                final cropped = await _renderCroppedImage();
+                                if (mounted) Navigator.of(context).pop(cropped);
+                              } catch (e) {
+                                debugPrint('Crop error: $e');
+                                if (mounted) Navigator.of(context).pop(null);
+                              }
+                            },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.indigo,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: _isCropping
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                            )
+                          : const Text(
+                              'Logoyu Uygula',
+                              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

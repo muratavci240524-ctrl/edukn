@@ -45,7 +45,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
   String _selectedTargetType = '';
   String _selectedSchoolType = '';
   String _selectedClassLevel = '';
-  List<String> _selectedClassLevels = [];
+  final List<String> _selectedClassLevels = [];
   bool _isClassDropdownOpen = false;
 
   // Firebase'den gelecek veriler
@@ -113,7 +113,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
             .get();
         final id = stDoc.data()?['institutionId']?.toString();
         if (id != null && id.isNotEmpty) return id;
-      } catch (_) {}
+      } catch (silentError) { debugPrint('[alici_secimi] hata yutuldu: $silentError'); }
     }
 
     // 3. Mevcut kullanıcının UID'si ile Firestore dokümanına bak
@@ -127,7 +127,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
           .get();
       final id = uidDoc.data()?['institutionId']?.toString();
       if (id != null && id.isNotEmpty && id.toUpperCase() != 'GMAIL') return id;
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[alici_secimi] hata yutuldu: $silentError'); }
 
     // 4. Email ile ara
     try {
@@ -142,7 +142,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
           if (id != null && id.isNotEmpty && id.toUpperCase() != 'GMAIL') return id;
         }
       }
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[alici_secimi] hata yutuldu: $silentError'); }
 
     // 5. UserPermissionService üzerinden dene
     try {
@@ -150,7 +150,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
       final resolved = await UserPermissionService.resolveInstitutionId(
         firebaseUser.email ?? '', userData: ud);
       if (resolved.isNotEmpty && resolved.toUpperCase() != 'GMAIL') return resolved;
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[alici_secimi] hata yutuldu: $silentError'); }
 
     // 6. Son çare: schoolTypes koleksiyonunda uid/email ile ara
     //    Genel Müdür hesabı users koleksiyonunda yoksa bu fallback devreye girer
@@ -166,7 +166,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
           return id;
         }
       }
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[alici_secimi] hata yutuldu: $silentError'); }
 
     debugPrint('❌ _resolveInstitutionId: Could not resolve institutionId for uid=${firebaseUser.uid}');
     return null;
@@ -299,7 +299,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
         children: [
         if (!hasSchoolTypeCtx)
           DropdownButtonFormField<String>(
-            value: _selectedSchoolType.isEmpty ? null : _selectedSchoolType,
+            initialValue: _selectedSchoolType.isEmpty ? null : _selectedSchoolType,
             decoration: const InputDecoration(
               labelText: 'Okul Türüne Göre Filtrele',
               border: OutlineInputBorder(),
@@ -373,7 +373,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
               border: Border.all(color: Colors.grey.shade300),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
+                  color: Colors.black.withValues(alpha: 0.05),
                   blurRadius: 10,
                   offset: const Offset(0, 4),
                 ),
@@ -507,10 +507,10 @@ class _AliciSecimiState extends State<AliciSecimi> {
                   );
                   widget.onSaveGroup(_groupNameController.text);
                   _groupNameController.clear();
-                  Navigator.pop(context);
+                  if (mounted) Navigator.pop(context);
                   await _loadData(); // Grupları yeniden yükle
                   if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text('Grup başarıyla kaydedildi'),
                       ),
@@ -518,7 +518,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
                   }
                 } catch (e) {
                   if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text('Grup kaydedilemedi: $e')),
                     );
                   }
@@ -597,7 +597,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
                 'Hedef kitlenizi seçin',
                 style: TextStyle(
                   fontSize: 12,
-                  color: Colors.white.withOpacity(0.8),
+                  color: Colors.white.withValues(alpha: 0.8),
                   fontWeight: FontWeight.normal,
                 ),
               ),
@@ -664,7 +664,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
           borderRadius: BorderRadius.circular(24),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.15),
+              color: Colors.black.withValues(alpha: 0.15),
               blurRadius: 30,
               offset: Offset(0, 10),
             ),
@@ -692,7 +692,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
                   Container(
                     padding: EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
+                      color: Colors.white.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Icon(
@@ -719,7 +719,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
                           'Hedef kitlenizi seçin',
                           style: TextStyle(
                             fontSize: 13,
-                            color: Colors.white.withOpacity(0.8),
+                            color: Colors.white.withValues(alpha: 0.8),
                           ),
                         ),
                       ],
@@ -922,7 +922,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
             boxShadow: isSelected
                 ? [
                     BoxShadow(
-                      color: Colors.indigo.withOpacity(0.3),
+                      color: Colors.indigo.withValues(alpha: 0.3),
                       blurRadius: 8,
                       offset: Offset(0, 2),
                     ),
@@ -1176,7 +1176,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
                   border: Border.all(color: Colors.grey.shade200),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.01),
+                      color: Colors.black.withValues(alpha: 0.01),
                       blurRadius: 4,
                       offset: Offset(0, 1),
                     ),
@@ -1319,7 +1319,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
     }
   }
 
-  String _selectedBranchId = '';
+  final String _selectedBranchId = '';
   List<Map<String, dynamic>> _branches = [];
   bool _loadingBranches = false;
 
@@ -1386,7 +1386,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
             border: Border.all(color: Colors.grey.shade200),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.04),
+                color: Colors.black.withValues(alpha: 0.04),
                 blurRadius: 8,
                 offset: Offset(0, 2),
               ),
@@ -1517,7 +1517,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.02),
+                            color: Colors.black.withValues(alpha: 0.02),
                             blurRadius: 4,
                             offset: Offset(0, 1),
                           ),
@@ -1529,7 +1529,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
                           vertical: 4,
                         ),
                         leading: CircleAvatar(
-                          backgroundColor: avatarColor.withOpacity(0.2),
+                          backgroundColor: avatarColor.withValues(alpha: 0.2),
                           child: Text(
                             (_getUserDisplayName(user))[0].toUpperCase(),
                             style: TextStyle(
@@ -1639,7 +1639,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
                     return Container(
                       margin: const EdgeInsets.only(bottom: 8),
                       decoration: BoxDecoration(
-                        color: isSelected ? roleColor.withOpacity(0.05) : Colors.white,
+                        color: isSelected ? roleColor.withValues(alpha: 0.05) : Colors.white,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
                           color: isSelected ? roleColor : Colors.grey.shade200,
@@ -1647,7 +1647,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.02),
+                            color: Colors.black.withValues(alpha: 0.02),
                             blurRadius: 4,
                             offset: const Offset(0, 1),
                           ),
@@ -1658,7 +1658,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
                         leading: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: roleColor.withOpacity(0.15),
+                            color: roleColor.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Icon(
@@ -1794,7 +1794,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
             )
           else
             DropdownButtonFormField<String>(
-              value: _selectedSchoolType.isEmpty ? null : _selectedSchoolType,
+              initialValue: _selectedSchoolType.isEmpty ? null : _selectedSchoolType,
               decoration: const InputDecoration(
                 labelText: 'Okul Türü Seç',
                 border: OutlineInputBorder(),
@@ -1974,7 +1974,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.02),
+                            color: Colors.black.withValues(alpha: 0.02),
                             blurRadius: 4,
                             offset: Offset(0, 1),
                           ),
@@ -2318,7 +2318,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
                       decoration: BoxDecoration(
                         color: cardColor,
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: textColor.withOpacity(0.3)),
+                        border: Border.all(color: textColor.withValues(alpha: 0.3)),
                       ),
                       child: ListTile(
                         contentPadding: EdgeInsets.symmetric(
@@ -2328,7 +2328,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
                         leading: Container(
                           padding: EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: textColor.withOpacity(0.2),
+                            color: textColor.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Icon(icon, color: textColor, size: 20),
@@ -2344,7 +2344,7 @@ class _AliciSecimiState extends State<AliciSecimi> {
                           _getRecipientTypeLabel(recipientId),
                           style: TextStyle(
                             fontSize: 11,
-                            color: textColor.withOpacity(0.7),
+                            color: textColor.withValues(alpha: 0.7),
                           ),
                         ),
                         trailing: IconButton(

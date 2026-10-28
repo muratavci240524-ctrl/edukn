@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -136,7 +136,7 @@ class _PreRegistrationFormWidgetState extends State<PreRegistrationFormWidget> {
         }).toList();
       });
     } catch (e) {
-      print('Okul listesi yüklenemedi: $e');
+      debugPrint('Okul listesi yüklenemedi: $e');
     }
   }
 
@@ -215,7 +215,7 @@ class _PreRegistrationFormWidgetState extends State<PreRegistrationFormWidget> {
         }
       });
     } catch (e) {
-      print('Error loading admin users: $e');
+      debugPrint('Error loading admin users: $e');
     }
   }
 
@@ -404,7 +404,7 @@ class _PreRegistrationFormWidgetState extends State<PreRegistrationFormWidget> {
       await batch.commit();
       widget.onSave();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e')));
     }
   }
 
@@ -432,7 +432,7 @@ class _PreRegistrationFormWidgetState extends State<PreRegistrationFormWidget> {
             .add({'name': name, 'createdAt': FieldValue.serverTimestamp()});
         setState(() => _knownSchools.add({'id': docRef.id, 'name': name}));
       } catch (e) {
-        print('Okul kaydedilemedi: $e');
+        debugPrint('Okul kaydedilemedi: $e');
       }
     }
   }
@@ -446,7 +446,7 @@ class _PreRegistrationFormWidgetState extends State<PreRegistrationFormWidget> {
         _knownSchools.removeWhere((s) => s['id'] == id);
       });
     } catch (e) {
-      print('Okul silinemedi: $e');
+      debugPrint('Okul silinemedi: $e');
     }
   }
 
@@ -792,7 +792,7 @@ class _PreRegistrationFormWidgetState extends State<PreRegistrationFormWidget> {
                 Expanded(
                   child: DropdownButtonFormField<String>(
                     decoration: _inputDecoration('İl', Icons.map_outlined),
-                    value: _selectedCity,
+                    initialValue: _selectedCity,
                     items: const [DropdownMenuItem(value: 'ANKARA', child: Text('ANKARA'))],
                     onChanged: (v) => setState(() => _selectedCity = v!),
                   ),
@@ -801,7 +801,7 @@ class _PreRegistrationFormWidgetState extends State<PreRegistrationFormWidget> {
                 Expanded(
                   child: DropdownButtonFormField<String>(
                     decoration: _inputDecoration('İlçe', Icons.location_city_outlined),
-                    value: _selectedDistrict,
+                    initialValue: _selectedDistrict,
                     items: _ankaraDistricts.map((d) => DropdownMenuItem(value: d, child: Text(d))).toList(),
                     onChanged: (v) => setState(() => _selectedDistrict = v),
                     validator: (v) => v == null ? 'Gerekli' : null,

@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -158,7 +158,7 @@ class _MentorStudyProgramsSubHubScreenState
         if (processCount % 15 == 0) {
           await Future.delayed(Duration.zero);
         }
-        final data = doc.data() as Map<String, dynamic>;
+        final data = doc.data();
         final studentId = data['studentId']?.toString();
         if (_assignedStudentIds.isNotEmpty &&
             !_assignedStudentIds.contains(studentId)) {
@@ -462,7 +462,7 @@ class _MentorStudyProgramsSubHubScreenState
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
+              color: color.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(icon, color: color, size: 24),

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'edukn_logo.dart';
+import 'school_logo.dart';
 
 /// Standart eduKN AppBar widget'ı.
 ///
@@ -32,6 +32,9 @@ import 'edukn_logo.dart';
 class EduknAppBar extends StatelessWidget implements PreferredSizeWidget {
   /// Ana başlık (sayfa adı)
   final String title;
+
+  /// Opsiyonel kurum ID (okul logosunu doğrudan çekmek için)
+  final String? institutionId;
 
   /// Opsiyonel alt başlık (okul türü adı vb.)
   final String? subtitle;
@@ -75,6 +78,7 @@ class EduknAppBar extends StatelessWidget implements PreferredSizeWidget {
   const EduknAppBar({
     super.key,
     required this.title,
+    this.institutionId,
     this.subtitle,
     this.actions,
     this.showBackButton = true,
@@ -125,23 +129,23 @@ class EduknAppBar extends StatelessWidget implements PreferredSizeWidget {
     Widget titleWidget = Row(
       children: [
         if (showLogo) ...[
-          const EduKnLogo(iconSize: 24, type: EduKnLogoType.iconOnly),
-          const SizedBox(width: 8),
           if (!isMobile) ...[
-            Text(
-              'eduKN',
-              style: TextStyle(
-                color: foregroundColor ?? Colors.indigo.shade900,
-                fontWeight: FontWeight.w900,
-                letterSpacing: -0.5,
-                fontSize: 18,
-              ),
+            SchoolLogoImage(
+              institutionId: institutionId,
+              width: 200,
+              height: 34,
             ),
             const SizedBox(width: 12),
             Container(width: 1, height: 20, color: Colors.indigo.withValues(alpha: 0.1)),
             const SizedBox(width: 12),
           ] else ...[
-            const SizedBox(width: 4),
+            SchoolLogoImage(
+              institutionId: institutionId,
+              width: 70,
+              height: 32,
+              compact: true,
+            ),
+            const SizedBox(width: 12),
           ],
         ],
         Expanded(

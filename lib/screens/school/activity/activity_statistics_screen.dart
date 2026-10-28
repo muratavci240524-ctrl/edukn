@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -24,8 +24,8 @@ class _ActivityStatisticsScreenState extends State<ActivityStatisticsScreen> {
 
   // Data
   List<ActivityObservation> _allActivities = [];
-  Map<String, int> _studentActivityCounts = {}; // studentId -> count
-  Map<String, int> _studentObservationCounts = {}; // studentId -> count
+  final Map<String, int> _studentActivityCounts = {}; // studentId -> count
+  final Map<String, int> _studentObservationCounts = {}; // studentId -> count
   List<Map<String, dynamic>> _students = [];
 
   @override
@@ -281,7 +281,7 @@ class _ActivityStatisticsScreenState extends State<ActivityStatisticsScreen> {
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: color.withOpacity(0.3)),
+            border: Border.all(color: color.withValues(alpha: 0.3)),
           ),
           child: ListView.separated(
             padding: const EdgeInsets.all(8),

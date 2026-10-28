@@ -14,7 +14,7 @@ import '../guidance/guidance_test_catalog_screen.dart';
 import '../guidance/reports/development_report_management_screen.dart';
 import '../school/tasks/todo_list_screen.dart';
 import 'teacher_portfolio_screen.dart';
-import '../../widgets/edukn_logo.dart';
+import '../../widgets/edukn_app_bar.dart';
 import '../school/work_calendar_screen.dart';
 import '../school/attendance_statistics_screen.dart';
 import '../school/homework/homework_operations_screen.dart';
@@ -24,6 +24,7 @@ import '../../services/user_permission_service.dart';
 import '../../services/term_service.dart';
 import '../hr/leave/leave_management_screen.dart';
 import 'teacher_duty_screen.dart';
+import 'teacher_proctoring_screen.dart';
 import '../school/tasks/field_trip_list_screen.dart';
 import '../school/assessment/assessment_reports_screen.dart';
 import 'teacher_qr_scan_screen.dart';
@@ -47,7 +48,7 @@ class TeacherOperationsScreen extends StatefulWidget {
 class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
   String? _expandedCategory;
   String _selectedCategory = 'Tümü';
-  bool _isNavigating = false;
+  final bool _isNavigating = false;
 
   static List<Map<String, String>>? _cachedTeacherSchoolTypes;
 
@@ -60,7 +61,7 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
   void _preloadTeacherSchoolTypes() async {
     try {
       await _getTeacherSchoolTypesWithNames();
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[teacher_operations_screen] hata yutuldu: $silentError'); }
   }
 
   Future<List<Map<String, String>>> _getTeacherSchoolTypesWithNames() async {
@@ -83,7 +84,7 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
           return list;
         }
       }
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[teacher_operations_screen] hata yutuldu: $silentError'); }
 
     final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
     final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
@@ -136,7 +137,7 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       try {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('cached_teacher_school_types_${user.uid}', json.encode(result));
-      } catch (_) {}
+      } catch (silentError) { debugPrint('[teacher_operations_screen] hata yutuldu: $silentError'); }
     }
     return result;
   }
@@ -187,7 +188,7 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
           if (stId != null && stId.isNotEmpty) foundTypes.add(stId);
         }
       }
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[teacher_operations_screen] hata yutuldu: $silentError'); }
 
     // İsim bazlı arama (Failsafe)
     if (foundTypes.isEmpty && fullName.isNotEmpty) {
@@ -201,11 +202,11 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
             .get()));
         for (var snap in nameSnaps) {
           for (var doc in snap.docs) {
-            final stId = (doc.data() as Map<String, dynamic>)['schoolTypeId']?.toString();
+            final stId = (doc.data())['schoolTypeId']?.toString();
             if (stId != null && stId.isNotEmpty) foundTypes.add(stId);
           }
         }
-      } catch (_) {}
+      } catch (silentError) { debugPrint('[teacher_operations_screen] hata yutuldu: $silentError'); }
     }
 
     // classSchedules üzerinden okul türü tespiti
@@ -220,11 +221,11 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
         final csSnaps = await Future.wait(csQueries);
         for (var snap in csSnaps) {
           for (var doc in snap.docs) {
-            final stId = (doc.data() as Map<String, dynamic>)['schoolTypeId']?.toString();
+            final stId = (doc.data())['schoolTypeId']?.toString();
             if (stId != null && stId.isNotEmpty) foundTypes.add(stId);
           }
         }
-      } catch (_) {}
+      } catch (silentError) { debugPrint('[teacher_operations_screen] hata yutuldu: $silentError'); }
     }
 
     // Kurumun okul türleri genel fallback
@@ -237,7 +238,7 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
         for (var doc in stSnap.docs) {
           foundTypes.add(doc.id);
         }
-      } catch (_) {}
+      } catch (silentError) { debugPrint('[teacher_operations_screen] hata yutuldu: $silentError'); }
     }
 
     return foundTypes.toList();
@@ -269,7 +270,7 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
           return list;
         }
       }
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[teacher_operations_screen] hata yutuldu: $silentError'); }
 
     final Set<String> validTeacherIds = {user.uid};
     final docId = userData?['id']?.toString();
@@ -366,7 +367,7 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
       try {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('cached_assigned_classes_${user.uid}_$termId', json.encode(result));
-      } catch (_) {}
+      } catch (silentError) { debugPrint('[teacher_operations_screen] hata yutuldu: $silentError'); }
     }
     return result;
   }
@@ -439,150 +440,123 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final bool isMobile = MediaQuery.of(context).size.width < 1100;
-
-    return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        backgroundColor: Colors.white.withOpacity(0.95),
-        surfaceTintColor: Colors.transparent,
-        automaticallyImplyLeading: false,
-        shape: Border(bottom: BorderSide(color: Colors.indigo.withOpacity(0.05))),
-        flexibleSpace: Stack(
-          children: [
-            Positioned(
-              left: 16,
-              top: 0,
-              bottom: 0,
-              child: Row(
+  Widget _buildProfileButton() {
+    return PopupMenuButton<String>(
+      offset: const Offset(0, 48),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 8,
+      shadowColor: Colors.black.withValues(alpha: 0.12),
+      onSelected: (value) {
+        if (value == 'profile') {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (ctx) => const ProfileSettingsScreen(),
+            ),
+          );
+        } else if (value == 'qr_scan') {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (ctx) => const TeacherQrScanScreen(),
+            ),
+          );
+        } else if (value == 'logout') {
+          _logout();
+        }
+      },
+      itemBuilder: (BuildContext context) => [
+        PopupMenuItem<String>(
+          value: 'profile',
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: Colors.indigo.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(Icons.person_outline_rounded, color: Colors.indigo.shade700, size: 18),
+              ),
+              const SizedBox(width: 12),
+              const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const SizedBox(width: 8),
-                  const EduKnLogo(iconSize: 28, type: EduKnLogoType.iconOnly),
-                  const SizedBox(width: 8),
-                  if (!isMobile) ...[
-                    Text(
-                      'eduKN',
-                      style: TextStyle(
-                        color: Colors.indigo.shade900,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: -0.5,
-                        fontSize: 20,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Container(width: 1, height: 24, color: Colors.indigo.withOpacity(0.1)),
-                    const SizedBox(width: 16),
-                  ] else ...[
-                    const SizedBox(width: 4),
-                  ],
-                  Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Öğretmen İşlemleri',
-                        style: TextStyle(
-                          color: Colors.indigo.shade900,
-                          fontSize: isMobile ? 15 : 16,
-                          fontWeight: FontWeight.w900,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      Text(
-                        'Size Tanımlı Modüller',
-                        style: TextStyle(
-                          color: Colors.indigo.shade400,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
+                  Text('Profilim', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  Text('Profili Düzenle', style: TextStyle(fontSize: 11, color: Colors.blueGrey)),
                 ],
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-        actions: [
-          PopupMenuButton<String>(
-            offset: const Offset(0, 48),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            elevation: 8,
-            shadowColor: Colors.black.withOpacity(0.12),
-            onSelected: (value) {
-              if (value == 'profile') {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (ctx) => const ProfileSettingsScreen(),
-                  ),
-                );
-              } else if (value == 'qr_scan') {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (ctx) => const TeacherQrScanScreen(),
-                  ),
-                );
-              } else if (value == 'logout') {
-                _logout();
-              }
-            },
-            itemBuilder: (BuildContext context) => [
-              PopupMenuItem<String>(
-                value: 'profile',
-                child: Row(
-                  children: [
-                    Container(padding: const EdgeInsets.all(7), decoration: BoxDecoration(color: Colors.indigo.shade50, borderRadius: BorderRadius.circular(8)), child: Icon(Icons.person_outline_rounded, color: Colors.indigo.shade700, size: 18)),
-                    const SizedBox(width: 12),
-                    const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text('Profilim', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                      Text('Profili Düzenle', style: TextStyle(fontSize: 11, color: Colors.blueGrey)),
-                    ]),
-                  ],
+        const PopupMenuDivider(),
+        PopupMenuItem<String>(
+          value: 'qr_scan',
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
                 ),
+                child: Icon(Icons.qr_code_scanner_rounded, color: Colors.orange.shade700, size: 18),
               ),
-              const PopupMenuDivider(),
-              PopupMenuItem<String>(
-                value: 'qr_scan',
-                child: Row(
-                  children: [
-                    Container(padding: const EdgeInsets.all(7), decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(8)), child: Icon(Icons.qr_code_scanner_rounded, color: Colors.orange.shade700, size: 18)),
-                    const SizedBox(width: 12),
-                    const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text('Giriş / Çıkış (QR)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                      Text('Kamera ile QR tarama', style: TextStyle(fontSize: 11, color: Colors.blueGrey)),
-                    ]),
-                  ],
-                ),
-              ),
-              const PopupMenuDivider(),
-              PopupMenuItem<String>(
-                value: 'logout',
-                child: Row(
-                  children: [
-                    Container(padding: const EdgeInsets.all(7), decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(8)), child: Icon(Icons.logout_rounded, color: Colors.red.shade600, size: 18)),
-                    const SizedBox(width: 12),
-                    Text('Çıkış Yap', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.red.shade700)),
-                  ],
-                ),
+              const SizedBox(width: 12),
+              const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Giriş / Çıkış (QR)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  Text('Kamera ile QR tarama', style: TextStyle(fontSize: 11, color: Colors.blueGrey)),
+                ],
               ),
             ],
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: CircleAvatar(
-                radius: 17,
-                backgroundColor: Colors.indigo.shade50,
-                child: const Icon(Icons.person, color: Colors.indigo, size: 18),
-              ),
-            ),
           ),
-        ],
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem<String>(
+          value: 'logout',
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(Icons.logout_rounded, color: Colors.red.shade600, size: 18),
+              ),
+              const SizedBox(width: 12),
+              Text('Çıkış Yap', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.red.shade700)),
+            ],
+          ),
+        ),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: CircleAvatar(
+          radius: 17,
+          backgroundColor: Colors.indigo.shade50,
+          child: const Icon(Icons.person, color: Colors.indigo, size: 18),
+        ),
       ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: widget.showAppBar
+          ? EduknAppBar(
+              institutionId: widget.institutionId,
+              title: 'Öğretmen İşlemleri',
+              subtitle: 'Size Tanımlı Modüller',
+              showBackButton: false,
+              actions: [
+                _buildProfileButton(),
+              ],
+            )
+          : null,
       body: Stack(
         children: [
           Positioned.fill(
@@ -1189,6 +1163,28 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     }
   }
 
+  Future<void> _navigateToTeacherProctoring() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      final userData = UserPermissionService.getCachedUserData() ?? await UserPermissionService.loadUserData();
+      final instId = (userData?['institutionId'] ?? widget.institutionId).toString().toUpperCase();
+
+      if (mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (ctx) => TeacherProctoringScreen(
+              institutionId: instId,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error navigating to proctoring: $e');
+    }
+  }
+
   Future<void> _navigateToLeaveManagement() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -1316,8 +1312,8 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
                         boxShadow: [
                           BoxShadow(
                             color: isSelected
-                                ? Colors.indigo.withOpacity(0.3)
-                                : Colors.black.withOpacity(0.05),
+                                ? Colors.indigo.withValues(alpha: 0.3)
+                                : Colors.black.withValues(alpha: 0.05),
                             blurRadius: 8,
                             offset: const Offset(0, 4),
                           ),
@@ -1419,6 +1415,7 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     final List<Map<String, dynamic>> gorevItems = [
       if (UserPermissionService.hasTeacherModuleAccess('gorevlendirme_ve_izin', subModuleKey: 'nobetlerim'))
         {'title': 'Nöbetlerim', 'onTap': _navigateToTeacherDuty},
+      {'title': 'Gözetmenlik Görevlerim', 'onTap': _navigateToTeacherProctoring},
       if (UserPermissionService.hasTeacherModuleAccess('gorevlendirme_ve_izin', subModuleKey: 'izin_islemleri'))
         {'title': 'İzin İşlemleri', 'onTap': _navigateToLeaveManagement},
       if (UserPermissionService.hasTeacherModuleAccess('gorevlendirme_ve_izin', subModuleKey: 'yapilacaklar'))
@@ -1430,6 +1427,14 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
     final List<Map<String, dynamic>> araclarItems = [
       if (UserPermissionService.hasTeacherModuleAccess('araclar', subModuleKey: 'sinif_ici_yonetim'))
         {'title': 'Sınıf İçi Yönetim ve Etkileşim', 'onTap': () => _navigateToTools(0)},
+      if (UserPermissionService.hasTeacherModuleAccess('araclar', subModuleKey: 'sinav_gozetmenlik'))
+        {'title': 'Sınav ve Gözetmenlik', 'onTap': () => _navigateToTools(1)},
+      if (UserPermissionService.hasTeacherModuleAccess('araclar', subModuleKey: 'akademik_olcme'))
+        {'title': 'Akademik Ölçme ve Başarı Takibi', 'onTap': () => _navigateToTools(2)},
+      if (UserPermissionService.hasTeacherModuleAccess('araclar', subModuleKey: 'evrak_sablon'))
+        {'title': 'Evrak, Liste ve Şablon Otomasyonları', 'onTap': () => _navigateToTools(3)},
+      if (UserPermissionService.hasTeacherModuleAccess('araclar', subModuleKey: 'online_hizmetler'))
+        {'title': 'Online Hizmetler', 'onTap': () => _navigateToTools(5)},
       if (UserPermissionService.hasTeacherModuleAccess('araclar', subModuleKey: 'notlarim'))
         {'title': 'Notlarım', 'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PersonalNotesScreen()))},
     ];
@@ -1485,7 +1490,13 @@ class _TeacherOperationsScreenState extends State<TeacherOperationsScreen> {
           category: 'Araçlar',
           showAllItems: isFiltered,
           items: araclarItems,
-          onTap: () => setState(() => _selectedCategory = 'Araçlar'),
+          onTap: () {
+            if (_selectedCategory == 'Araçlar') {
+              _navigateToTools(0);
+            } else {
+              setState(() => _selectedCategory = 'Araçlar');
+            }
+          },
         ),
     ];
 
@@ -1568,10 +1579,9 @@ class _ModuleCardWidget extends StatefulWidget {
     required this.onTap,
     required this.cardWidth,
     required this.isMobile,
-    this.buttonLabel,
     required this.category,
     this.showAllItems = false,
-  }) : super(key: key);
+  }) : buttonLabel = null, super(key: key);
   @override State<_ModuleCardWidget> createState() => _ModuleCardWidgetState();
 }
 
@@ -1591,13 +1601,13 @@ class _ModuleCardWidgetState extends State<_ModuleCardWidget> {
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(isCardHovered || widget.showAllItems ? 0.08 : 0.03),
+              color: Colors.black.withValues(alpha: isCardHovered || widget.showAllItems ? 0.08 : 0.03),
               blurRadius: isCardHovered || widget.showAllItems ? 30 : 20,
               offset: const Offset(0, 10),
             ),
           ],
           border: Border.all(
-            color: isCardHovered || widget.showAllItems ? widget.color.withOpacity(0.3) : Colors.indigo.withOpacity(0.05),
+            color: isCardHovered || widget.showAllItems ? widget.color.withValues(alpha: 0.3) : Colors.indigo.withValues(alpha: 0.05),
             width: 1.5,
           ),
         ),
@@ -1612,7 +1622,7 @@ class _ModuleCardWidgetState extends State<_ModuleCardWidget> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: widget.color.withOpacity(0.1),
+                    color: widget.color.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Icon(widget.icon, color: widget.color, size: 28),
@@ -1620,7 +1630,7 @@ class _ModuleCardWidgetState extends State<_ModuleCardWidget> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: widget.color.withOpacity(0.1),
+                    color: widget.color.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(

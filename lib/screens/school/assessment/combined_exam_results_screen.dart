@@ -43,7 +43,7 @@ class _CombinedExamResultsScreenState extends State<CombinedExamResultsScreen>
   // Data
   List<TrialExam> _allExams = [];
   List<TrialExam> _filteredExams = [];
-  Set<String> _selectedExamIds = {};
+  final Set<String> _selectedExamIds = {};
   List<String> _branches = ['Tümü'];
 
   // Aggregated Data
@@ -56,9 +56,9 @@ class _CombinedExamResultsScreenState extends State<CombinedExamResultsScreen>
   String _selectedAnalysisSubject = 'Tümü';
   Map<String, Map<String, dynamic>> _topicStats =
       {}; // subject -> topicName -> stats
-  Map<String, Map<String, double>> _subjectExamStats =
+  final Map<String, Map<String, double>> _subjectExamStats =
       {}; // examId -> subjectName -> netAvg
-  Map<String, Map<String, double>> _branchExamStats =
+  final Map<String, Map<String, double>> _branchExamStats =
       {}; // examId -> branchName -> netAvg
 
   // Tabs
@@ -116,7 +116,7 @@ class _CombinedExamResultsScreenState extends State<CombinedExamResultsScreen>
         }
       });
     } catch (e) {
-      print('Error loading exams: $e');
+      debugPrint('Error loading exams: $e');
     }
   }
 
@@ -143,7 +143,7 @@ class _CombinedExamResultsScreenState extends State<CombinedExamResultsScreen>
         });
       }
     } catch (e) {
-      print('Error loading branches: $e');
+      debugPrint('Error loading branches: $e');
     }
   }
 
@@ -380,7 +380,7 @@ class _CombinedExamResultsScreenState extends State<CombinedExamResultsScreen>
             }
           }
         } catch (e) {
-          print('Error parsing JSON for exam ${exam.id}: $e');
+          debugPrint('Error parsing JSON for exam ${exam.id}: $e');
         }
       }
     }
@@ -649,7 +649,7 @@ class _CombinedExamResultsScreenState extends State<CombinedExamResultsScreen>
         }
       }
     } catch (e) {
-      print('Error parsing topic stats: $e');
+      debugPrint('Error parsing topic stats: $e');
     }
     return {'stats': stats};
   }
@@ -763,7 +763,7 @@ class _CombinedExamResultsScreenState extends State<CombinedExamResultsScreen>
     Function(T?) onChanged,
   ) {
     return DropdownButtonFormField<T>(
-      value: value,
+      initialValue: value,
       items: items,
       onChanged: onChanged,
       dropdownColor: Colors.indigo.shade700,
@@ -893,13 +893,13 @@ class _CombinedExamResultsScreenState extends State<CombinedExamResultsScreen>
           Container(
             padding: EdgeInsets.all(32),
             decoration: BoxDecoration(
-              color: Colors.indigo.withOpacity(0.05),
+              color: Colors.indigo.withValues(alpha: 0.05),
               shape: BoxShape.circle,
             ),
             child: Icon(
               Icons.auto_awesome_motion,
               size: 80,
-              color: Colors.indigo.withOpacity(0.4),
+              color: Colors.indigo.withValues(alpha: 0.4),
             ),
           ),
           SizedBox(height: 24),
@@ -1020,7 +1020,7 @@ class _CombinedExamResultsScreenState extends State<CombinedExamResultsScreen>
     return Container(
       width: 180,
       child: DropdownButtonFormField<String>(
-        value: _selectedBranch,
+        initialValue: _selectedBranch,
         items: _branches
             .map(
               (b) => DropdownMenuItem(
@@ -1442,7 +1442,7 @@ class _CombinedExamResultsScreenState extends State<CombinedExamResultsScreen>
 
   void _showFullImprovementReport() {
     List<Map<String, dynamic>> allImprovements = [];
-    _aggregatedResults.forEach((res) {
+    for (var res in _aggregatedResults) {
       final exams = res['exams'] as Map;
       if (exams.length >= 2) {
         final sortedExams = exams.keys.toList()
@@ -1461,7 +1461,7 @@ class _CombinedExamResultsScreenState extends State<CombinedExamResultsScreen>
           'improvement': lastNet - firstNet,
         });
       }
-    });
+    }
 
     allImprovements.sort(
       (a, b) =>
@@ -1594,7 +1594,7 @@ class _CombinedExamResultsScreenState extends State<CombinedExamResultsScreen>
             'Analiz_Raporu_${tabName}_${DateFormat('dd_MM_yyyy').format(DateTime.now())}',
       );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('PDF oluşturulurken hata oluştu: $e')),
       );
     }
@@ -1929,7 +1929,7 @@ class _CombinedExamResultsScreenState extends State<CombinedExamResultsScreen>
             Container(
               padding: EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
+                color: color.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
               child: Icon(icon, color: color),
@@ -2185,7 +2185,7 @@ class _CombinedExamResultsScreenState extends State<CombinedExamResultsScreen>
                     getTooltipItems: (touchedSpots) {
                       return touchedSpots.map((spot) {
                         // Cast to LineBarSpot to get barIndex
-                        final splitSpot = spot as LineBarSpot;
+                        final splitSpot = spot;
                         final String branchName =
                             activeBranches[splitSpot.barIndex];
                         return LineTooltipItem(
@@ -2997,7 +2997,7 @@ class _CombinedExamResultsScreenState extends State<CombinedExamResultsScreen>
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: col.withOpacity(0.1),
+        color: col.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(

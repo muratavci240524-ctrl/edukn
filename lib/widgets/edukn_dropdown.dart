@@ -26,7 +26,7 @@ class EduKnDropdown<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DropdownButtonFormField<T>(
-      value: value,
+      initialValue: value,
       isExpanded: isExpanded,
       borderRadius: BorderRadius.circular(16),
       menuMaxHeight: 300,

@@ -1,6 +1,5 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:intl/intl.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 
 class CurriculumTrackingScreen extends StatefulWidget {
@@ -127,7 +126,7 @@ class _CurriculumTrackingScreenState extends State<CurriculumTrackingScreen> {
         _loading = false;
       });
     } catch (e) {
-      print('Kazanım takip verileri yüklenirken hata oluştu: $e');
+      debugPrint('Kazanım takip verileri yüklenirken hata oluştu: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Veriler yüklenemedi: $e'), backgroundColor: Colors.red),
@@ -223,7 +222,7 @@ class _CurriculumTrackingScreenState extends State<CurriculumTrackingScreen> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.indigo.shade200.withOpacity(0.4),
+            color: Colors.indigo.shade200.withValues(alpha: 0.4),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -256,7 +255,7 @@ class _CurriculumTrackingScreenState extends State<CurriculumTrackingScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.15),
+                  color: Colors.white.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
@@ -289,7 +288,7 @@ class _CurriculumTrackingScreenState extends State<CurriculumTrackingScreen> {
   Widget _buildFilterBar(List<String> levels) {
     Widget buildLevelDropdown() {
       return DropdownButtonFormField<String>(
-        value: _selectedLevel,
+        initialValue: _selectedLevel,
         isExpanded: true,
         menuMaxHeight: 250,
         borderRadius: BorderRadius.circular(12),
@@ -330,7 +329,7 @@ class _CurriculumTrackingScreenState extends State<CurriculumTrackingScreen> {
 
     Widget buildLessonDropdown() {
       return DropdownButtonFormField<String>(
-        value: _selectedLessonId,
+        initialValue: _selectedLessonId,
         isExpanded: true,
         menuMaxHeight: 250,
         borderRadius: BorderRadius.circular(12),
@@ -381,7 +380,7 @@ class _CurriculumTrackingScreenState extends State<CurriculumTrackingScreen> {
           // Period Filter Dropdown
           if (_workPeriods.isNotEmpty) ...[
             DropdownButtonFormField<String>(
-              value: _selectedPeriodId,
+              initialValue: _selectedPeriodId,
               isExpanded: true,
               menuMaxHeight: 250,
               borderRadius: BorderRadius.circular(12),

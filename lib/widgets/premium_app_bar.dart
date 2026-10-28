@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:intl/intl.dart';
 import 'edukn_logo.dart';
+import 'school_logo.dart';
 import '../screens/school/school_types/student_promotion_transfer_screens.dart';
 import 'user_avatar.dart';
 import '../services/user_permission_service.dart';
@@ -257,11 +257,11 @@ class _PremiumAppBarState extends State<PremiumAppBar> {
                           TermService().clearCache();
 
                           setState(() => _selectedTerm = term);
-                          Navigator.pop(context);
+                          if (mounted) Navigator.pop(context);
                           if (widget.onTermChanged != null) {
                             widget.onTermChanged!();
                           }
-                          ScaffoldMessenger.of(context).showSnackBar(
+                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text(
                                 isActive
@@ -419,14 +419,14 @@ class _PremiumAppBarState extends State<PremiumAppBar> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.05),
+          color: color.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withOpacity(0.15)),
+          border: Border.all(color: color.withValues(alpha: 0.15)),
         ),
         child: Row(
           children: [
             CircleAvatar(
-              backgroundColor: color.withOpacity(0.12),
+              backgroundColor: color.withValues(alpha: 0.12),
               radius: 18,
               child: Icon(icon, color: color, size: 20),
             ),
@@ -440,7 +440,7 @@ class _PremiumAppBarState extends State<PremiumAppBar> {
                 ],
               ),
             ),
-            Icon(Icons.chevron_right_rounded, color: color.withOpacity(0.5), size: 20),
+            Icon(Icons.chevron_right_rounded, color: color.withValues(alpha: 0.5), size: 20),
           ],
         ),
       ),
@@ -549,7 +549,7 @@ class _PremiumAppBarState extends State<PremiumAppBar> {
                     _overlaySetState = setOverlayState;
                     return Material(
                       elevation: 8,
-                      shadowColor: Colors.black.withOpacity(0.05),
+                      shadowColor: Colors.black.withValues(alpha: 0.05),
                       borderRadius: BorderRadius.circular(24),
                       color: Colors.white,
                       child: Container(
@@ -569,7 +569,7 @@ class _PremiumAppBarState extends State<PremiumAppBar> {
                                   shrinkWrap: true,
                                   padding: const EdgeInsets.symmetric(vertical: 12),
                                   itemCount: _searchResults.length,
-                                  separatorBuilder: (_, __) => Divider(height: 1, color: Colors.indigo.withOpacity(0.05)),
+                                  separatorBuilder: (_, __) => Divider(height: 1, color: Colors.indigo.withValues(alpha: 0.05)),
                                   itemBuilder: (_, index) {
                                     final item = _searchResults[index];
                                     final isStudent = item['type'] == 'student';
@@ -629,7 +629,7 @@ class _PremiumAppBarState extends State<PremiumAppBar> {
                       _overlaySetState = setOverlayState;
                       return Material(
                         elevation: 8,
-                        shadowColor: Colors.black.withOpacity(0.05),
+                        shadowColor: Colors.black.withValues(alpha: 0.05),
                         borderRadius: BorderRadius.circular(24),
                         color: Colors.white,
                         child: Container(
@@ -649,7 +649,7 @@ class _PremiumAppBarState extends State<PremiumAppBar> {
                                     shrinkWrap: true,
                                     padding: const EdgeInsets.symmetric(vertical: 12),
                                     itemCount: _searchResults.length,
-                                    separatorBuilder: (_, __) => Divider(height: 1, color: Colors.indigo.withOpacity(0.05)),
+                                    separatorBuilder: (_, __) => Divider(height: 1, color: Colors.indigo.withValues(alpha: 0.05)),
                                     itemBuilder: (_, index) {
                                       final item = _searchResults[index];
                                       final isStudent = item['type'] == 'student';
@@ -792,7 +792,7 @@ class _PremiumAppBarState extends State<PremiumAppBar> {
       offset: const Offset(0, 48),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       elevation: 8,
-      shadowColor: Colors.black.withOpacity(0.12),
+      shadowColor: Colors.black.withValues(alpha: 0.12),
       onSelected: (value) {
         if (value == 'profile') {
           Navigator.push(
@@ -1047,8 +1047,8 @@ class _PremiumAppBarState extends State<PremiumAppBar> {
       height: kToolbarHeight + MediaQuery.of(context).padding.top,
       padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.95),
-        border: Border(bottom: BorderSide(color: Colors.indigo.withOpacity(0.05))),
+        color: Colors.white.withValues(alpha: 0.95),
+        border: Border(bottom: BorderSide(color: Colors.indigo.withValues(alpha: 0.05))),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1067,23 +1067,23 @@ class _PremiumAppBarState extends State<PremiumAppBar> {
                   onPressed: () => Navigator.maybePop(context),
                 ),
               const SizedBox(width: 8),
-              const EduKnLogo(iconSize: 28, type: EduKnLogoType.iconOnly),
-              const SizedBox(width: 8),
               if (!isMobile) ...[
-                Text(
-                  'eduKN',
-                  style: TextStyle(
-                    color: Colors.indigo.shade900,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -0.5,
-                    fontSize: 20,
-                  ),
+                SchoolLogoImage(
+                  institutionId: widget.institutionId,
+                  width: 220,
+                  height: 38,
                 ),
                 const SizedBox(width: 16),
-                Container(width: 1, height: 24, color: Colors.indigo.withOpacity(0.1)),
+                Container(width: 1, height: 24, color: Colors.indigo.withValues(alpha: 0.1)),
                 const SizedBox(width: 16),
               ] else ...[
-                const SizedBox(width: 4),
+                SchoolLogoImage(
+                  institutionId: widget.institutionId,
+                  width: 70,
+                  height: 32,
+                  compact: true,
+                ),
+                const SizedBox(width: 12),
               ],
               if (isMobile) ...[
                 Expanded(

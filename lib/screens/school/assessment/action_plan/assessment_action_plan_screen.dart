@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
@@ -6,10 +7,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../services/assessment_service.dart';
 import '../../../../services/term_service.dart';
 import '../../../../models/assessment/trial_exam_model.dart';
-import '../../../../models/lesson_model.dart';
 import '../../../../widgets/edukn_logo.dart';
 import '../../../../models/assessment/assessment_action_plan_model.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../../../../services/user_permission_service.dart';
+import '../../../../services/course_track_resolver.dart';
 class AssessmentActionPlanScreen extends StatefulWidget {
   final String institutionId;
   final String schoolTypeId;
@@ -43,6 +45,13 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
   late TabController _tabController;
   String _userName = 'Yükleniyor...';
 
+  // Auto-save state
+  String? _planId;
+  Future<String?>? _createFuture;
+  bool _isAutoSaving = false;
+  DateTime? _lastSaved;
+  Map<String, dynamic> _studentInfo = {};
+
   @override
   void initState() {
     super.initState();
@@ -63,15 +72,47 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
-        final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-        if (mounted) {
+        String resolvedName = await UserPermissionService.resolveUserFullName(
+          user.uid,
+          institutionId: widget.institutionId,
+          fallback: '',
+        );
+        if (resolvedName.isEmpty || resolvedName == 'Sistem Yöneticisi') {
+          final ud = await UserPermissionService.loadUserData();
+          resolvedName = (ud?['fullName'] ?? ud?['displayName'] ?? ud?['name'] ?? '').toString().trim();
+          if (resolvedName.isEmpty && (ud?['role'] == 'admin' || ud?['role'] == 'superadmin')) {
+            resolvedName = (ud?['adminFullName'] ?? ud?['schoolName'] ?? '').toString().trim();
+          }
+        }
+        if ((resolvedName.isEmpty || resolvedName == 'Sistem Yöneticisi') &&
+            user.displayName != null &&
+            user.displayName!.trim().isNotEmpty) {
+          resolvedName = user.displayName!.trim();
+        }
+
+        if (resolvedName.isNotEmpty &&
+            resolvedName != 'Sistem Yöneticisi' &&
+            resolvedName != 'Kullanıcı' &&
+            mounted) {
           setState(() {
-            _userName = doc.data()?['name'] ?? doc.data()?['displayName'] ?? 'Kullanıcı';
+            _userName = resolvedName;
           });
+
+          // Eski kayıtlarda 'Kullanıcı' veya 'Sistem Yöneticisi' olarak kalmış plan varsa veritabanında asıl adla güncelle
+          if (_planId != null && _planId!.isNotEmpty) {
+            final p = widget.existingPlan;
+            if (p != null && (p.creatorName.isEmpty || p.creatorName == 'Kullanıcı' || p.creatorName == 'Sistem Yöneticisi')) {
+              FirebaseFirestore.instance
+                  .collection('assessment_action_plans')
+                  .doc(_planId)
+                  .update({'creatorName': resolvedName})
+                  .catchError((_) {});
+            }
+          }
         }
       }
     } catch (e) {
-      print('Error loading user name: $e');
+      debugPrint('Error loading user name: $e');
     }
   }
 
@@ -97,6 +138,8 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
   
   // Teachers: Map<Branch, Map<Subject, String>>
   Map<String, Map<String, String>> _branchTeachers = {};
+  // Tüm atamalar: [{'cls','lesson','teachers'}] — bulanık eşleşme için
+  List<Map<String, String>> _allAssignments = [];
   // Fallback: Map<Subject, String> — used when branch doesn't match className
   Map<String, String> _subjectTeacherFallback = {};
 
@@ -113,10 +156,11 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
   // Contains: { 'correct': int, 'total': int, 'name': String, 'no': String }
   Map<String, Map<String, Map<String, Map<String, dynamic>>>> _studentSubjectStats = {};
 
-  bool _showOnlyCritical = false;
+  bool _showOnlyCritical = true; // Varsayılan: sadece kritik kazanımlar
+  bool _showOnlyCriticalStudents = true; // Varsayılan: sadece kritik (riskli) öğrenciler
 
   // Student tracking state
-  Set<String> _selectedStudentKeys = {}; // 'branch_subject_studentKey'
+  final Set<String> _selectedStudentKeys = {}; // 'branch_subject_studentKey'
   // studentTasks: 'branch_subject_studentKey' -> List<Map<String,dynamic>>
   // Each task: {'type': String, 'label': String, 'done': bool}
   Map<String, List<Map<String, dynamic>>> _studentTasks = {};
@@ -149,6 +193,129 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
   String? _userRole;
   final Map<String, TextEditingController> _otherActionPlanControllers = {};
 
+  // Öğretmenin kendi ders atamaları: [{'cls': '701', 'lesson': 'Matematik'}]
+  // Rol/atama bilgisi yüklenmeden istatistik hesaplanmasın diye bekletilir.
+  final Completer<void> _rolesReady = Completer<void>();
+  List<Map<String, String>> _myAssignments = [];
+
+  String _normKey(String s) => s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9ığüşöç]'), '');
+
+  /// Normalize edilmiş ders adı İngilizce mi? (ör. "ingilizce", "yabancidilingilizce", "english")
+  bool _isEnglishLesson(String normLesson) =>
+      normLesson.contains('ingilizce') ||
+      normLesson.contains('i̇ngilizce') ||
+      normLesson.contains('english');
+
+  bool _teacherDefaultsApplied = false;
+  bool get _isTeacherRole {
+    final r = (_userRole ?? '').toLowerCase();
+    return r == 'teacher' || r.contains('teacher') || r.contains('öğretmen') || r.contains('ogretmen');
+  }
+
+  // Kurs Listesi (kur) bilgisi: kurlu derslerde şube yerine kur kullanılır.
+  CourseTrackResolver _tracks = CourseTrackResolver.empty;
+  Map<String, TrackSlot> _trackSlotsByLabel = {};
+  Set<String> _myIds = {};
+  Set<String> _myNames = {};
+
+  bool get _restrictToMyClasses =>
+      _isTeacherRole &&
+      (_myAssignments.isNotEmpty || _trackSlotsByLabel.values.any(_slotIsMine));
+
+  bool _slotIsMine(TrackSlot slot) {
+    if (slot.teacherIds.any(_myIds.contains)) return true;
+    return slot.teacherNames.any((t) {
+      final tn = _normKey(t);
+      return tn.isNotEmpty &&
+          _myNames.any((m) {
+            final mn = _normKey(m);
+            return mn.isNotEmpty && (tn == mn || tn.contains(mn) || mn.contains(tn));
+          });
+    });
+  }
+
+  /// Kurs dersi (ör. İngilizce) ise öğrencinin kurs şubesini döndürür;
+  /// kurs dersinde kaydı olmayan öğrenciyi kurs şubesine dahil etmez (null döner).
+  /// Normal derslerde öğrencinin kendi sınıf şubesini (rawBranch) döndürür.
+  String? _trackBranchFor(
+    dynamic result,
+    String subject,
+    String rawBranch, {
+    String? classLevel,
+  }) {
+    if (_tracks.isEmpty) return rawBranch;
+    if (_tracks.hasTrackForBranchOrLevel(
+      subject,
+      rawBranch: rawBranch,
+      classLevel: classLevel,
+    )) {
+      final sid = (result['systemStudentId'] ?? result['studentId'] ?? result['id'] ?? '').toString().trim();
+      final no = (result['studentNo'] ?? result['studentNumber'] ?? result['number'] ?? '').toString().trim();
+      final tc = (result['tcNo'] ?? '').toString().trim();
+      final name = (result['name'] ?? result['studentName'] ?? '').toString().trim();
+
+      final slot = _tracks.slotForStudent(
+        studentId: sid,
+        studentNo: no,
+        tcNo: tc,
+        studentName: name,
+        subject: subject,
+        rawBranch: rawBranch,
+        classLevel: classLevel,
+      );
+      return slot != null ? _trackShortName(slot) : null;
+    }
+    return rawBranch;
+  }
+
+  /// Kurs şubesinin adı (ör. "701", "501", "601"). Şube Eylem Planında şube seçildiğinde
+  /// kurs dersinin de aynı şube altında (o kurs şubesindeki öğrencilerin kazanımlarına göre)
+  /// listelenmesi için doğrudan alt grup adı kullanılır.
+  String _trackShortName(TrackSlot slot) {
+    final sub = slot.subGroupName.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (sub.endsWith(' Kur')) {
+      return sub.substring(0, sub.length - 4).trim();
+    }
+    return sub;
+  }
+
+  /// Şube etiketi + ders için kur (yoksa null).
+  TrackSlot? _trackSlotFor(String branch, String subject) {
+    final cleanBranch = branch.endsWith(' Kur')
+        ? branch.substring(0, branch.length - 4).trim()
+        : branch.trim();
+    for (final s in _trackSlotsByLabel.values) {
+      final short = _trackShortName(s);
+      final rawSub = s.subGroupName.replaceAll(RegExp(r'\s+'), ' ').trim();
+      final matchesBranch = short == cleanBranch ||
+          rawSub == cleanBranch ||
+          s.label == cleanBranch ||
+          s.label == branch;
+      if (matchesBranch && CourseTrackResolver.lessonMatches(s.lessonName, subject)) {
+        return s;
+      }
+    }
+    return null;
+  }
+
+  bool _isMyAssignment(String branch, String subject) {
+    // Kur etiketi ise: kurun öğretmeni ben miyim?
+    final slot = _trackSlotFor(branch, subject);
+    if (slot != null) return _slotIsMine(slot);
+
+    final b = _normKey(branch);
+    final s = _normKey(subject);
+    // Kurs Listesi tanımlıysa İngilizce muafiyeti uygulanmaz (kur üzerinden belirlenir).
+    final englishExempt = _trackSlotsByLabel.isEmpty;
+    return _myAssignments.any((a) {
+      final cb = _normKey(a['cls'] ?? '');
+      final cl = _normKey(a['lesson'] ?? '');
+      final classOk = cb == b || (englishExempt && _isEnglishLesson(cl)); // İngilizce: tüm şubeler muaf
+      final lessonOk = cl.isNotEmpty && s.isNotEmpty && (cl == s || cl.contains(s) || s.contains(cl));
+      return classOk && lessonOk;
+    });
+  }
+
 
 
   @override
@@ -165,9 +332,15 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
     setState(() => _isLoading = true);
     try {
       // Load Exams
-      final activeTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
+      // Existing plans must load their own exams regardless of the currently selected term,
+      // otherwise another user (e.g. admin) with a different term would see an empty plan.
+      final String? activeTermId = widget.existingPlan != null
+          ? null
+          : (await TermService().getSelectedTermId() ?? await TermService().getActiveTermId());
       final examsStream = _service.getTrialExams(widget.institutionId, termId: activeTermId);
-      examsStream.first.then((exams) {
+      examsStream.first.then((exams) async {
+        // Öğretmen atamaları yüklenmeden hesaplama yapılmasın
+        await _rolesReady.future;
         if (mounted) {
           setState(() {
             _allExams = exams;
@@ -200,11 +373,58 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
       // Fallback: subject → teacher (ignoring branch), used when branch doesn't match
       Map<String, String> subjectTeacherFallback = {};
 
+      // Giriş yapan kullanıcının kimliği (öğretmen filtresi için)
+      final authUser = FirebaseAuth.instance.currentUser;
+      String? role;
+      final myIds = <String>{if (authUser != null) authUser.uid};
+      final myNames = <String>{};
+      if (authUser != null) {
+        try {
+          // Gerçek kullanıcı kaydı (users/{uid} olmayabilir; authUserId ile eşleşen aslı doc)
+          final ud = await UserPermissionService.loadUserData();
+          role = ud?['role']?.toString();
+          for (final k in ['id', 'teacherId', 'authUserId', 'originalDocId']) {
+            final v = ud?[k]?.toString() ?? '';
+            if (v.isNotEmpty) myIds.add(v);
+          }
+          for (final k in ['fullName', 'name', 'displayName']) {
+            final v = ud?[k]?.toString().trim() ?? '';
+            if (v.isNotEmpty) myNames.add(v);
+          }
+        } catch (e) {
+          debugPrint('Error loading user doc: $e');
+        }
+      }
+      final List<Map<String, String>> myAssignments = [];
+      final List<Map<String, String>> allAssignments = [];
+
       for (var doc in assignmentsSnapshot.docs) {
         final data = doc.data() as Map<String, dynamic>;
         String className = data['className'] ?? '';
         String lessonName = data['lessonName'] ?? '';
         List<dynamic> teacherNames = data['teacherNames'] ?? [];
+        final List<dynamic> teacherIds = data['teacherIds'] ?? [];
+        
+        if (className.isNotEmpty && lessonName.isNotEmpty && teacherNames.isNotEmpty) {
+          allAssignments.add({
+            'cls': className,
+            'lesson': lessonName,
+            'teachers': teacherNames.join(', '),
+          });
+        }
+
+        if (className.isNotEmpty && lessonName.isNotEmpty) {
+          final mine = teacherIds.any((t) => myIds.contains(t.toString())) ||
+              myIds.contains((data['teacherId'] ?? '').toString()) ||
+              teacherNames.any((t) {
+                final tn = _normKey(t.toString());
+                return tn.isNotEmpty && myNames.any((m) {
+                  final mn = _normKey(m);
+                  return mn.isNotEmpty && (tn == mn || tn.contains(mn) || mn.contains(tn));
+                });
+              });
+          if (mine) myAssignments.add({'cls': className, 'lesson': lessonName});
+        }
         
         if (lessonName.isNotEmpty && teacherNames.isNotEmpty) {
           final teacherStr = teacherNames.join(', ');
@@ -218,28 +438,47 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
         }
       }
 
-      if (mounted) {
-        final user = FirebaseAuth.instance.currentUser;
-        String? role;
-        if (user != null) {
-          final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-          role = userDoc.data()?['role'];
-        }
+      // Kurs Listesi'ndeki kurlar (kurlu dersler için şube yerine kur kullanılır)
+      final tracks = await CourseTrackResolver.load(
+        institutionId: widget.institutionId,
+        schoolTypeId: widget.schoolTypeId,
+      );
 
+      if (mounted) {
         setState(() {
           _branchTeachers = teacherMap;
           _subjectTeacherFallback = subjectTeacherFallback;
           _userRole = role;
+          _myAssignments = myAssignments;
+          _allAssignments = allAssignments;
+          _myIds = myIds;
+          _myNames = myNames;
+          _tracks = tracks;
+          _trackSlotsByLabel = tracks.allSlotsByLabel();
         });
       }
+      if (!_rolesReady.isCompleted) _rolesReady.complete();
     } catch (e) {
-      print('Error loading initial data: $e');
+      debugPrint('Error loading initial data: $e');
+      if (!_rolesReady.isCompleted) _rolesReady.complete();
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
   void _loadExistingPlanData() {
     final plan = widget.existingPlan!;
+    _planId = plan.id;
+    _studentInfo = Map<String, dynamic>.from(plan.studentInfo);
+    if ((plan.creatorName.isEmpty || plan.creatorName == 'Kullanıcı') &&
+        _userName.isNotEmpty &&
+        _userName != 'Yükleniyor...' &&
+        _userName != 'Kullanıcı') {
+      FirebaseFirestore.instance
+          .collection('assessment_action_plans')
+          .doc(plan.id)
+          .update({'creatorName': _userName})
+          .catchError((_) {});
+    }
     setState(() {
       _selectedExamIds = Set.from(plan.selectedExamIds);
       _subjectThresholds = Map.from(plan.subjectThresholds);
@@ -272,105 +511,395 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
     });
   }
 
-  Future<void> _saveActionPlan() async {
-    if (_selectedExamIds.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Lütfen en az bir sınav seçin.')),
-      );
-      return;
-    }
+  // ───────────────────────── AUTO SAVE ─────────────────────────
 
-    // Generate a descriptive title from selected exams
-    String defaultTitle = '';
-    if (widget.existingPlan != null) {
-      defaultTitle = widget.existingPlan!.title;
-    } else {
+  bool get _canAutoSave => widget.existingPlan != null || _userRole != 'teacher';
+
+  Future<String?> _ensurePlanId() async {
+    if (_planId != null) return _planId;
+    if (_selectedExamIds.isEmpty) return null;
+    _createFuture ??= _createPlanDoc();
+    return await _createFuture;
+  }
+
+  Future<String?> _createPlanDoc() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
       final selectedExams = _allExams.where((e) => _selectedExamIds.contains(e.id)).toList();
+      String title;
       if (selectedExams.length == 1) {
-        defaultTitle = '${selectedExams.first.name} Eylem Planı';
+        title = '${selectedExams.first.name} Eylem Planı';
       } else if (selectedExams.length > 1) {
-        defaultTitle = '${selectedExams.length} Sınav Karma Eylem Planı';
+        title = '${selectedExams.length} Sınav Karma Eylem Planı';
       } else {
-        defaultTitle = '${_selectedClassLevel ?? "Tüm"} Sınıflar Eylem Planı';
+        title = '${_selectedClassLevel ?? "Tüm"} Sınıflar Eylem Planı';
       }
-      // Add date
-      defaultTitle += ' - ${DateFormat("dd.MM.yyyy").format(DateTime.now())}';
+      title += ' - ${DateFormat("dd.MM.yyyy").format(DateTime.now())}';
+
+      final plan = AssessmentActionPlan(
+        institutionId: widget.institutionId,
+        schoolTypeId: widget.schoolTypeId,
+        title: title,
+        date: DateTime.now(),
+        createdBy: user?.uid ?? 'anon',
+        creatorName: _userName,
+        selectedExamIds: _selectedExamIds.toList(),
+        selectedExamNames: selectedExams.map((e) => e.name).toList(),
+        classLevel: _selectedClassLevel ?? 'Tümü',
+        subjectThresholds: _subjectThresholds,
+        outcomeStats: _outcomeStats,
+        branchActionPlans: _branchActionPlans,
+        studentTasks: _studentTasks,
+        parentNotified: _parentNotified,
+        studentStatus: _studentStatus,
+        studentInfo: _studentInfo,
+      );
+      final id = await _service.saveAssessmentActionPlan(plan);
+      _planId = id;
+      return id;
+    } catch (e) {
+      _createFuture = null;
+      _showSaveError(e);
+      return null;
     }
+  }
 
-    final titleController = TextEditingController(text: defaultTitle);
-
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: const Text('Eylem Planını Kaydet'),
-        content: TextField(
-          controller: titleController,
-          decoration: const InputDecoration(labelText: 'Plan Başlığı', border: OutlineInputBorder()),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Vazgeç')),
-          ElevatedButton(onPressed: () => Navigator.pop(c, true), child: const Text('Kaydet')),
-        ],
-      ),
+  void _showSaveError(Object e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Otomatik kayıt başarısız: $e'), backgroundColor: Colors.red.shade700),
     );
+  }
 
-    if (result == true) {
-      setState(() => _isProcessing = true);
-      try {
-        final user = FirebaseAuth.instance.currentUser;
-        
-        // Get names of selected exams
-        List<String> selectedNames = _allExams
-            .where((e) => _selectedExamIds.contains(e.id))
-            .map((e) => e.name)
-            .toList();
+  Future<void> _persist(Map<List<String>, dynamic> Function() buildFields) async {
+    if (!_canAutoSave) return;
+    if (mounted) setState(() => _isAutoSaving = true);
+    try {
+      final id = await _ensurePlanId();
+      if (id == null) return;
+      await _service.updateActionPlanFields(id, buildFields());
+      if (mounted) setState(() => _lastSaved = DateTime.now());
+    } catch (e) {
+      _showSaveError(e);
+    } finally {
+      if (mounted) setState(() => _isAutoSaving = false);
+    }
+  }
 
-        // Transition statuses: Hazır -> Uygulanıyor
-        _branchActionPlans.forEach((key, plan) {
-          if (plan['status'] == 'Eylem Planı Hazır') {
-            plan['status'] = 'Uygulanıyor';
+  /// Persists a single branch/outcome action plan entry.
+  void _persistBranchPlan(String key) {
+    final p = _branchActionPlans[key];
+    if (p == null) return;
+    setState(() {
+      // Once an action is defined and saved, the plan moves to "Uygulanıyor".
+      if (p['status'] == 'Eylem Planı Hazır') p['status'] = 'Uygulanıyor';
+      p['updatedBy'] = _userName;
+      p['updatedByRole'] = _userRole ?? '';
+      p['updatedAt'] = DateTime.now().millisecondsSinceEpoch;
+    });
+    _persist(() => {
+          ['branchActionPlans', key]: Map<String, dynamic>.from(p),
+        });
+  }
+
+  Map<String, dynamic>? _resolveStudentInfoFromStats(String key) {
+    for (final b in _studentSubjectStats.keys) {
+      if (!key.startsWith('${b}_')) continue;
+      final subjMap = _studentSubjectStats[b]!;
+      for (final s in subjMap.keys) {
+        final prefix = '${b}_${s}_';
+        if (key.startsWith(prefix)) {
+          final id = key.substring(prefix.length);
+          final data = subjMap[s]?[id];
+          if (data != null) {
+            final rate = _studentRate(data);
+            return <String, dynamic>{
+              'name': (data['name'] ?? '').toString(),
+              'no': (data['no'] ?? '').toString(),
+              'branch': b,
+              'subject': s,
+              'success': double.parse(rate.toStringAsFixed(1)),
+            };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  /// Persists tasks / parent notification of a single student entry.
+  void _persistStudent(String key) {
+    if (_studentInfo[key] is! Map) {
+      final resolved = _resolveStudentInfoFromStats(key);
+      if (resolved != null) {
+        _studentInfo[key] = resolved;
+      }
+    }
+    final info = _studentInfo[key];
+    if (info is Map) {
+      String actor = _userName;
+      final b = (info['branch'] ?? '').toString();
+      final s = (info['subject'] ?? '').toString();
+      if (b.isNotEmpty && s.isNotEmpty) {
+        final t = _getTeacherName(b, s);
+        if (t.isNotEmpty && t != 'Öğretmen Atanmamış') {
+          actor = t;
+        }
+      }
+      info['updatedBy'] = actor;
+      info['updatedAt'] = DateTime.now().millisecondsSinceEpoch;
+    }
+    _persist(() => {
+          ['studentTasks', key]: _studentTasks[key] ?? <Map<String, dynamic>>[],
+          ['parentNotified', key]: _parentNotified[key] ?? false,
+          if (info != null) ['studentInfo', key]: info,
+        });
+  }
+
+  /// Öğrencinin ders (branş) başarısı (%): Performans Özeti ile aynı şekilde
+  /// NET bazlıdır: net / (doğru + yanlış + boş), 0..100 aralığında.
+  double _studentRate(Map data) {
+    final netTotal = (data['netTotal'] ?? 0) as num;
+    if (netTotal <= 0) return 0.0;
+    final net = (data['net'] ?? 0) as num;
+    return ((net / netTotal).clamp(0.0, 1.0).toDouble()) * 100;
+  }
+
+  /// Performans Özeti ile aynı risk kuralı: şube+ders başarı ortalamasının
+  /// %20 ve daha fazla altında kalan öğrenciler riskli sayılır.
+  /// Dönen değer risk sınırıdır (başarı %); ortalama 0 ise null.
+  double? _riskCutoff(Map students) {
+    double sum = 0;
+    int count = 0;
+    students.forEach((_, data) {
+      sum += _studentRate(data);
+      count++;
+    });
+    if (count == 0) return null;
+    final avg = sum / count;
+    if (avg <= 0) return null;
+    return avg * 0.8;
+  }
+
+  /// Builds the list of risky students (used for names in reports), plus any
+  /// non-critical students that were assigned tasks or parent notifications.
+  Map<String, dynamic> _computeStudentInfo() {
+    final Map<String, dynamic> result = {};
+    _studentSubjectStats.forEach((branch, subjects) {
+      subjects.forEach((subject, students) {
+        final cutoff = _riskCutoff(students);
+        students.forEach((id, data) {
+          final s = _studentRate(data);
+          final key = '${branch}_${subject}_$id';
+          final name = (data['name'] ?? '').toString().trim();
+          final nameKey = name.isNotEmpty ? '${branch}_${subject}_$name' : '';
+
+          // Eski kayıtlarda öğrenci numarası yerine öğrenci adıyla kaydedilmiş görev/bildirim varsa birleştir
+          if (nameKey.isNotEmpty && nameKey != key) {
+            if (_studentTasks.containsKey(nameKey)) {
+              final existing = _studentTasks.putIfAbsent(key, () => []);
+              for (final t in _studentTasks[nameKey]!) {
+                if (!existing.any((et) => et['type'] == t['type'] && et['label'] == t['label'])) {
+                  existing.add(t);
+                }
+              }
+              _studentTasks.remove(nameKey);
+            }
+            if (_parentNotified[nameKey] == true) {
+              _parentNotified[key] = true;
+              _parentNotified.remove(nameKey);
+            }
+            if (_studentInfo[nameKey] is Map && _studentInfo[key] is! Map) {
+              _studentInfo[key] = _studentInfo[nameKey];
+              _studentInfo.remove(nameKey);
+            }
+          }
+
+          final hasRecord = (_studentTasks[key] ?? const []).isNotEmpty ||
+              _parentNotified[key] == true;
+          if ((cutoff != null && s <= cutoff) || hasRecord) {
+            final assignedTeacher = _getTeacherName(branch, subject);
+            result[key] = <String, dynamic>{
+              'name': name,
+              'no': (data['no'] ?? '').toString(),
+              'branch': branch,
+              'subject': subject,
+              'success': double.parse(s.toStringAsFixed(1)),
+              if (hasRecord && assignedTeacher.isNotEmpty && assignedTeacher != 'Öğretmen Atanmamış')
+                'updatedBy': assignedTeacher,
+            };
           }
         });
+      });
+    });
+    return result;
+  }
 
-        final plan = AssessmentActionPlan(
-          id: widget.existingPlan?.id ?? '',
-          institutionId: widget.institutionId,
-          schoolTypeId: widget.schoolTypeId,
-          title: titleController.text,
-          date: widget.existingPlan?.date ?? DateTime.now(),
-          createdBy: user?.uid ?? 'anon',
-          creatorName: _userName,
-          selectedExamIds: _selectedExamIds.toList(),
-          selectedExamNames: selectedNames,
-          classLevel: _selectedClassLevel ?? 'Tümü',
-          subjectThresholds: _subjectThresholds,
-          outcomeStats: _outcomeStats,
-          branchActionPlans: _branchActionPlans,
-          studentTasks: _studentTasks,
-          parentNotified: _parentNotified,
-          studentStatus: _studentStatus,
-          isRealized: widget.existingPlan?.isRealized ?? false,
-          realizationNotes: widget.existingPlan?.realizationNotes ?? '',
-        );
+  /// Existing plans created before reports existed have no student names; fill them once.
+  /// Also prunes stale normal-class or old 'Kur' studentInfo keys that are no longer valid.
+  void _syncStudentInfo() {
+    final computed = _computeStudentInfo();
+    if (computed.isEmpty && _outcomeStats.isEmpty) return;
+    final merged = <String, dynamic>{...computed};
+    _studentInfo.forEach((k, v) {
+      if (merged.containsKey(k) && v is Map) {
+        final prev = Map<String, dynamic>.from(v);
+        final cur = Map<String, dynamic>.from(merged[k] as Map);
+        if (cur['updatedBy'] == null && prev['updatedBy'] != null) {
+          cur['updatedBy'] = prev['updatedBy'];
+        }
+        if (prev['updatedAt'] != null) cur['updatedAt'] = prev['updatedAt'];
+        merged[k] = cur;
+      }
+    });
+    _studentInfo = merged;
+  }
 
-        await _service.saveAssessmentActionPlan(plan);
-        
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Eylem planı başarıyla kaydedildi.')),
-          );
-          Navigator.pop(context); // Go back to list
+  /// Cleans up stale course-lesson entries in _branchActionPlans, _studentTasks,
+  /// _parentNotified, and _studentStatus that were recorded under normal-class
+  /// calculations (e.g., 701_İngilizce when Course 701 actually has >= threshold success)
+  /// or old 'Kur' / '•' branch keys.
+  void _cleanStaleCourseRecords(
+    Map<String, Map<String, Map<String, Map<String, dynamic>>>> branchStats,
+  ) {
+    if (_tracks.isEmpty) return;
+
+    // 1. Clean _branchActionPlans for course subjects
+    final newBap = <String, Map<String, dynamic>>{};
+    _branchActionPlans.forEach((k, val) {
+      final v = Map<String, dynamic>.from(val);
+      String matchedBranch = '';
+      String matchedSubj = '';
+      String matchedOutcome = '';
+
+      for (final s in _availableSubjects) {
+        final idx = k.indexOf('_${s}_');
+        if (idx > 0) {
+          matchedBranch = k.substring(0, idx).trim();
+          matchedSubj = s;
+          matchedOutcome = k.substring(idx + s.length + 2);
+          break;
         }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Hata: $e')),
+      }
+      if (matchedSubj.isEmpty) {
+        newBap[k] = v;
+        return;
+      }
+      final isCourse = _tracks.hasTrackForBranchOrLevel(
+        matchedSubj,
+        rawBranch: matchedBranch,
+        classLevel: _selectedClassLevel,
+      );
+      if (!isCourse) {
+        newBap[k] = v;
+        return;
+      }
+      // Normalize branch name ('701 Kur' -> '701', '... • 704' -> '704')
+      String cleanBranch = matchedBranch;
+      if (cleanBranch.contains('•')) {
+        cleanBranch = cleanBranch.split('•').last.trim();
+      }
+      if (cleanBranch.endsWith(' Kur')) {
+        cleanBranch = cleanBranch.substring(0, cleanBranch.length - 4).trim();
+      }
+      final outcomeData = branchStats[cleanBranch]?[matchedSubj]?[matchedOutcome];
+      if (outcomeData == null) return;
+      final total = (outcomeData['total'] ?? 0) as num;
+      final correct = (outcomeData['correct'] ?? 0) as num;
+      final success = total > 0 ? (correct / total) * 100.0 : 0.0;
+      final threshold = _subjectThresholds[matchedSubj] ?? _globalThreshold;
+      // Drop stale normal-class entries where the course group outcome is NOT critical
+      if (success >= threshold) return;
+
+      final cleanKey = '${cleanBranch}_${matchedSubj}_$matchedOutcome';
+      newBap[cleanKey] = v;
+    });
+    _branchActionPlans = newBap;
+
+    // 2. Clean _studentTasks, _parentNotified, _studentStatus for course subjects
+    bool isValidStudentCourseKey(String k) {
+      for (final s in _availableSubjects) {
+        final idx = k.indexOf('_${s}_');
+        if (idx > 0) {
+          final b = k.substring(0, idx).trim();
+          final isCourse = _tracks.hasTrackForBranchOrLevel(
+            s,
+            rawBranch: b,
+            classLevel: _selectedClassLevel,
           );
+          if (!isCourse) return true;
+          return _studentInfo.containsKey(k);
         }
-      } finally {
-        if (mounted) setState(() => _isProcessing = false);
+      }
+      return true;
+    }
+
+    _studentTasks.removeWhere((k, v) => v.isEmpty || !isValidStudentCourseKey(k));
+    _parentNotified.removeWhere((k, v) => v != true || !isValidStudentCourseKey(k));
+    _studentStatus.removeWhere((k, _) => !isValidStudentCourseKey(k));
+  }
+
+  /// For existing plans, pre-select branches / subjects that already have valid critical records
+  /// so that every saved entry is visible when the plan is reopened.
+  void _selectRecordedViews() {
+    final plan = widget.existingPlan;
+    if (plan == null) return;
+    final branches = <String>{};
+    final subjects = <String>{};
+
+    _branchActionPlans.forEach((key, v) {
+      if ((v['problemSource'] ?? '').toString().trim().isEmpty &&
+          (v['actionPlan'] ?? '').toString().trim().isEmpty) {
+        return;
+      }
+      for (final b in _outcomeStats.keys) {
+        if (!key.startsWith('${b}_')) continue;
+        for (final s in _availableSubjects) {
+          final prefix = '${b}_${s}_';
+          if (key.startsWith(prefix)) {
+            final outcome = key.substring(prefix.length);
+            final od = _outcomeStats[b]?[s]?[outcome];
+            if (od != null) {
+              final total = (od['total'] ?? 0) as num;
+              final correct = (od['correct'] ?? 0) as num;
+              final success = total > 0 ? (correct / total) * 100.0 : 0.0;
+              final threshold = _subjectThresholds[s] ?? _globalThreshold;
+              if (success < threshold || !_showOnlyCritical) {
+                branches.add(b);
+                subjects.add(s);
+              }
+            }
+          }
+        }
+      }
+    });
+
+    void scanStudentKey(String key) {
+      if (!_studentInfo.containsKey(key)) return;
+      for (final b in _outcomeStats.keys) {
+        if (!key.startsWith('${b}_')) continue;
+        for (final s in _availableSubjects) {
+          if (key.startsWith('${b}_${s}_')) {
+            branches.add(b);
+            subjects.add(s);
+          }
+        }
       }
     }
+
+    _studentTasks.forEach((k, v) {
+      if (v.isNotEmpty) scanStudentKey(k);
+    });
+    _parentNotified.forEach((k, v) {
+      if (v == true) scanStudentKey(k);
+    });
+
+    _selectedViewBranches = branches.isNotEmpty
+        ? (_outcomeStats.keys.where(branches.contains).toList()..sort())
+        : (_outcomeStats.keys.toList()..sort());
+    _selectedViewSubjects = subjects.isNotEmpty
+        ? _availableSubjects.where(subjects.contains).toList()
+        : List<String>.from(_availableSubjects);
   }
 
   Future<List<String>> _getOrderedSubjects() async {
@@ -383,7 +912,7 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
         return examType.subjects.map((s) => s.branchName).toList();
       }
     } catch (e) {
-      print('Error ordering subjects: $e');
+      debugPrint('Error ordering subjects: $e');
     }
     return _availableSubjects;
   }
@@ -439,12 +968,12 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
         final List<dynamic> results = jsonDecode(exam.resultsJson!);
         
         for (var result in results) {
-          String branch = (result['branch'] ?? result['className'] ?? 'Belirsiz').toString();
+          final String rawBranch = (result['branch'] ?? result['className'] ?? 'Belirsiz').toString();
           
           Map<String, dynamic> studentSubjects = result['subjects'] ?? {};
           
           studentSubjects.forEach((subjName, subjData) {
-            // 1. Determine Booklet
+            // 1. Determine initial Booklet
             String booklet = (result['booklet'] ?? result['kitapçık'] ?? 'A').toString().toUpperCase().trim();
             if (booklet.isEmpty) booklet = 'A';
             if (!exam.outcomes.containsKey(booklet)) {
@@ -453,14 +982,40 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
 
             // 2. Normalize subject name for matching
             String normalizedSubjName = subjName;
-            if (exam.outcomes[booklet] != null && !exam.outcomes[booklet]!.containsKey(subjName)) {
-              final foundKey = exam.outcomes[booklet]!.keys.firstWhere(
+            final outcomeSearchMap = exam.outcomes[booklet] ??
+                (exam.outcomes.isNotEmpty ? exam.outcomes.values.first : null);
+            if (outcomeSearchMap != null && !outcomeSearchMap.containsKey(subjName)) {
+              final foundKey = outcomeSearchMap.keys.firstWhere(
                 (k) => k.toLowerCase().trim() == subjName.toLowerCase().trim() || 
                        k.toLowerCase().contains(subjName.toLowerCase().trim()) || 
                        subjName.toLowerCase().trim().contains(k.toLowerCase().trim()),
                 orElse: () => '',
               );
               if (foundKey.isNotEmpty) normalizedSubjName = foundKey;
+            }
+
+            // 2b. Multi-session exams: resolve exact per-subject booklet via student's correctAnswers
+            dynamic studentCorrectRaw;
+            if (subjData is Map) {
+              studentCorrectRaw = subjData['correctAnswers'] ?? subjData['cevapAnahtari'];
+            }
+            if (studentCorrectRaw == null && result['correctAnswers'] is Map) {
+              studentCorrectRaw = result['correctAnswers'][subjName] ?? result['correctAnswers'][normalizedSubjName];
+            }
+            if (studentCorrectRaw != null) {
+              final targetStr = studentCorrectRaw.toString().toUpperCase().trim();
+              if (targetStr.isNotEmpty && exam.answerKeys.isNotEmpty) {
+                final currentKeyStr = (exam.answerKeys[booklet]?[normalizedSubjName] ?? '').toString().toUpperCase().trim();
+                if (currentKeyStr != targetStr) {
+                  for (final bk in exam.answerKeys.keys) {
+                    final bkKeyStr = (exam.answerKeys[bk]?[normalizedSubjName] ?? '').toString().toUpperCase().trim();
+                    if (bkKeyStr == targetStr && exam.outcomes.containsKey(bk)) {
+                      booklet = bk;
+                      break;
+                    }
+                  }
+                }
+              }
             }
 
             subjects.add(normalizedSubjName);
@@ -498,7 +1053,16 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
 
             // 5. Parse and Compare
             final studentAnsList = _parseAnswers(studentAnsRaw, examOutcomes.length);
-            final correctAnsList = _parseAnswers(examAnswers, examOutcomes.length);
+            final correctAnsList = _parseAnswers(studentCorrectRaw ?? examAnswers, examOutcomes.length);
+
+            // Kurs derslerinde (ör. İngilizce) şube yerine öğrencinin o kurs dersindeki şubesi kullanılır.
+            final String? branch = _trackBranchFor(
+              result,
+              normalizedSubjName,
+              rawBranch,
+              classLevel: (result['classLevel'] ?? exam.classLevel).toString(),
+            );
+            if (branch == null || branch.isEmpty) return;
 
             branchStats.putIfAbsent(branch, () => {});
             branchStats[branch]!.putIfAbsent(normalizedSubjName, () => {});
@@ -506,13 +1070,17 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
             studentSubjStats.putIfAbsent(branch, () => {});
             studentSubjStats[branch]!.putIfAbsent(normalizedSubjName, () => {});
             
-            String studentKey = (result['studentNumber'] ?? result['number'] ?? result['name'] ?? 'İsimsiz').toString();
+            String studentKey = (result['studentNo'] ?? result['studentNumber'] ?? result['number'] ?? result['name'] ?? 'İsimsiz').toString();
             studentSubjStats[branch]![normalizedSubjName]!.putIfAbsent(studentKey, () => {
               'correct': 0,
               'total': 0,
+              'net': 0.0,
+              'netTotal': 0,
               'name': result['name'] ?? result['studentName'] ?? 'İsimsiz',
-              'no': result['studentNumber'] ?? result['number'] ?? '',
+              'no': result['studentNo'] ?? result['studentNumber'] ?? result['number'] ?? '',
             });
+            int localCorrect = 0;
+            int localTotal = 0;
 
             for (int i = 0; i < examOutcomes.length; i++) {
               String outcome = examOutcomes[i].toString().trim();
@@ -526,6 +1094,7 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
 
               branchStats[branch]![normalizedSubjName]![outcome]!['total']++;
               studentSubjStats[branch]![normalizedSubjName]![studentKey]!['total']++;
+              localTotal++;
               
               bool isCorrect = i < studentAnsList.length && i < correctAnsList.length && 
                               studentAnsList[i].trim() == correctAnsList[i].trim() && 
@@ -534,20 +1103,49 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
               if (isCorrect) {
                 branchStats[branch]![normalizedSubjName]![outcome]!['correct']++;
                 studentSubjStats[branch]![normalizedSubjName]![studentKey]!['correct']++;
+                localCorrect++;
               } else {
                 (branchStats[branch]![normalizedSubjName]![outcome]!['students'] as List).add({
                   'name': result['name'] ?? result['studentName'] ?? 'İsimsiz',
-                  'no': result['studentNumber'] ?? result['number'] ?? '',
+                  'no': result['studentNo'] ?? result['studentNumber'] ?? result['number'] ?? '',
                   'isWrong': i < studentAnsList.length && studentAnsList[i].trim().isNotEmpty,
                   'isEmpty': i >= studentAnsList.length || studentAnsList[i].trim().isEmpty,
                 });
               }
             }
+
+            // Branş başarısı: sınav sonuçlarındaki NET değerini kullan (Performans Özeti ile aynı).
+            final stu = studentSubjStats[branch]![normalizedSubjName]![studentKey]!;
+            if (subjData is Map && subjData['net'] != null) {
+              final c = (subjData['correct'] ?? 0) as num;
+              final w = (subjData['wrong'] ?? 0) as num;
+              final e = (subjData['empty'] ?? 0) as num;
+              stu['net'] = (stu['net'] as num).toDouble() + (subjData['net'] as num).toDouble();
+              stu['netTotal'] = (stu['netTotal'] as num).toInt() + (c + w + e).toInt();
+            } else {
+              stu['net'] = (stu['net'] as num).toDouble() + localCorrect;
+              stu['netTotal'] = (stu['netTotal'] as num).toInt() + localTotal;
+            }
           });
         }
       } catch (e) {
-        print('Error processing exam ${exam.id}: $e');
+        debugPrint('Error processing exam ${exam.id}: $e');
       }
+    }
+
+    // Öğretmen sadece kendisine atanan şube + dersleri görsün.
+    if (_restrictToMyClasses) {
+      branchStats.removeWhere((b, subs) {
+        subs.removeWhere((s, _) => !_isMyAssignment(b, s));
+        return subs.isEmpty;
+      });
+      studentSubjStats.removeWhere((b, subs) {
+        subs.removeWhere((s, _) => !_isMyAssignment(b, s));
+        return subs.isEmpty;
+      });
+      subjects = {
+        for (final subs in branchStats.values) ...subs.keys,
+      };
     }
 
     final orderedSubjects = await _getOrderedSubjects();
@@ -567,12 +1165,48 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
       for (var s in _availableSubjects) {
         _subjectThresholds.putIfAbsent(s, () => _globalThreshold);
       }
+      _syncStudentInfo();
+      if (!_restrictToMyClasses) {
+        _cleanStaleCourseRecords(branchStats);
+      }
+      if (widget.existingPlan != null && _selectedViewBranches.isEmpty) {
+        _selectRecordedViews();
+      }
       if (_selectedViewBranches.isEmpty && _outcomeStats.isNotEmpty) {
         final sorted = _outcomeStats.keys.toList()..sort();
         _selectedViewBranches = [sorted.first];
       }
       if (_selectedViewSubjects.isEmpty && _availableSubjects.isNotEmpty) {
         _selectedViewSubjects = [_availableSubjects.first];
+      }
+      // Öğretmen için varsayılan: kendi branşı (dersi) ve şubeleri seçili gelsin.
+      if (!_teacherDefaultsApplied && _isTeacherRole && _restrictToMyClasses) {
+        final myBranches = <String>[];
+        final mySubjects = <String>[];
+        for (final b in _outcomeStats.keys) {
+          for (final s in _availableSubjects) {
+            if (_outcomeStats[b]!.containsKey(s) && _isMyAssignment(b, s)) {
+              if (!myBranches.contains(b)) myBranches.add(b);
+              if (!mySubjects.contains(s)) mySubjects.add(s);
+            }
+          }
+        }
+        if (myBranches.isNotEmpty && mySubjects.isNotEmpty) {
+          myBranches.sort();
+          _selectedViewBranches = myBranches;
+          _selectedViewSubjects = _availableSubjects.where(mySubjects.contains).toList();
+          _teacherDefaultsApplied = true;
+        }
+      }
+      if (_planId != null && _canAutoSave && !_restrictToMyClasses) {
+        _service.updateActionPlanFields(_planId!, {
+          ['outcomeStats']: branchStats,
+          ['studentInfo']: _studentInfo,
+          ['branchActionPlans']: _branchActionPlans,
+          ['studentTasks']: _studentTasks,
+          ['parentNotified']: _parentNotified,
+          ['studentStatus']: _studentStatus,
+        }).catchError((e) => debugPrint('Error auto-syncing action plan stats: $e'));
       }
       
       _isProcessing = false;
@@ -624,28 +1258,36 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
       backgroundColor: Colors.grey.shade50,
       appBar: EduknAppBar(
         title: 'Eylem Planları',
-        leading: const BackButton(color: Colors.white),
         actions: [
           if (!_isLoading)
             Padding(
               padding: const EdgeInsets.only(right: 16.0),
-              child: IconButton(
-                onPressed: (_isProcessing || (widget.existingPlan == null && _userRole == 'teacher')) 
-                    ? null 
-                    : _saveActionPlan,
-                icon: const Icon(Icons.save),
-                tooltip: (widget.existingPlan == null && _userRole == 'teacher') 
-                    ? 'Yeni plan oluşturma yetkiniz yok' 
-                    : 'Kaydet',
+              child: Center(
+                child: Tooltip(
+                  message: _isAutoSaving
+                      ? 'Kaydediliyor...'
+                      : (_lastSaved != null ? 'Değişiklikler otomatik kaydedildi' : 'Değişiklikler otomatik kaydedilir'),
+                  child: _isAutoSaving
+                      ? SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.indigo.shade400),
+                        )
+                      : Icon(
+                          _lastSaved != null ? Icons.cloud_done_rounded : Icons.cloud_queue_rounded,
+                          color: _lastSaved != null ? Colors.green.shade600 : Colors.indigo.shade200,
+                          size: 22,
+                        ),
+                ),
               ),
             ),
         ],
         bottom: TabBar(
           controller: _tabController,
-          indicatorColor: Colors.white,
+          indicatorColor: Colors.indigo.shade700,
           indicatorWeight: 4,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white70,
+          labelColor: Colors.indigo.shade900,
+          unselectedLabelColor: Colors.indigo.shade300,
           labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
           tabs: const [
             Tab(text: 'ŞUBE EYLEM PLANI'),
@@ -685,9 +1327,16 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
                   children: [
                     _buildFilterToggle(true),
                     const SizedBox(width: 8),
-                    Expanded(child: _buildMultiSelectFilter('Şube', _selectedViewBranches, _outcomeStats.keys.toList()..sort(), (v) => setState(() => _selectedViewBranches = v), Icons.business)),
+                    Expanded(child: _buildMultiSelectFilter('Şube', _selectedViewBranches, _branchFilterOptions, (v) => setState(() => _selectedViewBranches = v), Icons.business)),
                     const SizedBox(width: 8),
-                    Expanded(child: _buildMultiSelectFilter('Branş', _selectedViewSubjects, _availableSubjects, (v) => setState(() => _selectedViewSubjects = v), Icons.book)),
+                    Expanded(child: _buildMultiSelectFilter('Branş', _selectedViewSubjects, _availableSubjects, (v) => setState(() {
+                      _selectedViewSubjects = v;
+                      final opts = _branchFilterOptions;
+                      _selectedViewBranches = _selectedViewBranches.where(opts.contains).toList();
+                      if (_selectedViewBranches.isEmpty && opts.isNotEmpty) {
+                        _selectedViewBranches = [opts.first];
+                      }
+                    }), Icons.book)),
                   ],
                 ),
               ] else
@@ -696,9 +1345,16 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
                     Expanded(child: _buildHeader('Şube Eylem Planları', 'Düşük başarı gösterilen kazanımlar için eylem planı belirleyin.')),
                     _buildFilterToggle(false),
                     const SizedBox(width: 16),
-                    _buildMultiSelectFilter('Şube', _selectedViewBranches, _outcomeStats.keys.toList()..sort(), (v) => setState(() => _selectedViewBranches = v), Icons.business, width: 180),
+                    _buildMultiSelectFilter('Şube', _selectedViewBranches, _branchFilterOptions, (v) => setState(() => _selectedViewBranches = v), Icons.business, width: 180),
                     const SizedBox(width: 12),
-                    _buildMultiSelectFilter('Branş', _selectedViewSubjects, _availableSubjects, (v) => setState(() => _selectedViewSubjects = v), Icons.book, width: 200),
+                    _buildMultiSelectFilter('Branş', _selectedViewSubjects, _availableSubjects, (v) => setState(() {
+                      _selectedViewSubjects = v;
+                      final opts = _branchFilterOptions;
+                      _selectedViewBranches = _selectedViewBranches.where(opts.contains).toList();
+                      if (_selectedViewBranches.isEmpty && opts.isNotEmpty) {
+                        _selectedViewBranches = [opts.first];
+                      }
+                    }), Icons.book, width: 200),
                   ],
                 ),
               const SizedBox(height: 32),
@@ -724,7 +1380,7 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
           border: Border.all(color: _showOnlyCritical ? Colors.red.shade200 : Colors.indigo.shade200),
           boxShadow: [
             BoxShadow(
-              color: (_showOnlyCritical ? Colors.red : Colors.indigo).withOpacity(0.1),
+              color: (_showOnlyCritical ? Colors.red : Colors.indigo).withValues(alpha: 0.1),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -755,6 +1411,63 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
     );
   }
 
+  Widget _buildStudentFilterToggle(bool isMobile) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () => setState(() => _showOnlyCriticalStudents = !_showOnlyCriticalStudents),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        height: 44,
+        padding: EdgeInsets.symmetric(horizontal: isMobile ? 14 : 12),
+        decoration: BoxDecoration(
+          color: _showOnlyCriticalStudents ? Colors.red.shade50 : Colors.indigo.shade50,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: _showOnlyCriticalStudents ? Colors.red.shade200 : Colors.indigo.shade200),
+          boxShadow: [
+            BoxShadow(
+              color: (_showOnlyCriticalStudents ? Colors.red : Colors.indigo).withValues(alpha: 0.1),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              _showOnlyCriticalStudents ? Icons.report_problem_rounded : Icons.view_list_rounded,
+              color: _showOnlyCriticalStudents ? Colors.red.shade700 : Colors.indigo.shade700,
+              size: 18,
+            ),
+            if (!isMobile) ...[
+              const SizedBox(width: 8),
+              Text(
+                _showOnlyCriticalStudents ? 'Sadece Kritikler' : 'Tüm Öğrenciler',
+                style: TextStyle(
+                  color: _showOnlyCriticalStudents ? Colors.red.shade900 : Colors.indigo.shade900,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Şube filtresi seçenekleri: sadece seçili derslerde verisi olan şubeler/kurlar.
+  /// Böylece kur etiketleri (ör. İngilizce kurları) yalnızca kur dersi seçiliyken görünür.
+  List<String> get _branchFilterOptions {
+    final all = <String>{..._outcomeStats.keys, ..._studentSubjectStats.keys}.toList()..sort();
+    if (_selectedViewSubjects.isEmpty) return all;
+    return all
+        .where((b) => _selectedViewSubjects.any((s) =>
+            (_outcomeStats[b]?[s] ?? const {}).isNotEmpty ||
+            (_studentSubjectStats[b]?[s] ?? const {}).isNotEmpty))
+        .toList();
+  }
+
   Widget _buildMultiFilteredOutcomeTable() {
     List<Widget> cards = [];
     for (var branch in _selectedViewBranches) {
@@ -776,6 +1489,13 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
 
         if (filteredRows.isEmpty) continue;
 
+        final bool isCourse = _tracks.hasTrackForBranchOrLevel(
+          subject,
+          rawBranch: branch,
+          classLevel: _selectedClassLevel,
+        );
+        final int studentCount = (_studentSubjectStats[branch]?[subject] ?? const {}).length;
+
         cards.add(Padding(
           padding: const EdgeInsets.only(bottom: 24),
           child: Column(
@@ -788,6 +1508,23 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
                 children: [
                   Chip(label: Text(branch, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)), backgroundColor: Colors.indigo.shade900),
                   Text(subject, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  if (isCourse)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.deepPurple.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.deepPurple.shade200),
+                      ),
+                      child: Text(
+                        'Kurs Şubesi ($studentCount Öğrenci)',
+                        style: TextStyle(
+                          color: Colors.deepPurple.shade800,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
                 ],
               ),
               const SizedBox(height: 16),
@@ -804,6 +1541,13 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
     double success = data['total'] > 0 ? (data['correct'] / data['total']) * 100 : 0.0;
     bool isLow = success < threshold;
     String key = '${branch}_${subject}_$outcome';
+    if (!_branchActionPlans.containsKey(key)) {
+      final baseBranch = branch.endsWith(' Kur') ? branch.substring(0, branch.length - 4).trim() : '$branch Kur';
+      final altKey = '${baseBranch}_${subject}_$outcome';
+      if (_branchActionPlans.containsKey(altKey)) {
+        _branchActionPlans[key] = Map<String, dynamic>.from(_branchActionPlans[altKey]!);
+      }
+    }
     _branchActionPlans.putIfAbsent(key, () => {'problemSource': '', 'actionPlan': '', 'status': 'Belirlenmedi'});
     
     return LayoutBuilder(
@@ -818,7 +1562,7 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
             border: Border.all(color: isLow ? Colors.red.shade100 : Colors.grey.shade100),
             boxShadow: [
               BoxShadow(
-                color: (isLow ? Colors.red : Colors.indigo).withOpacity(0.04),
+                color: (isLow ? Colors.red : Colors.indigo).withValues(alpha: 0.04),
                 blurRadius: 20,
                 offset: const Offset(0, 10),
               ),
@@ -831,7 +1575,7 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: isLow ? Colors.red.shade50.withOpacity(0.3) : Colors.indigo.shade50.withOpacity(0.2),
+                  color: isLow ? Colors.red.shade50.withValues(alpha: 0.3) : Colors.indigo.shade50.withValues(alpha: 0.2),
                   borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
                 ),
                 child: Row(
@@ -932,7 +1676,7 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
             child: Text(teacher[0], style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.indigo.shade900)),
           ),
           const SizedBox(width: 8),
-          Text(teacher, style: TextStyle(fontSize: 11, color: Colors.grey.shade700, fontWeight: FontWeight.w500)),
+          Text(_trackSlotFor(branch, subject) != null ? '$teacher • Kur' : teacher, style: TextStyle(fontSize: 11, color: Colors.grey.shade700, fontWeight: FontWeight.w500)),
         ],
       ),
     );
@@ -948,7 +1692,7 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
             children: [
               Icon(icon, size: 14, color: Colors.indigo.shade400),
               const SizedBox(width: 6),
-              Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.indigo.shade900.withOpacity(0.6))),
+              Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.indigo.shade900.withValues(alpha: 0.6))),
             ],
           ),
         ),
@@ -959,10 +1703,10 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.indigo.shade50.withOpacity(0.8), width: 1.2),
+            border: Border.all(color: Colors.indigo.shade50.withValues(alpha: 0.8), width: 1.2),
             boxShadow: [
               BoxShadow(
-                color: Colors.indigo.withOpacity(0.02),
+                color: Colors.indigo.withValues(alpha: 0.02),
                 blurRadius: 8,
                 offset: const Offset(0, 2),
               ),
@@ -979,112 +1723,264 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
     );
   }
 
+  // ── Öğrenci takibi: performans önbelleği ──
+  // Hesaplama (risk sınırı, filtre, sıralama) her setState'te tekrar yapılmasın diye
+  // istatistik/filtre değişmedikçe önbellekten döner.
+  Object? _groupsCacheStats;
+  String _groupsCacheSig = '';
+  List<_StudentGroup> _groupsCache = const [];
+  final Set<String> _collapsedGroups = {};
+
+  List<_StudentGroup> _studentGroups() {
+    final sig = '$_showOnlyCriticalStudents|${_selectedViewBranches.join(',')}|'
+        '${_selectedViewSubjects.join(',')}|$_selectedClassLevel';
+    if (identical(_groupsCacheStats, _studentSubjectStats) && _groupsCacheSig == sig) {
+      return _groupsCache;
+    }
+    final groups = <_StudentGroup>[];
+    for (var branch in _selectedViewBranches) {
+      for (var subject in _selectedViewSubjects) {
+        final studentsMap = _studentSubjectStats[branch]?[subject] ?? {};
+        if (studentsMap.isEmpty) continue;
+        final cutoff = _riskCutoff(studentsMap);
+        final List<Map<String, dynamic>> filtered = [];
+        studentsMap.forEach((id, data) {
+          final double s = _studentRate(data);
+          final bool isCritical = cutoff != null && s <= cutoff;
+          if (!_showOnlyCriticalStudents || isCritical) {
+            filtered.add({...data, 'success': s, 'id': id, 'isCritical': isCritical});
+          }
+        });
+        if (filtered.isEmpty) continue;
+        filtered.sort((a, b) => (a['success'] as double).compareTo(b['success'] as double));
+        groups.add(_StudentGroup(
+          branch: branch,
+          subject: subject,
+          students: filtered,
+          criticalCount: filtered.where((s) => s['isCritical'] == true).length,
+          isCourse: _tracks.hasTrackForBranchOrLevel(
+            subject,
+            rawBranch: branch,
+            classLevel: _selectedClassLevel,
+          ),
+        ));
+      }
+    }
+    _groupsCacheStats = _studentSubjectStats;
+    _groupsCacheSig = sig;
+    _groupsCache = groups;
+    return groups;
+  }
+
   Widget _buildStep3StudentPlans() {
     if (_selectedExamIds.isEmpty) return _buildEmptyState('Lütfen önce sınav seçimi yapın.');
-    
+
     return LayoutBuilder(
       builder: (context, constraints) {
-        bool isMobile = constraints.maxWidth < 700;
-        List<Widget> subjectCards = [];
-        
-        for (var branch in _selectedViewBranches) {
-          for (var subject in _selectedViewSubjects) {
-            final studentsMap = _studentSubjectStats[branch]?[subject] ?? {};
-            final threshold = _subjectThresholds[subject] ?? 70.0;
-            List<Map<String, dynamic>> low = [];
-            studentsMap.forEach((id, data) {
-              double s = data['total'] > 0 ? (data['correct'] / data['total']) * 100 : 0;
-              if (s < threshold) low.add({...data, 'success': s, 'id': id});
-            });
-            if (low.isNotEmpty) {
-              low.sort((a, b) => (a['success'] as double).compareTo(b['success'] as double));
-              subjectCards.add(_buildStudentSubjectGroupCard(branch, subject, low));
-            }
+        final bool isMobile = constraints.maxWidth < 700;
+        final groups = _studentGroups();
+
+        // Açık gruplar için düz (flat) liste: başlık + öğrenci satırları.
+        // SliverList.builder sayesinde yalnızca ekranda görünen satırlar oluşturulur.
+        final List<Object> items = [];
+        for (final g in groups) {
+          items.add(g);
+          if (_collapsedGroups.contains(g.key)) continue;
+          for (var i = 0; i < g.students.length; i++) {
+            items.add(_StudentEntry(g, g.students[i], i == g.students.length - 1));
           }
         }
 
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (isMobile) ...[
-                _buildHeader('Öğrenci Takibi', 'Ders bazlı barajın altında kalan öğrenciler.'),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(child: _buildMultiSelectFilter('Şube', _selectedViewBranches, _outcomeStats.keys.toList()..sort(), (v) => setState(() => _selectedViewBranches = v), Icons.business)),
-                    const SizedBox(width: 8),
-                    Expanded(child: _buildMultiSelectFilter('Branş', _selectedViewSubjects, _availableSubjects, (v) => setState(() => _selectedViewSubjects = v), Icons.book)),
-                  ],
+        final header = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (isMobile) ...[
+              _buildHeader('Öğrenci Takibi', 'Şube ve ders bazında sınıf ortalamasının %20 altında kalan riskli öğrenciler.'),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  _buildStudentFilterToggle(true),
+                  const SizedBox(width: 8),
+                  Expanded(child: _buildMultiSelectFilter('Şube', _selectedViewBranches, _branchFilterOptions, (v) => setState(() => _selectedViewBranches = v), Icons.business)),
+                  const SizedBox(width: 8),
+                  Expanded(child: _buildMultiSelectFilter('Branş', _selectedViewSubjects, _availableSubjects, (v) => setState(() {
+                    _selectedViewSubjects = v;
+                    final opts = _branchFilterOptions;
+                    _selectedViewBranches = _selectedViewBranches.where(opts.contains).toList();
+                    if (_selectedViewBranches.isEmpty && opts.isNotEmpty) {
+                      _selectedViewBranches = [opts.first];
+                    }
+                  }), Icons.book)),
+                ],
+              ),
+            ] else
+              Row(
+                children: [
+                  Expanded(child: _buildHeader('Öğrenci Takibi', 'Şube ve ders bazında sınıf ortalamasının %20 altında kalan riskli öğrenciler.')),
+                  _buildStudentFilterToggle(false),
+                  const SizedBox(width: 16),
+                  _buildMultiSelectFilter('Şube', _selectedViewBranches, _branchFilterOptions, (v) => setState(() => _selectedViewBranches = v), Icons.business, width: 180),
+                  const SizedBox(width: 12),
+                  _buildMultiSelectFilter('Branş', _selectedViewSubjects, _availableSubjects, (v) => setState(() {
+                    _selectedViewSubjects = v;
+                    final opts = _branchFilterOptions;
+                    _selectedViewBranches = _selectedViewBranches.where(opts.contains).toList();
+                    if (_selectedViewBranches.isEmpty && opts.isNotEmpty) {
+                      _selectedViewBranches = [opts.first];
+                    }
+                  }), Icons.book, width: 200),
+                ],
+              ),
+            const SizedBox(height: 32),
+          ],
+        );
+
+        return CustomScrollView(
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+              sliver: SliverToBoxAdapter(child: header),
+            ),
+            if (items.isEmpty)
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                sliver: SliverToBoxAdapter(
+                  child: _buildEmptyState(_showOnlyCriticalStudents ? 'Kritik başarı seviyesinde öğrenci bulunamadı.' : 'Öğrenci bulunamadı.'),
                 ),
-              ] else
-                Row(
-                  children: [
-                    Expanded(child: _buildHeader('Öğrenci Takibi', 'Ders bazlı barajın altında kalan öğrenciler.')),
-                    _buildMultiSelectFilter('Şube', _selectedViewBranches, _outcomeStats.keys.toList()..sort(), (v) => setState(() => _selectedViewBranches = v), Icons.business, width: 180),
-                    const SizedBox(width: 12),
-                    _buildMultiSelectFilter('Branş', _selectedViewSubjects, _availableSubjects, (v) => setState(() => _selectedViewSubjects = v), Icons.book, width: 200),
-                  ],
+              )
+            else
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                sliver: SliverList.builder(
+                  itemCount: items.length,
+                  itemBuilder: (context, index) {
+                    final item = items[index];
+                    if (item is _StudentGroup) {
+                      return _buildStudentGroupHeader(item);
+                    }
+                    final e = item as _StudentEntry;
+                    final g = e.group;
+                    final s = e.student;
+                    final key = '${g.branch}_${g.subject}_${s['id']}';
+                    final baseBranch = g.branch.endsWith(' Kur') ? g.branch.substring(0, g.branch.length - 4).trim() : '${g.branch} Kur';
+                    final altKey = '${baseBranch}_${g.subject}_${s['id']}';
+                    if (!_studentTasks.containsKey(key) && _studentTasks.containsKey(altKey)) {
+                      _studentTasks[key] = _studentTasks[altKey]!;
+                    }
+                    if (!_parentNotified.containsKey(key) && _parentNotified.containsKey(altKey)) {
+                      _parentNotified[key] = _parentNotified[altKey]!;
+                    }
+                    if (!_studentStatus.containsKey(key) && _studentStatus.containsKey(altKey)) {
+                      _studentStatus[key] = _studentStatus[altKey]!;
+                    }
+                    final isSelected = _selectedStudentKeys.contains(key);
+                    final tasks = _studentTasks[key] ?? [];
+                    final border = BorderSide(color: Colors.indigo.shade50, width: 1.5);
+                    final radius = e.isLast
+                        ? const BorderRadius.vertical(bottom: Radius.circular(20))
+                        : BorderRadius.zero;
+                    return RepaintBoundary(
+                      key: ValueKey(key),
+                      child: Container(
+                        margin: EdgeInsets.only(bottom: e.isLast ? 16 : 0),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: radius,
+                          border: Border(left: border, right: border, bottom: e.isLast ? border : BorderSide.none),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: radius,
+                          child: _buildStudentRow(g.branch, g.subject, s, key, isSelected, tasks),
+                        ),
+                      ),
+                    );
+                  },
                 ),
-              const SizedBox(height: 32),
-              subjectCards.isEmpty 
-                ? _buildEmptyState('Öğrenci bulunamadı.') 
-                : Column(children: subjectCards),
-            ],
-          ),
+              ),
+          ],
         );
       },
     );
   }
 
-  Widget _buildStudentSubjectGroupCard(String branch, String subject, List<Map<String, dynamic>> students) {
-    // Keys for this group
-    final groupKeys = students.map((s) => '${branch}_${subject}_${s['id']}').toList();
+  Widget _buildStudentGroupHeader(_StudentGroup g) {
+    final groupKeys = g.students.map((s) => '${g.branch}_${g.subject}_${s['id']}').toList();
     final allSelected = groupKeys.every((k) => _selectedStudentKeys.contains(k));
     final someSelected = groupKeys.any((k) => _selectedStudentKeys.contains(k));
+    final collapsed = _collapsedGroups.contains(g.key);
+    final count = g.students.length;
+    final base = g.isCourse ? 'kurs şubesi ort. -%20' : 'sınıf ort. -%20';
+    final subtitle = _showOnlyCriticalStudents
+        ? '$count riskli öğrenci ($base)'
+        : '$count öğrenci (${g.criticalCount} kritik • $base)';
+    final radius = collapsed
+        ? BorderRadius.circular(20)
+        : const BorderRadius.vertical(top: Radius.circular(20));
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 16),
+      margin: EdgeInsets.only(bottom: collapsed ? 16 : 0),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: radius,
         border: Border.all(color: Colors.indigo.shade50, width: 1.5),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 12, offset: const Offset(0, 4))],
       ),
-      clipBehavior: Clip.antiAlias,
-      child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          initiallyExpanded: true,
-          shape: const RoundedRectangleBorder(side: BorderSide.none),
-          collapsedShape: const RoundedRectangleBorder(side: BorderSide.none),
-          leading: Checkbox(
-            value: allSelected ? true : (someSelected ? null : false),
-            tristate: true,
-            activeColor: Colors.indigo,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-            onChanged: (_) {
-              setState(() {
-                if (allSelected) {
-                  _selectedStudentKeys.removeAll(groupKeys);
-                } else {
-                  _selectedStudentKeys.addAll(groupKeys);
-                }
-              });
-            },
+      child: InkWell(
+        borderRadius: radius,
+        onTap: () => setState(() {
+          if (collapsed) {
+            _collapsedGroups.remove(g.key);
+          } else {
+            _collapsedGroups.add(g.key);
+          }
+        }),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
+            children: [
+              Checkbox(
+                value: allSelected ? true : (someSelected ? null : false),
+                tristate: true,
+                activeColor: Colors.indigo,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                onChanged: (_) {
+                  setState(() {
+                    if (allSelected) {
+                      _selectedStudentKeys.removeAll(groupKeys);
+                    } else {
+                      _selectedStudentKeys.addAll(groupKeys);
+                    }
+                  });
+                },
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      g.isCourse ? '${g.branch} (Kurs Şubesi) — ${g.subject}' : '${g.branch} — ${g.subject}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w700, color: Colors.indigo, fontSize: 15),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                    ),
+                  ],
+                ),
+              ),
+              if (someSelected) ...[
+                const SizedBox(width: 8),
+                _buildBulkActionButton(g.branch, g.subject, groupKeys.where((k) => _selectedStudentKeys.contains(k)).toList()),
+              ],
+              const SizedBox(width: 4),
+              Icon(collapsed ? Icons.expand_more : Icons.expand_less, color: Colors.indigo.shade300),
+            ],
           ),
-          title: Text('$branch — $subject', style: const TextStyle(fontWeight: FontWeight.w700, color: Colors.indigo, fontSize: 15)),
-          subtitle: Text('${students.length} öğrenci barajın altında', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
-          trailing: someSelected
-              ? _buildBulkActionButton(branch, subject, groupKeys.where((k) => _selectedStudentKeys.contains(k)).toList())
-              : null,
-          children: students.map((s) {
-            final key = '${branch}_${subject}_${s['id']}';
-            final isSelected = _selectedStudentKeys.contains(key);
-            final tasks = _studentTasks[key] ?? [];
-            return _buildStudentRow(branch, subject, s, key, isSelected, tasks);
-          }).toList(),
         ),
       ),
     );
@@ -1107,40 +2003,65 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
 
   Widget _buildStudentRow(String branch, String subject, Map<String, dynamic> s, String key, bool isSelected, List<Map<String, dynamic>> tasks) {
     final notified = _parentNotified[key] ?? false;
+    final bool isCritical = s['isCritical'] ?? true;
 
     // ── Auto-derive status from tasks ──
     final hasTasks = tasks.isNotEmpty;
-    final statusLabel = hasTasks ? 'Planlandı' : 'Beklemede';
-    final statusColor = hasTasks ? Colors.blue : Colors.grey;
+    final allDone = hasTasks && tasks.every((t) => t['done'] == true);
+    final statusLabel = allDone ? 'Tamamlandı' : (hasTasks ? 'Planlandı' : 'Beklemede');
+    final statusColor = allDone ? Colors.green : (hasTasks ? Colors.blue : Colors.grey);
 
-    // ── Shared: task badges ──
+    // ── Shared: task badges (kırmızı = atandı/bekliyor, yeşil = takibi yapıldı; tıklayınca değişir) ──
     Widget taskBadges = tasks.isEmpty
         ? const SizedBox.shrink()
         : Wrap(
             spacing: 4,
             runSpacing: 4,
-            children: tasks.map((t) => Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-              decoration: BoxDecoration(
-                color: t['done'] == true ? Colors.green.shade50 : Colors.indigo.shade50,
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: t['done'] == true ? Colors.green.shade200 : Colors.indigo.shade100),
-              ),
-              child: Text(t['label'], style: TextStyle(
-                fontSize: 10,
-                color: t['done'] == true ? Colors.green.shade800 : Colors.indigo.shade700,
-                fontWeight: FontWeight.w600,
-              )),
-            )).toList(),
+            children: tasks.map((t) {
+              final done = t['done'] == true;
+              return Tooltip(
+                message: done ? 'Takibi yapıldı (geri almak için tıkla)' : 'Takibi yapıldı olarak işaretle',
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(6),
+                  onTap: () {
+                    setState(() => t['done'] = !done);
+                    _persistStudent(key);
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: done ? Colors.green.shade50 : Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: done ? Colors.green.shade300 : Colors.red.shade300),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (done) ...[
+                          Icon(Icons.check_circle, size: 11, color: Colors.green.shade700),
+                          const SizedBox(width: 3),
+                        ],
+                        Text(t['label'], style: TextStyle(
+                          fontSize: 10,
+                          color: done ? Colors.green.shade800 : Colors.red.shade700,
+                          fontWeight: FontWeight.w600,
+                        )),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
           );
 
     // ── Shared: auto status badge (read-only) ──
     Widget statusBadge = Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: statusColor.withOpacity(0.1),
+        color: statusColor.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: statusColor.withOpacity(0.3)),
+        border: Border.all(color: statusColor.withValues(alpha: 0.3)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1156,7 +2077,10 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
       message: notified ? 'Veli bilgilendirildi' : 'Veli bilgilendirmesi yap',
       child: InkWell(
         borderRadius: BorderRadius.circular(8),
-        onTap: () => setState(() => _parentNotified[key] = !notified),
+        onTap: () {
+          setState(() => _parentNotified[key] = !notified);
+          _persistStudent(key);
+        },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -1252,13 +2176,17 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
                                   Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                                     decoration: BoxDecoration(
-                                      color: Colors.red.shade50,
+                                      color: isCritical ? Colors.red.shade50 : Colors.green.shade50,
                                       borderRadius: BorderRadius.circular(6),
-                                      border: Border.all(color: Colors.red.shade100),
+                                      border: Border.all(color: isCritical ? Colors.red.shade100 : Colors.green.shade200),
                                     ),
                                     child: Text(
-                                      '%${(s['success'] as double).toStringAsFixed(1)} Başarı',
-                                      style: TextStyle(fontSize: 10, color: Colors.red.shade700, fontWeight: FontWeight.w600),
+                                      '%${(s['success'] as double).toStringAsFixed(1)} Başarı${_showOnlyCriticalStudents ? '' : (isCritical ? ' • KRİTİK' : ' • YETERLİ')}',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: isCritical ? Colors.red.shade700 : Colors.green.shade700,
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -1339,12 +2267,31 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
                           children: [
                             Text('Başarı: %${(s['success'] as double).toStringAsFixed(1)}',
                                 style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
-                            if (tasks.isNotEmpty) ...[
-                              const SizedBox(width: 8),
-                              taskBadges,
+                            if (!_showOnlyCriticalStudents) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                decoration: BoxDecoration(
+                                  color: isCritical ? Colors.red.shade50 : Colors.green.shade50,
+                                  borderRadius: BorderRadius.circular(5),
+                                  border: Border.all(color: isCritical ? Colors.red.shade200 : Colors.green.shade200),
+                                ),
+                                child: Text(
+                                  isCritical ? 'KRİTİK' : 'YETERLİ',
+                                  style: TextStyle(
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.bold,
+                                    color: isCritical ? Colors.red.shade700 : Colors.green.shade700,
+                                  ),
+                                ),
+                              ),
                             ],
                           ],
                         ),
+                        if (tasks.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          taskBadges,
+                        ],
                       ],
                     ),
                   ),
@@ -1368,7 +2315,15 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
 
 
   void _showTaskAssignBottomSheet({required List<String> keys}) {
-    final Set<String> selectedTypes = {};
+    // Mevcut görevleri önceden seçili getir (tüm seçili öğrencilerde ortak olanlar)
+    Set<String> initialTypes = keys.isEmpty
+        ? {}
+        : (_studentTasks[keys.first] ?? []).map((t) => t['type'] as String).toSet();
+    for (final k in keys.skip(1)) {
+      initialTypes = initialTypes.intersection((_studentTasks[k] ?? []).map((t) => t['type'] as String).toSet());
+    }
+    final Set<String> selectedTypes = {...initialTypes};
+    final bool isEdit = initialTypes.isNotEmpty;
 
     showModalBottomSheet(
       context: context,
@@ -1386,10 +2341,14 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
             children: [
               Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 20),
                   decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
-              Text(keys.length > 1 ? '${keys.length} Öğrenciye Görev Ata' : 'Görev Ata',
+              Text(
+                  isEdit
+                      ? (keys.length > 1 ? '${keys.length} Öğrencinin Görevlerini Düzenle' : 'Görevleri Düzenle')
+                      : (keys.length > 1 ? '${keys.length} Öğrenciye Görev Ata' : 'Görev Ata'),
                   style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.indigo)),
               const SizedBox(height: 8),
-              Text('Atanacak görev türlerini seçin', style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
+              Text('Görev türlerini seçin; seçimi kaldırdığınız görev silinir',
+                  style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
               const SizedBox(height: 24),
               GridView.count(
                 shrinkWrap: true,
@@ -1434,10 +2393,13 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
                 width: double.infinity,
                 height: 52,
                 child: ElevatedButton.icon(
-                  onPressed: selectedTypes.isEmpty ? null : () {
+                  onPressed: (selectedTypes.isEmpty && !isEdit) ? null : () {
                     setState(() {
                       for (final key in keys) {
                         _studentTasks.putIfAbsent(key, () => []);
+                        // Düzenleme: seçimi kaldırılan görevleri sil
+                        final removed = initialTypes.difference(selectedTypes);
+                        _studentTasks[key]!.removeWhere((t) => removed.contains(t['type']));
                         for (final type in selectedTypes) {
                           final taskDef = _taskTypes.firstWhere((t) => t['type'] == type);
                           final alreadyHas = _studentTasks[key]!.any((t) => t['type'] == type);
@@ -1447,6 +2409,9 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
                         }
                       }
                     });
+                    for (final key in keys) {
+                      _persistStudent(key);
+                    }
                     Navigator.pop(ctx);
                   },
                   icon: const Icon(Icons.check_rounded),
@@ -1481,72 +2446,77 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
         color: hasSelection ? Colors.indigo.shade50 : Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: hasSelection ? Colors.indigo.shade200 : Colors.grey.shade200),
-        boxShadow: hasSelection ? [BoxShadow(color: Colors.indigo.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))] : null,
+        boxShadow: hasSelection ? [BoxShadow(color: Colors.indigo.withValues(alpha: 0.05), blurRadius: 4, offset: const Offset(0, 2))] : null,
       ),
-      child: PopupMenuButton<String>(
-        tooltip: '$hint Filtrele',
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        borderRadius: BorderRadius.circular(12),
-        offset: const Offset(0, 50),
-        onSelected: (val) {
-          List<String> next = List.from(selected);
-          if (val == 'ALL') {
-            next = isAll ? [] : List.from(all);
-          } else {
-            next.contains(val) ? next.remove(val) : next.add(val);
-          }
-          onChanged(next);
-        },
-        itemBuilder: (c) => [
-          PopupMenuItem(
-            value: 'ALL',
-            child: Row(
-              children: [
-                Checkbox(
-                  value: isAll,
-                  onChanged: null,
-                  activeColor: Colors.indigo,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                ),
-                const Text('Tümü', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-              ],
-            ),
-          ),
-          const PopupMenuDivider(),
-          ...all.map((e) => PopupMenuItem(
-            value: e,
-            child: Row(
-              children: [
-                Checkbox(
-                  value: selected.contains(e),
-                  onChanged: null,
-                  activeColor: Colors.indigo,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                ),
-                Expanded(child: Text(e, style: const TextStyle(fontSize: 13))),
-              ],
-            ),
-          )),
-        ],
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Row(
-            children: [
-              Icon(icon, size: 16, color: hasSelection ? Colors.indigo.shade700 : Colors.grey.shade600),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  isAll ? 'Tümü' : (hasSelection ? '${selected.length} Seçili' : hint),
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: hasSelection ? FontWeight.bold : FontWeight.normal,
-                    color: hasSelection ? Colors.indigo.shade900 : Colors.grey.shade700,
-                  ),
-                  overflow: TextOverflow.ellipsis,
+      child: MenuAnchor(
+        alignmentOffset: const Offset(0, 6),
+        style: MenuStyle(
+          backgroundColor: const WidgetStatePropertyAll(Colors.white),
+          shape: WidgetStatePropertyAll(RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+        ),
+        menuChildren: [
+          SizedBox(
+            width: width ?? 200,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 360),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    MenuItemButton(
+                      closeOnActivate: false,
+                      onPressed: () => onChanged(isAll ? [] : List.from(all)),
+                      leadingIcon: Icon(
+                        isAll ? Icons.check_box : Icons.check_box_outline_blank,
+                        size: 20,
+                        color: Colors.indigo,
+                      ),
+                      child: const Text('Tümü', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    ),
+                    const Divider(height: 1),
+                    ...all.map((e) => MenuItemButton(
+                          closeOnActivate: false,
+                          onPressed: () {
+                            final next = List<String>.from(selected);
+                            next.contains(e) ? next.remove(e) : next.add(e);
+                            onChanged(next);
+                          },
+                          leadingIcon: Icon(
+                            selected.contains(e) ? Icons.check_box : Icons.check_box_outline_blank,
+                            size: 20,
+                            color: Colors.indigo,
+                          ),
+                          child: Text(e, style: const TextStyle(fontSize: 13)),
+                        )),
+                  ],
                 ),
               ),
-              Icon(Icons.keyboard_arrow_down, size: 16, color: hasSelection ? Colors.indigo.shade700 : Colors.grey.shade400),
-            ],
+            ),
+          ),
+        ],
+        builder: (context, controller, _) => InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => controller.isOpen ? controller.close() : controller.open(),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                Icon(icon, size: 16, color: hasSelection ? Colors.indigo.shade700 : Colors.grey.shade600),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    isAll ? 'Tümü' : (hasSelection ? '${selected.length} Seçili' : hint),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: hasSelection ? FontWeight.bold : FontWeight.normal,
+                      color: hasSelection ? Colors.indigo.shade900 : Colors.grey.shade700,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Icon(Icons.keyboard_arrow_down, size: 16, color: hasSelection ? Colors.indigo.shade700 : Colors.grey.shade400),
+              ],
+            ),
           ),
         ),
       ),
@@ -1560,7 +2530,7 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4))],
         border: Border.all(color: Colors.grey.shade100),
       ),
       child: Column(
@@ -1590,7 +2560,7 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
               max: 100,
               divisions: 20,
               activeColor: Colors.indigo,
-              inactiveColor: Colors.indigo.withOpacity(0.1),
+              inactiveColor: Colors.indigo.withValues(alpha: 0.1),
               onChanged: (v) => setState(() => _subjectThresholds[subject] = v),
             ),
           ),
@@ -1748,10 +2718,13 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
         title: 'Problem Kaynağı Seçin',
         options: sources,
         current: current,
-        onSelected: (val) => setState(() {
-          _branchActionPlans[key]!['problemSource'] = val;
-          _updateStatus(key);
-        }),
+        onSelected: (val) {
+          setState(() {
+            _branchActionPlans[key]!['problemSource'] = val;
+            _updateStatus(key);
+          });
+          _persistBranchPlan(key);
+        },
       ),
       child: Container(
         height: 40,
@@ -1817,10 +2790,13 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
           options: _predefinedActionPlans,
           current: current,
           fieldKey: key,
-          onSelected: (val) => setState(() {
-            _branchActionPlans[key]!['actionPlan'] = val;
-            _updateStatus(key);
-          }),
+          onSelected: (val) {
+            setState(() {
+              _branchActionPlans[key]!['actionPlan'] = val;
+              _updateStatus(key);
+            });
+            _persistBranchPlan(key);
+          },
         );
       },
       child: Container(
@@ -1867,6 +2843,7 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
         setState(() {
           _branchActionPlans[key]!['status'] = current == 'Uygulanıyor' ? 'Tamamlandı' : 'Uygulanıyor';
         });
+        _persistBranchPlan(key);
       },
       child: Container(
         width: double.infinity,
@@ -1874,7 +2851,7 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
         alignment: Alignment.center,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.14),
+          color: color.withValues(alpha: 0.14),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -1906,13 +2883,37 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
   }
 
   String _getTeacherName(String branch, String subject) {
+    // 0. Kur ise: Kurs Listesi'ndeki kurun öğretmeni
+    final slot = _trackSlotFor(branch, subject);
+    if (slot != null) {
+      return slot.teacherNames.isNotEmpty ? slot.teacherNames.join(', ') : 'Öğretmen Atanmamış';
+    }
     // 1. Exact branch + subject match
     final exact = _branchTeachers[branch]?[subject];
     if (exact != null) return exact;
 
-    // 2. Try subject-only fallback (for general accounts where branch may differ)
+    // 2. Normalize edilmiş şube + (kısmi eşleşen) ders adı araması
+    final b = _normKey(branch);
+    final s = _normKey(subject);
+    for (final a in _allAssignments) {
+      final cl = _normKey(a['lesson'] ?? '');
+      if (_normKey(a['cls'] ?? '') == b &&
+          cl.isNotEmpty &&
+          s.isNotEmpty &&
+          (cl == s || cl.contains(s) || s.contains(cl))) {
+        return a['teachers'] ?? 'Öğretmen Atanmamış';
+      }
+    }
+
+    // 3. Try subject-only fallback (for general accounts where branch may differ)
     final fallback = _subjectTeacherFallback[subject];
     if (fallback != null) return fallback;
+    for (final a in _allAssignments) {
+      final cl = _normKey(a['lesson'] ?? '');
+      if (cl.isNotEmpty && s.isNotEmpty && (cl == s || cl.contains(s) || s.contains(cl))) {
+        return a['teachers'] ?? 'Öğretmen Atanmamış';
+      }
+    }
 
     return 'Öğretmen Atanmamış';
   }
@@ -1963,4 +2964,29 @@ class _AssessmentActionPlanScreenState extends State<AssessmentActionPlanScreen>
     const months = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
     return months[month - 1];
   }
+}
+
+/// Öğrenci takibi: bir şube+ders grubu (önbelleğe alınır).
+class _StudentGroup {
+  final String branch;
+  final String subject;
+  final List<Map<String, dynamic>> students;
+  final int criticalCount;
+  final bool isCourse;
+  const _StudentGroup({
+    required this.branch,
+    required this.subject,
+    required this.students,
+    required this.criticalCount,
+    required this.isCourse,
+  });
+  String get key => "${branch}_$subject";
+}
+
+/// Öğrenci takibi: tembel (lazy) listedeki tek öğrenci satırı.
+class _StudentEntry {
+  final _StudentGroup group;
+  final Map<String, dynamic> student;
+  final bool isLast;
+  const _StudentEntry(this.group, this.student, this.isLast);
 }

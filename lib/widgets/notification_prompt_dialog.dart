@@ -74,7 +74,7 @@ class _NotificationPromptDialogState extends State<NotificationPromptDialog> {
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF4C59BC).withOpacity(0.3),
+                    color: const Color(0xFF4C59BC).withValues(alpha: 0.3),
                     blurRadius: 16,
                     offset: const Offset(0, 6),
                   ),
@@ -119,7 +119,7 @@ class _NotificationPromptDialogState extends State<NotificationPromptDialog> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.indigo.shade50.withOpacity(0.6),
+                  color: Colors.indigo.shade50.withValues(alpha: 0.6),
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: Colors.indigo.shade100),
                 ),

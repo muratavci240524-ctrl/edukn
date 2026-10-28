@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import '../../../widgets/edukn_app_bar.dart';
@@ -14,6 +13,7 @@ import 'quick_performance_tracker/quick_performance_tracker_hub_screen.dart';
 import 'classroom_timer/classroom_timer_hub_screen.dart';
 import 'noise_meter/noise_meter_hub_screen.dart';
 import 'butterfly_exam/butterfly_exam_hub_screen.dart';
+import 'optical_guide/pre_printer_omr_hub_screen.dart';
 import '../notes/personal_notes_screen.dart';
 
 class ToolsHubScreen extends StatefulWidget {
@@ -92,12 +92,6 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
           icon: Icons.mic_rounded,
           color: Color(0xFFFF7043),
         ),
-        _ToolItem(
-          title: 'Notlarım',
-          subtitle: 'Kişisel ve ders içi notlarınızı kaydedin ve yönetin',
-          icon: Icons.edit_note_rounded,
-          color: Color(0xFF8E24AA),
-        ),
       ],
     ),
     _ToolCategory(
@@ -108,14 +102,8 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
       gradient: [Color(0xFFEF5350), Color(0xFFE53935)],
       tools: [
         _ToolItem(
-          title: 'Kelebek Sınav Dağıtıcı',
-          subtitle: 'Farklı seviyedeki öğrencileri matris algoritmasıyla sıraya dizme',
-          icon: Icons.view_module_rounded,
-          color: Color(0xFFEF5350),
-        ),
-        _ToolItem(
-          title: 'Sınava Özel Oturma Planı ve Kapı Listesi',
-          subtitle: 'Salon bazlı şablonlara oturtup PDF çıktı üretme',
+          title: 'Sınava Özel Oturma Planı ve Sınav Yoklaması',
+          subtitle: 'Kelebek dağıtımla sınıf seviyelerini karıştırıp salonlara yerleştirin; kapı listesi, gözetmen krokisi, gözlem formu ve alfabetik listeyi tek PDF paketinde alın. Salon bazlı sınav yoklamasını tutup raporu WhatsApp ile paylaşın.',
           icon: Icons.door_front_door_rounded,
           color: Color(0xFFEC407A),
         ),
@@ -199,6 +187,21 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
         ),
       ],
     ),
+    _ToolCategory(
+      title: 'Notlarım',
+      shortTitle: 'Notlarım',
+      icon: Icons.edit_note_rounded,
+      color: Color(0xFF8E24AA),
+      gradient: [Color(0xFFAB47BC), Color(0xFF8E24AA)],
+      tools: [
+        _ToolItem(
+          title: 'Notlarım',
+          subtitle: 'Kişisel ve ders içi notlarınızı kaydedin ve yönetin',
+          icon: Icons.edit_note_rounded,
+          color: Color(0xFF8E24AA),
+        ),
+      ],
+    ),
   ];
 
   // Online Hizmetler category is built dynamically from Firestore
@@ -214,7 +217,13 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
   @override
   void initState() {
     super.initState();
-    _selectedCategoryIndex = widget.isTeacher ? 0 : widget.initialCategoryIndex;
+    _selectedCategoryIndex = widget.initialCategoryIndex;
+    if (widget.isTeacher) {
+      final visible = _visibleCategoryIndexes;
+      if (visible.isNotEmpty && !visible.contains(_selectedCategoryIndex)) {
+        _selectedCategoryIndex = visible.first;
+      }
+    }
     _animationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 400),
@@ -288,16 +297,70 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
     super.dispose();
   }
 
-  int get _totalCategoryCount => widget.isTeacher ? 1 : (_staticCategories.length + 1); // +1 for Online Hizmetler
+  int get _totalCategoryCount => _staticCategories.length + 1; // +1 for Online Hizmetler
 
   _ToolCategory _getCategoryAt(int index) {
-    if (widget.isTeacher) return _staticCategories[0];
     if (index < _staticCategories.length) return _staticCategories[index];
     return _onlineHizmetlerMeta;
   }
 
+  // --- Öğretmen yetki eşlemesi (Yetki Tanımlama > Araçlar) ---
+  static const List<String> _categoryPermKeys = [
+    'sinif_ici_yonetim',
+    'sinav_gozetmenlik',
+    'akademik_olcme',
+    'evrak_sablon',
+    'notlarim',
+    'online_hizmetler',
+  ];
+
+  static const Map<String, String> _toolPermKeys = {
+    'Sınıf Oturma Planı Oluşturucu': 'sinif_oturma_plani',
+    'Homojen/Rastgele Gruplama': 'sinif_gruplama',
+    'Rastgele Öğrenci Seçici': 'sinif_ogrenci_secici',
+    'Hızlı Performans Takibi': 'sinif_performans_takibi',
+    'Sınıf Zamanlayıcısı / Kronometre': 'sinif_zamanlayici',
+    'Sınıf Termometresi (Gürültü Ölçer)': 'sinif_termometre',
+    'Notlarım': 'notlarim',
+    'Sınava Özel Oturma Planı ve Sınav Yoklaması': 'sinav_oturma_yoklama',
+    'Optik Form Kodlama Kılavuzu Jeneratörü': 'sinav_optik_kilavuz',
+    'LGS / YKS Hedef Simülatörü': 'akademik_hedef_simulator',
+    'Kazanım Isı Haritası (Heat Map)': 'akademik_isi_haritasi',
+    'Hızlı Test Notu Dönüştürücü': 'akademik_not_donusturucu',
+    'Devamsızlık Radar Paneli': 'akademik_devamsizlik_radar',
+    'Dinamik PDF Liste Jeneratörü': 'evrak_pdf_liste',
+    'Toplu Veli İzin Belgesi Üretici': 'evrak_veli_izin',
+    'Parametrik Tutanak Hazırlayıcı': 'evrak_tutanak',
+    'QR / Barkod ve Yaka Kartı Üretici': 'evrak_qr_barkod',
+    'Çakışmasız Nöbet Dağıtıcı': 'evrak_nobet_dagitici',
+  };
+
+  bool _isCategoryAllowed(int index) {
+    if (!widget.isTeacher) return true;
+    if (!UserPermissionService.hasTeacherModuleAccess('araclar')) return false;
+    if (!UserPermissionService.hasTeacherModuleAccess('araclar', subModuleKey: _categoryPermKeys[index])) {
+      return false;
+    }
+    if (index < _staticCategories.length) {
+      return _staticCategories[index].tools.any(_isToolAllowed);
+    }
+    return true;
+  }
+
+  bool _isToolAllowed(_ToolItem tool) {
+    if (!widget.isTeacher) return true;
+    final key = _toolPermKeys[tool.title];
+    if (key == null) return true;
+    return UserPermissionService.hasTeacherModuleAccess('araclar', subModuleKey: key);
+  }
+
+  List<int> get _visibleCategoryIndexes {
+    final all = List<int>.generate(_totalCategoryCount, (i) => i);
+    if (!widget.isTeacher) return all;
+    return all.where(_isCategoryAllowed).toList();
+  }
+
   void _switchCategory(int index) {
-    if (widget.isTeacher) return;
     if (index == _selectedCategoryIndex) return;
     _animationController.reverse().then((_) {
       setState(() => _selectedCategoryIndex = index);
@@ -318,12 +381,12 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
     return Scaffold(
       backgroundColor: const Color(0xFFF5F6FA),
       appBar: EduknAppBar(
-        title: widget.isTeacher ? 'Sınıf İçi Yönetim Araçları' : 'Araçlar',
+        title: 'Araçlar',
         subtitle: widget.schoolTypeName,
       ),
       body: Column(
         children: [
-          if (!widget.isTeacher) _buildCategoryTabs(isMobile),
+          _buildCategoryTabs(isMobile),
           Expanded(
             child: FadeTransition(
               opacity: _fadeAnimation,
@@ -346,13 +409,14 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
   }
 
   Widget _buildCategoryTabs(bool isMobile) {
+    final visibleIndexes = _visibleCategoryIndexes;
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -363,7 +427,7 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
         physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
-          children: List.generate(_totalCategoryCount, (index) {
+          children: visibleIndexes.map((index) {
             final cat = _getCategoryAt(index);
             final isSelected = _selectedCategoryIndex == index;
             return Padding(
@@ -389,7 +453,7 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
                       boxShadow: isSelected
                           ? [
                               BoxShadow(
-                                color: cat.color.withOpacity(0.3),
+                                color: cat.color.withValues(alpha: 0.3),
                                 blurRadius: 8,
                                 offset: const Offset(0, 3),
                               ),
@@ -419,7 +483,7 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
                 ),
               ),
             );
-          }),
+          }).toList(),
         ),
       ),
     );
@@ -427,6 +491,7 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
 
   Widget _buildToolsList(bool isMobile) {
     final category = _staticCategories[_selectedCategoryIndex];
+    final tools = category.tools.where(_isToolAllowed).toList();
     final crossAxisCount = isMobile ? 1 : (MediaQuery.of(context).size.width > 1200 ? 3 : 2);
 
     return CustomScrollView(
@@ -449,14 +514,14 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
             ),
             delegate: SliverChildBuilderDelegate(
               (context, index) {
-                final tool = category.tools[index];
+                final tool = tools[index];
                 return _ToolCard(
                   tool: tool,
                   index: index,
                   onTap: () => _onToolTap(tool),
                 );
               },
-              childCount: category.tools.length,
+              childCount: tools.length,
             ),
           ),
         ),
@@ -546,7 +611,7 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
               borderRadius: BorderRadius.circular(14),
               boxShadow: [
                 BoxShadow(
-                  color: category.color.withOpacity(0.3),
+                  color: category.color.withValues(alpha: 0.3),
                   blurRadius: 12,
                   offset: const Offset(0, 4),
                 ),
@@ -677,12 +742,23 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
         ),
       );
       return;
-    } else if (tool.title == 'Kelebek Sınav Dağıtıcı' ||
-        tool.title == 'Sınava Özel Oturma Planı ve Kapı Listesi') {
+    } else if (tool.title == 'Sınava Özel Oturma Planı ve Sınav Yoklaması') {
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => ButterflyExamHubScreen(
+            institutionId: widget.institutionId,
+            schoolTypeId: widget.schoolTypeId,
+            schoolTypeName: widget.schoolTypeName,
+          ),
+        ),
+      );
+      return;
+    } else if (tool.title == 'Optik Form Kodlama Kılavuzu Jeneratörü') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => PrePrinterOmrHubScreen(
             institutionId: widget.institutionId,
             schoolTypeId: widget.schoolTypeId,
             schoolTypeName: widget.schoolTypeName,
@@ -859,7 +935,7 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF00897B).withOpacity(0.1),
+                  color: const Color(0xFF00897B).withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
@@ -928,7 +1004,7 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
                             color: isSelected
-                                ? const Color(0xFF00897B).withOpacity(0.15)
+                                ? const Color(0xFF00897B).withValues(alpha: 0.15)
                                 : Colors.grey.shade100,
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
@@ -968,7 +1044,7 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
                               width: 3,
                             ),
                             boxShadow: isSelected
-                                ? [BoxShadow(color: entry.value.withOpacity(0.5), blurRadius: 8)]
+                                ? [BoxShadow(color: entry.value.withValues(alpha: 0.5), blurRadius: 8)]
                                 : null,
                           ),
                           child: isSelected
@@ -1027,7 +1103,7 @@ class _ToolsHubScreenState extends State<ToolsHubScreen> with SingleTickerProvid
                 await _loadOnlineServices();
 
                 if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(existing == null
                           ? '✅ "$title" başarıyla eklendi'
@@ -1176,15 +1252,15 @@ class _ToolCardState extends State<_ToolCard> with SingleTickerProviderStateMixi
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
                 color: _isHovered
-                    ? widget.tool.color.withOpacity(0.4)
+                    ? widget.tool.color.withValues(alpha: 0.4)
                     : Colors.grey.shade200,
                 width: _isHovered ? 1.5 : 1,
               ),
               boxShadow: [
                 BoxShadow(
                   color: _isHovered
-                      ? widget.tool.color.withOpacity(0.12)
-                      : Colors.black.withOpacity(0.04),
+                      ? widget.tool.color.withValues(alpha: 0.12)
+                      : Colors.black.withValues(alpha: 0.04),
                   blurRadius: _isHovered ? 16 : 8,
                   offset: Offset(0, _isHovered ? 6 : 2),
                 ),
@@ -1198,7 +1274,7 @@ class _ToolCardState extends State<_ToolCard> with SingleTickerProviderStateMixi
                     duration: const Duration(milliseconds: 200),
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: widget.tool.color.withOpacity(_isHovered ? 0.15 : 0.08),
+                      color: widget.tool.color.withValues(alpha: _isHovered ? 0.15 : 0.08),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Icon(
@@ -1245,7 +1321,7 @@ class _ToolCardState extends State<_ToolCard> with SingleTickerProviderStateMixi
                     padding: const EdgeInsets.all(6),
                     decoration: BoxDecoration(
                       color: _isHovered
-                          ? widget.tool.color.withOpacity(0.1)
+                          ? widget.tool.color.withValues(alpha: 0.1)
                           : Colors.grey.shade100,
                       borderRadius: BorderRadius.circular(8),
                     ),
@@ -1376,12 +1452,12 @@ class _OnlineServiceCardState extends State<_OnlineServiceCard> with SingleTicke
               color: Colors.white,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: _isHovered ? color.withOpacity(0.4) : Colors.grey.shade200,
+                color: _isHovered ? color.withValues(alpha: 0.4) : Colors.grey.shade200,
                 width: _isHovered ? 1.5 : 1,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: _isHovered ? color.withOpacity(0.12) : Colors.black.withOpacity(0.04),
+                  color: _isHovered ? color.withValues(alpha: 0.12) : Colors.black.withValues(alpha: 0.04),
                   blurRadius: _isHovered ? 16 : 8,
                   offset: Offset(0, _isHovered ? 6 : 2),
                 ),
@@ -1395,7 +1471,7 @@ class _OnlineServiceCardState extends State<_OnlineServiceCard> with SingleTicke
                     duration: const Duration(milliseconds: 200),
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: color.withOpacity(_isHovered ? 0.15 : 0.08),
+                      color: color.withValues(alpha: _isHovered ? 0.15 : 0.08),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Icon(_serviceIcon, color: color, size: 22),
@@ -1480,7 +1556,7 @@ class _OnlineServiceCardState extends State<_OnlineServiceCard> with SingleTicke
                       duration: const Duration(milliseconds: 200),
                       padding: const EdgeInsets.all(6),
                       decoration: BoxDecoration(
-                        color: _isHovered ? color.withOpacity(0.1) : Colors.grey.shade100,
+                        color: _isHovered ? color.withValues(alpha: 0.1) : Colors.grey.shade100,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Icon(

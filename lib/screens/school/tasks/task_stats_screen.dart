@@ -302,7 +302,7 @@ class _TaskStatsScreenState extends State<TaskStatsScreen>
                       width: 32,
                       height: 32,
                       decoration: BoxDecoration(
-                        color: rankColor.withOpacity(0.15),
+                        color: rankColor.withValues(alpha: 0.15),
                         shape: BoxShape.circle,
                       ),
                       child: Center(
@@ -319,7 +319,7 @@ class _TaskStatsScreenState extends State<TaskStatsScreen>
                     const SizedBox(width: 12),
                     // Avatar
                     CircleAvatar(
-                      backgroundColor: const Color(0xFF818CF8).withOpacity(0.2),
+                      backgroundColor: const Color(0xFF818CF8).withValues(alpha: 0.2),
                       radius: 20,
                       child: Text(
                         p.name.isNotEmpty ? p.name[0].toUpperCase() : '?',
@@ -357,7 +357,7 @@ class _TaskStatsScreenState extends State<TaskStatsScreen>
                       padding: const EdgeInsets.symmetric(
                           horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
-                        color: _rateColor(p.rate).withOpacity(0.15),
+                        color: _rateColor(p.rate).withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
@@ -492,7 +492,7 @@ class _TaskStatsScreenState extends State<TaskStatsScreen>
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: color.withOpacity(0.15),
+                color: color.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(icon, color: color, size: 20),
@@ -531,14 +531,14 @@ class _TaskStatsScreenState extends State<TaskStatsScreen>
       decoration: BoxDecoration(
         color: const Color(0xFF1E293B),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.15),
+              color: color.withValues(alpha: 0.15),
               shape: BoxShape.circle,
             ),
             child: Icon(icon, color: color, size: 22),
@@ -654,7 +654,7 @@ class _TaskStatsScreenState extends State<TaskStatsScreen>
       child: Row(
         children: [
           CircleAvatar(
-            backgroundColor: color.withOpacity(0.15),
+            backgroundColor: color.withValues(alpha: 0.15),
             radius: 18,
             child: Text(
               name.isNotEmpty ? name[0].toUpperCase() : '?',
@@ -672,7 +672,7 @@ class _TaskStatsScreenState extends State<TaskStatsScreen>
             padding:
                 const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.15),
+              color: color.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Text(
@@ -772,7 +772,7 @@ class _TaskStatsScreenState extends State<TaskStatsScreen>
               child: Row(
                 children: [
                   CircleAvatar(
-                    backgroundColor: color.withOpacity(0.15),
+                    backgroundColor: color.withValues(alpha: 0.15),
                     radius: 18,
                     child: Text(
                       s.name.isNotEmpty ? s.name[0].toUpperCase() : '?',
@@ -801,7 +801,7 @@ class _TaskStatsScreenState extends State<TaskStatsScreen>
                     padding: const EdgeInsets.symmetric(
                         horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
-                      color: color.withOpacity(0.15),
+                      color: color.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(

@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
@@ -27,8 +27,7 @@ class _StudentInfo {
     required this.branch,
     required this.level,
     required this.results,
-    this.isSelected = false,
-  });
+  }) : isSelected = false;
 }
 
 class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListScreen> {
@@ -36,7 +35,7 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
   List<_StudentInfo> _filteredStudents = [];
   
   bool _isLoading = true;
-  bool _isGeneratingBulk = false;
+  final bool _isGeneratingBulk = false;
   final ErrorBookletGeneratorService _generatorService = ErrorBookletGeneratorService();
 
   // Progress State for Premium Loading Overlay
@@ -230,7 +229,7 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
                                 color: !individualPDFs ? Colors.white : Colors.transparent,
                                 borderRadius: BorderRadius.circular(10),
                                 boxShadow: !individualPDFs
-                                    ? [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))]
+                                    ? [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4, offset: const Offset(0, 2))]
                                     : [],
                               ),
                               child: Center(
@@ -264,7 +263,7 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
                                 color: individualPDFs ? Colors.white : Colors.transparent,
                                 borderRadius: BorderRadius.circular(10),
                                 boxShadow: individualPDFs
-                                    ? [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))]
+                                    ? [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4, offset: const Offset(0, 2))]
                                     : [],
                               ),
                               child: Center(
@@ -325,7 +324,7 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
                         ),
                         Switch(
                           value: prioritizeCritical,
-                          activeColor: Colors.indigo.shade600,
+                          activeThumbColor: Colors.indigo.shade600,
                           onChanged: (val) {
                             setSheetState(() => prioritizeCritical = val);
                           },
@@ -370,7 +369,7 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
                             ),
                             Switch(
                               value: hasMaxLimit,
-                              activeColor: Colors.indigo.shade600,
+                              activeThumbColor: Colors.indigo.shade600,
                               onChanged: (val) {
                                 setSheetState(() {
                                   hasMaxLimit = val;
@@ -454,7 +453,7 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
                               ),
                               Switch(
                                 value: fillFromPool,
-                                activeColor: Colors.indigo.shade600,
+                                activeThumbColor: Colors.indigo.shade600,
                                 onChanged: (val) {
                                   setSheetState(() => fillFromPool = val);
                                 },
@@ -668,7 +667,7 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
             child: BackdropFilter(
               filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
               child: Container(
-                color: Colors.indigo.shade900.withOpacity(0.4),
+                color: Colors.indigo.shade900.withValues(alpha: 0.4),
               ),
             ),
           ),
@@ -681,7 +680,7 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
                 borderRadius: BorderRadius.circular(28),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.15),
+                    color: Colors.black.withValues(alpha: 0.15),
                     blurRadius: 30,
                     offset: const Offset(0, 15),
                   ),
@@ -903,11 +902,11 @@ class _ErrorBookletStudentListScreenState extends State<ErrorBookletStudentListS
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: isSelected ? Colors.indigo.withOpacity(0.03) : Colors.white,
+        color: isSelected ? Colors.indigo.withValues(alpha: 0.03) : Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: isSelected ? Colors.indigo.shade300 : Colors.grey.withOpacity(0.15), width: isSelected ? 1.5 : 1),
+        border: Border.all(color: isSelected ? Colors.indigo.shade300 : Colors.grey.withValues(alpha: 0.15), width: isSelected ? 1.5 : 1),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4)),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4)),
         ],
       ),
       child: Material(

@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:firebase_auth/firebase_auth.dart';
@@ -105,17 +105,6 @@ class _UserManagementScreenState extends State<UserManagementScreen>
     if (user != null) {
       final email = user.email ?? '';
       final instId = await UserPermissionService.resolveInstitutionId(email, userData: profileData);
-
-      if (instId == null) {
-        debugPrint('⚠️ UserManagementScreen: Institution ID bulunamadı.');
-        if (mounted) {
-          setState(() {
-            institutionId = null;
-            schoolId = null;
-          });
-        }
-        return;
-      }
 
       // Okul bilgilerini al
       final schoolQuery = await FirebaseFirestore.instance
@@ -391,7 +380,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                             _formatRole(data['role']),
                             style: TextStyle(
                               fontSize: 14,
-                              color: Colors.white.withOpacity(0.9),
+                              color: Colors.white.withValues(alpha: 0.9),
                             ),
                           ),
                         ],
@@ -594,12 +583,12 @@ class _UserManagementScreenState extends State<UserManagementScreen>
       final currentUser = FirebaseAuth.instance.currentUser;
       final prefs = await SharedPreferences.getInstance();
 
-      print('🔐 Login as user başlatıldı: ${userData['fullName']}');
-      print('📧 Email: ${userData['email']}');
+      debugPrint('🔐 Login as user başlatıldı: ${userData['fullName']}');
+      debugPrint('📧 Email: ${userData['email']}');
 
       if (currentUser != null) {
         await prefs.setString('admin_backup_email', currentUser.email ?? '');
-        print('✅ Admin backup kaydedildi: ${currentUser.email}');
+        debugPrint('✅ Admin backup kaydedildi: ${currentUser.email}');
       }
 
       // Yeni kullanıcı bilgilerini kaydet
@@ -618,17 +607,17 @@ class _UserManagementScreenState extends State<UserManagementScreen>
       final savedEmail = prefs.getString('impersonated_user_email');
       final savedName = prefs.getString('impersonated_user_name');
       final isImp = prefs.getBool('is_impersonating');
-      print('✅ SharedPreferences kaydedildi:');
-      print('   - Email: $savedEmail');
-      print('   - Name: $savedName');
-      print('   - Is Impersonating: $isImp');
+      debugPrint('✅ SharedPreferences kaydedildi:');
+      debugPrint('   - Email: $savedEmail');
+      debugPrint('   - Name: $savedName');
+      debugPrint('   - Is Impersonating: $isImp');
 
       // UserPermissionService cache'ini temizle
       UserPermissionService.clearCache();
-      print('🧹 UserPermissionService cache temizlendi');
+      debugPrint('🧹 UserPermissionService cache temizlendi');
 
       // Başarı mesajı göster
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('${userData['fullName']} olarak giriş yapılıyor...'),
           backgroundColor: Colors.green,
@@ -643,14 +632,14 @@ class _UserManagementScreenState extends State<UserManagementScreen>
       } else {
         // Mobil için navigation
         await Future.delayed(Duration(milliseconds: 500));
-        Navigator.pushNamedAndRemoveUntil(
+        if (mounted) Navigator.pushNamedAndRemoveUntil(
           context,
           '/school-dashboard',
           (route) => false,
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
       );
     }
@@ -794,7 +783,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
     if (result == null || result['confirm'] != true) return;
     customId = result['customId'];
 
-    showDialog(
+    if (mounted) showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => Center(child: CircularProgressIndicator()),
@@ -824,7 +813,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
           .get();
 
       for (var doc in usersSnapshot.docs) {
-        final data = doc.data() as Map<String, dynamic>;
+        final data = doc.data();
         final role = (data['role'] ?? '').toString();
         final currentType = data['type'];
 
@@ -842,7 +831,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
       _getSchoolInfo();
       _loadUserPermissions();
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('✅ $updatedCount kayıt güncellendi! Lütfen sayfayı yenileyin.'),
           backgroundColor: Colors.green,
@@ -851,7 +840,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
       );
     } catch (e) {
       Navigator.pop(context); // Close loading
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('❌ Hata: $e'), backgroundColor: Colors.red),
       );
     }
@@ -1152,7 +1141,7 @@ class _UserManagementScreenState extends State<UserManagementScreen>
                       boxShadow: [
                         BoxShadow(
                           color: (isAdminRole ? Colors.orange : Colors.indigo)
-                              .withOpacity(0.3),
+                              .withValues(alpha: 0.3),
                           blurRadius: 8,
                           offset: Offset(0, 4),
                         ),
@@ -1455,13 +1444,13 @@ class _UserFormSheetState extends State<_UserFormSheet> {
 
   // Modül yetkileri yapısı: moduleKey -> {enabled, level}
   // level: 'viewer' (Görüntüleyen) veya 'editor' (Düzenleyen)
-  Map<String, Map<String, dynamic>> _modulePermissions = {};
+  final Map<String, Map<String, dynamic>> _modulePermissions = {};
 
   // Okul türü yetkileri: schoolTypeId -> level ('viewer' veya 'editor')
-  Map<String, String> _schoolTypePermissions = {};
+  final Map<String, String> _schoolTypePermissions = {};
 
   // Okul türü bazlı modül yetkileri (ödev, karne vb.)
-  Map<String, Map<String, dynamic>> _schoolTypeModulePermissions = {};
+  final Map<String, Map<String, dynamic>> _schoolTypeModulePermissions = {};
 
 
   List<Map<String, dynamic>> _schoolTypes = []; // Okulun tüm okul türleri
@@ -1609,7 +1598,7 @@ class _UserFormSheetState extends State<_UserFormSheet> {
 
       // Kişisel modül yetkileri
       final modulePermsData = widget.userData!['modulePermissions'];
-      final hasPersonalPerms = modulePermsData != null && modulePermsData is Map && (modulePermsData as Map).isNotEmpty;
+      final hasPersonalPerms = modulePermsData != null && modulePermsData is Map && (modulePermsData).isNotEmpty;
 
       if (hasPersonalPerms) {
         // Kişisel izinler VARSA → direkt onları yükle (şablona düşme)
@@ -1708,7 +1697,7 @@ class _UserFormSheetState extends State<_UserFormSheet> {
               child: Container(
                 padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: level == 'editor' ? color.withOpacity(0.1) : Colors.transparent,
+                  color: level == 'editor' ? color.withValues(alpha: 0.1) : Colors.transparent,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Icon(
@@ -1864,7 +1853,7 @@ class _UserFormSheetState extends State<_UserFormSheet> {
       // Kullanıcı kontrolü ekleyelim
       final currentUser = FirebaseAuth.instance.currentUser;
       if (currentUser == null) {
-        print('⚠️ Kullanıcı giriş yapmamış');
+        debugPrint('⚠️ Kullanıcı giriş yapmamış');
         setState(() => _isLoadingSchoolTypes = false);
         return;
       }
@@ -1883,7 +1872,7 @@ class _UserFormSheetState extends State<_UserFormSheet> {
         _isLoadingSchoolTypes = false;
       });
     } catch (e) {
-      print('❌ Okul türleri yüklenemedi: $e');
+      debugPrint('❌ Okul türleri yüklenemedi: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1901,9 +1890,9 @@ class _UserFormSheetState extends State<_UserFormSheet> {
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.05),
+        color: color.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: color.withOpacity(0.1)),
+        border: Border.all(color: color.withValues(alpha: 0.1)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1945,7 +1934,7 @@ class _UserFormSheetState extends State<_UserFormSheet> {
           ),
           boxShadow: isActive ? [
             BoxShadow(
-              color: activeColor.withOpacity(0.3),
+              color: activeColor.withValues(alpha: 0.3),
               blurRadius: 4,
               offset: Offset(0, 2),
             )
@@ -2105,19 +2094,19 @@ class _UserFormSheetState extends State<_UserFormSheet> {
 
         if (needsAuthUpdate) {
           try {
-            print('🚀 Auth bilgileri güncelleniyor: $authUpdateParams');
+            debugPrint('🚀 Auth bilgileri güncelleniyor: $authUpdateParams');
 
             await FirebaseFunctions.instance
                 .httpsCallable('updateUserCredentials')
                 .call(authUpdateParams);
-            print('✅ Auth bilgileri başarıyla güncellendi.');
+            debugPrint('✅ Auth bilgileri başarıyla güncellendi.');
           } catch (e) {
-            print('❌ Auth güncelleme hatası: $e');
+            debugPrint('❌ Auth güncelleme hatası: $e');
             String errorMsg = e.toString();
             if (errorMsg.contains('user-not-found')) {
               errorMsg = 'Kullanıcı kaydı Firebase Auth tarafında bulunamadı. Bu kullanıcı sistemde farklı bir e-posta ile kayıtlı olabilir veya manuel silinmiş olabilir.';
             }
-            ScaffoldMessenger.of(context).showSnackBar(
+            if (mounted) ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('Kimlik bilgileri güncellenemedi: $errorMsg')),
             );
           }
@@ -2133,7 +2122,7 @@ class _UserFormSheetState extends State<_UserFormSheet> {
               .doc(widget.userId)
               .get();
           if (legacyDoc.exists) {
-            print('🔍 Debug - Orijinal doküman güncelleniyor: users/${widget.userId}');
+            debugPrint('🔍 Debug - Orijinal doküman güncelleniyor: users/${widget.userId}');
             await FirebaseFirestore.instance
                 .collection('users')
                 .doc(widget.userId)
@@ -2149,7 +2138,7 @@ class _UserFormSheetState extends State<_UserFormSheet> {
               .doc(targetUid)
               .get();
           if (authDoc.exists) {
-            print('🔍 Debug - Auth dokümanı da güncelleniyor: users/$targetUid');
+            debugPrint('🔍 Debug - Auth dokümanı da güncelleniyor: users/$targetUid');
             await FirebaseFirestore.instance
                 .collection('users')
                 .doc(targetUid)
@@ -2162,7 +2151,7 @@ class _UserFormSheetState extends State<_UserFormSheet> {
           // İki doküman da yok: veri tutarsızlığı. Çözüm: targetUid altında oluştur/merge et.
           final fallbackId = targetUid ?? widget.userId;
           if (fallbackId != null) {
-            print(
+            debugPrint(
               '⚠️ Debug - Hedef doküman bulunamadı, set(merge) ile oluşturuluyor: users/$fallbackId',
             );
             await FirebaseFirestore.instance
@@ -2938,7 +2927,7 @@ class _UserFormSheetState extends State<_UserFormSheet> {
                                 ),
                                 SizedBox(height: 20),
                                   DropdownButtonFormField<String>(
-                                    value: _selectedRole,
+                                    initialValue: _selectedRole,
                                     decoration: InputDecoration(
                                       labelText: 'Görev Seçin *',
                                       border: OutlineInputBorder(
@@ -3009,10 +2998,10 @@ class _UserFormSheetState extends State<_UserFormSheet> {
                                         return Container(
                                           margin: const EdgeInsets.only(bottom: 8),
                                           decoration: BoxDecoration(
-                                            color: isSelected ? Colors.purple.shade50.withOpacity(0.5) : Colors.grey.shade50,
+                                            color: isSelected ? Colors.purple.shade50.withValues(alpha: 0.5) : Colors.grey.shade50,
                                             borderRadius: BorderRadius.circular(12),
                                             border: Border.all(
-                                              color: isSelected ? Colors.purple.withOpacity(0.3) : Colors.grey.shade200,
+                                              color: isSelected ? Colors.purple.withValues(alpha: 0.3) : Colors.grey.shade200,
                                               width: 1,
                                             ),
                                           ),

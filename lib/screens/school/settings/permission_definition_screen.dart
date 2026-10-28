@@ -155,13 +155,13 @@ class _PermissionDefinitionScreenState
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: color.withOpacity(0.08),
+              color: color.withValues(alpha: 0.08),
               blurRadius: 20,
               offset: const Offset(0, 8),
             ),
           ],
           border: Border.all(
-            color: hasTemplate ? color.withOpacity(0.3) : Colors.grey.shade200,
+            color: hasTemplate ? color.withValues(alpha: 0.3) : Colors.grey.shade200,
             width: 1.5,
           ),
         ),
@@ -174,7 +174,7 @@ class _PermissionDefinitionScreenState
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
+                    color: color.withValues(alpha: 0.1),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(icon, color: color, size: 28),
@@ -467,7 +467,7 @@ class _PermissionDefinitionScreenState
                   const SizedBox(width: 16),
                   Expanded(
                       child: Divider(
-                          color: Colors.indigo.withOpacity(0.1))),
+                          color: Colors.indigo.withValues(alpha: 0.1))),
                 ],
               ),
             );
@@ -640,7 +640,7 @@ class _PermissionDefinitionScreenState
                       child: Container(
                         padding: EdgeInsets.symmetric(horizontal: isMobile ? 8 : 12, vertical: 4),
                         decoration: BoxDecoration(
-                          color: level == 'editor' ? modColor : modColor.withOpacity(0.15),
+                          color: level == 'editor' ? modColor : modColor.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(16),
                         ),
                         child: Row(
@@ -876,7 +876,7 @@ class _PermissionDefinitionScreenState
                       Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: color.withOpacity(0.1),
+                          color: color.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Icon(icon, color: color, size: 24),
@@ -963,7 +963,7 @@ class _PermissionDefinitionScreenState
                     color: Colors.white,
                     boxShadow: [
                       BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
+                          color: Colors.black.withValues(alpha: 0.05),
                           blurRadius: 20,
                           offset: const Offset(0, -10)),
                     ],

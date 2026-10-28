@@ -8,7 +8,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../../services/assessment_service.dart';
 import '../../../services/term_service.dart';
 import '../../../services/guidance_service.dart';
@@ -20,7 +19,6 @@ import 'saved_templates_screen.dart';
 import 'saved_study_programs_screen.dart';
 import '../../../services/gemini_service.dart';
 import 'package:intl/intl.dart';
-import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:flutter/foundation.dart'; // Added for compute
 
@@ -66,7 +64,7 @@ class _GuidanceStudyProgramScreenState
   // Gemini AI State
   String? _geminiAnalysis;
   bool _isGeminiLoading = false;
-  GeminiService _geminiService = GeminiService();
+  final GeminiService _geminiService = GeminiService();
 
   // Data
   List<Map<String, dynamic>> _students = [];
@@ -90,7 +88,7 @@ class _GuidanceStudyProgramScreenState
 
   // New State for Settings Panel
   Set<String> _allSubjects = {};
-  Set<String> _hiddenSubjects = {};
+  final Set<String> _hiddenSubjects = {};
   bool _isFullScreen = false;
   bool _isScheduleTableView = false; // false = list, true = table
 
@@ -378,7 +376,7 @@ class _GuidanceStudyProgramScreenState
                           ),
                         ),
                         Text(
-                          '$day',
+                          day,
                           style: TextStyle(color: Colors.white70, fontSize: 13),
                         ),
                       ],
@@ -585,11 +583,9 @@ class _GuidanceStudyProgramScreenState
         }
       }
       // 3. Fallback to 'A' or first available
-      if (match == null) {
-        match = exam.outcomes.containsKey('A')
+      match ??= exam.outcomes.containsKey('A')
             ? 'A'
             : (exam.outcomes.keys.isNotEmpty ? exam.outcomes.keys.first : 'A');
-      }
       booklet = match;
     }
 
@@ -951,7 +947,7 @@ class _GuidanceStudyProgramScreenState
           }
         }
       } catch (e) {
-        print("Error parsing results for averages: $e");
+        debugPrint("Error parsing results for averages: $e");
       }
     }
 
@@ -1039,7 +1035,7 @@ class _GuidanceStudyProgramScreenState
                             Container(
                               padding: EdgeInsets.all(16),
                               decoration: BoxDecoration(
-                                color: Colors.indigo.shade50.withOpacity(0.5),
+                                color: Colors.indigo.shade50.withValues(alpha: 0.5),
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
                                   color: Colors.indigo.shade100,
@@ -1100,8 +1096,8 @@ class _GuidanceStudyProgramScreenState
                                       inactiveTrackColor:
                                           Colors.indigo.shade100,
                                       thumbColor: Colors.indigo,
-                                      overlayColor: Colors.indigo.withOpacity(
-                                        0.2,
+                                      overlayColor: Colors.indigo.withValues(
+                                        alpha: 0.2,
                                       ),
                                     ),
                                     child: Slider(
@@ -1236,7 +1232,7 @@ class _GuidanceStudyProgramScreenState
                                                 activeTrackColor: activeColor,
                                                 thumbColor: activeColor,
                                                 overlayColor: activeColor
-                                                    .withOpacity(0.2),
+                                                    .withValues(alpha: 0.2),
                                                 valueIndicatorColor:
                                                     activeColor,
                                               ),
@@ -1269,7 +1265,7 @@ class _GuidanceStudyProgramScreenState
                           color: Colors.white,
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.05),
+                              color: Colors.black.withValues(alpha: 0.05),
                               blurRadius: 10,
                               offset: Offset(0, -2),
                             ),
@@ -1394,7 +1390,7 @@ class _GuidanceStudyProgramScreenState
                       Container(
                         padding: EdgeInsets.all(20),
                         decoration: BoxDecoration(
-                          color: Colors.indigo.shade50.withOpacity(0.5),
+                          color: Colors.indigo.shade50.withValues(alpha: 0.5),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(color: Colors.indigo.shade100),
                         ),
@@ -1438,7 +1434,7 @@ class _GuidanceStudyProgramScreenState
                                 activeTrackColor: Colors.indigo,
                                 inactiveTrackColor: Colors.indigo.shade100,
                                 thumbColor: Colors.indigo,
-                                overlayColor: Colors.indigo.withOpacity(0.2),
+                                overlayColor: Colors.indigo.withValues(alpha: 0.2),
                               ),
                               child: Slider(
                                 value: globalThreshold.toDouble(),
@@ -1538,8 +1534,8 @@ class _GuidanceStudyProgramScreenState
                                       data: SliderTheme.of(context).copyWith(
                                         activeTrackColor: activeColor,
                                         thumbColor: activeColor,
-                                        overlayColor: activeColor.withOpacity(
-                                          0.2,
+                                        overlayColor: activeColor.withValues(
+                                          alpha: 0.2,
                                         ),
                                         valueIndicatorColor: activeColor,
                                       ),
@@ -1652,7 +1648,7 @@ class _GuidanceStudyProgramScreenState
 
     // Safety check for template
     if (program['template'] == null) {
-      print('Template not found for recalculation');
+      debugPrint('Template not found for recalculation');
       return;
     }
 
@@ -1763,7 +1759,7 @@ class _GuidanceStudyProgramScreenState
 
       if (newPrograms.isEmpty) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Seçilen öğrencilerin çalışma şablonu eksik.'),
           ),
@@ -1781,7 +1777,7 @@ class _GuidanceStudyProgramScreenState
       _updateCurrentProgramSubjects(_generatedPrograms);
     } catch (e) {
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata: $e')));
     }
@@ -1809,7 +1805,7 @@ class _GuidanceStudyProgramScreenState
       setState(() => _isLoading = false);
 
       if (exams.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Kayıtlı deneme sınavı bulunamadı.')),
         );
         return;
@@ -1849,7 +1845,7 @@ class _GuidanceStudyProgramScreenState
             .getOutcomeLists(widget.institutionId)
             .first;
       } catch (e) {
-        print('Error fetching outcome lists: $e');
+        debugPrint('Error fetching outcome lists: $e');
       }
 
       // Pre-parse results and pre-fetch exam info for efficiency
@@ -1940,7 +1936,7 @@ class _GuidanceStudyProgramScreenState
 
       if (newPrograms.isEmpty) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Seçilen öğrenciler için ortak analiz yapılamadı.'),
           ),
@@ -1958,8 +1954,8 @@ class _GuidanceStudyProgramScreenState
       _updateCurrentProgramSubjects(_generatedPrograms);
     } catch (e) {
       setState(() => _isLoading = false);
-      print('Error: $e');
-      ScaffoldMessenger.of(
+      debugPrint('Error: $e');
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata: $e')));
     }
@@ -1991,7 +1987,7 @@ class _GuidanceStudyProgramScreenState
       setState(() => _isLoading = false);
 
       if (exams.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Kayıtlı deneme sınavı bulunamadı.')),
         );
         return;
@@ -2047,7 +2043,7 @@ class _GuidanceStudyProgramScreenState
             .getOutcomeLists(widget.institutionId)
             .first;
       } catch (e) {
-        print('Error fetching outcome lists: $e');
+        debugPrint('Error fetching outcome lists: $e');
       }
 
       // 4. Generate Programs for ALL Selected Students in Parallel
@@ -2067,7 +2063,7 @@ class _GuidanceStudyProgramScreenState
 
           var studentResult = _findStudentResult(results, student);
           if (studentResult == null) {
-            print(
+            debugPrint(
               'DEBUG: Student ${student['name']} not found in exam results.',
             );
           }
@@ -2075,7 +2071,7 @@ class _GuidanceStudyProgramScreenState
           // Fetch Template
           final templateId = student['docData']['studyTemplateId'];
           if (templateId == null) {
-            print('No template for ${student['name']}');
+            debugPrint('No template for ${student['name']}');
             return null;
           }
 
@@ -2124,7 +2120,7 @@ class _GuidanceStudyProgramScreenState
 
       if (newPrograms.isEmpty) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
               'Seçilen öğrenciler için analiz yapılamadı (Şablon veya Sınav Sonucu eksik).',
@@ -2144,8 +2140,8 @@ class _GuidanceStudyProgramScreenState
       _updateCurrentProgramSubjects(_generatedPrograms);
     } catch (e) {
       setState(() => _isLoading = false);
-      print('Error: $e');
-      ScaffoldMessenger.of(
+      debugPrint('Error: $e');
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata: $e')));
     }
@@ -2506,7 +2502,7 @@ class _GuidanceStudyProgramScreenState
               color: Colors.white,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
+                  color: Colors.black.withValues(alpha: 0.1),
                   blurRadius: 8,
                   offset: Offset(0, -2),
                 ),
@@ -2757,7 +2753,7 @@ class _GuidanceStudyProgramScreenState
                       borderSide: BorderSide.none,
                     ),
                   ),
-                  value: _selectedClassFilter,
+                  initialValue: _selectedClassFilter,
                   style: TextStyle(color: Colors.white),
                   icon: Icon(Icons.arrow_drop_down, color: Colors.white70),
                   items: [
@@ -3037,7 +3033,7 @@ class _GuidanceStudyProgramScreenState
                 SizedBox(height: 12),
                 SwitchListTile(
                   value: true,
-                  activeColor: Colors.indigo,
+                  activeThumbColor: Colors.indigo,
                   contentPadding: EdgeInsets.zero,
                   title: Text("Akıllı Saatler", style: TextStyle(fontSize: 13)),
                   subtitle: Text(
@@ -3561,7 +3557,7 @@ class _GuidanceStudyProgramScreenState
                       Container(
                         padding: EdgeInsets.all(6),
                         decoration: BoxDecoration(
-                          color: (level['color'] as Color).withOpacity(0.15),
+                          color: (level['color'] as Color).withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Icon(
@@ -3625,7 +3621,7 @@ class _GuidanceStudyProgramScreenState
         });
       }
     } catch (e) {
-      print("Gemini Analysis Error: $e");
+      debugPrint("Gemini Analysis Error: $e");
 
       if (mounted) {
         setState(() {
@@ -3709,7 +3705,7 @@ class _GuidanceStudyProgramScreenState
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.indigo.withOpacity(0.3),
+            color: Colors.indigo.withValues(alpha: 0.3),
             blurRadius: 12,
             offset: Offset(0, 6),
           ),
@@ -3721,7 +3717,7 @@ class _GuidanceStudyProgramScreenState
           Container(
             padding: EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.1),
+              color: Colors.white.withValues(alpha: 0.1),
               borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
             ),
             child: Row(
@@ -3729,7 +3725,7 @@ class _GuidanceStudyProgramScreenState
                 Container(
                   padding: EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
+                    color: Colors.white.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
@@ -3848,7 +3844,7 @@ class _GuidanceStudyProgramScreenState
                 Container(
                   padding: EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.1),
+                    color: Colors.white.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Column(
@@ -3950,7 +3946,7 @@ class _GuidanceStudyProgramScreenState
     return Container(
       padding: EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.1),
+        color: Colors.white.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -3973,7 +3969,7 @@ class _GuidanceStudyProgramScreenState
           Text(
             content,
             style: TextStyle(
-              color: Colors.white.withOpacity(0.9),
+              color: Colors.white.withValues(alpha: 0.9),
               fontSize: 13,
               height: 1.4,
             ),
@@ -4480,7 +4476,7 @@ class _GuidanceStudyProgramScreenState
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: Offset(0, 4),
           ),
@@ -4522,8 +4518,8 @@ class _GuidanceStudyProgramScreenState
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: DataTable(
-              headingRowColor: MaterialStateProperty.all(
-                Colors.purple.shade50.withOpacity(0.3),
+              headingRowColor: WidgetStateProperty.all(
+                Colors.purple.shade50.withValues(alpha: 0.3),
               ),
               columnSpacing: 20,
               dataRowMinHeight: 60,
@@ -4712,8 +4708,8 @@ class _GuidanceStudyProgramScreenState
                           borderRadius: BorderRadius.circular(20),
                           boxShadow: [
                             BoxShadow(
-                              color: (statusInfo['color'] as Color).withOpacity(
-                                0.4,
+                              color: (statusInfo['color'] as Color).withValues(
+                                alpha: 0.4,
                               ),
                               blurRadius: 4,
                               offset: Offset(0, 2),
@@ -4770,7 +4766,7 @@ class _GuidanceStudyProgramScreenState
               borderRadius: BorderRadius.circular(12),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
+                  color: Colors.black.withValues(alpha: 0.05),
                   blurRadius: 8,
                   offset: Offset(0, 4),
                 ),
@@ -4940,14 +4936,14 @@ class _GuidanceStudyProgramScreenState
               border: Border.all(color: Colors.grey.shade300, width: 2),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
+                  color: Colors.black.withValues(alpha: 0.05),
                   blurRadius: 10,
                   offset: Offset(0, 4),
                 ),
               ],
             ),
             child: DataTable(
-              headingRowColor: MaterialStateProperty.all(Colors.indigo.shade50),
+              headingRowColor: WidgetStateProperty.all(Colors.indigo.shade50),
               columnSpacing: 16,
               dataRowMinHeight: 90,
               dataRowMaxHeight: 130,
@@ -5073,7 +5069,7 @@ class _GuidanceStudyProgramScreenState
                               ),
                               boxShadow: [
                                 BoxShadow(
-                                  color: bgColor.withOpacity(0.5),
+                                  color: bgColor.withValues(alpha: 0.5),
                                   blurRadius: 4,
                                   offset: Offset(0, 2),
                                 ),
@@ -5247,7 +5243,7 @@ class _GuidanceStudyProgramScreenState
                           color: Colors.white,
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.03),
+                              color: Colors.black.withValues(alpha: 0.03),
                               blurRadius: 8,
                               offset: Offset(0, 2),
                             ),
@@ -5366,7 +5362,7 @@ class _GuidanceStudyProgramScreenState
                                 ),
                                 borderRadius: BorderRadius.circular(12),
                                 color: isSelected
-                                    ? Colors.indigo.withOpacity(0.05)
+                                    ? Colors.indigo.withValues(alpha: 0.05)
                                     : Colors.white,
                               ),
                               child: CheckboxListTile(
@@ -5419,7 +5415,7 @@ class _GuidanceStudyProgramScreenState
                         color: Colors.white,
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.05),
+                            color: Colors.black.withValues(alpha: 0.05),
                             blurRadius: 10,
                             offset: Offset(0, -2),
                           ),
@@ -5564,7 +5560,7 @@ class _GuidanceStudyProgramScreenState
           color: Colors.white,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 10,
               offset: Offset(0, 4),
             ),
@@ -5575,7 +5571,7 @@ class _GuidanceStudyProgramScreenState
             Container(
               padding: EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
+                color: color.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
               child: Icon(icon, color: color, size: 28),
@@ -5685,7 +5681,7 @@ class _GuidanceStudyProgramScreenState
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                '$day',
+                                day,
                                 style: TextStyle(
                                   color: Colors.white,
                                   fontSize: 18,
@@ -6008,11 +6004,11 @@ class _GuidanceStudyProgramScreenState
 
     try {
       await _saveSingleProgram(_generatedPrograms[_currentProgramIndex]);
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Program başarıyla kaydedildi.')));
     } catch (e) {
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata: $e')));
     }
@@ -6027,12 +6023,12 @@ class _GuidanceStudyProgramScreenState
         successCount++;
       }
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('$successCount program başarıyla kaydedildi.')),
       );
     } catch (e) {
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Toplu Kaydetme Hatası: $e')));
     }
@@ -6494,7 +6490,7 @@ class _GuidanceStudyProgramScreenState
       );
 
       // Close Loading
-      Navigator.pop(context);
+      if (mounted) Navigator.pop(context);
 
       await Printing.layoutPdf(
         onLayout: (PdfPageFormat format) async => pdf.save(),
@@ -6504,7 +6500,7 @@ class _GuidanceStudyProgramScreenState
       // Close Loading on Error
       if (Navigator.canPop(context)) Navigator.pop(context);
 
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata (Tekli PDF): $e')));
     }
@@ -6558,7 +6554,7 @@ class _GuidanceStudyProgramScreenState
 
       if (_isOperationCancelled) {
         if (Navigator.canPop(progressContext)) Navigator.pop(progressContext);
-        ScaffoldMessenger.of(
+        if (mounted) ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('İşlem iptal edildi.')));
         return;
@@ -6575,7 +6571,7 @@ class _GuidanceStudyProgramScreenState
       );
     } catch (e) {
       if (Navigator.canPop(progressContext)) Navigator.pop(progressContext);
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata (Toplu PDF): $e')));
     }
@@ -6647,7 +6643,7 @@ class _GuidanceStudyProgramScreenState
 
       if (_isOperationCancelled) {
         if (Navigator.canPop(progressContext)) Navigator.pop(progressContext);
-        ScaffoldMessenger.of(
+        if (mounted) ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('İşlem iptal edildi.')));
         return;
@@ -6660,15 +6656,13 @@ class _GuidanceStudyProgramScreenState
 
       if (Navigator.canPop(progressContext)) Navigator.pop(progressContext);
 
-      if (zipData != null) {
-        await Printing.sharePdf(
-          bytes: zipData,
-          filename: 'calisma-programlari.zip',
-        );
-      }
+      await Printing.sharePdf(
+        bytes: zipData,
+        filename: 'calisma-programlari.zip',
+      );
     } catch (e) {
       if (Navigator.canPop(progressContext)) Navigator.pop(progressContext);
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata (ZIP): $e')));
     }
@@ -6694,7 +6688,7 @@ class _GuidanceStudyProgramScreenState
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
+                    color: Colors.black.withValues(alpha: 0.1),
                     blurRadius: 20,
                     offset: const Offset(0, 10),
                   ),

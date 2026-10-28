@@ -64,7 +64,7 @@ class _AttentionFocusReportState extends State<AttentionFocusReport>
   ];
 
   List<Map<String, dynamic>> _branches = [];
-  Map<String, Map<String, dynamic>> _userDetails = {};
+  final Map<String, Map<String, dynamic>> _userDetails = {};
   bool _isLoadingFilters = false;
 
   @override
@@ -108,7 +108,7 @@ class _AttentionFocusReportState extends State<AttentionFocusReport>
           .where((b) => respondentBranches.contains(b['id']))
           .toList();
     } catch (e) {
-      print('Load filters error: $e');
+      debugPrint('Load filters error: $e');
     }
     if (mounted) setState(() => _isLoadingFilters = false);
   }
@@ -293,7 +293,7 @@ class _AttentionFocusReportState extends State<AttentionFocusReport>
     return Container(
       width: double.infinity,
       child: DropdownButtonFormField(
-        value: value,
+        initialValue: value,
         decoration: InputDecoration(
           labelText: label,
           labelStyle: TextStyle(color: Colors.grey.shade600, fontSize: 14),
@@ -481,7 +481,7 @@ class _AttentionFocusReportState extends State<AttentionFocusReport>
                 child: const Row(
                   children: [
                     Icon(Icons.bolt, color: Colors.amber),
-                    const SizedBox(width: 8),
+                    SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         'Durumsal Odaklanma: Dikkat becerileriniz ilgi alanlarınıza ve dış koşullara göre yüksek değişkenlik gösteriyor.',
@@ -531,7 +531,7 @@ class _AttentionFocusReportState extends State<AttentionFocusReport>
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10),
         ],
       ),
       child: Column(
@@ -546,7 +546,7 @@ class _AttentionFocusReportState extends State<AttentionFocusReport>
               RadarChartData(
                 dataSets: [
                   RadarDataSet(
-                    fillColor: Colors.blue.withOpacity(0.2),
+                    fillColor: Colors.blue.withValues(alpha: 0.2),
                     borderColor: Colors.blue,
                     entryRadius: 3,
                     dataEntries: data.map((d) => RadarEntry(value: d)).toList(),
@@ -794,7 +794,7 @@ class _AttentionFocusReportState extends State<AttentionFocusReport>
         mimeType: MimeType.pdf,
       );
     } catch (e) {
-      print('PDF error: $e');
+      debugPrint('PDF error: $e');
     }
   }
 
@@ -836,7 +836,7 @@ class _AttentionFocusReportState extends State<AttentionFocusReport>
         );
       }
     } catch (e) {
-      print('Excel error: $e');
+      debugPrint('Excel error: $e');
     }
   }
 }

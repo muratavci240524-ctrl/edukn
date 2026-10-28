@@ -1,4 +1,3 @@
-﻿import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -93,7 +92,7 @@ class _MentorStudentReportDetailScreenState
         'mentorReportEvaluation': _commentController.text.trim(),
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Yorum ve aksiyon planı kaydedildi.', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
           backgroundColor: Colors.teal.shade600,
@@ -101,7 +100,7 @@ class _MentorStudentReportDetailScreenState
       );
     } catch (e) {
       debugPrint("Error saving evaluation: $e");
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Hata: $e', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
           backgroundColor: Colors.red,
@@ -552,7 +551,7 @@ class _MentorStudentReportDetailScreenState
         children: [
           CircleAvatar(
             radius: 28,
-            backgroundColor: Colors.white.withOpacity(0.15),
+            backgroundColor: Colors.white.withValues(alpha: 0.15),
             child: Text(
               widget.student['fullName'].toString().substring(0, 1).toUpperCase(),
               style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 24),
@@ -828,7 +827,7 @@ class _MentorStudentReportDetailScreenState
                 : SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: DataTable(
-                      headingRowColor: MaterialStateProperty.all(Colors.grey.shade50),
+                      headingRowColor: WidgetStateProperty.all(Colors.grey.shade50),
                       columns: [
                         DataColumn(label: Text('Sınav Adı', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 12))),
                         DataColumn(label: Text('Tarih', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 12))),

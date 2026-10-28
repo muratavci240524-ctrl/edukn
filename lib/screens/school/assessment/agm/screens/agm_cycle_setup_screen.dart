@@ -1,36 +1,33 @@
-import 'dart:convert';
 import 'dart:ui';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:intl/intl.dart';
 
+import '../models/agm_cycle_model.dart';
+import '../models/agm_group_model.dart';
 import '../models/agm_time_slot_model.dart';
 import '../repository/agm_repository.dart';
 import '../services/agm_service.dart';
 import '../../../../../services/term_service.dart';
 import '../../../classroom_management_screen.dart';
 
-/// AGM Cycle Kurulum Ekranı – 3 adımlı wizard
-/// 1. Ayarlar  (sınav, tarih, soft kısıtlar)
-/// 2. Saat Dilimleri  (gün/saat + ders seçimi + öğretmen atama)
-/// 3. Özet & Oluştur
-import '../models/agm_cycle_model.dart';
-import '../models/agm_group_model.dart';
-
 class AgmCycleSetupScreen extends StatefulWidget {
   final String institutionId;
   final String schoolTypeId;
   final String? schoolTypeName;
+  final String? workPeriodId;
   final AgmCycle? initialCycle;
+  final int initialTabIndex;
 
   const AgmCycleSetupScreen({
     Key? key,
     required this.institutionId,
     required this.schoolTypeId,
     this.schoolTypeName,
+    this.workPeriodId,
     this.initialCycle,
+    this.initialTabIndex = 0,
   }) : super(key: key);
 
   @override
@@ -47,12 +44,14 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
   // ── Cycle Başlığı ───────────────────────────────────────
   final _titleController = TextEditingController();
   final _examSearchController = TextEditingController();
+  final _specialCapacityController = TextEditingController(text: '24');
 
   // ── Sınavlar ───────────────────────────────────────────
   List<String> _selectedExamIds = [];
   List<String> _selectedExamNames = [];
   List<Map<String, dynamic>> _exams = [];
   Map<String, String> _examDersler = {};
+  bool _isLoading = false;
 
   // ── Tarih ──────────────────────────────────────────────
   DateTime _baslangic = DateTime.now();
@@ -62,37 +61,41 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
   int? _maxSaat;
   int? _minDers;
 
+  // ── Özel Sınıf ──────────────────────────────────────────
+  bool _isSpecialClassActive = false;
+  String? _specialClassRoomId;
+  String? _specialClassRoomName;
+  String _specialClassCriteria = 'success_rate';
+
+  // ── Yüksek Başarı Soru Çözüm ────────────────────────────
+  bool _highSuccessSoruCozumActive = true;
+  final TextEditingController _highSuccessThresholdController = TextEditingController(text: '95');
+
   // ── Saat dilimleri ─────────────────────────────────────
   List<AgmTimeSlot> _existingSlots = [];
   bool _loadingSlots = true;
   bool _saving = false;
 
-  // ── Öğretmenler ────────────────────────────────────────
-  List<Map<String, dynamic>> _teachers = [];
-
   // ── UI / UX State ──────────────────────────────────────
   List<AgmSlotTeacherEntry>? _copiedEntries;
-  String? _expandedSlotId; // Tek bir slot açık olabilir
-
-  final List<String> _gunler = [
-    'Pazartesi',
-    'Salı',
-    'Çarşamba',
-    'Perşembe',
-    'Cuma',
-    'Cumartesi',
-    'Pazar',
-  ];
-
+  String? _expandedSlotId;
   List<AgmTimeSlot> _allLibrarySlots = [];
 
-  // ── Derslikler ──────────────────────────────────────────
+  // ── Öğretmenler & Derslikler ───────────────────────────
+  List<Map<String, dynamic>> _teachers = [];
   List<Map<String, dynamic>> _classrooms = [];
+  List<Map<String, dynamic>> _allBranchStudents = [];
+  int _potentialStudentCount = 0;
+  Set<String> _excludedStudentIds = {}; // Kapsam dışı bırakılan öğrenciler
+
+  final List<String> _gunler = [
+    'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar',
+  ];
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 3, vsync: this, initialIndex: widget.initialTabIndex);
 
     if (widget.initialCycle != null) {
       final c = widget.initialCycle!;
@@ -104,230 +107,151 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
           ? c.referansDenemeSinavAdlari
           : [c.referansDenemeSinavAdi];
       _baslangic = c.baslangicTarihi;
+      _bitis = c.bitisTarihi;
       _maxSaat = c.haftalikMaksimumSaat;
       _minDers = c.minimumDersSayisi;
+      _isSpecialClassActive = c.isSpecialClassActive;
+      _specialClassRoomId = c.specialClassRoomId;
+      _specialClassRoomName = c.specialClassRoomName;
+      _specialClassCriteria = c.specialClassCriteria;
+      _specialCapacityController.text = (c.specialClassCapacity ?? 24).toString();
+      _excludedStudentIds = Set<String>.from(c.excludedStudentIds);
+      _highSuccessSoruCozumActive = c.highSuccessSoruCozumActive;
+      _highSuccessThresholdController.text = (c.highSuccessSoruCozumThreshold * 100).toInt().toString();
     }
 
     _loadData();
-    if (_selectedExamIds.isNotEmpty) {
-      _updateExamDersler();
-    }
+    if (_selectedExamIds.isNotEmpty) _updateExamDersler();
   }
 
   Future<void> _loadData() async {
-    // Tüm Saat dilimleri (Kütüphane için)
-    final librarySlots = await _repo.getTimeSlots(
-      widget.institutionId,
-      includeInactive: true,
-    );
-
-    // Sınavlar - trial_exams collection
-    QuerySnapshot? examSnap;
-    String? activeTermId;
-    try {
-      activeTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
-      examSnap = await _db
-          .collection('trial_exams')
-          .where('institutionId', isEqualTo: widget.institutionId)
-          .where('isActive', isEqualTo: true)
-          // orderBy('date'...) bazen index hatası verebilir, şimdilik basit tutalım
-          .get();
-    } catch (e) {
-      debugPrint('Sınavları çekerken hata: $e');
-    }
-
-    // Saat dilimleri (mevcut cycle için boş başlar)
-    // Öğretmenler – users collection, type:'staff', title:'ogretmen'
-    final teacherSnap = await _db
-        .collection('users')
-        .where('institutionId', isEqualTo: widget.institutionId)
-        .where('type', isEqualTo: 'staff')
-        .get();
-
-    // Derslikler - classrooms collection
-    final classroomSnap = await _db
-        .collection('classrooms')
-        .where('institutionId', isEqualTo: widget.institutionId)
-        .where('schoolTypeId', isEqualTo: widget.schoolTypeId)
-        .where('isActive', isEqualTo: true)
-        .get();
+    final activeTermId = await TermService().getSelectedTermId() ?? await TermService().getActiveTermId();
+    final librarySlots = await _repo.getTimeSlots(widget.institutionId, includeInactive: false);
+    final teacherSnap = await _db.collection('users').where('institutionId', isEqualTo: widget.institutionId).where('type', isEqualTo: 'staff').get();
+    final classroomSnap = await _db.collection('classrooms').where('institutionId', isEqualTo: widget.institutionId).where('schoolTypeId', isEqualTo: widget.schoolTypeId).where('isActive', isEqualTo: true).get();
+    final examSnap = await _db.collection('trial_exams').where('institutionId', isEqualTo: widget.institutionId).where('isActive', isEqualTo: true).get();
 
     if (mounted) {
-      // schoolTypeName ile workLocations/workLocation filtresi (client-side)
-      final allStaff = teacherSnap.docs.map((d) {
-        final data = d.data();
-        return {'id': d.id, ...data};
-      }).toList();
-
-      final teachers = allStaff.where((s) {
-        // Sadece öğretmenler (title veya role alanı)
-        final title = (s['title'] ?? s['role'] ?? '').toString().toLowerCase();
-        final isOgretmen =
-            title == 'ogretmen' || title == 'teacher' || title.isEmpty;
-
-        // schoolTypeName ile workLocations filtresi
-        bool matchesSchoolType = true;
-        final stn = widget.schoolTypeName;
-        if (stn != null && stn.isNotEmpty) {
-          final locations = s['workLocations'];
-          if (locations != null && locations is List && locations.isNotEmpty) {
-            matchesSchoolType = List<String>.from(locations).contains(stn);
-          } else if (s['workLocation'] != null &&
-              s['workLocation'].toString().isNotEmpty) {
-            matchesSchoolType = s['workLocation'].toString() == stn;
-          }
-          // workLocations boşsa göster (henüz atanmamış olabilir)
-        }
-
-        return isOgretmen && matchesSchoolType;
-      }).toList();
-
       setState(() {
-        _exams = examSnap != null 
-            ? examSnap.docs
-                .where((d) {
-                  if (activeTermId != null && activeTermId.isNotEmpty) {
-                    final t = (d.data() as Map<String, dynamic>)['termId']?.toString();
-                    if (t != activeTermId) return false;
-                  }
-                  return true;
-                })
-                .map((d) => {'id': d.id, ...d.data() as Map<String, dynamic>}).toList()
-            : [];
-        // Tarihe göre manuel sırala (eğer alan varsa)
+        _allLibrarySlots = librarySlots;
+        _exams = examSnap.docs
+            .where((d) {
+              if (activeTermId != null && activeTermId.isNotEmpty) {
+                final t = (d.data())['termId']?.toString();
+                if (t != activeTermId) return false;
+              }
+              return true;
+            })
+            .map((d) => {'id': d.id, ...d.data()}).toList();
+
+        // Robust sorting: Newest first
         _exams.sort((a, b) {
           final da = a['date'];
           final db = b['date'];
-          if (da is Timestamp && db is Timestamp) return db.compareTo(da);
-          return 0;
+          DateTime dtA = (da is Timestamp) ? da.toDate() : (da is String ? DateTime.tryParse(da) ?? DateTime(1900) : DateTime(1900));
+          DateTime dtB = (db is Timestamp) ? db.toDate() : (db is String ? DateTime.tryParse(db) ?? DateTime(1900) : DateTime(1900));
+          return dtB.compareTo(dtA);
         });
 
-        _classrooms = classroomSnap.docs
-            .map(
-              (d) => {
-                'id': d.id,
-                'name': d.data()['classroomName'] ?? '',
-                'capacity': d.data()['capacity'] ?? 0,
-              },
-            )
-            .toList()
-          ..sort((a, b) => _compareNatural(a['name'] as String, b['name'] as String));
+        _classrooms = classroomSnap.docs.map((d) => {'id': d.id, 'name': d.data()['classroomName'] ?? '', 'capacity': d.data()['capacity'] ?? 0}).toList();
+        _classrooms.sort((a, b) => _compareNatural(a['name'] ?? '', b['name'] ?? ''));
+        
+        _teachers = teacherSnap.docs.map((d) => {'id': d.id, 'name': d.data()['fullName'] ?? '${d.data()['name']} ${d.data()['surname']}', 'branch': d.data()['branch'] ?? ''}).toList();
+        _teachers.sort((a, b) => (a['name'] as String).compareTo(b['name'] as String));
 
-        _existingSlots = [];
-        _allLibrarySlots = librarySlots;
         _loadingSlots = false;
-        _teachers =
-            teachers
-                .map(
-                  (s) => {
-                    'id': s['id'] as String,
-                    'name':
-                        (s['fullName'] ??
-                        '${s['name'] ?? ''} ${s['surname'] ?? ''}'.trim()),
-                    'branch': s['branch'] ?? '',
-                  },
-                )
-                .where((t) => (t['name'] as String).isNotEmpty)
-                .toList()
-              ..sort(
-                (a, b) => (a['name'] as String).compareTo(b['name'] as String),
-              );
-      });
 
-      // Eger duzenleme modundaysak onceki gruplari yukle
-      if (widget.initialCycle != null) {
-        _loadExistingSlotsFromCycle(widget.initialCycle!.id);
-      }
+        // Kütüphaneden silinenleri aktif seçimlerden de temizle
+        if (_existingSlots.isNotEmpty) {
+          _existingSlots.removeWhere((es) => !_allLibrarySlots.any((ls) => ls.id == es.id));
+        }
+      });
+      if (widget.initialCycle != null) _loadExistingSlotsFromCycle(widget.initialCycle!.id);
+      if (_selectedExamIds.isNotEmpty) _updatePotentialStudents();
     }
+  }
+
+  Future<void> _updatePotentialStudents() async {
+    if (_selectedExamIds.isEmpty) {
+      setState(() => _potentialStudentCount = 0);
+      return;
+    }
+    try {
+      final List<Map<String, dynamic>> branchStudents = [];
+      final Set<String> processedStudentIds = {};
+
+      for (final examId in _selectedExamIds) {
+        final examDoc = await _db.collection('trial_exams').doc(examId).get();
+        if (!examDoc.exists) continue;
+
+        final examData = examDoc.data()!;
+        final selectedBranches = (examData['selectedBranches'] as List<dynamic>? ?? []).map((e) => e.toString()).toList();
+        final classLevel = examData['classLevel']?.toString() ?? '';
+
+        if (selectedBranches.isNotEmpty) {
+          final futures = selectedBranches.map((branch) => 
+            _db.collection('students').where('institutionId', isEqualTo: widget.institutionId).where('className', isEqualTo: branch).where('isActive', isEqualTo: true).get()
+          );
+          final snaps = await Future.wait(futures);
+          for (final snap in snaps) {
+            for (final doc in snap.docs) {
+              if (processedStudentIds.contains(doc.id)) continue;
+              processedStudentIds.add(doc.id);
+              branchStudents.add({'id': doc.id, ...doc.data()});
+            }
+          }
+        } else if (classLevel.isNotEmpty) {
+           final snap = await _db.collection('students').where('institutionId', isEqualTo: widget.institutionId).where('classLevel', isEqualTo: classLevel).where('isActive', isEqualTo: true).get();
+           for (final doc in snap.docs) {
+              if (processedStudentIds.contains(doc.id)) continue;
+              processedStudentIds.add(doc.id);
+              branchStudents.add({'id': doc.id, ...doc.data()});
+            }
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _allBranchStudents = branchStudents;
+          _potentialStudentCount = branchStudents.length;
+        });
+      }
+    } catch (e) { debugPrint('Öğrenci yükleme hatası: $e'); }
   }
 
   Future<void> _loadExistingSlotsFromCycle(String cycleId) async {
     try {
       final groups = await _repo.getGroupsByCycle(cycleId);
       final Map<String, AgmTimeSlot> slotMap = {};
-
       for (final g in groups) {
         if (!slotMap.containsKey(g.saatDilimiId)) {
-          slotMap[g.saatDilimiId] = AgmTimeSlot(
-            id: g.saatDilimiId,
-            institutionId: widget.institutionId,
-            ad: g.saatDilimiAdi,
-            gun: g.gun,
-            baslangicSaat: g.baslangicSaat,
-            bitisSaat: g.bitisSaat,
-            ogretmenGirisler: [],
-          );
+          // Kütüphaneden silinmişse programa dahil etme
+          if (!_allLibrarySlots.any((ls) => ls.id == g.saatDilimiId)) continue;
+
+          slotMap[g.saatDilimiId] = AgmTimeSlot(id: g.saatDilimiId, institutionId: widget.institutionId, ad: g.saatDilimiAdi, gun: g.gun, baslangicSaat: g.baslangicSaat, bitisSaat: g.bitisSaat, ogretmenGirisler: []);
         }
-
-        slotMap[g.saatDilimiId]!.ogretmenGirisler.add(
-          AgmSlotTeacherEntry(
-            dersId: g.dersId,
-            dersAdi: g.dersAdi,
-            ogretmenId: g.ogretmenId,
-            ogretmenAdi: g.ogretmenAdi,
-            derslikId: g.derslikId,
-            derslikAdi: g.derslikAdi,
-            kapasite: g.kapasite,
-          ),
-        );
+        
+        if (slotMap.containsKey(g.saatDilimiId)) {
+          slotMap[g.saatDilimiId]!.ogretmenGirisler.add(AgmSlotTeacherEntry(dersId: g.dersId, dersAdi: g.dersAdi, ogretmenId: g.ogretmenId, ogretmenAdi: g.ogretmenAdi, derslikId: g.derslikId, derslikAdi: g.derslikAdi, kapasite: g.kapasite));
+        }
       }
-
-      if (mounted) {
-        setState(() {
-          _existingSlots = slotMap.values.toList();
-        });
-      }
-    } catch (e) {
-      debugPrint('Mevcut cycle gruplarini cekerken hata: $e');
-    }
+      if (mounted) setState(() => _existingSlots = slotMap.values.toList());
+    } catch (e) { debugPrint('Hata: $e'); }
   }
 
-  /// Sınav(lar) seçilince answerKeys'ten ders listesini çek
   Future<void> _updateExamDersler() async {
     Map<String, String> allDersler = {};
-
     for (var examId in _selectedExamIds) {
       final doc = await _db.collection('trial_exams').doc(examId).get();
       final data = doc.data() ?? {};
-
-      // Önce answerKeys'ten dersler
       final answerKeys = data['answerKeys'] as Map<String, dynamic>? ?? {};
       if (answerKeys.isNotEmpty) {
         final firstBooklet = answerKeys.values.first;
         if (firstBooklet is Map<String, dynamic>) {
-          for (final k in firstBooklet.keys) {
-            allDersler[k] = k;
-          }
+          for (final k in firstBooklet.keys) allDersler[k] = k;
         }
       }
-
-      // answerKeys boşsa resultsJson'dan dene
-      if (data['resultsJson'] != null) {
-        try {
-          final raw = data['resultsJson'] as String;
-          final list = jsonDecode(raw) as List<dynamic>;
-          if (list.isNotEmpty) {
-            final first = list.first as Map<String, dynamic>;
-            final subjects = first['subjects'] as Map<String, dynamic>? ?? {};
-            for (final k in subjects.keys) {
-              allDersler[k] = k;
-            }
-          }
-        } catch (_) {}
-      }
     }
-
-    setState(() {
-      _examDersler = allDersler;
-    });
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    _titleController.dispose();
-    _examSearchController.dispose();
-    super.dispose();
+    setState(() => _examDersler = allDersler);
   }
 
   void _showExamSelectionDialog() {
@@ -346,32 +270,17 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
             children: [
               Container(
                 margin: const EdgeInsets.only(top: 8),
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(2),
-                ),
+                width: 40, height: 4,
+                decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
               ),
               Padding(
                 padding: const EdgeInsets.all(20),
                 child: Row(
                   children: [
-                    const Icon(Icons.quiz_outlined, color: Colors.deepOrange),
+                    const Icon(Icons.quiz_outlined, color: Colors.orange),
                     const SizedBox(width: 12),
-                    const Expanded(
-                      child: Text(
-                        'Deneme Sınavı Seçimi',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () => Navigator.pop(ctx),
-                    ),
+                    const Expanded(child: Text('Sınav Seçimi', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+                    IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
                   ],
                 ),
               ),
@@ -379,14 +288,8 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: TextField(
                   controller: _examSearchController,
-                  decoration: _inputDecoration('Sınav Ara...').copyWith(
-                    prefixIcon: const Icon(Icons.search),
-                    filled: true,
-                    fillColor: Colors.grey.shade50,
-                  ),
-                  onChanged: (val) {
-                    setSt(() {}); // Dialog state'ini yenile
-                  },
+                  decoration: _inputDecoration('Sınav Ara...').copyWith(prefixIcon: const Icon(Icons.search), filled: true, fillColor: Colors.grey.shade50),
+                  onChanged: (val) => setSt(() {}),
                 ),
               ),
               const SizedBox(height: 12),
@@ -410,39 +313,22 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
                         final type = e['type'] as String? ?? '';
                         final dateRaw = e['date'];
                         String dateStr = '';
-                        if (dateRaw is Timestamp) {
-                          dateStr = DateFormat('dd.MM.yyyy').format(dateRaw.toDate());
-                        }
+                        if (dateRaw is Timestamp) dateStr = DateFormat('dd.MM.yyyy').format(dateRaw.toDate());
 
                         final isSelected = _selectedExamIds.contains(id);
 
                         return Container(
                           margin: const EdgeInsets.only(bottom: 8),
                           decoration: BoxDecoration(
-                            color: isSelected
-                                ? Colors.deepOrange.shade50
-                                : Colors.white,
+                            color: isSelected ? Colors.orange.shade50 : Colors.white,
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: isSelected
-                                  ? Colors.deepOrange.shade200
-                                  : Colors.grey.shade200,
-                            ),
+                            border: Border.all(color: isSelected ? Colors.orange.shade200 : Colors.grey.shade200),
                           ),
                           child: CheckboxListTile(
-                            title: Text(
-                              name,
-                              style: const TextStyle(fontWeight: FontWeight.w600),
-                            ),
-                            subtitle: Text(
-                              '$type • $dateStr',
-                              style: const TextStyle(fontSize: 12),
-                            ),
+                            title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                            subtitle: Text('$type • $dateStr', style: const TextStyle(fontSize: 12)),
                             value: isSelected,
-                            activeColor: Colors.deepOrange,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
+                            activeColor: Colors.orange.shade700,
                             onChanged: (val) {
                               setState(() {
                                 if (val == true) {
@@ -455,6 +341,7 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
                               });
                               setSt(() {});
                               _updateExamDersler();
+                              _updatePotentialStudents();
                             },
                           ),
                         );
@@ -469,14 +356,7 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed: () => Navigator.pop(ctx),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.deepOrange,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade700, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
                     child: const Text('Seçimi Tamamla'),
                   ),
                 ),
@@ -488,67 +368,48 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
     );
   }
 
-  // ════════════════════════════════════════════════════════
-  //  ANA SCAFFOLD
-  // ════════════════════════════════════════════════════════
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
       appBar: EduknAppBar(
-        title: 'Yeni AGM Cycle',
+        title: 'AGM Kurulumu',
         actions: [
-          IconButton(
-            tooltip: 'Derslik Tanımlama',
-            icon: const Icon(Icons.meeting_room_outlined),
-            onPressed: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => ClassroomManagementScreen(
-                    institutionId: widget.institutionId,
-                    schoolTypeId: widget.schoolTypeId,
-                    schoolTypeName: 'AGM',
-                  ),
-                ),
-              );
-              // Geri dönünce derslik verisini tazele
-              _loadData();
-            },
-          ),
+          IconButton(icon: const Icon(Icons.meeting_room_outlined), onPressed: () async {
+            await Navigator.push(context, MaterialPageRoute(builder: (_) => ClassroomManagementScreen(institutionId: widget.institutionId, schoolTypeId: widget.schoolTypeId, schoolTypeName: 'AGM')));
+            _loadData();
+          }),
         ],
         bottom: TabBar(
           controller: _tabController,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white60,
-          indicatorColor: Colors.white,
-          tabs: const [
-            Tab(text: '1. Ayarlar'),
-            Tab(text: '2. Saat Dilimleri'),
-            Tab(text: '3. Özet'),
-          ],
+          labelColor: Colors.orange.shade800,
+          unselectedLabelColor: Colors.grey.shade600,
+          indicatorColor: Colors.orange.shade700,
+          indicatorWeight: 3.5,
+          indicatorSize: TabBarIndicatorSize.tab,
+          labelStyle: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
+          ),
+          unselectedLabelStyle: const TextStyle(fontSize: 13),
+          tabs: const [Tab(text: '1. Ayarlar'), Tab(text: '2. Saat Dilimleri'), Tab(text: '3. Özet')],
         ),
       ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1200),
-          child: TabBarView(
+      body: Stack(
+        children: [
+          TabBarView(
             controller: _tabController,
-            children: [
-              _buildSettingsTab(),
-              _buildSlotsTab(),
-              _buildSummaryTab(),
-            ],
+            children: [_buildSettingsTab(), _buildSlotsTab(), _buildSummaryTab()],
           ),
-        ),
+          if (_isLoading)
+            Container(
+              color: Colors.black12,
+              child: const Center(child: CircularProgressIndicator(color: Colors.orange)),
+            ),
+        ],
       ),
     );
   }
-
-  // ════════════════════════════════════════════════════════
-  //  TAB 1: AYARLAR
-  // ════════════════════════════════════════════════════════
 
   Widget _buildSettingsTab() {
     return SingleChildScrollView(
@@ -556,246 +417,366 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _sectionHeader('Cycle Bilgileri', Icons.edit_note),
+          _sectionHeader('AGM Bilgileri', Icons.edit_note),
           const SizedBox(height: 12),
-          TextFormField(
-            controller: _titleController,
-            decoration: _inputDecoration(
-              'Başlık (örn: Şubat 1. Hafta Etütleri)',
-            ),
-          ),
+          TextFormField(controller: _titleController, decoration: _inputDecoration('Başlık (örn: Mart 1. Hafta AGM Programı)')),
           const SizedBox(height: 24),
-          _sectionHeader('Referans Deneme Sınav(ları)', Icons.quiz_outlined),
+          _sectionHeader('Referans Sınavlar', Icons.quiz_outlined),
           const SizedBox(height: 12),
-          InkWell(
-            onTap: _showExamSelectionDialog,
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.grey.shade200),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      _selectedExamIds.isEmpty
-                          ? 'Sınav seçmek için dokunun'
-                          : _selectedExamNames.join(', '),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: _selectedExamIds.isEmpty
-                            ? Colors.grey
-                            : Colors.black87,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                  const Icon(Icons.search, color: Colors.deepOrange),
-                ],
+          Material(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(10),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: _showExamSelectionDialog,
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10), 
+                  border: Border.all(color: Colors.grey.shade200)
+                ),
+                child: Row(children: [Expanded(child: Text(_selectedExamIds.isEmpty ? 'Sınav seçmek için dokunun' : _selectedExamNames.join(', '), maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: _selectedExamIds.isEmpty ? Colors.grey : Colors.black87, fontSize: 13))), const Icon(Icons.search, color: Colors.orange)]),
               ),
             ),
           ),
           if (_selectedExamIds.isNotEmpty && _examDersler.isNotEmpty) ...[
             const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.deepOrange.shade50,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.deepOrange.shade100),
-              ),
-              child: Wrap(
-                spacing: 6,
-                runSpacing: 4,
-                children: _examDersler.values
-                    .map(
-                      (d) => Chip(
-                        label: Text(d, style: const TextStyle(fontSize: 11)),
-                        backgroundColor: Colors.white,
-                        side: BorderSide(color: Colors.deepOrange.shade200),
-                        visualDensity: VisualDensity.compact,
-                      ),
-                    )
-                    .toList(),
-              ),
-            ),
-            Text(
-              '${_examDersler.length} ders tespit edildi',
-              style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
-            ),
+            Wrap(spacing: 6, runSpacing: 4, children: _examDersler.values.map((d) => Chip(label: Text(d, style: const TextStyle(fontSize: 11)), backgroundColor: Colors.white, side: BorderSide(color: Colors.orange.shade200), visualDensity: VisualDensity.compact)).toList()),
           ],
           const SizedBox(height: 24),
           _sectionHeader('Tarih Aralığı', Icons.date_range),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _buildDateButton(
-                  label: 'Başlangıç',
-                  date: _baslangic,
-                  onTap: () => _pickDate(true),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildDateButton(
-                  label: 'Bitiş',
-                  date: _bitis,
-                  onTap: () => _pickDate(false),
-                ),
-              ),
-            ],
-          ),
+          Row(children: [Expanded(child: _buildDateButton(label: 'Başlangıç', date: _baslangic, onTap: () => _pickDate(true))), const SizedBox(width: 12), Expanded(child: _buildDateButton(label: 'Bitiş', date: _bitis, onTap: () => _pickDate(false)))]),
           const SizedBox(height: 24),
-          _sectionHeader(
-            'Soft Kısıtlar (Opsiyonel)',
-            Icons.tune,
-            subtitle: 'Aşılabilir, uyarı üretir',
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: TextFormField(
-                  initialValue: _maxSaat?.toString(),
-                  keyboardType: TextInputType.number,
-                  decoration: _inputDecoration('Haftalık maks. saat'),
-                  onChanged: (v) => _maxSaat = int.tryParse(v),
+          _sectionHeader('Özel Sınıf Ayarı', Icons.star_border),
+          const SizedBox(height: 8),
+          SwitchListTile(title: const Text('Özel Sınıf Oluştur', style: TextStyle(fontWeight: FontWeight.bold)), subtitle: const Text('En yüksek puanlı öğrenciler bu sınıfa atanır.'), value: _isSpecialClassActive, onChanged: (val) => setState(() => _isSpecialClassActive = val), activeThumbColor: Colors.orange.shade700, contentPadding: EdgeInsets.zero),
+          if (_isSpecialClassActive) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(child: TextFormField(controller: _specialCapacityController, keyboardType: TextInputType.number, decoration: _inputDecoration('Kapasite (Örn: 24)'))),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    initialValue: _classrooms.any((c) => c['id'] == _specialClassRoomId) ? _specialClassRoomId : null,
+                    decoration: _inputDecoration('Derslik Seçin'),
+                    isExpanded: true,
+                    menuMaxHeight: 350,
+                    items: _classrooms.map((c) => DropdownMenuItem<String>(value: c['id'] as String, child: Text(c['name'], style: const TextStyle(fontSize: 13)))).toList(),
+                    onChanged: (val) {
+                      setState(() {
+                        _specialClassRoomId = val;
+                        _specialClassRoomName = _classrooms.firstWhere((c) => c['id'] == val)['name'];
+                      });
+                    },
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: TextFormField(
-                  initialValue: _minDers?.toString(),
-                  keyboardType: TextInputType.number,
-                  decoration: _inputDecoration('Min. ders sayısı'),
-                  onChanged: (v) => _minDers = int.tryParse(v),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 32),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () => _tabController.animateTo(1),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.deepOrange,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              child: const Text('Sonraki: Saat Dilimleri →'),
+              ],
             ),
-          ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              initialValue: _specialClassCriteria,
+              decoration: _inputDecoration('Özel Sınıf Kriteri'),
+              items: const [
+                DropdownMenuItem(value: 'success_rate', child: Text('Başarı Yüzdesine Göre (Varsayılan)')),
+                DropdownMenuItem(value: 'exam_score', child: Text('Sınav Sonuç Puanına Göre')),
+              ],
+              onChanged: (val) {
+                if (val != null) {
+                  setState(() => _specialClassCriteria = val);
+                }
+              },
+            ),
+          ],
+          const SizedBox(height: 24),
+          _sectionHeader('Otomatik Konu Ayarı', Icons.auto_awesome),
+          const SizedBox(height: 8),
+          SwitchListTile(title: const Text('Başarılı Sınıfları Soru Çözüm Yap', style: TextStyle(fontWeight: FontWeight.bold)), subtitle: const Text('Ortalama başarı yüzdesi yüksek olan sınıflara otomatik olarak Soru Çözüm kazanımı atanır.'), value: _highSuccessSoruCozumActive, onChanged: (val) => setState(() => _highSuccessSoruCozumActive = val), activeThumbColor: Colors.orange.shade700, contentPadding: EdgeInsets.zero),
+          if (_highSuccessSoruCozumActive) ...[
+             const SizedBox(height: 12),
+             TextFormField(controller: _highSuccessThresholdController, keyboardType: TextInputType.number, decoration: _inputDecoration('Başarı Eşiği (Örn: 95)')),
+          ],
+          const SizedBox(height: 32),
+          SizedBox(width: double.infinity, child: ElevatedButton(onPressed: () => _tabController.animateTo(1), style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade700, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), child: const Text('Sonraki: Saat Dilimleri →'))),
         ],
       ),
     );
   }
 
-  // ════════════════════════════════════════════════════════
-  //  TAB 2: SAAT DİLİMLERİ
-  // ════════════════════════════════════════════════════════
-
   Widget _buildSlotsTab() {
     final isMobile = MediaQuery.of(context).size.width < 600;
-    if (_loadingSlots) {
-      return const Center(child: CircularProgressIndicator());
-    }
+    if (_loadingSlots) return const Center(child: CircularProgressIndicator());
     return Column(
       children: [
         _buildSlotLibrary(),
         const Divider(height: 1),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-          child: isMobile
-              ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildSlotsHeader(isMobile),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildHeaderActionBtn(
-                            onPressed: _showAddSlotSheet,
-                            icon: Icons.add_circle_outline,
-                            label: 'Ekle',
-                            color: Colors.deepOrange,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _buildHeaderActionBtn(
-                            onPressed: _autoDistributeClassrooms,
-                            icon: Icons.auto_awesome,
-                            label: 'Oto Dağıt',
-                            color: Colors.teal,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                )
-              : Row(
-                  children: [
-                    Expanded(child: _buildSlotsHeader(isMobile)),
-                    _buildHeaderActionBtn(
-                      onPressed: _showAddSlotSheet,
-                      icon: Icons.add_circle_outline,
-                      label: 'Ekle',
-                      color: Colors.deepOrange,
-                    ),
-                    const SizedBox(width: 8),
-                    _buildHeaderActionBtn(
-                      onPressed: _autoDistributeClassrooms,
-                      icon: Icons.auto_awesome,
-                      label: 'Derslikleri Otomatik Dağıt',
-                      color: Colors.teal,
-                    ),
-                  ],
-                ),
+          child: Row(
+            children: [
+              Expanded(child: _buildSlotsHeader(isMobile)),
+              _buildHeaderActionBtn(onPressed: _showAddSlotSheet, icon: Icons.add_circle_outline, label: 'Ekle', color: Colors.orange.shade700),
+              const SizedBox(width: 8),
+              _buildHeaderActionBtn(onPressed: _autoDistributeClassrooms, icon: Icons.auto_awesome, label: 'Oto Dağıt', color: Colors.teal),
+            ],
+          ),
         ),
         Expanded(
           child: _existingSlots.isEmpty
               ? _buildNoSlotsState()
-              : ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  itemCount: _existingSlots.length,
-                  itemBuilder: (context, i) =>
-                      _buildSlotCard(_existingSlots[i], i),
-                ),
+              : () {
+                  // Group existing slots by day for UI
+                  final Map<String, List<AgmTimeSlot>> groupedExisting = {};
+                  for (var s in _existingSlots) {
+                    groupedExisting.putIfAbsent(s.gun, () => []).add(s);
+                  }
+
+                  return ListView(
+                    controller: _slotScrollController,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    children: groupedExisting.entries.map((dayEntry) {
+                      final day = dayEntry.key;
+                      final slots = dayEntry.value;
+                      // Sort slots by time
+                      slots.sort((a, b) => a.baslangicSaat.compareTo(b.baslangicSaat));
+
+                      return Card(
+                        clipBehavior: Clip.antiAlias,
+                        margin: const EdgeInsets.only(bottom: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        child: ExpansionTile(
+                          shape: const Border(),
+                          collapsedShape: const Border(),
+                          initiallyExpanded: _expandedSlotId == day,
+                          onExpansionChanged: (val) => setState(() => _expandedSlotId = val ? day : null),
+                          leading: Icon(Icons.calendar_today, color: Colors.orange.shade700),
+                          title: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(day, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                    const SizedBox(height: 4),
+                                    Text('${slots.length} Seans Planlandı', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                                  ],
+                                ),
+                              ),
+                              TextButton.icon(
+                                icon: const Icon(Icons.bookmark_add_outlined, size: 16),
+                                label: const Text('Şablonu Güncelle', style: TextStyle(fontSize: 11)),
+                                onPressed: () => _saveDayToLibrary(day, slots),
+                                style: TextButton.styleFrom(foregroundColor: Colors.blue, padding: EdgeInsets.zero, minimumSize: const Size(0, 30)),
+                              ),
+                            ],
+                          ),
+                          children: slots.map((slot) {
+                            final idxInFullList = _existingSlots.indexOf(slot);
+                            return Theme(
+                              data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                              child: ExpansionTile(
+                                shape: const Border(),
+                                collapsedShape: const Border(),
+                                leading: const Icon(Icons.access_time, size: 18, color: Colors.orange),
+                                title: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            '${slot.ad} (${slot.baslangicSaat} - ${slot.bitisSaat})',
+                                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text('${slot.ogretmenGirisler.length} Atama Yapıldı', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                                        ],
+                                      ),
+                                    ),
+                                    if (isMobile)
+                                      PopupMenuButton<String>(
+                                        icon: const Icon(Icons.more_vert, size: 20, color: Colors.grey),
+                                        padding: EdgeInsets.zero,
+                                        onSelected: (val) {
+                                          if (val == 'add') _showAddTeacherEntrySheet(slot, idxInFullList);
+                                          if (val == 'edit') _showEditSingleSlotSheet(slot, idxInFullList);
+                                          if (val == 'delete') setState(() => _existingSlots.removeAt(idxInFullList));
+                                        },
+                                        itemBuilder: (ctx) => [
+                                          const PopupMenuItem(value: 'add', child: Row(children: [Icon(Icons.add_circle_outline, size: 18, color: Colors.orange), SizedBox(width: 8), Text('Ders/Öğretmen Ekle', style: TextStyle(fontSize: 13))])),
+                                          const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit_outlined, size: 18, color: Colors.blue), SizedBox(width: 8), Text('Saati Düzenle', style: TextStyle(fontSize: 13))])),
+                                          const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete_outline, size: 18, color: Colors.red), SizedBox(width: 8), Text('Kaldır', style: TextStyle(fontSize: 13))])),
+                                        ]
+                                      )
+                                    else
+                                      Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          IconButton(
+                                            icon: const Icon(Icons.add_circle_outline, size: 20, color: Colors.orange),
+                                            onPressed: () => _showAddTeacherEntrySheet(slot, idxInFullList),
+                                            tooltip: 'Ders/Öğretmen Ekle',
+                                          ),
+                                          IconButton(
+                                            icon: const Icon(Icons.edit_outlined, size: 20, color: Colors.blue),
+                                            onPressed: () => _showEditSingleSlotSheet(slot, idxInFullList),
+                                            tooltip: 'Saati Düzenle',
+                                          ),
+                                          IconButton(
+                                            icon: const Icon(Icons.delete_outline, size: 20, color: Colors.red),
+                                            onPressed: () {
+                                              setState(() => _existingSlots.removeAt(idxInFullList));
+                                            },
+                                            tooltip: 'Kaldır',
+                                          ),
+                                        ],
+                                      ),
+                                  ],
+                                ),
+                                children: [
+                                  if (slot.ogretmenGirisler.isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(left: 32, right: 16, bottom: 12),
+                                      child: Column(
+                                        children: slot.ogretmenGirisler.map((entry) => Container(
+                                          margin: const EdgeInsets.only(bottom: 6),
+                                          padding: const EdgeInsets.all(10),
+                                          decoration: BoxDecoration(
+                                            color: Colors.grey.shade50,
+                                            borderRadius: BorderRadius.circular(10),
+                                            border: Border.all(color: Colors.grey.shade200),
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              Expanded(
+                                                child: Column(
+                                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(entry.dersAdi, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black87)),
+                                                    const SizedBox(height: 2),
+                                                    Text('${entry.ogretmenAdi} • ${entry.derslikAdi ?? 'Derslik Seçilmedi'}', style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                                                  ],
+                                                ),
+                                              ),
+                                              IconButton(
+                                                icon: const Icon(Icons.edit, size: 16, color: Colors.orange),
+                                                onPressed: () => _editTeacherEntry(slot, idxInFullList, entry),
+                                              ),
+                                              IconButton(
+                                                icon: const Icon(Icons.close, size: 16, color: Colors.red),
+                                                onPressed: () => _removeTeacherEntry(slot, idxInFullList, entry),
+                                              ),
+                                            ],
+                                          ),
+                                        )).toList(),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      );
+                    }).toList(),
+                  );
+                }(),
         ),
         Padding(
           padding: const EdgeInsets.all(16),
           child: Row(
             children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => _tabController.animateTo(0),
-                  child: const Text('← Geri'),
-                ),
-              ),
+              Expanded(child: OutlinedButton(onPressed: () => _tabController.animateTo(0), child: const Text('← Geri'))),
               const SizedBox(width: 12),
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: () => _tabController.animateTo(2),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.deepOrange,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: const Text('Özet →'),
-                ),
-              ),
+              Expanded(child: ElevatedButton(onPressed: () => _tabController.animateTo(2), style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade700, foregroundColor: Colors.white), child: const Text('Özet →'))),
             ],
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildSlotLibrary() {
+    if (_allLibrarySlots.isEmpty) return const SizedBox.shrink();
+
+    // Group slots by day
+    final Map<String, List<AgmTimeSlot>> grouped = {};
+    for (var s in _allLibrarySlots) {
+      grouped.putIfAbsent(s.gun, () => []).add(s);
+    }
+
+    final dayOrder = {'Pazartesi': 1, 'Salı': 2, 'Çarşamba': 3, 'Perşembe': 4, 'Cuma': 5, 'Cumartesi': 6, 'Pazar': 7};
+    final sortedEntries = grouped.entries.toList()
+      ..sort((a, b) {
+        int orderA = dayOrder[a.key] ?? 100;
+        int orderB = dayOrder[b.key] ?? 100;
+        if (orderA == 100 && orderB == 100) return a.key.compareTo(b.key);
+        return orderA.compareTo(orderB);
+      });
+
+    return Container(
+      height: 50,
+      color: Colors.white,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        children: sortedEntries.map((e) {
+          final day = e.key;
+          final slots = e.value;
+          final isAlreadyAdded = slots.every((s) => _existingSlots.any((es) => es.id == s.id));
+
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: GestureDetector(
+              onLongPress: () => _showLibraryTemplateOptions(day, slots),
+              child: ActionChip(
+                backgroundColor: isAlreadyAdded ? Colors.orange : Colors.orange.shade50,
+                label: Text('$day (${slots.length} Seans)', style: TextStyle(fontSize: 11, color: isAlreadyAdded ? Colors.white : Colors.orange.shade800)),
+                onPressed: () {
+                  setState(() {
+                    if (isAlreadyAdded) {
+                      // REMOVE
+                      _existingSlots.removeWhere((es) => slots.any((s) => s.id == es.id));
+                    } else {
+                      // ADD
+                      for (var s in slots) {
+                        if (!_existingSlots.any((es) => es.id == s.id)) {
+                          _existingSlots.add(s);
+                        }
+                      }
+                      // Scroll to top
+                      Future.delayed(const Duration(milliseconds: 100), () {
+                        if (_slotScrollController.hasClients) {
+                          _slotScrollController.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+                        }
+                      });
+                    }
+                  });
+                },
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildSlotsHeader(bool isMobile) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Seçili Saat Dilimleri', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+        Text('${_existingSlots.length} dilim aktif', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+      ],
+    );
+  }
+
+  Widget _buildHeaderActionBtn({required VoidCallback onPressed, required IconData icon, required String label, required Color color}) {
+    return ElevatedButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon, size: 16),
+      label: Text(label, style: const TextStyle(fontSize: 12)),
+      style: ElevatedButton.styleFrom(backgroundColor: color, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
     );
   }
 
@@ -806,657 +787,615 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
         children: [
           Icon(Icons.schedule, size: 48, color: Colors.grey.shade300),
           const SizedBox(height: 12),
-          Text(
-            'Henüz saat dilimi yok',
-            style: TextStyle(color: Colors.grey.shade500),
-          ),
-          const SizedBox(height: 8),
-          TextButton(
-            onPressed: _showAddSlotSheet,
-            child: const Text('İlk dilimi ekle'),
-          ),
+          Text('Henüz saat dilimi yok', style: TextStyle(color: Colors.grey.shade500)),
+          TextButton(onPressed: _showAddSlotSheet, child: const Text('İlk dilimi ekle')),
         ],
       ),
     );
   }
 
-  Widget _buildSlotCard(AgmTimeSlot slot, int index) {
-    final isExpanded = _expandedSlotId == slot.id;
-    final hasCopied = _copiedEntries != null && _copiedEntries!.isNotEmpty;
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      clipBehavior: Clip.antiAlias,
-      child: ExpansionTile(
-        key: PageStorageKey(slot.id), // State koruması için
-        initiallyExpanded: isExpanded,
-        onExpansionChanged: (val) {
-          setState(() {
-            if (val) {
-              _expandedSlotId = slot.id;
-            } else if (_expandedSlotId == slot.id) {
-              _expandedSlotId = null;
-            }
-          });
-        },
-        leading: Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: Colors.deepOrange.shade50,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: const Icon(
-            Icons.access_time,
-            color: Colors.deepOrange,
-            size: 20,
-          ),
-        ),
-        title: Text(
-          slot.ad,
-          style: const TextStyle(fontWeight: FontWeight.w600),
-        ),
-        subtitle: Text(
-          slot.ogretmenGirisler.isEmpty
-              ? 'Henüz ders/öğretmen eklenmedi'
-              : '${slot.ogretmenGirisler.length} ders-öğretmen girişi',
-          style: TextStyle(
-            color: slot.ogretmenGirisler.isEmpty
-                ? Colors.red.shade400
-                : Colors.grey.shade600,
-            fontSize: 12,
-          ),
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert, color: Colors.grey),
-              onSelected: (value) {
-                switch (value) {
-                  case 'add':
-                    _showAddTeacherEntrySheet(slot, index);
-                    break;
-                  case 'copy':
-                    _copySlot(slot);
-                    break;
-                  case 'paste':
-                    _pasteSlot(slot, index);
-                    break;
-                  case 'archive':
-                    _deleteSlot(slot);
-                    break;
-                  case 'remove':
-                    setState(
-                      () => _existingSlots.removeWhere((s) => s.id == slot.id),
-                    );
-                    break;
-                }
-              },
-              itemBuilder: (context) => [
-                const PopupMenuItem(
-                  value: 'add',
-                  child: ListTile(
-                    leading: Icon(
-                      Icons.add_circle_outline,
-                      color: Colors.deepOrange,
-                    ),
-                    title: Text('Ders/Öğretmen Ekle'),
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                  ),
-                ),
-                const PopupMenuItem(
-                  value: 'copy',
-                  child: ListTile(
-                    leading: Icon(Icons.copy, color: Colors.blue),
-                    title: Text('Kopyala'),
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                  ),
-                ),
-                if (hasCopied)
-                  const PopupMenuItem(
-                    value: 'paste',
-                    child: ListTile(
-                      leading: Icon(Icons.paste, color: Colors.green),
-                      title: Text('Yapıştır'),
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                    ),
-                  ),
-                const PopupMenuDivider(),
-                const PopupMenuItem(
-                  value: 'archive',
-                  child: ListTile(
-                    leading: Icon(Icons.archive_outlined, color: Colors.grey),
-                    title: Text('Arşive Gönder'),
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                  ),
-                ),
-                const PopupMenuItem(
-                  value: 'remove',
-                  child: ListTile(
-                    leading: Icon(
-                      Icons.remove_circle_outline,
-                      color: Colors.redAccent,
-                    ),
-                    title: Text('Sihirbazdan Çıkar'),
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                  ),
-                ),
-              ],
-            ),
-            const Icon(Icons.expand_more, size: 20),
-          ],
-        ),
-        children: [
-          if (slot.ogretmenGirisler.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 20),
-              child: Text(
-                'Henüz ders/öğretmen atanmamış.',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontStyle: FontStyle.italic,
-                  color: Colors.grey,
-                ),
-              ),
-            )
-          else
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: Column(
-                children: (() {
-                  final sortedEntries = List<AgmSlotTeacherEntry>.from(slot.ogretmenGirisler);
-                  sortedEntries.sort((a, b) => a.dersAdi.compareTo(b.dersAdi));
-                  return sortedEntries;
-                })().map((entry) {
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 6),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.grey.shade200),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                entry.dersAdi,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 13,
-                                ),
-                              ),
-                              Text(
-                                '${entry.ogretmenAdi} • Kapasite: ${entry.kapasite}${entry.derslikAdi != null ? ' • ${entry.derslikAdi}' : ''}',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.grey.shade600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              icon: Icon(
-                                Icons.edit,
-                                size: 16,
-                                color: Colors.blue.shade400,
-                              ),
-                              onPressed: () =>
-                                  _editTeacherEntry(slot, index, entry),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                            ),
-                            const SizedBox(width: 8),
-                            IconButton(
-                              icon: Icon(
-                                Icons.close,
-                                size: 16,
-                                color: Colors.red.shade300,
-                              ),
-                              onPressed: () =>
-                                  _removeTeacherEntry(slot, index, entry),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
+  Future<void> _saveDayToLibrary(String day, List<AgmTimeSlot> currentSlots) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: const Text('Şablonu Güncelle'),
+        content: Text('Bu güne ( $day ) ait mevcut planlamanız (saatler ve öğretmenler) kütüphanedeki şablon olarak kaydedilecek. Eski şablon güncellenecektir. Onaylıyor musunuz?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('İPTAL')),
+          TextButton(onPressed: () => Navigator.pop(d, true), child: const Text('KAYDET', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold))),
         ],
       ),
     );
-  }
 
-  void _copySlot(AgmTimeSlot slot) {
-    if (slot.ogretmenGirisler.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Kopyalanacak veri yok')));
-      return;
+    if (confirm != true) return;
+    setState(() => _isLoading = true);
+
+    try {
+      final oldLibrarySlots = _allLibrarySlots.where((s) => s.gun == day).toList();
+      for (var old in oldLibrarySlots) {
+        await _repo.deleteTimeSlot(old.id);
+      }
+      for (var current in currentSlots) {
+        final templateSlot = AgmTimeSlot(
+          id: '', institutionId: widget.institutionId, ad: current.ad, gun: current.gun,
+          baslangicSaat: current.baslangicSaat, bitisSaat: current.bitisSaat,
+          ogretmenGirisler: current.ogretmenGirisler, isActive: true,
+        );
+        await _repo.createTimeSlot(templateSlot);
+      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$day şablonu kütüphanede güncellendi.')));
+      await _loadData();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
-    setState(() => _copiedEntries = List.from(slot.ogretmenGirisler));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${slot.ogretmenGirisler.length} giriş kopyalandı'),
-        backgroundColor: Colors.blue,
-      ),
-    );
   }
 
-  Future<void> _pasteSlot(AgmTimeSlot slot, int index) async {
-    if (_copiedEntries == null || _copiedEntries!.isEmpty) return;
+  final ScrollController _slotScrollController = ScrollController();
 
-    // Mevcut olanlarla birleştir (varsa aynı ders-öğretmen ikililerini ekleme? opsiyonel)
-    // Şimdilik üzerine ekleyelim
-    final updatedEntries = [...slot.ogretmenGirisler, ..._copiedEntries!];
-
-    final updatedSlot = AgmTimeSlot(
-      id: slot.id,
-      institutionId: slot.institutionId,
-      ad: slot.ad,
-      gun: slot.gun,
-      baslangicSaat: slot.baslangicSaat,
-      bitisSaat: slot.bitisSaat,
-      ogretmenGirisler: updatedEntries,
-    );
-
-    // DB güncelle
-    await _repo.updateTimeSlotTeachers(slot.id, updatedEntries);
-
-    setState(() {
-      _existingSlots[index] = updatedSlot;
-      _expandedSlotId = slot.id; // Yapıştırınca açalım
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Atamalar başarıyla yapıştırıldı'),
-        backgroundColor: Colors.green,
-      ),
-    );
-  }
-
-  // ════════════════════════════════════════════════════════
-  //  TAB 3: ÖZET & OLUŞTUR
-  // ════════════════════════════════════════════════════════
-
-  Widget _buildSummaryTab() {
-    final formatter = DateFormat('dd.MM.yyyy');
-    final totalEntries = _existingSlots.fold(
-      0,
-      (s, sl) => s + sl.ogretmenGirisler.length,
-    );
-    final hazir =
-        _selectedExamIds.isNotEmpty &&
-        _existingSlots.isNotEmpty &&
-        totalEntries > 0;
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (_titleController.text.isNotEmpty)
-            _buildSummaryItem(
-              icon: Icons.edit_note,
-              label: 'Cycle Başlığı',
-              value: _titleController.text,
-              ok: true,
-            ),
-          _buildSummaryItem(
-            icon: Icons.quiz_outlined,
-            label: 'Referans Sınav(lar)',
-            value: _selectedExamNames.isEmpty
-                ? '—'
-                : _selectedExamNames.join(', '),
-            ok: _selectedExamIds.isNotEmpty,
-          ),
-          _buildSummaryItem(
-            icon: Icons.date_range,
-            label: 'Tarih Aralığı',
-            value:
-                '${formatter.format(_baslangic)} – ${formatter.format(_bitis)}',
-            ok: true,
-          ),
-          _buildSummaryItem(
-            icon: Icons.schedule,
-            label: 'Saat Dilimleri',
-            value: '${_existingSlots.length} dilim',
-            ok: _existingSlots.isNotEmpty,
-          ),
-          _buildSummaryItem(
-            icon: Icons.group,
-            label: 'Toplam Grup',
-            value: '$totalEntries grup oluşturulacak',
-            ok: totalEntries > 0,
-          ),
-          if (_maxSaat != null)
-            _buildSummaryItem(
-              icon: Icons.timer,
-              label: 'Haftalık Maks.',
-              value: '$_maxSaat saat',
-              ok: true,
-            ),
-          const SizedBox(height: 24),
-          _buildClassroomAnalysisPanel(),
-          const SizedBox(height: 32),
-          if (!hazir) ...[
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.orange.shade50,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.orange.shade200),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.warning_amber, color: Colors.orange.shade700),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Cycle oluşturmak için:\n'
-                      '• Sınav seçin\n'
-                      '• En az 1 saat dilimi ekleyin\n'
-                      '• Her dilime en az 1 ders+öğretmen atayın',
-                      style: TextStyle(color: Colors.orange.shade800),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-          ],
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: hazir && !_saving ? _saveCycle : null,
-              icon: _saving
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.rocket_launch_outlined),
-              label: Text(
-                _saving
-                    ? (widget.initialCycle != null
-                          ? 'Güncelleniyor...'
-                          : 'Oluşturuluyor...')
-                    : (widget.initialCycle != null
-                          ? 'Cycle Güncelle'
-                          : 'Cycle Oluştur'),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.deepOrange,
-                foregroundColor: Colors.white,
-                disabledBackgroundColor: Colors.grey.shade300,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSummaryItem({
-    required IconData icon,
-    required String label,
-    required String value,
-    required bool ok,
-  }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 20, color: Colors.deepOrange),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
-                ),
-                Text(
-                  value,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-              ],
-            ),
-          ),
-          Icon(
-            ok ? Icons.check_circle : Icons.radio_button_unchecked,
-            color: ok ? Colors.green : Colors.grey,
-            size: 20,
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ════════════════════════════════════════════════════════
-  //  BOTTOM SHEET: YENİ SLOT EKLE (gün + saat)
-  // ════════════════════════════════════════════════════════
-
-  void _showAddSlotSheet() {
-    String selectedGun = _gunler.first;
-    TimeOfDay baslangic = const TimeOfDay(hour: 09, minute: 00);
-    TimeOfDay bitis = const TimeOfDay(hour: 09, minute: 40);
-    final titleController = TextEditingController();
+  void _showEditLibraryTemplateSheet(String oldDay, List<AgmTimeSlot> oldSlots) {
+    oldSlots.sort((a, b) => a.baslangicSaat.compareTo(b.baslangicSaat));
+    int dersSayisi = oldSlots.length;
+    List<TimeOfDay> startTimes = oldSlots.map((s) => TimeOfDay(hour: int.parse(s.baslangicSaat.split(':')[0]), minute: int.parse(s.baslangicSaat.split(':')[1]))).toList();
+    List<TimeOfDay> endTimes = oldSlots.map((s) => TimeOfDay(hour: int.parse(s.bitisSaat.split(':')[0]), minute: int.parse(s.bitisSaat.split(':')[1]))).toList();
+    String selectedGun = _gunler.contains(oldDay) ? oldDay : _gunler.first;
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => StatefulBuilder(
-        builder: (context, setSt) => Container(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
-          ),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(24),
+        builder: (context, setSt) {
+          void recalculateFrom(int startIndex, {bool isStartChanged = true}) {
+            for (int i = startIndex; i < dersSayisi; i++) {
+              if (i == startIndex) {
+                if (isStartChanged) {
+                  final newEnd = DateTime(2000, 1, 1, startTimes[i].hour, startTimes[i].minute).add(const Duration(minutes: 40));
+                  endTimes[i] = TimeOfDay(hour: newEnd.hour, minute: newEnd.minute);
+                }
+              } else {
+                final prevEnd = DateTime(2000, 1, 1, endTimes[i - 1].hour, endTimes[i - 1].minute);
+                final newStart = prevEnd.add(const Duration(minutes: 10));
+                startTimes[i] = TimeOfDay(hour: newStart.hour, minute: newStart.minute);
+                final newEnd = newStart.add(const Duration(minutes: 40));
+                endTimes[i] = TimeOfDay(hour: newEnd.hour, minute: newEnd.minute);
+              }
+            }
+          }
+
+          return Container(
+            height: MediaQuery.of(context).size.height * 0.8,
+            decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
             child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Yeni Saat Dilimi Tanımla',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
+                const SizedBox(height: 12),
+                const Text('Şablonu Düzenle', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 16),
-                TextFormField(
-                  controller: titleController,
-                  decoration: _inputDecoration(
-                    'Özel Başlık (Opsiyonel)',
-                  ).copyWith(hintText: 'örn: TYT-A Grubu veya Sabah Etütleri'),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          initialValue: selectedGun,
+                          decoration: _inputDecoration('Gün / Şablon Adı'),
+                          items: _gunler.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
+                          onChanged: (v) => setSt(() => selectedGun = v!),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Row(
+                        children: [
+                          IconButton(icon: const Icon(Icons.remove_circle_outline, color: Colors.red), onPressed: () => setSt(() { if (dersSayisi > 1) { dersSayisi--; startTimes.removeLast(); endTimes.removeLast(); } })),
+                          Text('$dersSayisi Ders', style: const TextStyle(fontWeight: FontWeight.bold)),
+                          IconButton(icon: const Icon(Icons.add_circle_outline, color: Colors.green), onPressed: () => setSt(() {
+                            dersSayisi++;
+                            final lastEnd = DateTime(2000, 1, 1, endTimes.last.hour, endTimes.last.minute);
+                            final nextStart = lastEnd.add(const Duration(minutes: 10));
+                            final nextEnd = nextStart.add(const Duration(minutes: 40));
+                            startTimes.add(TimeOfDay(hour: nextStart.hour, minute: nextStart.minute));
+                            endTimes.add(TimeOfDay(hour: nextEnd.hour, minute: nextEnd.minute));
+                          })),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  value: selectedGun,
-                  decoration: _inputDecoration('Gün'),
-                  items: _gunler
-                      .map((g) => DropdownMenuItem(value: g, child: Text(g)))
-                      .toList(),
-                  onChanged: (v) => setSt(() => selectedGun = v!),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildTimePicker(
-                        ctx: context,
-                        label: 'Başlangıç',
-                        time: baslangic,
-                        onPicked: (t) => setSt(() => baslangic = t),
+                const Divider(),
+                Expanded(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.all(20),
+                    itemCount: dersSayisi,
+                    itemBuilder: (context, i) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Row(
+                        children: [
+                          CircleAvatar(radius: 12, backgroundColor: Colors.orange.shade100, child: Text('${i + 1}', style: const TextStyle(fontSize: 12, color: Colors.orange, fontWeight: FontWeight.bold))),
+                          const SizedBox(width: 12),
+                          Expanded(child: _buildTimePicker(ctx: context, label: 'Başlangıç', time: startTimes[i], onPicked: (t) => setSt(() { startTimes[i] = t; recalculateFrom(i, isStartChanged: true); }))),
+                          const SizedBox(width: 8),
+                          Expanded(child: _buildTimePicker(ctx: context, label: 'Bitiş', time: endTimes[i], onPicked: (t) => setSt(() { endTimes[i] = t; recalculateFrom(i, isStartChanged: false); }))),
+                          IconButton(icon: const Icon(Icons.close, color: Colors.red, size: 18), onPressed: dersSayisi > 1 ? () => setSt(() { startTimes.removeAt(i); endTimes.removeAt(i); dersSayisi--; }) : null),
+                        ],
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildTimePicker(
-                        ctx: context,
-                        label: 'Bitiş',
-                        time: bitis,
-                        onPicked: (t) => setSt(() => bitis = t),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-                const SizedBox(height: 24),
-                SizedBox(
-                  width: double.infinity,
+                Padding(
+                  padding: const EdgeInsets.all(20),
                   child: ElevatedButton(
                     onPressed: () async {
-                      final name = titleController.text.trim().isNotEmpty
-                          ? titleController.text.trim()
-                          : '$selectedGun ${baslangic.format(context)}-${bitis.format(context)}';
-
-                      final slot = AgmTimeSlot(
-                        id: '',
-                        institutionId: widget.institutionId,
-                        ad: name,
-                        gun: selectedGun,
-                        baslangicSaat: baslangic.format(context),
-                        bitisSaat: bitis.format(context),
-                      );
-
-                      final id = await _repo.createTimeSlot(slot);
-                      final newSlot = AgmTimeSlot(
-                        id: id,
-                        institutionId: widget.institutionId,
-                        ad: name,
-                        gun: selectedGun,
-                        baslangicSaat: baslangic.format(context),
-                        bitisSaat: bitis.format(context),
-                      );
-
-                      setState(() {
-                        _existingSlots.add(newSlot);
-                        _allLibrarySlots.insert(0, newSlot);
-                      });
-                      Navigator.pop(ctx);
+                      setState(() => _isLoading = true);
+                      try {
+                        final newDay = selectedGun;
+                        for (var old in oldSlots) { await _repo.deleteTimeSlot(old.id); }
+                        for (int i = 0; i < dersSayisi; i++) {
+                          List<AgmSlotTeacherEntry> teachers = (i < oldSlots.length) ? oldSlots[i].ogretmenGirisler : [];
+                          await _repo.createTimeSlot(AgmTimeSlot(
+                            id: '', institutionId: widget.institutionId, ad: '${newDay} ${i + 1}. Ders', gun: newDay,
+                            baslangicSaat: startTimes[i].format(context), bitisSaat: endTimes[i].format(context),
+                            ogretmenGirisler: teachers, isActive: true,
+                          ));
+                        }
+                        if (oldDay != newDay) {
+                           for (int i = 0; i < _existingSlots.length; i++) {
+                             if (_existingSlots[i].gun == oldDay) {
+                               _existingSlots[i] = _existingSlots[i].copyWith(gun: newDay);
+                             }
+                           }
+                        }
+                        if (mounted) Navigator.pop(ctx);
+                        await _loadData();
+                      } catch (e) {
+                         if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red));
+                      } finally {
+                        if (mounted) setState(() => _isLoading = false);
+                      }
                     },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.deepOrange,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    child: const Text('Oluştur ve Ekle'),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade700, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 50), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                    child: const Text('Değişiklikleri Kaydet'),
                   ),
                 ),
               ],
             ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _showLibraryTemplateOptions(String day, List<AgmTimeSlot> slots) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 12),
+          Text('$day Şablonu', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.edit_outlined, color: Colors.blue),
+            title: const Text('Şablon Adını Değiştir'),
+            subtitle: const Text('Örn: Pazartesi -> Pazartesi Etüt'),
+            onTap: () async {
+              Navigator.pop(ctx);
+              final nameC = TextEditingController(text: day);
+              final newName = await showDialog<String>(
+                context: context,
+                builder: (d) => AlertDialog(
+                  title: const Text('Şablonu Yeniden Adlandır'),
+                  content: TextField(controller: nameC, decoration: _inputDecoration('Yeni Ad')),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(d), child: const Text('İPTAL')),
+                    TextButton(onPressed: () => Navigator.pop(d, nameC.text), child: const Text('KAYDET')),
+                  ],
+                ),
+              );
+              if (newName != null && newName.isNotEmpty && newName != day) {
+                setState(() => _isLoading = true);
+                try {
+                  for (var s in slots) {
+                    await _repo.updateTimeSlot(s.copyWith(gun: newName));
+                  }
+                  // Sync in-memory active program
+                  for (int i = 0; i < _existingSlots.length; i++) {
+                    if (_existingSlots[i].gun == day) {
+                      _existingSlots[i] = _existingSlots[i].copyWith(gun: newName);
+                    }
+                  }
+                  await _loadData();
+                } catch (e) {
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red));
+                } finally {
+                  if (mounted) setState(() => _isLoading = false);
+                }
+              }
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.settings_outlined, color: Colors.orange),
+            title: const Text('Şablonu Detaylı Düzenle'),
+            subtitle: const Text('Ders sayısı ve saatleri toplu değiştir.'),
+            onTap: () {
+              Navigator.pop(ctx);
+              _showEditLibraryTemplateSheet(day, slots);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.delete_outline, color: Colors.red),
+            title: const Text('Bu Şablonu Kütüphaneden Sil'),
+            subtitle: const Text('Kütüphaneden kalıcı olarak kaldırılır.'),
+            onTap: () async {
+              Navigator.pop(ctx);
+              final confirm = await showDialog<bool>(
+                context: context,
+                builder: (d) => AlertDialog(
+                  title: const Text('Silme Onayı'),
+                  content: Text('$day gününe ait ${slots.length} ders saati kütüphaneden silinecek. Onaylıyor musunuz?'),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('İPTAL')),
+                    TextButton(onPressed: () => Navigator.pop(d, true), child: const Text('SİL', style: TextStyle(color: Colors.red))),
+                  ],
+                ),
+              );
+              if (confirm == true) {
+                setState(() => _isLoading = true);
+                try {
+                  final List<String> deletedIds = [];
+                  for (var s in slots) {
+                    await _repo.deleteTimeSlot(s.id);
+                    deletedIds.add(s.id);
+                  }
+                  
+                  // Aktif seçimlerden de kaldır
+                  setState(() {
+                    _existingSlots.removeWhere((es) => deletedIds.contains(es.id));
+                  });
+
+                  await _loadData();
+                } catch (e) {
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red));
+                } finally {
+                  if (mounted) setState(() => _isLoading = false);
+                }
+              }
+            },
+          ),
+          const SizedBox(height: 20),
+        ],
+      ),
+    );
+  }
+
+  void _showSlotOptions(AgmTimeSlot slot, int index) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 12),
+          Text(slot.ad, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.edit, color: Colors.blue),
+            title: const Text('Saatleri Düzenle'),
+            onTap: () {
+              Navigator.pop(ctx);
+              _showEditSingleSlotSheet(slot, index);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.delete_outline, color: Colors.red),
+            title: const Text('Bu Saati Programdan Kaldır'),
+            onTap: () {
+              Navigator.pop(ctx);
+              setState(() => _existingSlots.removeAt(index));
+            },
+          ),
+          const SizedBox(height: 20),
+        ],
+      ),
+    );
+  }
+
+  void _showEditSingleSlotSheet(AgmTimeSlot slot, int index) {
+    final List<DateTime> cycleDates = [];
+    DateTime current = DateTime(_baslangic.year, _baslangic.month, _baslangic.day);
+    final end = DateTime(_bitis.year, _bitis.month, _bitis.day);
+    while (current.isBefore(end) || current.isAtSameMomentAs(end)) {
+      cycleDates.add(current);
+      current = current.add(const Duration(days: 1));
+    }
+    
+    DateTime selectedDate = slot.tarih ?? cycleDates.first;
+    if (!cycleDates.any((d) => d.isAtSameMomentAs(selectedDate))) {
+       cycleDates.add(selectedDate);
+       cycleDates.sort();
+    }
+
+    TimeOfDay bas = TimeOfDay(hour: int.parse(slot.baslangicSaat.split(':')[0]), minute: int.parse(slot.baslangicSaat.split(':')[1]));
+    TimeOfDay bit = TimeOfDay(hour: int.parse(slot.bitisSaat.split(':')[0]), minute: int.parse(slot.bitisSaat.split(':')[1]));
+    final titleC = TextEditingController(text: slot.ad);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setSt) => Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom, left: 20, right: 20, top: 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Saati Düzenle', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<DateTime>(
+                initialValue: selectedDate,
+                decoration: _inputDecoration('Tarih Seçin'),
+                items: cycleDates.map((d) => DropdownMenuItem(value: d, child: Text(DateFormat('dd MMM yyyy - EEEE', 'tr').format(d)))).toList(),
+                onChanged: (v) => setSt(() => selectedDate = v!),
+              ),
+              const SizedBox(height: 16),
+              TextField(controller: titleC, decoration: _inputDecoration('Başlık')),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(child: _buildTimePicker(ctx: context, label: 'Başlangıç', time: bas, onPicked: (t) => setSt(() => bas = t))),
+                  const SizedBox(width: 12),
+                  Expanded(child: _buildTimePicker(ctx: context, label: 'Bitiş', time: bit, onPicked: (t) => setSt(() => bit = t))),
+                ],
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: () {
+                  setState(() {
+                    _existingSlots[index] = slot.copyWith(
+                      ad: titleC.text,
+                      gun: DateFormat('EEEE', 'tr').format(selectedDate),
+                      tarih: selectedDate,
+                      baslangicSaat: bas.format(context),
+                      bitisSaat: bit.format(context),
+                    );
+                  });
+                  Navigator.pop(ctx);
+                },
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade700, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 48), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                child: const Text('Güncelle'),
+              ),
+              const SizedBox(height: 20),
+            ],
           ),
         ),
       ),
     );
   }
 
-  // ════════════════════════════════════════════════════════
-  //  BOTTOM SHEET: DERS + ÖĞRETMEN EKLE (Multi-select)
-  // ════════════════════════════════════════════════════════
+  void _copySlot(AgmTimeSlot slot) {
+    setState(() => _copiedEntries = List.from(slot.ogretmenGirisler));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Kopyalandı')));
+  }
+
+  Future<void> _pasteSlot(AgmTimeSlot slot, int index) async {
+    if (_copiedEntries == null) return;
+    final updated = [...slot.ogretmenGirisler, ..._copiedEntries!];
+    await _repo.updateTimeSlotTeachers(slot.id, updated);
+    setState(() => slot.ogretmenGirisler.addAll(_copiedEntries!));
+  }
+
+  void _showAddSlotSheet() {
+    final List<DateTime> cycleDates = [];
+    DateTime current = DateTime(_baslangic.year, _baslangic.month, _baslangic.day);
+    final end = DateTime(_bitis.year, _bitis.month, _bitis.day);
+    while (current.isBefore(end) || current.isAtSameMomentAs(end)) {
+      cycleDates.add(current);
+      current = current.add(const Duration(days: 1));
+    }
+    DateTime selectedDate = cycleDates.first;
+    
+    final templateNameCtrl = TextEditingController();
+    int dersSayisi = 1;
+    List<TimeOfDay> startTimes = [const TimeOfDay(hour: 9, minute: 0)];
+    List<TimeOfDay> endTimes = [const TimeOfDay(hour: 9, minute: 40)];
+
+    TimeOfDay addMinutes(TimeOfDay t, int mins) {
+      final total = t.hour * 60 + t.minute + mins;
+      return TimeOfDay(hour: (total ~/ 60) % 24, minute: total % 60);
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setSt) {
+          void recalculateFrom(int index, {bool isStartChanged = true}) {
+            if (isStartChanged) {
+              endTimes[index] = addMinutes(startTimes[index], 40);
+            }
+            for (int i = index + 1; i < dersSayisi; i++) {
+              startTimes[i] = addMinutes(endTimes[i - 1], 10);
+              endTimes[i] = addMinutes(startTimes[i], 40);
+            }
+          }
+
+          return Padding(
+            padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 20, right: 20, top: 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Yeni Şablon Ekle', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<DateTime>(
+                  initialValue: selectedDate,
+                  decoration: _inputDecoration('Tarih Seçin'),
+                  items: cycleDates.map((d) => DropdownMenuItem(value: d, child: Text(DateFormat('dd MMM yyyy - EEEE', 'tr').format(d)))).toList(),
+                  onChanged: (v) => setSt(() => selectedDate = v!),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: templateNameCtrl,
+                  decoration: _inputDecoration('Şablon Adı (İsteğe bağlı)').copyWith(
+                    hintText: 'Örn: Pazartesi Etüt',
+                    helperText: 'Boş bırakırsanız seçili gün adı kullanılır.',
+                    helperStyle: const TextStyle(fontSize: 10),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Seans Sayısı:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.remove_circle_outline, color: Colors.red),
+                          onPressed: dersSayisi > 1 ? () {
+                            setSt(() {
+                              dersSayisi--;
+                              startTimes.removeLast();
+                              endTimes.removeLast();
+                            });
+                          } : null,
+                        ),
+                        SizedBox(
+                          width: 50,
+                          child: TextFormField(
+                            initialValue: dersSayisi.toString(),
+                            key: ValueKey('dersCount_$dersSayisi'),
+                            textAlign: TextAlign.center,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(isDense: true),
+                            onChanged: (v) {
+                              final n = int.tryParse(v) ?? 1;
+                              if (n > 0 && n < 15) {
+                                setSt(() {
+                                  dersSayisi = n;
+                                  while (startTimes.length < n) {
+                                    final lastEnd = endTimes.last;
+                                    startTimes.add(addMinutes(lastEnd, 10));
+                                    endTimes.add(addMinutes(startTimes.last, 40));
+                                  }
+                                  while (startTimes.length > n) {
+                                    startTimes.removeLast();
+                                    endTimes.removeLast();
+                                  }
+                                });
+                              }
+                            },
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.add_circle_outline, color: Colors.green),
+                          onPressed: dersSayisi < 12 ? () {
+                            setSt(() {
+                              dersSayisi++;
+                              final lastEnd = endTimes.last;
+                              startTimes.add(addMinutes(lastEnd, 10));
+                              endTimes.add(addMinutes(startTimes.last, 40));
+                            });
+                          } : null,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const Divider(height: 32),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 250),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: dersSayisi,
+                    itemBuilder: (context, i) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Row(
+                        children: [
+                          CircleAvatar(radius: 12, backgroundColor: Colors.orange.shade100, child: Text('${i + 1}', style: const TextStyle(fontSize: 10, color: Colors.orange, fontWeight: FontWeight.bold))),
+                          const SizedBox(width: 12),
+                          Expanded(child: _buildTimePicker(ctx: context, label: 'Başlangıç', time: startTimes[i], onPicked: (t) => setSt(() { startTimes[i] = t; recalculateFrom(i, isStartChanged: true); }))),
+                          const SizedBox(width: 8),
+                          Expanded(child: _buildTimePicker(ctx: context, label: 'Bitiş', time: endTimes[i], onPicked: (t) => setSt(() { endTimes[i] = t; recalculateFrom(i, isStartChanged: false); }))),
+                          const SizedBox(width: 4),
+                          IconButton(
+                            icon: const Icon(Icons.close, color: Colors.red, size: 18),
+                            onPressed: dersSayisi > 1 ? () {
+                              setSt(() {
+                                startTimes.removeAt(i);
+                                endTimes.removeAt(i);
+                                dersSayisi--;
+                              });
+                            } : null,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: () async {
+                    final dayName = DateFormat('EEEE', 'tr').format(selectedDate);
+                    final finalTemplateName = templateNameCtrl.text.trim().isNotEmpty 
+                        ? templateNameCtrl.text.trim() 
+                        : DateFormat('dd MMM yyyy - EEEE', 'tr').format(selectedDate);
+                    
+                    setState(() => _saving = true);
+                    for (int i = 0; i < dersSayisi; i++) {
+                      final s = AgmTimeSlot(
+                        id: '',
+                        institutionId: widget.institutionId,
+                        ad: '$finalTemplateName ${i + 1}. Seans',
+                        gun: dayName,
+                        tarih: selectedDate,
+                        baslangicSaat: startTimes[i].format(context),
+                        bitisSaat: endTimes[i].format(context),
+                      );
+                      final id = await _repo.createTimeSlot(s);
+                      setState(() => _existingSlots.add(s.copyWith(id: id)));
+                    }
+                    setState(() => _saving = false);
+                    if (mounted) Navigator.pop(ctx);
+                    await _loadData();
+                  },
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade700, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 48), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                  child: Text('$dersSayisi Seansı Programa Ekle'),
+                ),
+                const SizedBox(height: 12),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
 
   void _showAddTeacherEntrySheet(AgmTimeSlot slot, int slotIndex) {
     if (_examDersler.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Önce Tab 1\'den bir sınav seçin. Ders listesi sınavdan otomatik gelir.',
-          ),
-          backgroundColor: Colors.orange,
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Önce Tab 1\'den bir sınav seçin. Ders listesi sınavdan otomatik gelir.'), backgroundColor: Colors.orange));
       return;
     }
 
     final Set<String> secilenDersIds = {};
     final Map<String, Set<String>> dersOgretmenMap = {};
-    // {dersId_ogretmenId: {kapasite: int, derslikId: string, derslikAdi: string}}
     final Map<String, Map<String, dynamic>> extraInfo = {};
 
     showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      context: context, isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) => Padding(
-        padding: EdgeInsets.only(
-          left: 20,
-          right: 20,
-          top: 20,
-          bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
-        ),
+        padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: MediaQuery.of(ctx).viewInsets.bottom + 20),
         child: StatefulBuilder(
           builder: (_, setSt) => SingleChildScrollView(
             child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  '${slot.ad} – Planlama',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+                Text('${slot.ad} – Planlama', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 4),
-                Text(
-                  'Ders seçin, öğretmen atayın ve her öğretmen için derslik belirleyin.',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                ),
+                Text('Ders seçin, öğretmen atayın ve her öğretmen için derslik belirleyin.', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
                 const SizedBox(height: 16),
-                const Text(
-                  '1. Dersler',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                ),
-                const SizedBox(height: 8),
+                const Text('1. Dersler', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                 const SizedBox(height: 8),
                 ScrollConfiguration(
                   behavior: ScrollConfiguration.of(context).copyWith(
@@ -1468,92 +1407,40 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
                   child: SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
-                      children: () {
-                        final List<String> order = [
-                          'türkçe',
-                          'sosyal bilgiler',
-                          'din kültürü',
-                          'ingilizce',
-                          'matematik',
-                          'fen bilimleri',
-                        ];
-                        final sortedEntries = _examDersler.entries.toList()
-                          ..sort((a, b) {
-                            final nA = a.value.toLowerCase();
-                            final nB = b.value.toLowerCase();
-                            int idxA = order.indexWhere((o) => nA.contains(o));
-                            int idxB = order.indexWhere((o) => nB.contains(o));
-                            if (idxA == -1) idxA = 99;
-                            if (idxB == -1) idxB = 99;
-                            return idxA.compareTo(idxB);
-                          });
-
-                        return sortedEntries.map((e) {
-                          final selected = secilenDersIds.contains(e.key);
-                          return Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: FilterChip(
-                              label: Text(
-                                e.value,
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                              selected: selected,
-                              selectedColor: Colors.deepOrange,
-                              checkmarkColor: Colors.white,
-                              labelStyle: TextStyle(
-                                color: selected ? Colors.white : Colors.black87,
-                              ),
-                              onSelected: (on) {
-                                setSt(() {
-                                  if (on) {
-                                    secilenDersIds.add(e.key);
-                                    dersOgretmenMap.putIfAbsent(
-                                      e.key,
-                                      () => {},
-                                    );
-                                  } else {
-                                    secilenDersIds.remove(e.key);
-                                    dersOgretmenMap.remove(e.key);
-                                  }
-                                });
-                              },
-                            ),
-                          );
-                        }).toList();
-                      }(),
+                      children: _examDersler.entries.map((e) {
+                        final selected = secilenDersIds.contains(e.key);
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: FilterChip(
+                            label: Text(e.value, style: const TextStyle(fontSize: 12)),
+                            selected: selected, selectedColor: Colors.orange, checkmarkColor: Colors.white,
+                            labelStyle: TextStyle(color: selected ? Colors.white : Colors.black87),
+                            onSelected: (on) {
+                              setSt(() {
+                                if (on) { secilenDersIds.add(e.key); dersOgretmenMap.putIfAbsent(e.key, () => {}); }
+                                else { secilenDersIds.remove(e.key); dersOgretmenMap.remove(e.key); }
+                              });
+                            },
+                          ),
+                        );
+                      }).toList(),
                     ),
                   ),
                 ),
                 if (secilenDersIds.isNotEmpty) ...[
                   const SizedBox(height: 20),
-                  const Text(
-                    '2. Öğretmen & Derslik Atamaları',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                  ),
+                  const Text('2. Öğretmen & Derslik Atamaları', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                   const SizedBox(height: 12),
                   ...secilenDersIds.map((dersId) {
                     final dersAdi = _examDersler[dersId] ?? dersId;
                     final selectedTeachers = dersOgretmenMap[dersId] ?? {};
-
                     return Container(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.grey.shade300),
-                      ),
+                      margin: const EdgeInsets.only(bottom: 12), padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade300)),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            dersAdi,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.deepOrange,
-                              fontSize: 13,
-                            ),
-                          ),
+                          Text(dersAdi, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.orange, fontSize: 13)),
                           const SizedBox(height: 8),
                           ScrollConfiguration(
                             behavior: ScrollConfiguration.of(context).copyWith(
@@ -1565,234 +1452,61 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
                             child: SingleChildScrollView(
                               scrollDirection: Axis.horizontal,
                               child: Row(
-                                children: _teachers
-                                    .where((t) {
-                                      final b = (t['branch'] ?? '')
-                                          .toString()
-                                          .toLowerCase();
-                                      final d = dersAdi.toLowerCase();
-                                      return b == d ||
-                                          d.contains(b) ||
-                                          b.contains(d);
-                                    })
-                                    .map((t) {
-                                      final tId = t['id'];
-                                      final isSelected = selectedTeachers
-                                          .contains(tId);
-                                      return Padding(
-                                        padding: const EdgeInsets.only(
-                                          right: 6,
-                                        ),
-                                        child: ChoiceChip(
-                                          label: Text(
-                                            t['name'],
-                                            style: const TextStyle(
-                                              fontSize: 11,
-                                            ),
-                                          ),
-                                          selected: isSelected,
-                                          selectedColor:
-                                              Colors.deepOrange.shade100,
-                                          onSelected: (on) {
-                                            setSt(() {
-                                              if (on) {
-                                                selectedTeachers.add(tId);
-                                                extraInfo['${dersId}_$tId'] = {
-                                                  'kapasite': 20,
-                                                  'derslikId': null,
-                                                  'derslikAdi': null,
-                                                };
-                                              } else {
-                                                selectedTeachers.remove(tId);
-                                                extraInfo.remove(
-                                                  '${dersId}_$tId',
-                                                );
-                                              }
-                                            });
-                                          },
-                                        ),
-                                      );
-                                    })
-                                    .toList(),
+                                children: _teachers.where((t) {
+                                  // Filter: Branch must match and NOT be an admin
+                                  final b = (t['branch'] ?? '').toString().toLowerCase();
+                                  final d = dersAdi.toLowerCase();
+                                  final role = (t['role'] ?? '').toString().toLowerCase();
+                                  if (role == 'admin') return false;
+                                  return b == d || d.contains(b) || b.contains(d);
+                                }).map((t) {
+                                  final tId = t['id'];
+                                  final isSelected = selectedTeachers.contains(tId);
+                                  return Padding(
+                                    padding: const EdgeInsets.only(right: 6),
+                                    child: ChoiceChip(
+                                      label: Text(t['name'], style: const TextStyle(fontSize: 11)),
+                                      selected: isSelected, selectedColor: Colors.orange.shade100,
+                                      onSelected: (on) {
+                                        setSt(() {
+                                          if (on) { selectedTeachers.add(tId); extraInfo['${dersId}_$tId'] = {'kapasite': 24, 'derslikId': null, 'derslikAdi': null}; }
+                                          else { selectedTeachers.remove(tId); extraInfo.remove('${dersId}_$tId'); }
+                                        });
+                                      },
+                                    ),
+                                  );
+                                }).toList(),
                               ),
                             ),
                           ),
                           if (selectedTeachers.isNotEmpty) ...[
                             const SizedBox(height: 12),
                             ...selectedTeachers.map((tId) {
-                              final tName = _teachers.firstWhere(
-                                (t) => t['id'] == tId,
-                              )['name'];
+                              final tName = _teachers.firstWhere((t) => t['id'] == tId)['name'];
                               final info = extraInfo['${dersId}_$tId']!;
+                              
+                              // Sort classrooms for dropdown
+                              final sortedRooms = List<Map<String, dynamic>>.from(_classrooms);
+                              sortedRooms.sort((a, b) => _compareNatural(a['name'] ?? '', b['name'] ?? ''));
 
                               return Padding(
                                 padding: const EdgeInsets.only(bottom: 8),
                                 child: Row(
                                   children: [
-                                    Expanded(
-                                      flex: 2,
-                                      child: Text(
-                                        tName,
-                                        style: const TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                    ),
+                                    Expanded(flex: 2, child: Text(tName, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500))),
                                     const SizedBox(width: 8),
-                                    SizedBox(
-                                      width: 45,
-                                      child: TextFormField(
-                                        key: ValueKey(
-                                          '${dersId}_${tId}_${info['kapasite']}',
-                                        ),
-                                        initialValue: info['kapasite']
-                                            .toString(),
-                                        keyboardType: TextInputType.number,
-                                        decoration: _inputDecoration('Kap')
-                                            .copyWith(
-                                              contentPadding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 4,
-                                                  ),
-                                            ),
-                                        style: const TextStyle(fontSize: 11),
-                                        onChanged: (v) => info['kapasite'] =
-                                            int.tryParse(v) ?? 20,
-                                      ),
-                                    ),
+                                    SizedBox(width: 45, child: TextFormField(initialValue: info['kapasite'].toString(), keyboardType: TextInputType.number, decoration: _inputDecoration('Kap').copyWith(contentPadding: const EdgeInsets.symmetric(horizontal: 4)), style: const TextStyle(fontSize: 11), onChanged: (v) => info['kapasite'] = int.tryParse(v) ?? 24)),
                                     const SizedBox(width: 8),
-                                    Expanded(
-                                      flex: 3,
-                                      child: DropdownButtonFormField<String>(
-                                        value: info['derslikId'],
-                                        hint: const Text(
-                                          'Derslik',
-                                          style: TextStyle(fontSize: 10),
-                                        ),
-                                        isExpanded: true,
-                                        decoration: _inputDecoration('Derslik')
-                                            .copyWith(
-                                              contentPadding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 4,
-                                                  ),
-                                            ),
-                                        items: [
-                                          const DropdownMenuItem(
-                                            value: null,
-                                            child: Text(
-                                              'Seçilmedi',
-                                              style: TextStyle(fontSize: 10),
-                                            ),
-                                          ),
-                                          ..._classrooms.map(
-                                            (c) => DropdownMenuItem(
-                                              value: c['id'],
-                                              child: Text(
-                                                c['name'],
-                                                style: const TextStyle(
-                                                  fontSize: 10,
-                                                ),
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                        onChanged: (v) async {
-                                          if (v != null) {
-                                            // Çakışma Kontrolü
-                                            bool conflict = false;
-                                            String? conflictTeacher;
-
-                                            // 1. Mevcut slotta kaydedilmiş olanlar
-                                            for (var entry
-                                                in slot.ogretmenGirisler) {
-                                              if (entry.derslikId == v) {
-                                                conflict = true;
-                                                conflictTeacher =
-                                                    entry.ogretmenAdi;
-                                                break;
-                                              }
-                                            }
-
-                                            // 2. Şu an seçilmekte olan diğer satırlar
-                                            if (!conflict) {
-                                              extraInfo.forEach((key, val) {
-                                                if (key != '${dersId}_$tId' &&
-                                                    val['derslikId'] == v) {
-                                                  conflict = true;
-                                                  // Ogretmen adını bul
-                                                  final otherTId = key
-                                                      .split('_')
-                                                      .last;
-                                                  conflictTeacher = _teachers
-                                                      .firstWhere(
-                                                        (t) =>
-                                                            t['id'] == otherTId,
-                                                        orElse: () => {
-                                                          'name':
-                                                              'Başka bir öğretmen',
-                                                        },
-                                                      )['name'];
-                                                }
-                                              });
-                                            }
-
-                                            if (conflict) {
-                                              final proceed = await showDialog<bool>(
-                                                context: ctx,
-                                                builder: (dCtx) => AlertDialog(
-                                                  title: const Text(
-                                                    'Derslik Çakışması',
-                                                  ),
-                                                  content: Text(
-                                                    'Bu derslik bu saatte zaten "$conflictTeacher" tarafından kullanılıyor.\n\nYine de atamak istiyor musunuz?',
-                                                  ),
-                                                  actions: [
-                                                    TextButton(
-                                                      onPressed: () =>
-                                                          Navigator.pop(
-                                                            dCtx,
-                                                            false,
-                                                          ),
-                                                      child: const Text(
-                                                        'İPTAL',
-                                                      ),
-                                                    ),
-                                                    TextButton(
-                                                      onPressed: () =>
-                                                          Navigator.pop(
-                                                            dCtx,
-                                                            true,
-                                                          ),
-                                                      child: const Text(
-                                                        'EVET, ATAYALIM',
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                              );
-                                              if (proceed != true) return;
-                                            }
-                                          }
-
-                                          setSt(() {
-                                            info['derslikId'] = v;
-                                            if (v == null) {
-                                              info['derslikAdi'] = null;
-                                            } else {
-                                              final cr = _classrooms.firstWhere(
-                                                (c) => c['id'] == v,
-                                              );
-                                              info['derslikAdi'] = cr['name'];
-                                              // Artık manuel kapasite korunuyor, derslik kapasitesiyle ezilmiyor
-                                              // info['kapasite'] = cr['capacity'] ?? 20;
-                                            }
-                                          });
-                                        },
-                                      ),
-                                    ),
+                                    Expanded(flex: 3, child: DropdownButtonFormField<String>(
+                                      initialValue: _classrooms.any((c) => c['id'] == info['derslikId']) ? info['derslikId'] : null, hint: const Text('Derslik', style: TextStyle(fontSize: 10)), isExpanded: true,
+                                      menuMaxHeight: 300,
+                                      decoration: _inputDecoration('Derslik').copyWith(contentPadding: const EdgeInsets.symmetric(horizontal: 4)),
+                                      items: [
+                                        const DropdownMenuItem(value: null, child: Text('Seçilmedi', style: TextStyle(fontSize: 10))),
+                                        ...sortedRooms.map((c) => DropdownMenuItem(value: c['id'] as String, child: Text(c['name'], style: const TextStyle(fontSize: 10), overflow: TextOverflow.ellipsis)))
+                                      ],
+                                      onChanged: (v) { setSt(() { info['derslikId'] = v; info['derslikAdi'] = v == null ? null : _classrooms.firstWhere((c) => c['id'] == v)['name']; }); },
+                                    )),
                                   ],
                                 ),
                               );
@@ -1804,121 +1518,43 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
                   }).toList(),
                 ],
                 const SizedBox(height: 24),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    icon: const Icon(Icons.auto_awesome, size: 18),
-                    onPressed: () {
-                      // Bu slot için anlık otomatik seçim yap
-                      final rooms = List<Map<String, dynamic>>.from(_classrooms);
-                      rooms.sort((a, b) => _compareNatural(a['name']!, b['name']!));
-
-                      final Set<String> occupied = {};
-                      // 1. Zaten bu slotta kayıtlı olanlar
-                      for (final e in slot.ogretmenGirisler) {
-                        if (e.derslikId != null) occupied.add(e.derslikId!);
+                SizedBox(width: double.infinity, child: ElevatedButton.icon(icon: const Icon(Icons.auto_awesome, size: 18), onPressed: () {
+                  final rooms = List<Map<String, dynamic>>.from(_classrooms);
+                  rooms.sort((a, b) => _compareNatural(a['name']!, b['name']!));
+                  final Set<String> occupied = {};
+                  for (final e in slot.ogretmenGirisler) if (e.derslikId != null) occupied.add(e.derslikId!);
+                  extraInfo.forEach((k, v) { if (v['derslikId'] != null) occupied.add(v['derslikId']!); });
+                  setSt(() {
+                    extraInfo.forEach((key, info) {
+                      if (info['derslikId'] == null) {
+                        for (final r in rooms) {
+                          final rid = r['id']!;
+                          if (!occupied.contains(rid)) { info['derslikId'] = rid; info['derslikAdi'] = r['name']; occupied.add(rid); break; }
+                        }
                       }
-                      // 2. Şu an seçilmiş olanlar
-                      extraInfo.forEach((k, v) {
-                        if (v['derslikId'] != null) occupied.add(v['derslikId']!);
-                      });
-
-                      setSt(() {
-                        extraInfo.forEach((key, info) {
-                          if (info['derslikId'] == null) {
-                            for (final r in rooms) {
-                              final rid = r['id']!;
-                              if (!occupied.contains(rid)) {
-                                info['derslikId'] = rid;
-                                info['derslikAdi'] = r['name'];
-                                occupied.add(rid);
-                                break;
-                              }
-                            }
-                          }
-                        });
-                      });
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.teal.shade50,
-                      foregroundColor: Colors.teal,
-                      elevation: 0,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        side: BorderSide(color: Colors.teal.shade100),
-                      ),
-                    ),
-                    label: const Text(
-                      'Derslikleri Otomatik Dağıt',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ),
+                    });
+                  });
+                }, style: ElevatedButton.styleFrom(backgroundColor: Colors.teal.shade50, foregroundColor: Colors.teal, elevation: 0, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.teal.shade100))), label: const Text('Derslikleri Otomatik Dağıt', style: TextStyle(fontWeight: FontWeight.bold)))),
                 const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed:
-                        secilenDersIds.isEmpty ||
-                            dersOgretmenMap.values.every((v) => v.isEmpty)
-                        ? null
-                        : () async {
-                            final List<AgmSlotTeacherEntry> newEntries = [];
-                            for (var dersId in secilenDersIds) {
-                              final dersAdi = _examDersler[dersId] ?? dersId;
-                              for (var tId in dersOgretmenMap[dersId]!) {
-                                final tName = _teachers.firstWhere(
-                                  (t) => t['id'] == tId,
-                                )['name'];
-                                final info = extraInfo['${dersId}_$tId']!;
-                                newEntries.add(
-                                  AgmSlotTeacherEntry(
-                                    dersId: dersId,
-                                    dersAdi: dersAdi,
-                                    ogretmenId: tId,
-                                    ogretmenAdi: tName,
-                                    kapasite: info['kapasite'],
-                                    derslikId: info['derslikId'],
-                                    derslikAdi: info['derslikAdi'],
-                                  ),
-                                );
-                              }
-                            }
-
-                            final updatedEntries = [
-                              ...slot.ogretmenGirisler,
-                              ...newEntries,
-                            ];
-                            await _repo.updateTimeSlotTeachers(
-                              slot.id,
-                              updatedEntries,
-                            );
-
-                            setState(() {
-                              _existingSlots[slotIndex] = AgmTimeSlot(
-                                id: slot.id,
-                                institutionId: slot.institutionId,
-                                ad: slot.ad,
-                                gun: slot.gun,
-                                baslangicSaat: slot.baslangicSaat,
-                                bitisSaat: slot.bitisSaat,
-                                ogretmenGirisler: updatedEntries,
-                              );
-                            });
-                            Navigator.pop(ctx);
-                          },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.deepOrange,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    child: const Text('Seçimleri Kaydet ve Ekle'),
-                  ),
-                ),
+                SizedBox(width: double.infinity, child: ElevatedButton(
+                  onPressed: secilenDersIds.isEmpty || dersOgretmenMap.values.every((v) => v.isEmpty) ? null : () async {
+                    final List<AgmSlotTeacherEntry> newEntries = [];
+                    for (var dersId in secilenDersIds) {
+                      final dersAdi = _examDersler[dersId] ?? dersId;
+                      for (var tId in dersOgretmenMap[dersId]!) {
+                        final tName = _teachers.firstWhere((t) => t['id'] == tId)['name'];
+                        final info = extraInfo['${dersId}_$tId']!;
+                        newEntries.add(AgmSlotTeacherEntry(dersId: dersId, dersAdi: dersAdi, ogretmenId: tId, ogretmenAdi: tName, kapasite: info['kapasite'], derslikId: info['derslikId'], derslikAdi: info['derslikAdi']));
+                      }
+                    }
+                    final updatedEntries = [...slot.ogretmenGirisler, ...newEntries];
+                    await _repo.updateTimeSlotTeachers(slot.id, updatedEntries);
+                    setState(() { _existingSlots[slotIndex] = slot.copyWith(ogretmenGirisler: updatedEntries); });
+                    if (mounted) Navigator.pop(ctx);
+                  },
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                  child: const Text('Seçimleri Kaydet ve Ekle'),
+                )),
               ],
             ),
           ),
@@ -1927,180 +1563,66 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
     );
   }
 
-  Future<void> _removeTeacherEntry(
-    AgmTimeSlot slot,
-    int slotIndex,
-    AgmSlotTeacherEntry entry,
-  ) async {
-    final updated = slot.ogretmenGirisler
-        .where(
-          (e) =>
-              !(e.dersId == entry.dersId && e.ogretmenId == entry.ogretmenId),
-        )
-        .toList();
-    final updatedSlot = AgmTimeSlot(
-      id: slot.id,
-      institutionId: slot.institutionId,
-      ad: slot.ad,
-      gun: slot.gun,
-      baslangicSaat: slot.baslangicSaat,
-      bitisSaat: slot.bitisSaat,
-      ogretmenGirisler: updated,
-    );
+  Future<void> _removeTeacherEntry(AgmTimeSlot slot, int slotIndex, AgmSlotTeacherEntry entry) async {
+    final updated = slot.ogretmenGirisler.where((e) => !(e.dersId == entry.dersId && e.ogretmenId == entry.ogretmenId)).toList();
     await _repo.updateTimeSlotTeachers(slot.id, updated);
-    setState(() => _existingSlots[slotIndex] = updatedSlot);
+    setState(() => _existingSlots[slotIndex] = slot.copyWith(ogretmenGirisler: updated));
   }
 
-  /// Mevcut tüm slotlara alfanümerik sıraya göre derslikleri otomatik dağıtır.
-  /// Kural: Aynı branş dersleri mümkünse aynı derslikte (farklı seanslarda) olur.
   Future<void> _autoDistributeClassrooms() async {
-    if (_classrooms.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Atanacak derslik bulunamadı.')),
-      );
-      return;
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Derslikler otomatik dağıtılıyor...')),
-    );
-
-    // 1) Derslikleri doğal sıraya göre al
+    if (_classrooms.isEmpty) return;
     final classroomList = List<Map<String, dynamic>>.from(_classrooms);
     classroomList.sort((a, b) => _compareNatural(a['name']!, b['name']!));
-
-    // 2) Mevcut derslik kullanımını takip et (Day -> SlotKey -> List<RoomID>)
     final Map<String, Map<String, Set<String>>> usage = {};
-
-    // Mevcut (elle atanmış) derslikleri rezerve et
     for (final slot in _existingSlots) {
       final slotKey = '${slot.baslangicSaat}-${slot.bitisSaat}';
-      for (final entry in slot.ogretmenGirisler) {
-        if (entry.derslikId != null) {
-          usage
-              .putIfAbsent(slot.gun, () => {})
-              .putIfAbsent(slotKey, () => {})
-              .add(entry.derslikId!);
-        }
-      }
+      for (final entry in slot.ogretmenGirisler) if (entry.derslikId != null) usage.putIfAbsent(slot.gun, () => {}).putIfAbsent(slotKey, () => {}).add(entry.derslikId!);
     }
-
-    // 3) Atama bekleyenleri işle
-    // Kural: Aynı branş dersleri mümkünse aynı derslikte olur.
-    final Map<String, Map<String, String>> branchRoomPref = {}; // Day -> Branch -> RoomId
-
     final List<AgmTimeSlot> updatedSlots = List.from(_existingSlots);
-
     for (int i = 0; i < updatedSlots.length; i++) {
       final slot = updatedSlots[i];
       final slotKey = '${slot.baslangicSaat}-${slot.bitisSaat}';
       final updatedEntries = List<AgmSlotTeacherEntry>.from(slot.ogretmenGirisler);
       bool slotChanged = false;
-
       for (int j = 0; j < updatedEntries.length; j++) {
         final entry = updatedEntries[j];
         if (entry.derslikId == null) {
-          String? selectedRoomId;
-          String? selectedRoomName;
-
-          // Önce bu branşın bu gün kullandığı odayı dene
-          final prefId = branchRoomPref[slot.gun]?[entry.dersAdi];
-          if (prefId != null) {
-            final usedRoomsInSlot = usage[slot.gun]?[slotKey] ?? {};
-            if (!usedRoomsInSlot.contains(prefId)) {
-              selectedRoomId = prefId;
+          for (final room in classroomList) {
+            final rid = room['id']!;
+            if (!(usage[slot.gun]?[slotKey]?.contains(rid) ?? false)) {
+              updatedEntries[j] = entry.copyWith(derslikId: rid, derslikAdi: room['name']);
+              usage.putIfAbsent(slot.gun, () => {}).putIfAbsent(slotKey, () => {}).add(rid);
+              slotChanged = true;
+              break;
             }
-          }
-
-          // Tercih edilen oda doluysa veya yoksa boş oda ara
-          if (selectedRoomId == null) {
-            for (final room in classroomList) {
-              final rid = room['id']!;
-              final usedRoomsInSlot = usage[slot.gun]?[slotKey] ?? {};
-              if (!usedRoomsInSlot.contains(rid)) {
-                selectedRoomId = rid;
-                branchRoomPref.putIfAbsent(slot.gun, () => {})[entry.dersAdi] = rid;
-                break;
-              }
-            }
-          }
-
-          if (selectedRoomId != null) {
-            selectedRoomName = classroomList.firstWhere((r) => r['id'] == selectedRoomId)['name'];
-            updatedEntries[j] = AgmSlotTeacherEntry(
-              dersId: entry.dersId,
-              dersAdi: entry.dersAdi,
-              ogretmenId: entry.ogretmenId,
-              ogretmenAdi: entry.ogretmenAdi,
-              kapasite: entry.kapasite, // Manuel kapasite korunur
-              derslikId: selectedRoomId,
-              derslikAdi: selectedRoomName,
-            );
-            usage
-                .putIfAbsent(slot.gun, () => {})
-                .putIfAbsent(slotKey, () => {})
-                .add(selectedRoomId);
-            slotChanged = true;
           }
         }
       }
-
-      if (slotChanged) {
-        updatedSlots[i] = AgmTimeSlot(
-          id: slot.id,
-          institutionId: slot.institutionId,
-          ad: slot.ad,
-          gun: slot.gun,
-          baslangicSaat: slot.baslangicSaat,
-          bitisSaat: slot.bitisSaat,
-          ogretmenGirisler: updatedEntries,
-        );
-        // DB güncelle (Persistence)
-        await _repo.updateTimeSlotTeachers(slot.id, updatedEntries);
-      }
+      if (slotChanged) { updatedSlots[i] = slot.copyWith(ogretmenGirisler: updatedEntries); await _repo.updateTimeSlotTeachers(slot.id, updatedEntries); }
     }
-
-    setState(() {
-      _existingSlots = updatedSlots;
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Derslikler başarıyla dağıtıldı.'),
-        backgroundColor: Colors.green,
-      ),
-    );
+    setState(() => _existingSlots = updatedSlots);
   }
 
-  /// Alfanümerik metinleri "doğal" sırada karşılaştırır (1, 2, 10...)
   int _compareNatural(String a, String b) {
     final RegExp re = RegExp(r'(\d+)|\D+');
     final Iterable<Match> aMatch = re.allMatches(a.toLowerCase());
     final Iterable<Match> bMatch = re.allMatches(b.toLowerCase());
-    final itA = aMatch.iterator;
-    final itB = bMatch.iterator;
+    final itA = aMatch.iterator; final itB = bMatch.iterator;
     while (itA.moveNext() && itB.moveNext()) {
-      final aStr = itA.current.group(0)!;
-      final bStr = itB.current.group(0)!;
+      final aStr = itA.current.group(0)!; final bStr = itB.current.group(0)!;
       if (itA.current.group(1) != null && itB.current.group(1) != null) {
-        final aNum = int.parse(aStr);
-        final bNum = int.parse(bStr);
+        final aNum = int.parse(aStr); final bNum = int.parse(bStr);
         if (aNum != bNum) return aNum.compareTo(bNum);
-      } else {
-        final cmp = aStr.compareTo(bStr);
-        if (cmp != 0) return cmp;
-      }
+      } else { final cmp = aStr.compareTo(bStr); if (cmp != 0) return cmp; }
     }
     return a.length.compareTo(b.length);
   }
 
-  Future<void> _editTeacherEntry(
-    AgmTimeSlot slot,
-    int slotIndex,
-    AgmSlotTeacherEntry entry,
-  ) async {
+  Future<void> _editTeacherEntry(AgmTimeSlot slot, int slotIndex, AgmSlotTeacherEntry entry) async {
     String eOgretmenId = entry.ogretmenId;
     String eOgretmenAdi = entry.ogretmenAdi;
+    String eDersId = entry.dersId;
+    String eDersAdi = entry.dersAdi;
     int eKapasite = entry.kapasite;
     String? eDerslikId = entry.derslikId;
     String? eDerslikAdi = entry.derslikAdi;
@@ -2108,221 +1630,753 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
     await showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (context, setSt) {
-          return AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
+        builder: (context, setSt) => AlertDialog(
+          title: const Text('Grup Düzenle', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Ders Seçimi
+              DropdownButtonFormField<String>(
+                initialValue: _examDersler.containsKey(eDersId) ? eDersId : null,
+                decoration: _inputDecoration('Ders'),
+                items: _examDersler.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value, style: const TextStyle(fontSize: 12)))).toList(),
+                onChanged: (v) { 
+                  if (v != null) {
+                    setSt(() { 
+                      eDersId = v; 
+                      eDersAdi = _examDersler[v]!; 
+                    }); 
+                  }
+                },
+              ),
+              const SizedBox(height: 12),
+              // Öğretmen Seçimi
+              DropdownButtonFormField<String>(
+                initialValue: _teachers.any((t) => t['id'] == eOgretmenId) ? eOgretmenId : null,
+                decoration: _inputDecoration('Öğretmen'),
+                items: _teachers.map((t) => DropdownMenuItem(value: t['id'] as String, child: Text(t['name'] as String, style: const TextStyle(fontSize: 12)))).toList(),
+                onChanged: (v) { 
+                  if (v != null) {
+                    setSt(() { 
+                      eOgretmenId = v; 
+                      eOgretmenAdi = _teachers.firstWhere((t) => t['id'] == v)['name']; 
+                      // Öğretmen değişince branşına göre dersi otomatik güncelle
+                      final branchName = _teachers.firstWhere((t) => t['id'] == v)['branch']?.toString().trim() ?? '';
+                      if (branchName.isNotEmpty) {
+                        final matchingEntry = _examDersler.entries.where((e) => e.value.toLowerCase() == branchName.toLowerCase()).toList();
+                        if (matchingEntry.isNotEmpty) {
+                          eDersId = matchingEntry.first.key;
+                          eDersAdi = matchingEntry.first.value;
+                        } else {
+                          // Eğer tanımlı dersler arasında yoksa branşın adını kullan
+                          eDersId = branchName;
+                          eDersAdi = branchName;
+                        }
+                      }
+                    }); 
+                  }
+                },
+              ),
+              const SizedBox(height: 12),
+              TextFormField(initialValue: eKapasite.toString(), keyboardType: TextInputType.number, decoration: _inputDecoration('Kapasite'), onChanged: (v) => eKapasite = int.tryParse(v) ?? 24),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: _classrooms.any((c) => c['id'] == eDerslikId) ? eDerslikId : null, decoration: _inputDecoration('Derslik'),
+                items: [const DropdownMenuItem(value: null, child: Text('Seçilmedi')), ..._classrooms.map((c) => DropdownMenuItem(value: c['id'] as String, child: Text(c['name'] as String)))],
+                onChanged: (v) { setSt(() { eDerslikId = v; eDerslikAdi = v == null ? null : _classrooms.firstWhere((c) => c['id'] == v)['name']; }); },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('İptal')),
+            ElevatedButton(onPressed: () async {
+              final newEntry = AgmSlotTeacherEntry(
+                ogretmenId: eOgretmenId, 
+                ogretmenAdi: eOgretmenAdi, 
+                dersId: eDersId, 
+                dersAdi: eDersAdi, 
+                kapasite: eKapasite, 
+                derslikId: eDerslikId, 
+                derslikAdi: eDerslikAdi
+              );
+              // Eski entry'yi bulmak için orijinal dersId ve ogretmenId üzerinden eşleştiriyoruz
+              final updated = slot.ogretmenGirisler.map((e) => (e.dersId == entry.dersId && e.ogretmenId == entry.ogretmenId) ? newEntry : e).toList();
+              await _repo.updateTimeSlotTeachers(slot.id, updated);
+              setState(() => _existingSlots[slotIndex] = slot.copyWith(ogretmenGirisler: updated));
+              if (mounted) Navigator.pop(ctx);
+            }, child: const Text('Kaydet')),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSummaryTab() {
+    final totalPlannedGroups = _existingSlots.fold(0, (sum, sl) => sum + sl.ogretmenGirisler.length);
+    final totalPossibleSlots = _existingSlots.length; // Toplam seans sayısı
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: _titleController,
+            builder: (context, value, child) {
+              return _summaryCard('AGM Başlığı', value.text, Icons.edit_note);
+            },
+          ),
+          _summaryCard('Referans Sınavlar', _selectedExamNames.join(', '), Icons.quiz),
+          _tappableStudentCard(),
+          _summaryCard('Planlanan Seans Sayısı', '$totalPossibleSlots seans', Icons.access_time),
+          _summaryCard('Planlanan Gruplar', '$totalPlannedGroups grup', Icons.group),
+          
+          const SizedBox(height: 24),
+          _sectionHeader('Öğrenci Katılım Limitleri', Icons.tune),
+          const SizedBox(height: 16),
+          
+          Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<int>(
+                  initialValue: (_minDers != null && _minDers! <= totalPossibleSlots) ? _minDers : null,
+                  decoration: _inputDecoration('Minimum Seans'),
+                  hint: const Text('Seçin'),
+                  isExpanded: true,
+                  menuMaxHeight: 300,
+                  items: List.generate(totalPossibleSlots + 1, (index) => index)
+                      .map((e) => DropdownMenuItem(value: e, child: Text('$e Seans'))).toList(),
+                  onChanged: (val) => setState(() => _minDers = val),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: DropdownButtonFormField<int>(
+                  initialValue: (_maxSaat != null && _maxSaat! <= totalPossibleSlots) ? _maxSaat : null,
+                  decoration: _inputDecoration('Maksimum Seans'),
+                  hint: const Text('Seçin'),
+                  isExpanded: true,
+                  menuMaxHeight: 300,
+                  items: List.generate(totalPossibleSlots + 1, (index) => index)
+                      .map((e) => DropdownMenuItem(value: e, child: Text('$e Seans'))).toList(),
+                  onChanged: (val) => setState(() => _maxSaat = val),
+                ),
+              ),
+            ],
+          ),
+          
+          const SizedBox(height: 32),
+          if (_saving) 
+            const Center(child: CircularProgressIndicator())
+          else 
+            ElevatedButton(
+              onPressed: _saveCycle,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green.shade600, 
+                foregroundColor: Colors.white, 
+                minimumSize: const Size(double.infinity, 54), 
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                elevation: 4,
+              ),
+              child: const Text('KAYDET VE OLUŞTUR', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.1)),
             ),
-            title: Text(
-              '${entry.dersAdi} Düzenle',
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  DropdownButtonFormField<String>(
-                    value: _teachers.any((t) => t['id'] == eOgretmenId)
-                        ? eOgretmenId
-                        : null,
-                    decoration: _inputDecoration('Öğretmen'),
-                    items: _teachers
-                        .map(
-                          (t) => DropdownMenuItem(
-                            value: t['id'] as String,
-                            child: Text(
-                              t['name'] as String,
-                              style: const TextStyle(fontSize: 12),
+        ],
+      ),
+    );
+  }
+
+  Widget _summaryCard(String label, String val, IconData icon) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12), 
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.grey.shade200)),
+      child: ListTile(
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(10)),
+          child: Icon(icon, color: Colors.orange, size: 20),
+        ),
+        title: Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade600, fontWeight: FontWeight.w500)), 
+        subtitle: Text(val, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87)),
+      ),
+    );
+  }
+
+  Widget _tappableStudentCard() {
+    final activeCount = _potentialStudentCount - _excludedStudentIds.length;
+    final hasExclusions = _excludedStudentIds.isNotEmpty;
+    final valText = hasExclusions
+        ? '$activeCount / $_potentialStudentCount öğrenci'
+        : '$_potentialStudentCount öğrenci';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: hasExclusions ? Colors.orange.shade200 : Colors.grey.shade200),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: _allBranchStudents.isEmpty ? null : _showStudentSelectionDialog,
+        child: ListTile(
+          leading: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(10)),
+            child: Icon(Icons.person, color: Colors.orange, size: 20),
+          ),
+          title: Text('Kapsanan Öğrenci', style: TextStyle(fontSize: 11, color: Colors.grey.shade600, fontWeight: FontWeight.w500)),
+          subtitle: Row(
+            children: [
+              Text(valText, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87)),
+              if (hasExclusions) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(color: Colors.orange.shade100, borderRadius: BorderRadius.circular(20)),
+                  child: Text('${_excludedStudentIds.length} hariç', style: TextStyle(fontSize: 10, color: Colors.orange.shade800, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ],
+          ),
+          trailing: _allBranchStudents.isEmpty
+              ? const SizedBox(width: 24)
+              : Icon(Icons.chevron_right, color: Colors.orange.shade400),
+        ),
+      ),
+    );
+  }
+
+  void _showStudentSelectionDialog() {
+    final Set<String> tempExcluded = Set<String>.from(_excludedStudentIds);
+    final searchCtrl = TextEditingController();
+    String searchQuery = '';
+    String? filterClassLevel;
+    String? filterBranch;
+
+    final Set<String> classLevels = {};
+    final Set<String> branches = {};
+    for (final s in _allBranchStudents) {
+      final cl = (s['classLevel'] ?? s['sinifSeviyesi'] ?? '').toString();
+      final br = (s['className'] ?? s['sube'] ?? '').toString();
+      if (cl.isNotEmpty) classLevels.add(cl);
+      if (br.isNotEmpty) branches.add(br);
+    }
+    final sortedClassLevels = classLevels.toList()..sort();
+    final sortedBranches = branches.toList()..sort();
+
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black54,
+      transitionDuration: const Duration(milliseconds: 300),
+      transitionBuilder: (ctx, anim, _, child) => SlideTransition(
+        position: Tween<Offset>(begin: const Offset(0, 0.06), end: Offset.zero)
+            .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+        child: FadeTransition(opacity: anim, child: child),
+      ),
+      pageBuilder: (ctx, _, __) => StatefulBuilder(
+        builder: (ctx, setSt) {
+          final filtered = _allBranchStudents.where((s) {
+            final name = (s['fullName'] ?? s['name'] ?? '').toString().toLowerCase();
+            final cl = (s['classLevel'] ?? s['sinifSeviyesi'] ?? '').toString();
+            final br = (s['className'] ?? s['sube'] ?? '').toString();
+            if (searchQuery.isNotEmpty && !name.contains(searchQuery.toLowerCase())) return false;
+            if (filterClassLevel != null && cl != filterClassLevel) return false;
+            if (filterBranch != null && br != filterBranch) return false;
+            return true;
+          }).toList();
+
+          final activeCount = _allBranchStudents.length - tempExcluded.length;
+          final excludedInFiltered = filtered.where((s) => tempExcluded.contains(s['id'])).length;
+          final allFilteredSelected = filtered.isNotEmpty && excludedInFiltered == 0;
+
+          return Scaffold(
+            backgroundColor: const Color(0xFFF5F6FA),
+            body: Column(
+              children: [
+                // ── Premium Başlık ──
+                Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Colors.orange.shade800, Colors.orange.shade600],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    boxShadow: [
+                      BoxShadow(color: Colors.orange.shade900.withValues(alpha: 0.3), blurRadius: 12, offset: const Offset(0, 4)),
+                    ],
+                  ),
+                  child: SafeArea(
+                    bottom: false,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 8, 16, 20),
+                      child: Row(
+                        children: [
+                          IconButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 20),
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Kapsanan Öğrenciler', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 0.3)),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '$activeCount / ${_allBranchStudents.length} öğrenci seçili',
+                                  style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 12),
+                                ),
+                              ],
                             ),
                           ),
-                        )
-                        .toList(),
-                    onChanged: (v) {
-                      if (v != null) {
-                        setSt(() {
-                          eOgretmenId = v;
-                          eOgretmenAdi =
-                              _teachers.firstWhere((t) => t['id'] == v)['name']
-                                  as String;
-                        });
-                      }
-                    },
+                          // İstatistik rozeti
+                          if (tempExcluded.isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(color: Colors.white.withValues(alpha: 0.4)),
+                              ),
+                              child: Text(
+                                '${tempExcluded.length} hariç',
+                                style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
                   ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    initialValue: eKapasite.toString(),
-                    keyboardType: TextInputType.number,
-                    decoration: _inputDecoration('Kapasite'),
-                    onChanged: (v) => eKapasite = int.tryParse(v) ?? 20,
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    value: eDerslikId,
-                    decoration: _inputDecoration('Derslik (Opsiyonel)'),
-                    items: [
-                      const DropdownMenuItem(
-                        value: null,
-                        child: Text(
-                          'Seçilmedi',
-                          style: TextStyle(fontSize: 12),
+                ),
+
+                // ── Arama & Filtreler ──
+                Container(
+                  color: Colors.white,
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                  child: Column(
+                    children: [
+                      // Arama Çubuğu
+                      Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF5F6FA),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: Colors.grey.shade200),
+                        ),
+                        child: TextField(
+                          controller: searchCtrl,
+                          onChanged: (v) => setSt(() => searchQuery = v),
+                          style: const TextStyle(fontSize: 14),
+                          decoration: InputDecoration(
+                            hintText: 'Öğrenci adı ara...',
+                            hintStyle: TextStyle(fontSize: 13, color: Colors.grey.shade400),
+                            prefixIcon: Icon(Icons.search, size: 20, color: Colors.grey.shade400),
+                            suffixIcon: searchQuery.isNotEmpty
+                                ? IconButton(
+                                    icon: Icon(Icons.close, size: 18, color: Colors.grey.shade400),
+                                    onPressed: () { searchCtrl.clear(); setSt(() => searchQuery = ''); },
+                                  )
+                                : null,
+                            border: InputBorder.none,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                          ),
                         ),
                       ),
-                      ..._classrooms.map(
-                        (c) => DropdownMenuItem(
-                          value: c['id'] as String,
-                          child: Text(
-                            c['name'] as String,
-                            style: const TextStyle(fontSize: 12),
+                      const SizedBox(height: 10),
+                      // Filtreler
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _premiumDropdown<String>(
+                              value: filterClassLevel,
+                              hint: 'Sınıf Seviyesi',
+                              icon: Icons.school_outlined,
+                              items: [
+                                const DropdownMenuItem(value: null, child: Text('Tüm Seviyeler', style: TextStyle(fontSize: 13))),
+                                ...sortedClassLevels.map((cl) => DropdownMenuItem(value: cl, child: Text('$cl. Sınıf', style: const TextStyle(fontSize: 13)))),
+                              ],
+                              onChanged: (v) => setSt(() { filterClassLevel = v; filterBranch = null; }),
+                            ),
                           ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _premiumDropdown<String>(
+                              value: filterBranch,
+                              hint: 'Şube',
+                              icon: Icons.door_front_door_outlined,
+                              items: [
+                                const DropdownMenuItem(value: null, child: Text('Tüm Şubeler', style: TextStyle(fontSize: 13))),
+                                ...sortedBranches
+                                  .where((br) => filterClassLevel == null || _allBranchStudents.any((s) =>
+                                      (s['className'] ?? s['sube'] ?? '') == br &&
+                                      (s['classLevel'] ?? s['sinifSeviyesi'] ?? '') == filterClassLevel))
+                                  .map((br) => DropdownMenuItem(value: br, child: Text(br, style: const TextStyle(fontSize: 13)))),
+                              ],
+                              onChanged: (v) => setSt(() => filterBranch = v),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                // ── Toplu İşlem Çubuğu ──
+                Container(
+                  color: Colors.white,
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                  child: Row(
+                    children: [
+                      // Tümünü seç checkbox
+                      InkWell(
+                        borderRadius: BorderRadius.circular(8),
+                        onTap: () => setSt(() {
+                          if (allFilteredSelected) {
+                            for (final s in filtered) tempExcluded.add(s['id']);
+                          } else {
+                            for (final s in filtered) tempExcluded.remove(s['id']);
+                          }
+                        }),
+                        child: Row(
+                          children: [
+                            AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              width: 22, height: 22,
+                              decoration: BoxDecoration(
+                                color: allFilteredSelected ? Colors.orange.shade700 : Colors.transparent,
+                                border: Border.all(color: allFilteredSelected ? Colors.orange.shade700 : Colors.grey.shade400, width: 2),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: allFilteredSelected
+                                  ? const Icon(Icons.check, size: 14, color: Colors.white)
+                                  : null,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              allFilteredSelected ? 'Tümünü Kaldır' : 'Tümünü Seç',
+                              style: TextStyle(fontSize: 13, color: Colors.grey.shade700, fontWeight: FontWeight.w500),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          '${filtered.length} öğrenci',
+                          style: TextStyle(fontSize: 11, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
                         ),
                       ),
                     ],
-                    onChanged: (v) {
-                      setSt(() {
-                        eDerslikId = v;
-                        if (v != null) {
-                          eDerslikAdi =
-                              _classrooms.firstWhere(
-                                    (c) => c['id'] == v,
-                                  )['name']
-                                  as String;
-                        } else {
-                          eDerslikAdi = null;
-                        }
-                      });
+                  ),
+                ),
+
+                const Divider(height: 1, color: Color(0xFFEEEEEE)),
+
+                // ── Öğrenci Listesi ──
+                Expanded(
+                  child: filtered.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.search_off, size: 48, color: Colors.grey.shade300),
+                              const SizedBox(height: 12),
+                              Text('Öğrenci bulunamadı', style: TextStyle(color: Colors.grey.shade400, fontSize: 14)),
+                            ],
+                          ),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+                          itemCount: filtered.length,
+                          itemBuilder: (_, i) {
+                            final s = filtered[i];
+                            final id = s['id'] as String;
+                            final name = (s['fullName'] ?? s['name'] ?? 'İsimsiz').toString();
+                            final cl = (s['classLevel'] ?? s['sinifSeviyesi'] ?? '').toString();
+                            final br = (s['className'] ?? s['sube'] ?? '').toString();
+                            final isIncluded = !tempExcluded.contains(id);
+
+                            return AnimatedOpacity(
+                              opacity: isIncluded ? 1.0 : 0.5,
+                              duration: const Duration(milliseconds: 200),
+                              child: Container(
+                                margin: const EdgeInsets.only(bottom: 8),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(
+                                    color: isIncluded ? Colors.transparent : Colors.grey.shade200,
+                                    width: 1,
+                                  ),
+                                  boxShadow: isIncluded
+                                      ? [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 6, offset: const Offset(0, 2))]
+                                      : [],
+                                ),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(14),
+                                  onTap: () => setSt(() {
+                                    if (isIncluded) tempExcluded.add(id);
+                                    else tempExcluded.remove(id);
+                                  }),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                    child: Row(
+                                      children: [
+                                        // Avatar
+                                        Container(
+                                          width: 40, height: 40,
+                                          decoration: BoxDecoration(
+                                            color: isIncluded ? Colors.orange.shade50 : Colors.grey.shade100,
+                                            borderRadius: BorderRadius.circular(12),
+                                          ),
+                                          child: Center(
+                                            child: Text(
+                                              name.isNotEmpty ? name[0].toUpperCase() : '?',
+                                              style: TextStyle(
+                                                fontSize: 16, fontWeight: FontWeight.bold,
+                                                color: isIncluded ? Colors.orange.shade700 : Colors.grey.shade400,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        // İsim & sınıf
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(name, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: isIncluded ? const Color(0xFF1A1A2E) : Colors.grey.shade400)),
+                                              const SizedBox(height: 3),
+                                              Row(
+                                                children: [
+                                                  Icon(Icons.class_outlined, size: 12, color: isIncluded ? Colors.orange.shade400 : Colors.grey.shade300),
+                                                  const SizedBox(width: 4),
+                                                  Text('$cl. Sınıf  •  $br', style: TextStyle(fontSize: 11, color: isIncluded ? Colors.grey.shade500 : Colors.grey.shade300)),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        // Checkbox
+                                        AnimatedContainer(
+                                          duration: const Duration(milliseconds: 200),
+                                          width: 24, height: 24,
+                                          decoration: BoxDecoration(
+                                            color: isIncluded ? Colors.orange.shade700 : Colors.transparent,
+                                            border: Border.all(
+                                              color: isIncluded ? Colors.orange.shade700 : Colors.grey.shade300,
+                                              width: 2,
+                                            ),
+                                            borderRadius: BorderRadius.circular(7),
+                                          ),
+                                          child: isIncluded
+                                              ? const Icon(Icons.check, size: 15, color: Colors.white)
+                                              : null,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+
+            // ── Floating Alt Bar + Uygula Butonu ──
+            bottomNavigationBar: Container(
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 20, offset: const Offset(0, -4))],
+              ),
+              child: Row(
+                children: [
+                  // İstatistik
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '$activeCount öğrenci seçili',
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1A1A2E)),
+                      ),
+                      Text(
+                        '${_allBranchStudents.length - activeCount} kapsam dışı',
+                        style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                      ),
+                    ],
+                  ),
+                  const Spacer(),
+                  // Sıfırla
+                  if (tempExcluded.isNotEmpty)
+                    TextButton(
+                      onPressed: () => setSt(() => tempExcluded.clear()),
+                      child: Text('Sıfırla', style: TextStyle(color: Colors.grey.shade500, fontSize: 13)),
+                    ),
+                  const SizedBox(width: 8),
+                  // Uygula Butonu
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      setState(() => _excludedStudentIds = Set<String>.from(tempExcluded));
+                      Navigator.pop(ctx);
                     },
+                    icon: const Icon(Icons.check_rounded, size: 18),
+                    label: const Text('Uygula', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange.shade700,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    ),
                   ),
                 ],
               ),
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('İptal'),
-              ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.deepOrange,
-                  foregroundColor: Colors.white,
-                ),
-                onPressed: () async {
-                  final updatedList = List<AgmSlotTeacherEntry>.from(
-                    slot.ogretmenGirisler,
-                  );
-                  final idx = updatedList.indexWhere(
-                    (e) =>
-                        e.dersId == entry.dersId &&
-                        e.ogretmenId == entry.ogretmenId,
-                  );
-
-                  if (idx != -1) {
-                    updatedList[idx] = AgmSlotTeacherEntry(
-                      dersId: entry.dersId,
-                      dersAdi: entry.dersAdi,
-                      ogretmenId: eOgretmenId,
-                      ogretmenAdi: eOgretmenAdi,
-                      derslikId: eDerslikId,
-                      derslikAdi: eDerslikAdi,
-                      kapasite: eKapasite,
-                    );
-
-                    final updatedSlot = AgmTimeSlot(
-                      id: slot.id,
-                      institutionId: slot.institutionId,
-                      ad: slot.ad,
-                      gun: slot.gun,
-                      baslangicSaat: slot.baslangicSaat,
-                      bitisSaat: slot.bitisSaat,
-                      ogretmenGirisler: updatedList,
-                    );
-
-                    await _repo.updateTimeSlotTeachers(slot.id, updatedList);
-                    setState(() => _existingSlots[slotIndex] = updatedSlot);
-                  }
-                  if (context.mounted) Navigator.pop(ctx);
-                },
-                child: const Text('Kaydet'),
-              ),
-            ],
           );
         },
       ),
     );
   }
 
-  Future<void> _deleteSlot(AgmTimeSlot slot) async {
-    // Arşivle (isActive = false yap)
-    await _repo.deleteTimeSlot(slot.id);
-    setState(() {
-      final index = _allLibrarySlots.indexWhere((s) => s.id == slot.id);
-      if (index != -1) {
-        _allLibrarySlots[index] = AgmTimeSlot(
-          id: slot.id,
-          institutionId: slot.institutionId,
-          ad: slot.ad,
-          gun: slot.gun,
-          baslangicSaat: slot.baslangicSaat,
-          bitisSaat: slot.bitisSaat,
-          ogretmenGirisler: slot.ogretmenGirisler,
-          isActive: false,
-        );
-      }
-      _existingSlots.removeWhere((s) => s.id == slot.id);
-    });
-    if (mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Saat dilimi arşivlendi.')));
-    }
+  Widget _premiumDropdown<T>({
+    required T? value,
+    required String hint,
+    required IconData icon,
+    required List<DropdownMenuItem<T>> items,
+    required ValueChanged<T?> onChanged,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5F6FA),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<T>(
+          value: value,
+          isExpanded: true,
+          icon: Icon(Icons.keyboard_arrow_down, size: 18, color: Colors.grey.shade500),
+          hint: Row(
+            children: [
+              Icon(icon, size: 14, color: Colors.grey.shade400),
+              const SizedBox(width: 6),
+              Text(hint, style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
+            ],
+          ),
+          items: items,
+          onChanged: onChanged,
+          menuMaxHeight: 300,
+          style: TextStyle(fontSize: 13, color: Colors.grey.shade800),
+        ),
+      ),
+    );
   }
 
-  // ════════════════════════════════════════════════════════
-  //  CYCLE OLUŞTUR
-  // ════════════════════════════════════════════════════════
+  Widget _sectionHeader(String title, IconData icon) {
+    return Row(children: [Icon(icon, size: 20, color: Colors.orange.shade700), const SizedBox(width: 8), Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15))]);
+  }
+
+  InputDecoration _inputDecoration(String label) {
+    return InputDecoration(
+      labelText: label, 
+      labelStyle: const TextStyle(fontSize: 13),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)), 
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      filled: true,
+      fillColor: Colors.white,
+    );
+  }
+
+  Widget _buildDateButton({required String label, required DateTime date, required VoidCallback onTap}) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(10),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(onTap: onTap, child: Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey.shade200)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade500)), const SizedBox(height: 4), Text(DateFormat('dd.MM.yyyy').format(date), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13))]))),
+    );
+  }
+
+  Future<void> _pickDate(bool isStart) async {
+    final res = await showDatePicker(context: context, initialDate: isStart ? _baslangic : _bitis, firstDate: DateTime(2020), lastDate: DateTime(2100));
+    if (res != null) setState(() { if (isStart) _baslangic = res; else _bitis = res; });
+  }
+
+  Widget _buildTimePicker({required BuildContext ctx, required String label, required TimeOfDay time, required Function(TimeOfDay) onPicked}) {
+    return InkWell(onTap: () async { final t = await showTimePicker(context: ctx, initialTime: time); if (t != null) onPicked(t); }, child: Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(12)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)), const SizedBox(height: 4), Text(time.format(ctx), style: const TextStyle(fontWeight: FontWeight.bold))])));
+  }
 
   Future<void> _saveCycle() async {
+    if (_titleController.text.isEmpty || _selectedExamIds.isEmpty) return;
     setState(() => _saving = true);
-    final sw = Stopwatch()..start();
-    print('DEBUG: [UI] _saveCycle entry');
-
     try {
-      // 45 saniyelik genel bir zaman aşımı koruması
-      await Future.any([
-        _performSave(sw),
-        Future.delayed(const Duration(seconds: 45)).then(
-          (_) => throw Exception('İşlem 45 saniye sürdü ve iptal edildi (Zaman Aşımı)'),
-        ),
-      ]);
-    } catch (e, stack) {
-      print('DEBUG: [UI] _saveCycle GLOBAL ERROR: $e');
-      print('DEBUG: [UI] $stack');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Hata: $e'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 10),
-          ),
-        );
+      final oldCycle = widget.initialCycle;
+      bool examChanged = false;
+      if (oldCycle != null) {
+        final oldIds = oldCycle.referansDenemeSinavIds.isNotEmpty ? oldCycle.referansDenemeSinavIds : [oldCycle.referansDenemeSinavId];
+        if (oldIds.length != _selectedExamIds.length || !oldIds.every((id) => _selectedExamIds.contains(id))) {
+          examChanged = true;
+        }
       }
-    } finally {
-      print('DEBUG: [UI] _saveCycle finally exit at ${sw.elapsedMilliseconds}ms');
-      if (mounted) setState(() => _saving = false);
-    }
-  }
 
-  Future<void> _performSave(Stopwatch sw) async {
-    print('DEBUG: [UI] _performSave starting');
+      if (examChanged && oldCycle != null) {
+        await _repo.rollbackAssignments(oldCycle.id);
+      }
 
-    // 1) İstenen (güncel) grupları oluştur
-    final List<AgmGroup> proposedGroups = [];
-    for (final slot in _existingSlots) {
-      for (final entry in slot.ogretmenGirisler) {
-        proposedGroups.add(
-          AgmGroup(
-            id: '', 
-            cycleId: widget.initialCycle?.id ?? '',
-            institutionId: widget.institutionId,
+      String? effectiveWorkPeriodId = widget.workPeriodId ?? widget.initialCycle?.workPeriodId;
+      if (effectiveWorkPeriodId == null || effectiveWorkPeriodId.isEmpty) {
+        effectiveWorkPeriodId = await TermService().getActiveTermId();
+      }
+
+      final cycle = AgmCycle(
+        id: widget.initialCycle?.id ?? '',
+        institutionId: widget.institutionId,
+        schoolTypeId: widget.schoolTypeId,
+        workPeriodId: effectiveWorkPeriodId,
+        title: _titleController.text,
+        referansDenemeSinavId: _selectedExamIds.first,
+        referansDenemeSinavAdi: _selectedExamNames.first,
+        referansDenemeSinavIds: _selectedExamIds,
+        referansDenemeSinavAdlari: _selectedExamNames,
+        baslangicTarihi: _baslangic,
+        bitisTarihi: _bitis,
+        status: widget.initialCycle?.status ?? AgmCycleStatus.draft,
+        olusturulmaZamani: widget.initialCycle?.olusturulmaZamani ?? DateTime.now(),
+        olusturanKullaniciId: widget.initialCycle?.olusturanKullaniciId ?? '',
+        isSpecialClassActive: _isSpecialClassActive,
+        specialClassCapacity: int.tryParse(_specialCapacityController.text) ?? 24,
+        specialClassRoomId: _specialClassRoomId,
+        specialClassRoomName: _specialClassRoomName,
+        specialClassCriteria: _specialClassCriteria,
+        specialClassGenerated: examChanged ? false : (widget.initialCycle?.specialClassGenerated ?? false),
+        haftalikMaksimumSaat: _maxSaat,
+        minimumDersSayisi: _minDers,
+        excludedStudentIds: _excludedStudentIds.toList(),
+        highSuccessSoruCozumActive: _highSuccessSoruCozumActive,
+        highSuccessSoruCozumThreshold: (double.tryParse(_highSuccessThresholdController.text) ?? 95) / 100.0,
+        unassignedStudentIds: examChanged ? [] : (widget.initialCycle?.unassignedStudentIds ?? []),
+        underAssignedStudentIds: examChanged ? [] : (widget.initialCycle?.underAssignedStudentIds ?? []),
+        absentStudentIds: examChanged ? [] : (widget.initialCycle?.absentStudentIds ?? []),
+        unassignedReasons: examChanged ? {} : (widget.initialCycle?.unassignedReasons ?? {}),
+      );
+
+      final List<AgmGroup> proposedGroups = [];
+      for (final slot in _existingSlots) {
+        for (final entry in slot.ogretmenGirisler) {
+          proposedGroups.add(AgmGroup(
+            id: '',
+            cycleId: cycle.id,
+            institutionId: cycle.institutionId,
             dersId: entry.dersId,
             dersAdi: entry.dersAdi,
             saatDilimiId: slot.id,
@@ -2336,492 +2390,16 @@ class _AgmCycleSetupScreenState extends State<AgmCycleSetupScreen>
             derslikAdi: entry.derslikAdi,
             kapasite: entry.kapasite,
             mevcutOgrenciSayisi: 0,
-          ),
-        );
-      }
-    }
-
-    // 2) Cycle nesnesini hazırla
-    final cycle = AgmCycle(
-      id: widget.initialCycle?.id ?? '',
-      institutionId: widget.institutionId,
-      schoolTypeId: widget.schoolTypeId,
-      title: _titleController.text,
-      referansDenemeSinavId: _selectedExamIds.isNotEmpty ? _selectedExamIds.first : '',
-      referansDenemeSinavAdi: _selectedExamNames.isNotEmpty ? _selectedExamNames.first : '',
-      referansDenemeSinavIds: _selectedExamIds,
-      referansDenemeSinavAdlari: _selectedExamNames,
-      baslangicTarihi: _baslangic,
-      bitisTarihi: _bitis,
-      status: widget.initialCycle?.status ?? AgmCycleStatus.draft,
-      olusturulmaZamani: widget.initialCycle?.olusturulmaZamani ?? DateTime.now(),
-      olusturanKullaniciId: widget.initialCycle?.olusturanKullaniciId ?? '',
-      haftalikMaksimumSaat: _maxSaat,
-      minimumDersSayisi: _minDers,
-    );
-
-    // 3) Servis üzerinden kaydet (SMART UPDATE)
-    await _service.saveCycle(cycle: cycle, proposedGroups: proposedGroups);
-    print('DEBUG: [UI] Service.saveCycle finished at ${sw.elapsedMilliseconds}ms');
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            widget.initialCycle != null
-                ? 'Cycle başarıyla güncellendi!'
-                : 'Cycle başarıyla oluşturuldu!',
-          ),
-          backgroundColor: Colors.green,
-        ),
-      );
-      Navigator.pop(context);
-    }
-  }
-
-  Widget _buildSlotLibrary() {
-    final activeLibrarySlots = _allLibrarySlots
-        .where((s) => s.isActive)
-        .toList();
-
-    return Container(
-      height: 140,
-      width: double.infinity,
-      color: Colors.white,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: Text(
-              'Slot Kütüphanesi (Tanımlı Dilimler)',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 13,
-                color: Colors.deepOrange,
-              ),
-            ),
-          ),
-          Expanded(
-            child: activeLibrarySlots.isEmpty
-                ? const Center(
-                    child: Text(
-                      'Henüz tanımlı slot yok',
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                  )
-                : ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    itemCount: activeLibrarySlots.length,
-                    itemBuilder: (context, i) {
-                      final slot = activeLibrarySlots[i];
-                      final isAdded = _existingSlots.any(
-                        (s) => s.id == slot.id,
-                      );
-
-                      return Container(
-                        width: 160,
-                        margin: const EdgeInsets.only(right: 10, bottom: 12),
-                        decoration: BoxDecoration(
-                          color: isAdded
-                              ? Colors.deepOrange.shade50
-                              : Colors.grey.shade50,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: isAdded
-                                ? Colors.deepOrange.shade200
-                                : Colors.grey.shade200,
-                          ),
-                        ),
-                        child: InkWell(
-                          onTap: isAdded
-                              ? null
-                              : () {
-                                  setState(() {
-                                    _existingSlots.add(slot);
-                                  });
-                                },
-                          borderRadius: BorderRadius.circular(12),
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Row(
-                                  children: [
-                                    Icon(
-                                      Icons.access_time,
-                                      size: 14,
-                                      color: isAdded
-                                          ? Colors.deepOrange
-                                          : Colors.grey,
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Expanded(
-                                      child: Text(
-                                        slot.ad,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 12,
-                                          color: isAdded
-                                              ? Colors.deepOrange
-                                              : Colors.black87,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  '${slot.ogretmenGirisler.length} Grup Tanımlı',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: Colors.grey.shade600,
-                                  ),
-                                ),
-                                const Spacer(),
-                                if (isAdded)
-                                  const Row(
-                                    mainAxisAlignment: MainAxisAlignment.end,
-                                    children: [
-                                      Icon(
-                                        Icons.check_circle,
-                                        size: 16,
-                                        color: Colors.green,
-                                      ),
-                                      SizedBox(width: 4),
-                                      Text(
-                                        'Eklendi',
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          color: Colors.green,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ],
-                                  )
-                                else
-                                  const Align(
-                                    alignment: Alignment.centerRight,
-                                    child: Text(
-                                      '+ Ekle',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: Colors.deepOrange,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ════════════════════════════════════════════════════════
-  //  YARDIMCI WİDGET'LAR
-  // ════════════════════════════════════════════════════════
-
-  InputDecoration _inputDecoration(String label) {
-    return InputDecoration(
-      labelText: label,
-      filled: true,
-      fillColor: Colors.white,
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
-        borderSide: BorderSide(color: Colors.grey.shade200),
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
-        borderSide: BorderSide(color: Colors.grey.shade200),
-      ),
-    );
-  }
-
-  Widget _sectionHeader(String text, IconData icon, {String? subtitle}) {
-    return Row(
-      children: [
-        Icon(icon, size: 18, color: Colors.deepOrange),
-        const SizedBox(width: 8),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              text,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-            ),
-            if (subtitle != null)
-              Text(
-                subtitle,
-                style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
-              ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDateButton({
-    required String label,
-    required DateTime date,
-    required VoidCallback onTap,
-  }) {
-    final formatter = DateFormat('dd.MM.yyyy');
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border.all(color: Colors.grey.shade200),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              label,
-              style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
-            ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                Icon(Icons.calendar_today, size: 14, color: Colors.deepOrange),
-                const SizedBox(width: 6),
-                Text(
-                  formatter.format(date),
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _pickDate(bool isStart) async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: isStart ? _baslangic : _bitis,
-      firstDate: DateTime.now().subtract(const Duration(days: 30)),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
-      locale: const Locale('tr'),
-    );
-    if (picked != null) {
-      setState(() {
-        if (isStart) {
-          _baslangic = picked;
-        } else {
-          _bitis = picked;
+          ));
         }
-      });
+      }
+
+      await _service.saveCycle(cycle: cycle, proposedGroups: proposedGroups);
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red));
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
-  }
-
-  Widget _buildTimePicker({
-    required BuildContext ctx,
-    required String label,
-    required TimeOfDay time,
-    required Function(TimeOfDay) onPicked,
-  }) {
-    return InkWell(
-      onTap: () async {
-        final picked = await showTimePicker(
-          context: ctx,
-          initialTime: time,
-          builder: (context, child) => Theme(
-            data: Theme.of(context).copyWith(
-              colorScheme: const ColorScheme.light(
-                primary: Colors.deepOrange,
-                onPrimary: Colors.white,
-                onSurface: Colors.black87,
-              ),
-            ),
-            child: child!,
-          ),
-        );
-        if (picked != null) onPicked(picked);
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border.all(color: Colors.grey.shade200),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              label,
-              style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
-            ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                const Icon(
-                  Icons.access_time,
-                  size: 14,
-                  color: Colors.deepOrange,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  time.format(ctx),
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildClassroomAnalysisPanel() {
-    if (_existingSlots.isEmpty) return const SizedBox.shrink();
-
-    final totalClassrooms = _classrooms.length;
-    Map<String, int> slotNeeds = {};
-    Map<String, int> unassignedInSlot = {};
-
-    for (var slot in _existingSlots) {
-      slotNeeds[slot.id] = slot.ogretmenGirisler.length;
-      unassignedInSlot[slot.id] = slot.ogretmenGirisler
-          .where((e) => e.derslikId == null)
-          .length;
-    }
-
-    final maxNeed = slotNeeds.values.isEmpty
-        ? 0
-        : slotNeeds.values.reduce((a, b) => a > b ? a : b);
-    final hasShortage = maxNeed > totalClassrooms;
-    final hasUnassigned = unassignedInSlot.values.any((v) => v > 0);
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: hasShortage ? Colors.red.shade50 : Colors.blue.shade50,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: hasShortage ? Colors.red.shade200 : Colors.blue.shade200,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                hasShortage ? Icons.warning_amber : Icons.analytics_outlined,
-                color: hasShortage ? Colors.red : Colors.blue.shade700,
-                size: 20,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'Derslik İhtiyaç Analizi',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: hasShortage
-                      ? Colors.red.shade900
-                      : Colors.blue.shade900,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Toplam Kayıtlı Derslik: $totalClassrooms',
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-          ),
-          Text(
-            'En Yoğun Slot İhtiyacı: $maxNeed derslik',
-            style: TextStyle(
-              fontSize: 13,
-              color: hasShortage ? Colors.red.shade700 : Colors.black87,
-              fontWeight: hasShortage ? FontWeight.bold : FontWeight.normal,
-            ),
-          ),
-          if (hasShortage)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                '⚠️ Dikkat: Mevcut derslik sayınız en yoğun saatteki ihtiyacı karşılamıyor. Bazı gruplar dersliksiz kalabilir.',
-                style: TextStyle(fontSize: 12, color: Colors.red.shade800),
-              ),
-            ),
-          if (hasUnassigned)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                'ℹ️ Bazı gruplara henüz derslik atanmamış. Algoritma bu grupları boş dersliklere otomatik atamaya çalışacaktır.',
-                style: TextStyle(fontSize: 12, color: Colors.blue.shade800),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSlotsHeader(bool isMobile) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          'Bu Cycle\'daki Saat Dilimleri',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: isMobile ? 18 : 16,
-            color: Colors.black87,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          '${_existingSlots.length} dilim seçildi',
-          style: TextStyle(
-            fontSize: isMobile ? 13 : 12,
-            color: Colors.grey.shade600,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildHeaderActionBtn({
-    required VoidCallback onPressed,
-    required IconData icon,
-    required String label,
-    required Color color,
-  }) {
-    return ElevatedButton.icon(
-      onPressed: onPressed,
-      icon: Icon(icon, size: 18),
-      label: Text(
-        label,
-        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-      ),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: color.withOpacity(0.08),
-        foregroundColor: color,
-        elevation: 0,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-          side: BorderSide(color: color.withOpacity(0.2)),
-        ),
-      ),
-    );
   }
 }

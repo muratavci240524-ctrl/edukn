@@ -49,10 +49,10 @@ class _FieldTripFormScreenState extends State<FieldTripFormScreen> {
   List<Map<String, dynamic>> _availableStudents =
       []; // Students from selected branches
   List<String> _selectedStudentIds = []; // Final list of selected student IDs
-  Map<String, Map<String, dynamic>> _selectedStudentMap =
+  final Map<String, Map<String, dynamic>> _selectedStudentMap =
       {}; // ID -> Data for list display
   bool _isLoadingStudents = false;
-  bool _selectAllStudents = true;
+  final bool _selectAllStudents = true;
 
   // Step 3: Survey & Payment
   bool _createSurvey = true;
@@ -127,7 +127,7 @@ class _FieldTripFormScreenState extends State<FieldTripFormScreen> {
         }
       }
       if (mounted) setState(() {});
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[field_trip_form_screen] hata yutuldu: $silentError'); }
   }
 
   Future<void> _loadBranches() async {
@@ -151,7 +151,7 @@ class _FieldTripFormScreenState extends State<FieldTripFormScreen> {
         _availableBranches.sort((a, b) => a['name'].compareTo(b['name']));
       });
     } catch (e) {
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata: $e')));
     } finally {
@@ -214,7 +214,7 @@ class _FieldTripFormScreenState extends State<FieldTripFormScreen> {
         }
       });
     } catch (e) {
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata: $e')));
     } finally {
@@ -242,13 +242,13 @@ class _FieldTripFormScreenState extends State<FieldTripFormScreen> {
           .get();
 
       if (snapshot.docs.isEmpty) {
-        ScaffoldMessenger.of(
+        if (mounted) ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Öğrenci bulunamadı')));
         return;
       }
 
-      showDialog(
+      if (mounted) showDialog(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Öğrenci Seç'),
@@ -288,7 +288,7 @@ class _FieldTripFormScreenState extends State<FieldTripFormScreen> {
         ),
       );
     } catch (e) {
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Arama hatası: $e')));
     }
@@ -728,7 +728,7 @@ class _FieldTripFormScreenState extends State<FieldTripFormScreen> {
                   'Velilere/Öğrencilere onay anketi gönderilsin mi?',
                 ),
                 value: _createSurvey,
-                activeColor: Colors.purple,
+                activeThumbColor: Colors.purple,
                 onChanged: (v) => setState(() => _createSurvey = v),
               ),
               if (_createSurvey) ...[
@@ -768,7 +768,7 @@ class _FieldTripFormScreenState extends State<FieldTripFormScreen> {
                 ),
                 subtitle: const Text('Bu gezi için ücret toplanacak mı?'),
                 value: _isPaid,
-                activeColor: Colors.orange,
+                activeThumbColor: Colors.orange,
                 onChanged: (v) => setState(() => _isPaid = v),
               ),
               if (_isPaid) ...[
@@ -798,7 +798,7 @@ class _FieldTripFormScreenState extends State<FieldTripFormScreen> {
         color: Colors.white,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 20,
             offset: const Offset(0, -5),
           ),
@@ -1011,7 +1011,7 @@ class _FieldTripFormScreenState extends State<FieldTripFormScreen> {
 
       Navigator.pop(context); // Close dialog
       Navigator.pop(context, true); // Close form with success result
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             isEditing
@@ -1022,8 +1022,8 @@ class _FieldTripFormScreenState extends State<FieldTripFormScreen> {
         ),
       );
     } catch (e) {
-      Navigator.pop(context);
-      ScaffoldMessenger.of(
+      if (mounted) Navigator.pop(context);
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red));
     }

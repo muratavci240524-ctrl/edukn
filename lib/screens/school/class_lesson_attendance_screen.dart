@@ -666,7 +666,7 @@ class _TopControls extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.grey.shade200),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: Offset(0, 6)),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 10, offset: Offset(0, 6)),
         ],
       ),
       child: Column(
@@ -680,7 +680,7 @@ class _TopControls extends StatelessWidget {
                   child: Container(
                     padding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                     decoration: BoxDecoration(
-                      color: Colors.blue.withOpacity(0.08),
+                      color: Colors.blue.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(14),
                     ),
                     child: Row(
@@ -703,7 +703,7 @@ class _TopControls extends StatelessWidget {
               Container(
                 padding: EdgeInsets.symmetric(horizontal: 12, vertical: 2),
                 decoration: BoxDecoration(
-                  color: Colors.purple.withOpacity(0.08),
+                  color: Colors.purple.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: Row(
@@ -790,7 +790,7 @@ class _StudentAttendanceCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.grey.shade200),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: Offset(0, 6)),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: Offset(0, 6)),
         ],
       ),
       child: Column(
@@ -800,7 +800,7 @@ class _StudentAttendanceCard extends StatelessWidget {
             children: [
               CircleAvatar(
                 radius: 18,
-                backgroundColor: _statusColor(status).withOpacity(0.12),
+                backgroundColor: _statusColor(status).withValues(alpha: 0.12),
                 child: Icon(Icons.person, color: _statusColor(status)),
               ),
               SizedBox(width: 10),
@@ -860,7 +860,7 @@ class _StatusPickerSheet extends StatelessWidget {
           color: Colors.white,
           borderRadius: BorderRadius.circular(18),
           boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 18, offset: Offset(0, 8)),
+            BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 18, offset: Offset(0, 8)),
           ],
         ),
         child: ConstrainedBox(
@@ -901,7 +901,7 @@ class _StatusPickerSheet extends StatelessWidget {
                     final selected = st == current;
                     return ListTile(
                       leading: CircleAvatar(
-                        backgroundColor: _statusColor(st).withOpacity(0.15),
+                        backgroundColor: _statusColor(st).withValues(alpha: 0.15),
                         child: Icon(Icons.check_circle, color: _statusColor(st)),
                       ),
                       title: Text(_statusLabel(st), style: TextStyle(fontWeight: FontWeight.w900)),

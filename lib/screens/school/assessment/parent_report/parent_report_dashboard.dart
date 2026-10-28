@@ -86,7 +86,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
   // Include flags
   bool _includeExams = true;
   bool _includeAgm = true;
-  bool _includeCamp = true;
+  bool _includeCamp = false;
   bool _includeStudyPrograms = true;
 
   // AGM sütun görünürlükleri
@@ -104,7 +104,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
   bool _campShowAbsentAsNotParticipated = true;
 
   // Çalışma programı kazanım listesi
-  bool _includeKazanimList = false;
+  final bool _includeKazanimList = false;
 
 
   // Loaded Details for PDF
@@ -192,7 +192,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
       final bytes = await _generateCurrentPdfBytes();
       await Printing.layoutPdf(onLayout: (format) => bytes);
     } catch (e) {
-      print('Yazdirma Hatasi: $e');
+      debugPrint('Yazdirma Hatasi: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Yazdırma hatası: $e'), backgroundColor: Colors.red.shade700),
@@ -216,7 +216,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
         filename: filename,
       );
     } catch (e) {
-      print('Paylasma Hatasi: $e');
+      debugPrint('Paylasma Hatasi: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Paylaşma hatası: $e'), backgroundColor: Colors.red.shade700),
@@ -423,7 +423,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
         _isLoading = false;
       });
     } catch (e) {
-      print('Parent Reports Loader Error: $e');
+      debugPrint('Parent Reports Loader Error: $e');
       if (mounted) setState(() => _isLoading = false);
     }
   }
@@ -608,7 +608,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
           principalName = (bestPrincipal['fullName'] ?? '${bestPrincipal['name'] ?? ''} ${bestPrincipal['surname'] ?? ''}'.trim()).toString().trim();
         }
       } catch (e) {
-        print('Error fetching principal: $e');
+        debugPrint('Error fetching principal: $e');
       }
 
       await _fetchLessonPlans(classId);
@@ -619,7 +619,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
         _isDetailLoading = false;
       });
     } catch (e) {
-      print('Load Student Details Error: $e');
+      debugPrint('Load Student Details Error: $e');
       setState(() => _isDetailLoading = false);
     }
   }
@@ -675,7 +675,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
         _pdfLessonPlans = temp;
       });
     } catch (e) {
-      print('Fetch Lesson Plans Error: $e');
+      debugPrint('Fetch Lesson Plans Error: $e');
     }
   }
 
@@ -739,7 +739,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
                 }
               }
             } catch (e) {
-              print('Error fetching AGM etut attendance: $e');
+              debugPrint('Error fetching AGM etut attendance: $e');
             }
 
             tempAgm.add({
@@ -760,7 +760,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
         _pdfAgmAssignments = tempAgm;
       });
     } catch (e) {
-      print('Fetch AGM Assignments Error: $e');
+      debugPrint('Fetch AGM Assignments Error: $e');
     }
   }
 
@@ -846,7 +846,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
                 }
               }
             } catch (e) {
-              print('Error fetching etut attendance: $e');
+              debugPrint('Error fetching etut attendance: $e');
             }
 
             tempCamp.add({
@@ -865,7 +865,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
         _pdfCampAssignments = tempCamp;
       });
     } catch (e) {
-      print('Fetch Camp Assignments Error: $e');
+      debugPrint('Fetch Camp Assignments Error: $e');
     }
   }
 
@@ -970,7 +970,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
               'subjectNets': subjectNets,
             });
           }
-        } catch (_) {}
+        } catch (silentError) { debugPrint('[parent_report_dashboard] hata yutuldu: $silentError'); }
       }
       
       if (!foundStudent) {
@@ -998,7 +998,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
     if (_selectedStudent == null) return;
     final String studentId = _selectedStudent!['id'].toString();
 
-    print('--- _calculateStudentTopicAnalysis START for studentId: $studentId ---');
+    debugPrint('--- _calculateStudentTopicAnalysis START for studentId: $studentId ---');
 
     // 1. If study program is selected, load its saved topicAnalysis
     if (_selectedStudyProgramId != null) {
@@ -1018,7 +1018,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
               if (decoded is Map) {
                 cleanList.add(Map<String, dynamic>.from(decoded));
               }
-            } catch (_) {}
+            } catch (silentError) { debugPrint('[parent_report_dashboard] hata yutuldu: $silentError'); }
           }
         }
         if (cleanList.isNotEmpty) {
@@ -1039,7 +1039,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
           }
           _topicAnalysisThresholds = updatedThresholds;
 
-          print('Loaded _studentTopicAnalysis from selected study program: ${_studentTopicAnalysis.length} items');
+          debugPrint('Loaded _studentTopicAnalysis from selected study program: ${_studentTopicAnalysis.length} items');
           return;
         }
       }
@@ -1052,7 +1052,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
     for (var exam in _selectedExamsToInclude) {
       final resJson = exam['resultsJson'] as String? ?? '';
       if (resJson.isEmpty) {
-        print('Exam ${exam['name']} has empty resultsJson');
+        debugPrint('Exam ${exam['name']} has empty resultsJson');
         continue;
       }
 
@@ -1060,29 +1060,29 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
         final List<dynamic> decoded = jsonDecode(resJson);
         final studentRow = _findStudentInExamResults(decoded, studentId);
         if (studentRow == null) {
-          print('Student not found in results for exam: ${exam['name']}');
+          debugPrint('Student not found in results for exam: ${exam['name']}');
           continue;
         }
 
-        print('Student found in results for exam: ${exam['name']}!');
+        debugPrint('Student found in results for exam: ${exam['name']}!');
         
         var outcomes = exam['outcomes'];
         var answerKeys = exam['answerKeys'];
         var studentAnswers = studentRow['answers'] ?? studentRow['studentAnswers'] ?? studentRow['cevaplar'];
 
         if (outcomes is String && outcomes.isNotEmpty) {
-          try { outcomes = jsonDecode(outcomes); } catch (_) {}
+          try { outcomes = jsonDecode(outcomes); } catch (silentError) { debugPrint('[parent_report_dashboard] hata yutuldu: $silentError'); }
         }
         if (answerKeys is String && answerKeys.isNotEmpty) {
-          try { answerKeys = jsonDecode(answerKeys); } catch (_) {}
+          try { answerKeys = jsonDecode(answerKeys); } catch (silentError) { debugPrint('[parent_report_dashboard] hata yutuldu: $silentError'); }
         }
         if (studentAnswers is String && studentAnswers.isNotEmpty) {
-          try { studentAnswers = jsonDecode(studentAnswers); } catch (_) {}
+          try { studentAnswers = jsonDecode(studentAnswers); } catch (silentError) { debugPrint('[parent_report_dashboard] hata yutuldu: $silentError'); }
         }
 
-        print('  - outcomes type: ${outcomes?.runtimeType}');
-        print('  - answerKeys type: ${answerKeys?.runtimeType}');
-        print('  - studentAnswers type: ${studentAnswers?.runtimeType}');
+        debugPrint('  - outcomes type: ${outcomes?.runtimeType}');
+        debugPrint('  - answerKeys type: ${answerKeys?.runtimeType}');
+        debugPrint('  - studentAnswers type: ${studentAnswers?.runtimeType}');
 
         final Map<String, dynamic> outcomesMapRaw = outcomes is Map ? Map<String, dynamic>.from(outcomes) : {};
         final Map<String, dynamic> answerKeysMapRaw = answerKeys is Map ? Map<String, dynamic>.from(answerKeys) : {};
@@ -1106,7 +1106,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
         }
 
         if (outcomesMap is! Map || answerKeysMap is! Map) {
-          print('  - outcomesMap or answerKeysMap is not Map');
+          debugPrint('  - outcomesMap or answerKeysMap is not Map');
           continue;
         }
 
@@ -1130,8 +1130,8 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
             );
           }
 
-          if (validSubjectKey == null || validSubjectKey.isEmpty) {
-            print('    - Subject key not found in answer keys: $subjectStr');
+          if (validSubjectKey.isEmpty) {
+            debugPrint('    - Subject key not found in answer keys: $subjectStr');
             return;
           }
 
@@ -1143,8 +1143,8 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
           } else {
             validAnswerKey = studentAnswersMap.keys.firstWhere(
               (k) => _normalizeName(k.toString()) == _normalizeName(validSubjectKey!) ||
-                     _normalizeName(k.toString()).contains(_normalizeName(validSubjectKey!)) ||
-                     _normalizeName(validSubjectKey!).contains(_normalizeName(k.toString())),
+                     _normalizeName(k.toString()).contains(_normalizeName(validSubjectKey)) ||
+                     _normalizeName(validSubjectKey).contains(_normalizeName(k.toString())),
               orElse: () => '',
             );
           }
@@ -1152,7 +1152,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
           final studentAns = validAnswerKey.isNotEmpty ? (studentAnswersMap[validAnswerKey]?.toString() ?? '') : '';
 
           if (correctKey.isEmpty || studentAns.isEmpty) {
-            print('    - correctKey or studentAns is empty for $subjectStr (correctKey: ${correctKey.isNotEmpty}, studentAns: ${studentAns.isNotEmpty})');
+            debugPrint('    - correctKey or studentAns is empty for $subjectStr (correctKey: ${correctKey.isNotEmpty}, studentAns: ${studentAns.isNotEmpty})');
             return;
           }
 
@@ -1184,7 +1184,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
           }
         });
       } catch (e) {
-        print('Error calculating topic analysis for exam ${exam['id']}: $e');
+        debugPrint('Error calculating topic analysis for exam ${exam['id']}: $e');
       }
     }
 
@@ -1205,7 +1205,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
       });
     });
 
-    print('--- _calculateStudentTopicAnalysis END: calculated ${calculatedTopics.length} topics ---');
+    debugPrint('--- _calculateStudentTopicAnalysis END: calculated ${calculatedTopics.length} topics ---');
 
     // Ensure thresholds exist for all unique subjects
     final Set<String> uniqueSubjects = {};
@@ -1282,7 +1282,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: Colors.indigo.shade50.withOpacity(0.5),
+                          color: Colors.indigo.shade50.withValues(alpha: 0.5),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(color: Colors.indigo.shade100),
                         ),
@@ -1430,7 +1430,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
       decoration: BoxDecoration(
-        color: Colors.indigo.shade50.withOpacity(0.5),
+        color: Colors.indigo.shade50.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.indigo.shade100),
       ),
@@ -2003,24 +2003,21 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
         ],
         const SizedBox(height: 24),
 
-        // ─── 4. KAMP PROGRAMI DAHİL ETME ───
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            _buildSectionHeader('4. Kamp Programı', Icons.campaign_rounded),
-            Switch.adaptive(
-              value: _includeCamp,
-              onChanged: (val) => setState(() => _includeCamp = val),
-              activeColor: Colors.indigo,
-            ),
-          ],
-        ),
-        if (_includeCamp) ...[
-          const SizedBox(height: 8),
-          if (_allCampCycles.isEmpty)
-            const Text('Kuruma tanımlı Kamp programı bulunmamaktadır.',
-                style: TextStyle(color: Colors.grey, fontSize: 12))
-          else
+        // ─── 4. KAMP PROGRAMI DAHİL ETME (Yalnızca Eski Kamp Varsa Göster) ───
+        if (_allCampCycles.isNotEmpty) ...[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _buildSectionHeader('4. Kamp Programı (Arşiv)', Icons.campaign_rounded),
+              Switch.adaptive(
+                value: _includeCamp,
+                onChanged: (val) => setState(() => _includeCamp = val),
+                activeColor: Colors.indigo,
+              ),
+            ],
+          ),
+          if (_includeCamp) ...[
+            const SizedBox(height: 8),
             Container(
               constraints: const BoxConstraints(maxHeight: 180),
               decoration: BoxDecoration(
@@ -2059,54 +2056,55 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
                 ),
               ),
             ),
-          const SizedBox(height: 8),
-          // Kamp sütun görünürlük toggle'ları
-          Wrap(
-            spacing: 6,
-            runSpacing: 4,
-            children: [
-              _buildColumnToggleChip('Branş', _campShowBranch, (v) => setState(() => _campShowBranch = v)),
-              _buildColumnToggleChip('Öğretmen', _campShowTeacher, (v) => setState(() => _campShowTeacher = v)),
-              _buildColumnToggleChip('Ana Kazanım', _campShowKazanim, (v) => setState(() => _campShowKazanim = v)),
-              _buildColumnToggleChip('Durum', _campShowDurum, (v) => setState(() => _campShowDurum = v)),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Hariç Tutulanları "Katılmadı" Olarak Göster', style: TextStyle(fontSize: 12, color: Colors.black87)),
-              Switch.adaptive(
-                value: _campShowExcludedAsNotParticipated,
-                onChanged: (val) {
-                  setState(() => _campShowExcludedAsNotParticipated = val);
-                  if (_selectedStudent != null) {
-                    _fetchCampAssignments(_selectedStudent!['id'], _selectedCampCycleIds).then((_) => setState(() {}));
-                  }
-                },
-                activeColor: Colors.indigo,
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Sınava Girmeyenleri "Katılmadı" Olarak Göster', style: TextStyle(fontSize: 12, color: Colors.black87)),
-              Switch.adaptive(
-                value: _campShowAbsentAsNotParticipated,
-                onChanged: (val) {
-                  setState(() => _campShowAbsentAsNotParticipated = val);
-                  if (_selectedStudent != null) {
-                    _fetchCampAssignments(_selectedStudent!['id'], _selectedCampCycleIds).then((_) => setState(() {}));
-                  }
-                },
-                activeColor: Colors.indigo,
-              ),
-            ],
-          ),
+            const SizedBox(height: 8),
+            // Kamp sütun görünürlük toggle'ları
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: [
+                _buildColumnToggleChip('Branş', _campShowBranch, (v) => setState(() => _campShowBranch = v)),
+                _buildColumnToggleChip('Öğretmen', _campShowTeacher, (v) => setState(() => _campShowTeacher = v)),
+                _buildColumnToggleChip('Ana Kazanım', _campShowKazanim, (v) => setState(() => _campShowKazanim = v)),
+                _buildColumnToggleChip('Durum', _campShowDurum, (v) => setState(() => _campShowDurum = v)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Hariç Tutulanları "Katılmadı" Olarak Göster', style: TextStyle(fontSize: 12, color: Colors.black87)),
+                Switch.adaptive(
+                  value: _campShowExcludedAsNotParticipated,
+                  onChanged: (val) {
+                    setState(() => _campShowExcludedAsNotParticipated = val);
+                    if (_selectedStudent != null) {
+                      _fetchCampAssignments(_selectedStudent!['id'], _selectedCampCycleIds).then((_) => setState(() {}));
+                    }
+                  },
+                  activeColor: Colors.indigo,
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Sınava Girmeyenleri "Katılmadı" Olarak Göster', style: TextStyle(fontSize: 12, color: Colors.black87)),
+                Switch.adaptive(
+                  value: _campShowAbsentAsNotParticipated,
+                  onChanged: (val) {
+                    setState(() => _campShowAbsentAsNotParticipated = val);
+                    if (_selectedStudent != null) {
+                      _fetchCampAssignments(_selectedStudent!['id'], _selectedCampCycleIds).then((_) => setState(() {}));
+                    }
+                  },
+                  activeColor: Colors.indigo,
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 24),
         ],
-        const SizedBox(height: 24),
 
         // ─── 5. GÜÇLENDİRME PROGRAMLARI DAHİL ETME ───
         Row(
@@ -2526,7 +2524,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
         border: Border(top: BorderSide(color: Colors.grey.shade200)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 6,
             offset: const Offset(0, -3),
           ),
@@ -2886,7 +2884,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
           tempAgm.addAll(res);
         }
       } catch (e) {
-        print('Error fetching AGM for background student: $e');
+        debugPrint('Error fetching AGM for background student: $e');
       }
       return tempAgm;
     }
@@ -3018,7 +3016,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
           tempCamp.addAll(res);
         }
       } catch (e) {
-        print('Error fetching Camp for background student: $e');
+        debugPrint('Error fetching Camp for background student: $e');
       }
       return tempCamp;
     }
@@ -3093,7 +3091,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
             return (a['order'] as int).compareTo(b['order'] as int);
           });
         } catch (e) {
-          print('Error fetching lesson plans for background student: $e');
+          debugPrint('Error fetching lesson plans for background student: $e');
         }
       }
       return lessonPlans;
@@ -3174,7 +3172,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
               'subjectNets': subjectNets,
             });
           }
-        } catch (_) {}
+        } catch (silentError) { debugPrint('[parent_report_dashboard] hata yutuldu: $silentError'); }
       }
       
       if (!foundStudent) {
@@ -3283,7 +3281,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: themeColor.withOpacity(0.1),
+                        color: themeColor.withValues(alpha: 0.1),
                         shape: BoxShape.circle,
                       ),
                       child: Icon(
@@ -3326,7 +3324,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
                       child: LinearProgressIndicator(
                         value: progress,
                         color: themeColor,
-                        backgroundColor: themeColor.withOpacity(0.1),
+                        backgroundColor: themeColor.withValues(alpha: 0.1),
                         minHeight: 8,
                       ),
                     ),
@@ -3590,7 +3588,7 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
       }
       
       if (progressDialogContext != null && Navigator.of(progressDialogContext!).canPop()) {
-        Navigator.of(progressDialogContext!).pop();
+        if (mounted) Navigator.of(progressDialogContext!).pop();
       }
       
       if (mounted) {
@@ -3602,9 +3600,9 @@ class _ParentReportDashboardState extends State<ParentReportDashboard> {
         );
       }
     } catch (e) {
-      print('Bulk Download Error: $e');
+      debugPrint('Bulk Download Error: $e');
       if (progressDialogContext != null && Navigator.of(progressDialogContext!).canPop()) {
-        Navigator.of(progressDialogContext!).pop();
+        if (mounted) Navigator.of(progressDialogContext!).pop();
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

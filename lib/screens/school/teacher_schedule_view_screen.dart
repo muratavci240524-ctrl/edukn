@@ -7,6 +7,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'class_lesson_hub_screen.dart';
 import '../../models/school/dynamic_course_group_model.dart';
 import '../../services/dynamic_group_service.dart';
+import '../../services/course_track_resolver.dart';
 import '../../services/term_service.dart';
 import '../../services/user_permission_service.dart';
 import '../../widgets/edukn_logo.dart';
@@ -63,7 +64,35 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
   bool _isLoading = true;
   bool _isScheduleLoading = false;
   String? _activePeriodId;
-  bool _showTableViewWide = true;
+  /// null: ekran genişliğine göre otomatik (mobilde liste, genişte tablo); kullanıcı değiştirince sabitlenir.
+  bool? _tableViewOverride;
+  bool get _showTableViewWide => _tableViewOverride ?? !_isMobileWidth();
+  bool _isMobileWidth() => MediaQuery.of(context).size.width < 700;
+
+  /// Mobil liste görünümünde gösterilen gün (0 = Pazartesi).
+  int _selectedDayIndex = (DateTime.now().weekday - 1).clamp(0, 6);
+  bool get _singleDayMode => _currentTabIndex == 0 && !_showTableViewWide && _isMobileWidth();
+
+  void _changeDay(int delta) {
+    final n = _days.isEmpty ? 5 : _days.length;
+    final idx = _selectedDayIndex + delta;
+    if (idx < 0) {
+      _selectedDayIndex = n - 1;
+      _changeWeek(-7);
+    } else if (idx >= n) {
+      _selectedDayIndex = 0;
+      _changeWeek(7);
+    } else {
+      setState(() => _selectedDayIndex = idx);
+    }
+  }
+
+  String _formatSelectedDay() {
+    final n = _days.isEmpty ? 5 : _days.length;
+    final idx = _selectedDayIndex.clamp(0, n - 1);
+    final d = DateTime(_weekStart.year, _weekStart.month, _weekStart.day).add(Duration(days: idx));
+    return '${d.day} ${_monthNameTr(d.month)} ${d.year}';
+  }
   DateTime _weekStart = DateTime.now();
   int _currentTabIndex = 0; // 0: Program, 1: Etütler
   List<Map<String, dynamic>> _weeklyEtuts = [];
@@ -126,8 +155,9 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
   List<int> _halfDayAfternoonHours = [];
   /// O(1) lookup: teacherId → day → [{type, hours, startHour, count, ...}]
   Map<String, Map<String, List<Map<String, dynamic>>>> _teacherHalfDayIndex = {};
+  List<Map<String, dynamic>> _departmentMeetings = [];
 
-  bool _isSyncingScroll = false; // Scroll sonsuz döngüsünü önle
+  final bool _isSyncingScroll = false; // Scroll sonsuz döngüsünü önle
 
   int compareTurkishStrings(String a, String b) {
     final aLower = a.toLowerCase();
@@ -525,11 +555,21 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
               });
             }
             _teacherHalfDayIndex = hdIdx;
+            final deptMeetingsRaw = scheduleSettings['departmentMeetings'];
+            if (deptMeetingsRaw is List) {
+              _departmentMeetings = deptMeetingsRaw
+                  .whereType<Map>()
+                  .map((e) => Map<String, dynamic>.from(e))
+                  .toList();
+            } else {
+              _departmentMeetings = [];
+            }
           } else {
             _halfDayAssignedDays = {};
             _halfDayMorningHours = [];
             _halfDayAfternoonHours = [];
             _teacherHalfDayIndex = {};
+            _departmentMeetings = [];
           }
       } else {
           _activePeriodId = null;
@@ -537,6 +577,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
           _dayLessonTimes = {};
           _days = [];
           _lessonClassMerges = [];
+          _departmentMeetings = [];
         }
       } else {
         if (!silent) {
@@ -545,6 +586,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
           _dayLessonTimes = {};
           _days = [];
           _lessonClassMerges = [];
+          _departmentMeetings = [];
         }
         debugPrint('❌ Aktif veya yayınlanmış dönem bulunamadı. Inst: $instId, Type: $schoolTypeId');
       }
@@ -709,56 +751,90 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
           }
         }
 
-        teacherScheduledSlots.forEach((teacherId, slots) {
-          lessonCounts[teacherId] = slots.length;
-        });
-
-        // Kulüp hocaları için ders sayısını courseGroups'tan tamamla
+        // Kulüp ve Kur (Kurs) hocaları için ders sayısını courseGroups'tan tamamla
         try {
-          final clubGroupsForCount = await DynamicGroupService().fetchGroups(
+          final allCourseGroups = await DynamicGroupService().fetchGroups(
             institutionId: widget.institutionId,
             schoolTypeId: widget.schoolTypeId,
-            type: DynamicCourseGroupType.club,
           );
-          final Map<String, Set<String>> clubTeacherSlots = {};
 
-          for (final cg in clubGroupsForCount) {
-            if (cg.targetClassIds.isEmpty || cg.lessonId.isEmpty) continue;
-
-            // Bu kulübün slotlarını classSchedules'dan bul
-            final targetBatch = cg.targetClassIds.take(10).toList();
-            final countSnap = await FirebaseFirestore.instance
-                .collection('classSchedules')
-                .where('classId', whereIn: targetBatch)
-                .where('periodId', isEqualTo: _activePeriodId)
-                .where('lessonId', isEqualTo: cg.lessonId)
-                .where('isActive', isEqualTo: true)
-                .get();
-
-            final Set<String> clubSlotKeys = {};
-            for (final doc in countSnap.docs) {
-              final d = doc.data();
-              final day = d['day']?.toString();
-              final hour = d['hourIndex'];
-              if (day != null && hour != null) {
-                clubSlotKeys.add('${day}_$hour');
-              }
-            }
-
-            for (final sg in cg.subGroups) {
-              for (final tId in sg.teacherIds) {
-                if (tId.isEmpty) continue;
-                clubTeacherSlots.putIfAbsent(tId, () => {}).addAll(clubSlotKeys);
-              }
+          final Map<String, String> teacherIdByNormName = {};
+          for (final t in teachers) {
+            final tId = (t['id'] ?? '').toString();
+            final tName = (t['name'] ?? '')
+                .toString()
+                .trim()
+                .replaceAll('İ', 'i')
+                .replaceAll('I', 'i')
+                .replaceAll('ı', 'i')
+                .toLowerCase()
+                .replaceAll(RegExp(r'\s+'), ' ');
+            if (tId.isNotEmpty && tName.isNotEmpty) {
+              teacherIdByNormName[tName] = tId;
             }
           }
 
-          clubTeacherSlots.forEach((tId, slots) {
-            lessonCounts[tId] = (lessonCounts[tId] ?? 0) + slots.length;
-          });
+          for (final cg in allCourseGroups) {
+            if (cg.targetClassIds.isEmpty) continue;
+            final cgPeriod = (cg.periodId ?? cg.subTermId ?? '').trim();
+            if (cgPeriod.isNotEmpty && cgPeriod != _activePeriodId) continue;
+
+            final Set<String> groupSlotKeys = {};
+            for (final doc in scheduleSnap.docs) {
+              final d = doc.data();
+              if (d['isActive'] == false) continue;
+              final cid = (d['classId'] ?? '').toString();
+              if (!cg.targetClassIds.contains(cid)) continue;
+
+              final slotLessonId = (d['lessonId'] ?? '').toString();
+              final slotLessonName = (d['lessonName'] ?? '').toString();
+              final matches =
+                  (cg.lessonId.isNotEmpty && slotLessonId == cg.lessonId) ||
+                  CourseTrackResolver.lessonMatches(
+                    cg.lessonName,
+                    slotLessonName,
+                  );
+              if (!matches) continue;
+              final day = d['day']?.toString();
+              final hour = d['hourIndex'];
+              if (day != null && hour != null) {
+                groupSlotKeys.add('${day}_$hour');
+              }
+            }
+
+            if (groupSlotKeys.isEmpty) continue;
+
+            for (final sg in cg.subGroups) {
+              final Set<String> sgTeacherIds = {
+                ...sg.teacherIds.where((id) => id.isNotEmpty),
+              };
+              for (final rawName in sg.teacherNames) {
+                final normName = rawName
+                    .trim()
+                    .replaceAll('İ', 'i')
+                    .replaceAll('I', 'i')
+                    .replaceAll('ı', 'i')
+                    .toLowerCase()
+                    .replaceAll(RegExp(r'\s+'), ' ');
+                final resolvedId = teacherIdByNormName[normName];
+                if (resolvedId != null && resolvedId.isNotEmpty) {
+                  sgTeacherIds.add(resolvedId);
+                }
+              }
+              for (final tId in sgTeacherIds) {
+                teacherScheduledSlots
+                    .putIfAbsent(tId, () => {})
+                    .addAll(groupSlotKeys);
+              }
+            }
+          }
         } catch (e) {
-          debugPrint('⚠️ Kulüp ders sayısı hesaplanamadı: $e');
+          debugPrint('⚠️ Kulüp/Kur ders sayısı hesaplanamadı: $e');
         }
+
+        teacherScheduledSlots.forEach((teacherId, slots) {
+          lessonCounts[teacherId] = slots.length;
+        });
       }
 
       setState(() {
@@ -1023,7 +1099,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                 classNameById[doc.id] = branch;
               }
             }
-          } catch (_) {}
+          } catch (silentError) { debugPrint('[teacher_schedule_view_screen] hata yutuldu: $silentError'); }
         }
       }
 
@@ -1048,7 +1124,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
             }
           }
         }
-      } catch (_) {}
+      } catch (silentError) { debugPrint('[teacher_schedule_view_screen] hata yutuldu: $silentError'); }
 
       final Map<String, Map<String, dynamic>> updatedSchedule = {};
       final Set<String> processedScheduleDocIds = {};
@@ -1183,7 +1259,435 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
         }
       }
 
-      // Her atama dokümanı için ders programındaki işlenme durumunu hesapla
+      // ─────────────────────────────────────────────────────────────────
+      // KULÜP DERSİ: Bu öğretmen herhangi bir kulübün hocası mı?
+      // courseGroups koleksiyonundan bu öğretmenin sub-group'u olan
+      // kulüpleri buluyoruz. O kulübün lessonId'si ile eşleşen TÜM
+      // classSchedules slotlarını öğretmenin programına ekliyoruz.
+      // ─────────────────────────────────────────────────────────────────
+      final selectedTeacherName = (_selectedTeacher?['name'] ?? '').toString();
+      try {
+        final clubGroups = await DynamicGroupService().fetchGroups(
+          institutionId: widget.institutionId,
+          schoolTypeId: schoolTypeId,
+          type: DynamicCourseGroupType.club,
+        );
+
+        for (final cg in clubGroups) {
+          final cgPeriod = (cg.periodId ?? cg.subTermId ?? '').trim();
+          if (_activePeriodId != null &&
+              cgPeriod.isNotEmpty &&
+              cgPeriod != _activePeriodId) {
+            continue;
+          }
+
+          // Bu öğretmen bu kulübün herhangi bir alt grubunda mı?
+          final mySubGroups = validTeacherIds
+              .expand(
+                (tId) => cg.findSubGroupsForTeacher(
+                  tId,
+                  teacherName: selectedTeacherName,
+                ),
+              )
+              .toList();
+          if (mySubGroups.isEmpty || cg.targetClassIds.isEmpty) continue;
+          final mySubGroup = mySubGroups.first;
+
+          final Set<String> clubPlacedKeys = {};
+          final String defaultClubClassName =
+              mySubGroup.classroomName.isNotEmpty
+                  ? mySubGroup.classroomName
+                  : (cg.name.isNotEmpty ? cg.name : 'Kulüp');
+
+          // 1. Zaten yüklü olan updatedSchedule içindeki tüm eşleşen saatleri güncelle (break olmadan!)
+          for (final entry in updatedSchedule.entries.toList()) {
+            final slot = entry.value;
+            final slotClassId = (slot['classId'] ?? '').toString();
+            final slotClassIds = slot['classIds'] != null
+                ? List<String>.from(slot['classIds'])
+                : [slotClassId];
+            final slotLessonId = (slot['lessonId'] ?? '').toString();
+            final slotLessonName = (slot['lessonName'] ?? '').toString();
+            final slotPId = (slot['periodId'] ?? '').toString();
+
+            final hasTargetClass =
+                slotClassIds.any((cid) => cg.targetClassIds.contains(cid));
+            if (!hasTargetClass) continue;
+            if (_activePeriodId != null &&
+                slotPId.isNotEmpty &&
+                slotPId != _activePeriodId) {
+              continue;
+            }
+            final matchesLesson =
+                (cg.lessonId.isNotEmpty && slotLessonId == cg.lessonId) ||
+                CourseTrackResolver.lessonMatches(
+                  cg.lessonName,
+                  slotLessonName,
+                );
+            if (!matchesLesson) continue;
+
+            updatedSchedule[entry.key] = {
+              ...slot,
+              'lessonName': mySubGroup.name,
+              'teacherId': teacherId,
+              'className': mySubGroup.classroomName.isNotEmpty
+                  ? mySubGroup.classroomName
+                  : ((slot['className'] ?? '').toString().isNotEmpty
+                      ? slot['className']
+                      : defaultClubClassName),
+              'classIds': List<String>.from(cg.targetClassIds),
+              'courseGroupId': cg.id,
+              'courseGroupName': cg.name,
+              'subGroupId': mySubGroup.id,
+              'subGroupName': mySubGroup.name,
+              'isClubSlot': true,
+            };
+            clubPlacedKeys.add(entry.key);
+          }
+
+          // 2. Eksik kalan kulüp saatlerini de Firestore'dan çekip tüm saatleri (örn. 6. ve 7. Ders) ekle
+          if (_activePeriodId != null) {
+            try {
+              for (int i = 0; i < cg.targetClassIds.length; i += 10) {
+                final targetBatch =
+                    cg.targetClassIds.skip(i).take(10).toList();
+                final clubScheduleSnap = await FirebaseFirestore.instance
+                    .collection('classSchedules')
+                    .where('classId', whereIn: targetBatch)
+                    .where('periodId', isEqualTo: _activePeriodId)
+                    .where('isActive', isEqualTo: true)
+                    .get();
+
+                for (final doc in clubScheduleSnap.docs) {
+                  final data = doc.data();
+                  final slotLessonId = (data['lessonId'] ?? '').toString();
+                  final slotLessonName = (data['lessonName'] ?? '').toString();
+                  final matchesLesson =
+                      (cg.lessonId.isNotEmpty && slotLessonId == cg.lessonId) ||
+                      CourseTrackResolver.lessonMatches(
+                        cg.lessonName,
+                        slotLessonName,
+                      );
+                  if (!matchesLesson) continue;
+
+                  final day = data['day'] as String?;
+                  final hourIndex = data['hourIndex'] as int?;
+                  if (day == null || hourIndex == null) continue;
+
+                  final key = '${day}_$hourIndex';
+                  final cid = (data['classId'] ?? '').toString();
+                  final resolvedClass = (classNameById[cid] != null &&
+                          classNameById[cid]!.isNotEmpty)
+                      ? classNameById[cid]!
+                      : ((data['className'] ?? '').toString().trim().isNotEmpty
+                          ? data['className'].toString().trim()
+                          : defaultClubClassName);
+
+                  final existingSlot = updatedSchedule[key];
+                  if (existingSlot == null ||
+                      existingSlot['isClubSlot'] != true) {
+                    updatedSchedule[key] = {
+                      ...data,
+                      'id': doc.id,
+                      'lessonName': mySubGroup.name,
+                      'teacherId': teacherId,
+                      'className': mySubGroup.classroomName.isNotEmpty
+                          ? mySubGroup.classroomName
+                          : resolvedClass,
+                      'classIds': List<String>.from(cg.targetClassIds),
+                      'courseGroupId': cg.id,
+                      'courseGroupName': cg.name,
+                      'subGroupId': mySubGroup.id,
+                      'subGroupName': mySubGroup.name,
+                      'isClubSlot': true,
+                    };
+                  }
+                  clubPlacedKeys.add(key);
+                }
+              }
+            } catch (ce) {
+              debugPrint('⚠️ Kulüp slotu Firestore sorgusu başarısız: $ce');
+            }
+          }
+
+          // Kulübün tüm saatlerinde (örn. 6. ve 7. Ders) üst başlığın (className) tutarlı olmasını sağla
+          if (clubPlacedKeys.length > 1 &&
+              mySubGroup.classroomName.isEmpty) {
+            String? consistentClassName;
+            for (final k in clubPlacedKeys) {
+              final cName =
+                  (updatedSchedule[k]?['className'] ?? '').toString().trim();
+              if (cName.isNotEmpty) {
+                consistentClassName = cName;
+                break;
+              }
+            }
+            if (consistentClassName != null) {
+              for (final k in clubPlacedKeys) {
+                if (updatedSchedule.containsKey(k)) {
+                  updatedSchedule[k]!['className'] = consistentClassName;
+                }
+              }
+            }
+          }
+
+          // "Atalı Dersler" listesini (teacherAssignments) güncelle veya ekle
+          bool updatedExistingClubAssignment = false;
+          for (final a in teacherAssignments) {
+            final aLessonId = (a['lessonId'] ?? '').toString();
+            final aLessonName = (a['lessonName'] ?? '').toString();
+            if ((cg.lessonId.isNotEmpty && aLessonId == cg.lessonId) ||
+                CourseTrackResolver.lessonMatches(cg.lessonName, aLessonName)) {
+              a['className'] = defaultClubClassName;
+              a['lessonName'] = mySubGroup.name;
+              if (clubPlacedKeys.isNotEmpty) {
+                a['placedHours'] = clubPlacedKeys.length;
+                a['isPlaced'] = true;
+              }
+              a['isClubAssignment'] = true;
+              updatedExistingClubAssignment = true;
+            }
+          }
+          if (!updatedExistingClubAssignment && clubPlacedKeys.isNotEmpty) {
+            teacherAssignments.add({
+              'id': 'club_${cg.id}_${mySubGroup.id}',
+              'classId': cg.targetClassIds.first,
+              'lessonId': cg.lessonId,
+              'className': defaultClubClassName,
+              'lessonName': mySubGroup.name,
+              'weeklyHours': clubPlacedKeys.length,
+              'placedHours': clubPlacedKeys.length,
+              'isPlaced': true,
+              'isClubAssignment': true,
+            });
+          }
+        }
+      } catch (e) {
+        debugPrint('⚠️ Kulüp dersleri öğretmen programına eklenemedi: $e');
+      }
+
+      // ─────────────────────────────────────────────────────────────────
+      // KURLU DERS (Kurs Listesi): Bu öğretmen bir kurun hocası mı?
+      // Öyleyse hedef şubelerin o ders slotlarını (aynı saatte tüm şubeler
+      // kursa gider) öğretmenin programına KUR adıyla ekliyoruz.
+      // ─────────────────────────────────────────────────────────────────
+      try {
+        if (_activePeriodId != null) {
+          final trackGroups = await DynamicGroupService().fetchGroups(
+            institutionId: widget.institutionId,
+            schoolTypeId: schoolTypeId,
+            type: DynamicCourseGroupType.track,
+          );
+          for (final tg in trackGroups) {
+            final tgPeriod = (tg.periodId ?? tg.subTermId ?? '').trim();
+            if (tgPeriod.isNotEmpty && tgPeriod != _activePeriodId) {
+              continue;
+            }
+
+            final myTrackSubs = validTeacherIds
+                .expand(
+                  (tId) => tg.findSubGroupsForTeacher(
+                    tId,
+                    teacherName: selectedTeacherName,
+                  ),
+                )
+                .toList();
+            if (myTrackSubs.isEmpty || tg.targetClassIds.isEmpty) continue;
+            final mySub = myTrackSubs.first;
+            final trackLabel = mySub.name.replaceAll(RegExp(r'\s+'), ' ').trim();
+            final trackClassName = mySub.classroomName.isNotEmpty
+                ? mySub.classroomName
+                : trackLabel;
+            final Set<String> trackPlacedKeys = {};
+
+            // 1. Zaten yüklü olan updatedSchedule içindeki eşleşen saatleri Kur bilgisiyle güncelle
+            for (final entry in updatedSchedule.entries.toList()) {
+              final slot = entry.value;
+              final slotClassId = (slot['classId'] ?? '').toString();
+              final slotClassIds = slot['classIds'] != null
+                  ? List<String>.from(slot['classIds'])
+                  : [slotClassId];
+              final slotLessonId = (slot['lessonId'] ?? '').toString();
+              final slotLessonName = (slot['lessonName'] ?? '').toString();
+
+              final hasTargetClass =
+                  slotClassIds.any((cid) => tg.targetClassIds.contains(cid));
+              if (!hasTargetClass) continue;
+              final matches =
+                  (tg.lessonId.isNotEmpty && slotLessonId == tg.lessonId) ||
+                  CourseTrackResolver.lessonMatches(
+                    tg.lessonName,
+                    slotLessonName,
+                  );
+              if (!matches) continue;
+
+              updatedSchedule[entry.key] = {
+                ...slot,
+                'lessonName': '${tg.lessonName} • Kur $trackLabel',
+                'teacherId': teacherId,
+                'className': trackClassName,
+                'classNames': [trackClassName],
+                'classIds': List<String>.from(tg.targetClassIds),
+                'courseGroupId': tg.id,
+                'courseGroupName': tg.name,
+                'subGroupId': mySub.id,
+                'subGroupName': mySub.name,
+                'isTrackSlot': true,
+              };
+              trackPlacedKeys.add(entry.key);
+            }
+
+            // 2. Tüm hedef şubelerin programından Kur saatlerini çek (10'lu gruplar halinde)
+            for (int i = 0; i < tg.targetClassIds.length; i += 10) {
+              final targetBatch = tg.targetClassIds.skip(i).take(10).toList();
+              final snap = await FirebaseFirestore.instance
+                  .collection('classSchedules')
+                  .where('classId', whereIn: targetBatch)
+                  .where('periodId', isEqualTo: _activePeriodId)
+                  .where('isActive', isEqualTo: true)
+                  .get();
+
+              for (final doc in snap.docs) {
+                final data = doc.data();
+                final slotLessonId = (data['lessonId'] ?? '').toString();
+                final slotLessonName = (data['lessonName'] ?? '').toString();
+                final matches =
+                    (tg.lessonId.isNotEmpty && slotLessonId == tg.lessonId) ||
+                    CourseTrackResolver.lessonMatches(
+                      tg.lessonName,
+                      slotLessonName,
+                    );
+                if (!matches) continue;
+                final day = data['day'] as String?;
+                final hourIndex = data['hourIndex'] as int?;
+                if (day == null || hourIndex == null) continue;
+
+                final key = '${day}_$hourIndex';
+                updatedSchedule[key] = {
+                  ...data,
+                  'id': doc.id,
+                  'lessonName': '${tg.lessonName} • Kur $trackLabel',
+                  'teacherId': teacherId,
+                  'className': trackClassName,
+                  'classNames': [trackClassName],
+                  'classIds': List<String>.from(tg.targetClassIds),
+                  'scheduleDocIds': [doc.id],
+                  'assignmentIds': <String>[],
+                  'courseGroupId': tg.id,
+                  'courseGroupName': tg.name,
+                  'subGroupId': mySub.id,
+                  'subGroupName': mySub.name,
+                  'isTrackSlot': true,
+                };
+                trackPlacedKeys.add(key);
+              }
+            }
+
+            // 3. "Atalı Dersler" listesini (teacherAssignments) güncelle veya ekle
+            bool updatedExistingTrackAssignment = false;
+            for (final a in teacherAssignments) {
+              final aClassId = (a['classId'] ?? '').toString();
+              final aLessonId = (a['lessonId'] ?? '').toString();
+              final aLessonName = (a['lessonName'] ?? '').toString();
+              if (tg.targetClassIds.contains(aClassId) &&
+                  ((tg.lessonId.isNotEmpty && aLessonId == tg.lessonId) ||
+                      CourseTrackResolver.lessonMatches(
+                        tg.lessonName,
+                        aLessonName,
+                      ))) {
+                a['className'] = trackClassName;
+                a['lessonName'] = '${tg.lessonName} • Kur $trackLabel';
+                if (trackPlacedKeys.isNotEmpty) {
+                  a['placedHours'] = trackPlacedKeys.length;
+                  a['isPlaced'] = true;
+                }
+                a['isTrackAssignment'] = true;
+                updatedExistingTrackAssignment = true;
+              }
+            }
+            if (!updatedExistingTrackAssignment && trackPlacedKeys.isNotEmpty) {
+              teacherAssignments.add({
+                'id': 'track_${tg.id}_${mySub.id}',
+                'classId': tg.targetClassIds.first,
+                'lessonId': tg.lessonId,
+                'className': trackClassName,
+                'lessonName': '${tg.lessonName} • Kur $trackLabel',
+                'weeklyHours': trackPlacedKeys.length,
+                'placedHours': trackPlacedKeys.length,
+                'isPlaced': true,
+                'isTrackAssignment': true,
+              });
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('⚠️ Kur dersleri öğretmen programına eklenemedi: $e');
+      }
+
+      // ─────────────────────────────────────────────────────────────────
+      // ZÜMRE TOPLANTISI: Bu öğretmen herhangi bir zümre toplantısında mı?
+      // ─────────────────────────────────────────────────────────────────
+      if (_departmentMeetings.isNotEmpty) {
+        for (final m in _departmentMeetings) {
+          final mDay = (m['day'] ?? '').toString();
+          if (mDay.isEmpty) continue;
+          final mTeacherIds = (m['teacherIds'] as List?)
+                  ?.map((e) => e.toString())
+                  .toList() ??
+              [];
+          final mTeacherNames = (m['teacherNames'] as List?)
+                  ?.map((e) => e.toString().trim().toLowerCase())
+                  .toList() ??
+              [];
+          final isMyMeeting =
+              mTeacherIds.any((id) => validTeacherIds.contains(id)) ||
+              (selectedTeacherName.isNotEmpty &&
+                  mTeacherNames.contains(
+                    selectedTeacherName.trim().toLowerCase(),
+                  ));
+          if (!isMyMeeting) continue;
+
+          final mTitle = (m['title'] ?? 'Zümre Toplantısı').toString().trim();
+          final rawHours = (m['hours'] as List?) ??
+              (m['hourIndex'] != null ? [m['hourIndex']] : []);
+          final mHours = rawHours
+              .map((e) => e is int ? e : int.tryParse(e.toString()) ?? -1)
+              .where((h) => h >= 0)
+              .toList();
+
+          for (final hIdx in mHours) {
+            final key = '${mDay}_$hIdx';
+            updatedSchedule[key] = {
+              'id': 'meeting_${m['id'] ?? ''}_${mDay}_$hIdx',
+              'lessonId': 'meeting_${m['id'] ?? ''}',
+              'lessonName': mTitle.isNotEmpty ? mTitle : 'Zümre Toplantısı',
+              'teacherId': teacherId,
+              'className': 'TOPLANTI',
+              'classNames': ['TOPLANTI'],
+              'classIds': <String>[],
+              'day': mDay,
+              'hourIndex': hIdx,
+              'isMeetingSlot': true,
+            };
+          }
+
+          if (mHours.isNotEmpty) {
+            teacherAssignments.add({
+              'id': 'meeting_${m['id'] ?? ''}',
+              'classId': 'meeting',
+              'lessonId': 'meeting_${m['id'] ?? ''}',
+              'className': 'TOPLANTI',
+              'lessonName': mTitle.isNotEmpty ? mTitle : 'Zümre Toplantısı',
+              'weeklyHours': mHours.length,
+              'placedHours': mHours.length,
+              'isPlaced': true,
+              'isClubAssignment': true,
+            });
+          }
+        }
+      }
+
+      // Her atama dokümanı için ders programındaki işlenme durumunu hesapla (Kulüp ve Kur saatleri eklendikten sonra)
       final Map<String, int> assignmentPlacedSlotsCount = {};
       final Set<String> assignedDocIdsPlaced = {};
 
@@ -1201,14 +1705,16 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
         for (final assignmentId in slotAssignmentIds) {
           if (assignmentId.isNotEmpty) {
             assignedDocIdsPlaced.add(assignmentId);
-            assignmentPlacedSlotsCount[assignmentId] = (assignmentPlacedSlotsCount[assignmentId] ?? 0) + 1;
+            assignmentPlacedSlotsCount[assignmentId] =
+                (assignmentPlacedSlotsCount[assignmentId] ?? 0) + 1;
           }
         }
 
         for (final cid in slotClassIds) {
           if (cid.isNotEmpty && slotLid.isNotEmpty) {
             final matchKey = '$cid|$slotLid';
-            assignmentPlacedSlotsCount[matchKey] = (assignmentPlacedSlotsCount[matchKey] ?? 0) + 1;
+            assignmentPlacedSlotsCount[matchKey] =
+                (assignmentPlacedSlotsCount[matchKey] ?? 0) + 1;
           }
         }
       }
@@ -1216,6 +1722,10 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
       final Set<String> consumedMatchKeys = {};
 
       for (var assignment in teacherAssignments) {
+        if (assignment['isClubAssignment'] == true ||
+            assignment['isTrackAssignment'] == true) {
+          continue;
+        }
         final docId = (assignment['id'] ?? '').toString();
         final cid = (assignment['classId'] ?? '').toString();
         final lid = (assignment['lessonId'] ?? '').toString();
@@ -1224,7 +1734,8 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
         int placed = 0;
         if (assignedDocIdsPlaced.contains(docId)) {
           placed = assignmentPlacedSlotsCount[docId] ?? 0;
-        } else if (assignmentPlacedSlotsCount.containsKey(matchKey) && !consumedMatchKeys.contains(matchKey)) {
+        } else if (assignmentPlacedSlotsCount.containsKey(matchKey) &&
+            !consumedMatchKeys.contains(matchKey)) {
           placed = assignmentPlacedSlotsCount[matchKey] ?? 0;
           consumedMatchKeys.add(matchKey);
         }
@@ -1238,104 +1749,6 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
         final classNameB = (b['className'] ?? '').toString();
         return compareClassNames(classNameA, classNameB);
       });
-
-      // ─────────────────────────────────────────────────────────────────
-      // KULÜP DERSİ: Bu öğretmen herhangi bir kulübün hocası mı?
-      // courseGroups koleksiyonundan bu öğretmenin sub-group'u olan
-      // kulüpleri buluyoruz. O kulübün lessonId'si ile eşleşen
-      // classSchedules slotlarını öğretmenin programına ekliyoruz.
-      // ─────────────────────────────────────────────────────────────────
-      try {
-        final clubGroups = await DynamicGroupService().fetchGroups(
-          institutionId: widget.institutionId,
-          schoolTypeId: schoolTypeId,
-          type: DynamicCourseGroupType.club,
-        );
-
-        for (final cg in clubGroups) {
-          // Bu öğretmen bu kulübün herhangi bir alt grubunda mı?
-          final mySubGroups = cg.findSubGroupsForTeacher(teacherId);
-          if (mySubGroups.isEmpty) continue;
-          final mySubGroup = mySubGroups.first;
-
-          if (cg.targetClassIds.isEmpty) continue;
-
-          // Bu kulübün lessonId'sine sahip classSchedules slotlarını bul
-          // Önce zaten yüklü olan updatedSchedule'da ara
-          bool foundSlot = false;
-          for (final entry in updatedSchedule.entries.toList()) {
-            final slot = entry.value;
-            final slotClassId = (slot['classId'] ?? '').toString();
-            final slotLessonId = (slot['lessonId'] ?? '').toString();
-            final slotPId = (slot['periodId'] ?? '').toString();
-
-            if (!cg.targetClassIds.contains(slotClassId)) continue;
-            if (_activePeriodId != null && slotPId.isNotEmpty && slotPId != _activePeriodId) continue;
-            if (cg.lessonId.isNotEmpty && slotLessonId != cg.lessonId) continue;
-
-            // Bu slot kulüp dersine ait — öğretmenin programına ekle
-            updatedSchedule[entry.key] = {
-              ...slot,
-              'lessonName': mySubGroup.name,
-              'teacherId': teacherId,
-              'className': mySubGroup.classroomName.isNotEmpty
-                  ? mySubGroup.classroomName
-                  : (slot['className'] ?? ''),
-              'courseGroupId': cg.id,
-              'courseGroupName': cg.name,
-              'subGroupId': mySubGroup.id,
-              'subGroupName': mySubGroup.name,
-              'isClubSlot': true,
-            };
-            foundSlot = true;
-            break; // Aynı kulüp için tek slot yeterli
-          }
-
-          // Eğer updatedSchedule'da yoksa Firestore'dan çek
-          if (!foundSlot && _activePeriodId != null) {
-            try {
-              final targetBatch = cg.targetClassIds.take(10).toList();
-              final clubScheduleSnap = await FirebaseFirestore.instance
-                  .collection('classSchedules')
-                  .where('classId', whereIn: targetBatch)
-                  .where('periodId', isEqualTo: _activePeriodId)
-                  .where('lessonId', isEqualTo: cg.lessonId)
-                  .where('isActive', isEqualTo: true)
-                  .get();
-
-              for (final doc in clubScheduleSnap.docs) {
-                final data = doc.data();
-                final day = data['day'] as String?;
-                final hourIndex = data['hourIndex'] as int?;
-                if (day == null || hourIndex == null) continue;
-
-                final key = '${day}_$hourIndex';
-                if (!updatedSchedule.containsKey(key)) {
-                  updatedSchedule[key] = {
-                    ...data,
-                    'id': doc.id,
-                    'lessonName': mySubGroup.name,
-                    'teacherId': teacherId,
-                    'className': mySubGroup.classroomName.isNotEmpty
-                        ? mySubGroup.classroomName
-                        : (data['className'] ?? ''),
-                    'courseGroupId': cg.id,
-                    'courseGroupName': cg.name,
-                    'subGroupId': mySubGroup.id,
-                    'subGroupName': mySubGroup.name,
-                    'isClubSlot': true,
-                  };
-                }
-                break;
-              }
-            } catch (ce) {
-              debugPrint('⚠️ Kulüp slotu Firestore sorgusu başarısız: $ce');
-            }
-          }
-        }
-      } catch (e) {
-        debugPrint('⚠️ Kulüp dersleri öğretmen programına eklenemedi: $e');
-      }
 
       setState(() {
         _scheduleData = updatedSchedule;
@@ -1381,10 +1794,10 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
             .where('status', isEqualTo: 'published')
             .get();
 
-        print('DEBUG: Teacher ID: $teacherId');
-        print('DEBUG: Date Range: $startOfWeek - $endOfWeek');
-        print('DEBUG: Absence Docs: ${absenceSnap.docs.length}');
-        print('DEBUG: Substitute Docs: ${substituteSnap.docs.length}');
+        debugPrint('DEBUG: Teacher ID: $teacherId');
+        debugPrint('DEBUG: Date Range: $startOfWeek - $endOfWeek');
+        debugPrint('DEBUG: Absence Docs: ${absenceSnap.docs.length}');
+        debugPrint('DEBUG: Substitute Docs: ${substituteSnap.docs.length}');
 
         // Resolve className from classes collection
         final Set<String> classIdsToResolve = {};
@@ -1619,10 +2032,10 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
           }
         }
       } catch (e) {
-        print('Geçici atama yükleme hatası: $e');
+        debugPrint('Geçici atama yükleme hatası: $e');
       }
     } catch (e) {
-      print('Program yükleme hatası: $e');
+      debugPrint('Program yükleme hatası: $e');
     }
   }
 
@@ -1763,7 +2176,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                   Container(
                     padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.3),
+                      color: Colors.white.withValues(alpha: 0.3),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
@@ -1808,7 +2221,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                           )
                         : null,
                     filled: true,
-                    fillColor: Colors.white.withOpacity(0.2),
+                    fillColor: Colors.white.withValues(alpha: 0.2),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide.none,
@@ -1844,7 +2257,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                         decoration: BoxDecoration(
                           color: _selectedBranch == null
                               ? Colors.white
-                              : Colors.white.withOpacity(0.2),
+                              : Colors.white.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Center(
@@ -1875,7 +2288,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                         decoration: BoxDecoration(
                           color: _selectedBranch != null
                               ? Colors.white
-                              : Colors.white.withOpacity(0.2),
+                              : Colors.white.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Row(
@@ -1953,7 +2366,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                         vertical: 8,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
+                        color: Colors.white.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Row(
@@ -2133,7 +2546,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
           borderRadius: BorderRadius.circular(24),
           boxShadow: [
             BoxShadow(
-              color: Colors.blue.shade900.withOpacity(0.04),
+              color: Colors.blue.shade900.withValues(alpha: 0.04),
               blurRadius: 20,
               offset: const Offset(0, 8),
             ),
@@ -2220,7 +2633,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
         border: Border.all(color: Colors.blue.shade50),
         boxShadow: [
           BoxShadow(
-            color: Colors.blue.shade900.withOpacity(0.04),
+            color: Colors.blue.shade900.withValues(alpha: 0.04),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -2233,7 +2646,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
             children: [
               IconButton(
                 visualDensity: VisualDensity.compact,
-                onPressed: () => _changeWeek(-7),
+                onPressed: () => _singleDayMode ? _changeDay(-1) : _changeWeek(-7),
                 icon: Icon(Icons.arrow_back_ios_new, size: 14, color: Colors.blue.shade700),
                 style: IconButton.styleFrom(
                   backgroundColor: Colors.blue.shade50,
@@ -2256,7 +2669,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                     ),
                   ),
                   Text(
-                    _formatWeekRange(_weekStart),
+                    _singleDayMode ? _formatSelectedDay() : _formatWeekRange(_weekStart),
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.bold,
@@ -2268,7 +2681,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
               const SizedBox(width: 12),
               IconButton(
                 visualDensity: VisualDensity.compact,
-                onPressed: () => _changeWeek(7),
+                onPressed: () => _singleDayMode ? _changeDay(1) : _changeWeek(7),
                 icon: Icon(Icons.arrow_forward_ios, size: 14, color: Colors.blue.shade700),
                 style: IconButton.styleFrom(
                   backgroundColor: Colors.blue.shade50,
@@ -2287,7 +2700,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
               ),
               onPressed: () {
                 setState(() {
-                  _showTableViewWide = !_showTableViewWide;
+                  _tableViewOverride = !_showTableViewWide;
                 });
               },
               style: IconButton.styleFrom(
@@ -2305,8 +2718,10 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
   void _onLessonTap(Map<String, dynamic> assignment, String day, int hourIndex) {
     debugPrint('DEBUG: _onLessonTap called for $day - $hourIndex');
 
-    // Kulüp slotu: classId boş olabilir, courseGroupId var
+    // Kulüp veya Kur slotu: classId boş olabilir, courseGroupId var
     final bool isClubSlot = assignment['isClubSlot'] == true;
+    final bool isTrackSlot = assignment['isTrackSlot'] == true;
+    final bool isGroupSlot = isClubSlot || isTrackSlot;
     final String courseGroupId = (assignment['courseGroupId'] ?? '').toString();
     final String subGroupId = (assignment['subGroupId'] ?? '').toString();
     final String subGroupName = (assignment['subGroupName'] ?? '').toString();
@@ -2314,8 +2729,8 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
     final classId = (assignment['classId'] ?? '').toString();
     final lessonId = (assignment['lessonId'] ?? '').toString();
 
-    // Kulüp slotunda classId veya lessonId yoksa hub'a yine de aç (courseGroupId ile)
-    if (!isClubSlot && (classId.isEmpty || lessonId.isEmpty)) {
+    // Kulüp/Kur slotunda classId veya lessonId yoksa hub'a yine de aç (courseGroupId ile)
+    if (!isGroupSlot && (classId.isEmpty || lessonId.isEmpty)) {
       debugPrint('⚠️ Ders detayı açılamadı: classId veya lessonId eksik.');
       return;
     }
@@ -2333,8 +2748,8 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
         final aClassId = (a?['classId'] ?? '').toString();
         final aLessonId = (a?['lessonId'] ?? '').toString();
         final aClassIds = a?['classIds'] != null ? List<String>.from(a?['classIds']) : [aClassId];
-        if (isClubSlot) {
-          // Kulüp slotu: aynı courseGroupId varsa bu saati de ekle
+        if (isGroupSlot && courseGroupId.isNotEmpty) {
+          // Kulüp veya Kur slotu: aynı courseGroupId varsa bu saati de ekle
           if ((a?['courseGroupId'] ?? '').toString() == courseGroupId) {
             availableLessonHours.add(i + 1);
           }
@@ -2376,7 +2791,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
       margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: Colors.blue.withOpacity(0.08),
+        color: Colors.blue.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
@@ -2403,7 +2818,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
           boxShadow: isSelected
               ? [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
+                    color: Colors.black.withValues(alpha: 0.05),
                     blurRadius: 4,
                     offset: Offset(0, 2),
                   ),
@@ -2629,7 +3044,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
             borderRadius: BorderRadius.circular(24),
             boxShadow: [
               BoxShadow(
-                color: Colors.blue.shade900.withOpacity(0.04),
+                color: Colors.blue.shade900.withValues(alpha: 0.04),
                 blurRadius: 20,
                 offset: const Offset(0, 8),
               ),
@@ -2686,7 +3101,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
           margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
-            color: Colors.blue.shade50.withOpacity(0.7),
+            color: Colors.blue.shade50.withValues(alpha: 0.7),
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: Colors.blue.shade100),
           ),
@@ -2744,7 +3159,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.blue.shade900.withOpacity(0.04),
+                      color: Colors.blue.shade900.withValues(alpha: 0.04),
                       blurRadius: 8,
                       offset: const Offset(0, 4),
                     ),
@@ -2942,7 +3357,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
         _teacherAssignments.removeWhere((a) => a['isPlaced'] == false);
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('${unplaced.length} adet boştaki atama başarıyla temizlendi.'),
           backgroundColor: Colors.green,
@@ -2954,7 +3369,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
       }
       await _loadData(reloadSidebar: false);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Temizleme sırasında hata oluştu: $e'),
           backgroundColor: Colors.red,
@@ -3029,7 +3444,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                   _teacherAssignments.removeWhere((a) => a['id'] == docId);
                 });
 
-                ScaffoldMessenger.of(context).showSnackBar(
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text('Ders ataması başarıyla iptal edildi.'),
                     backgroundColor: Colors.green,
@@ -3041,7 +3456,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                 }
                 await _loadData(reloadSidebar: false);
               } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text('Atama iptal edilirken hata oluştu: $e'),
                     backgroundColor: Colors.red,
@@ -3204,7 +3619,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                               borderRadius: BorderRadius.circular(16),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black.withOpacity(0.02),
+                                  color: Colors.black.withValues(alpha: 0.02),
                                   blurRadius: 10,
                                   offset: const Offset(0, 4),
                                 ),
@@ -3358,7 +3773,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                     color: Colors.white,
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
+                        color: Colors.black.withValues(alpha: 0.05),
                         blurRadius: 10,
                         offset: const Offset(0, -5),
                       ),
@@ -3564,7 +3979,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.08),
+                    color: Colors.black.withValues(alpha: 0.08),
                     blurRadius: 12,
                     offset: Offset(0, 4),
                   ),
@@ -3778,13 +4193,13 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                                       borderRadius: BorderRadius.circular(10),
                                       border: Border.all(
                                         color: isMorning
-                                            ? const Color(0xFFF59E0B).withOpacity(0.6)
-                                            : const Color(0xFFF97316).withOpacity(0.6),
+                                            ? const Color(0xFFF59E0B).withValues(alpha: 0.6)
+                                            : const Color(0xFFF97316).withValues(alpha: 0.6),
                                         width: 1,
                                       ),
                                       boxShadow: [
                                         BoxShadow(
-                                          color: (isMorning ? Colors.amber : Colors.orange).withOpacity(0.15),
+                                          color: (isMorning ? Colors.amber : Colors.orange).withValues(alpha: 0.15),
                                           blurRadius: 4,
                                           offset: const Offset(0, 2),
                                         ),
@@ -4122,7 +4537,10 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
         padding: EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: _days.map((day) {
+          children: (_singleDayMode && _days.isNotEmpty
+                  ? [_days[_selectedDayIndex.clamp(0, _days.length - 1)]]
+                  : _days)
+              .map((day) {
             final dayHourCount = _dailyLessonCounts[day] ?? 8;
             final dayTimes = _dayLessonTimes[day] ?? [];
             final hdBlocks = hdForTeacher[day] ?? [];
@@ -4147,7 +4565,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
+                    color: Colors.black.withValues(alpha: 0.05),
                     blurRadius: 10,
                     offset: Offset(0, 4),
                   ),
@@ -4191,7 +4609,7 @@ class _TeacherScheduleViewScreenState extends State<TeacherScheduleViewScreen> {
                             vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
+                            color: Colors.white.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
@@ -4697,9 +5115,16 @@ class _TeacherScheduleDetailViewState
 
   void _onLessonTap(Map<String, dynamic> assignment, String day, int hourIndex) {
     debugPrint('DEBUG: _onLessonTap (Detail) called for $day - $hourIndex');
+    final bool isClubSlot = assignment['isClubSlot'] == true;
+    final bool isTrackSlot = assignment['isTrackSlot'] == true;
+    final bool isGroupSlot = isClubSlot || isTrackSlot;
+    final String courseGroupId = (assignment['courseGroupId'] ?? '').toString();
+    final String subGroupId = (assignment['subGroupId'] ?? '').toString();
+    final String subGroupName = (assignment['subGroupName'] ?? '').toString();
+
     final classId = (assignment['classId'] ?? '').toString();
     final lessonId = (assignment['lessonId'] ?? '').toString();
-    if (classId.isEmpty || lessonId.isEmpty) return;
+    if (!isGroupSlot && (classId.isEmpty || lessonId.isEmpty)) return;
 
     final dayIndex = widget.days.indexOf(day);
     final initialDate = dayIndex >= 0
@@ -4714,8 +5139,12 @@ class _TeacherScheduleDetailViewState
         final aClassId = (a?['classId'] ?? '').toString();
         final aLessonId = (a?['lessonId'] ?? '').toString();
         final aClassIds = a?['classIds'] != null ? List<String>.from(a?['classIds']) : [aClassId];
-        if (aClassIds.contains(classId) && aLessonId == lessonId) {
+        if (isGroupSlot && courseGroupId.isNotEmpty) {
+          if ((a?['courseGroupId'] ?? '').toString() == courseGroupId) {
             availableLessonHours.add(i + 1);
+          }
+        } else if (aClassIds.contains(classId) && aLessonId == lessonId) {
+          availableLessonHours.add(i + 1);
         }
     }
 
@@ -4723,18 +5152,23 @@ class _TeacherScheduleDetailViewState
         context,
         MaterialPageRoute(
             builder: (context) => ClassLessonHubScreen(
-                institutionId: (assignment['institutionId'] ?? '').toString(),
-                schoolTypeId: (assignment['schoolTypeId'] ?? '').toString(),
+                institutionId: (assignment['institutionId'] ?? widget.institutionId).toString(),
+                schoolTypeId: (assignment['schoolTypeId'] ?? widget.schoolTypeId).toString(),
                 periodId: widget.activePeriodId,
-                classId: classId,
+                classId: classId.isNotEmpty ? classId : (assignment['targetClassId'] ?? '').toString(),
                 lessonId: lessonId,
-                className: (assignment['className'] ?? '').toString(),
+                className: isClubSlot && subGroupName.isNotEmpty
+                    ? subGroupName
+                    : (assignment['className'] ?? '').toString(),
                 lessonName: (assignment['lessonName'] ?? '').toString(),
                 initialDate: initialDate,
                 initialLessonHour: hourIndex + 1,
                 availableLessonHours: availableLessonHours,
                 combinedClassIds: assignment['classIds'] != null ? List<String>.from(assignment['classIds']) : null,
                 combinedClassNames: assignment['classNames'] != null ? List<String>.from(assignment['classNames']) : null,
+                courseGroupId: courseGroupId.isNotEmpty ? courseGroupId : null,
+                subGroupId: subGroupId.isNotEmpty ? subGroupId : null,
+                subGroupName: subGroupName.isNotEmpty ? subGroupName : null,
             ),
         ),
     );
@@ -4784,15 +5218,6 @@ class _TeacherScheduleDetailViewState
           'className': (data['className'] ?? '').toString(),
         };
         teacherAssignments.add(data);
-      }
-
-      if (classIds.isEmpty) {
-        setState(() {
-          _scheduleData = {};
-          _teacherAssignments = [];
-          _isLoading = false;
-        });
-        return;
       }
 
       final classIdList = classIds.toList();
@@ -4881,6 +5306,199 @@ class _TeacherScheduleDetailViewState
             };
           }
         }
+      }
+
+      // KULÜP VE KUR (KURS) DERSLERİ (Mobil Detay Görünümü): Tüm saatleri ekle
+      final detailTeacherName = (widget.teacherData['name'] ?? '').toString();
+      try {
+        final clubGroups = await DynamicGroupService().fetchGroups(
+          institutionId: widget.institutionId,
+          schoolTypeId: widget.schoolTypeId,
+          type: DynamicCourseGroupType.club,
+        );
+        for (final cg in clubGroups) {
+          final cgPeriod = (cg.periodId ?? cg.subTermId ?? '').trim();
+          if (cgPeriod.isNotEmpty && cgPeriod != widget.activePeriodId) {
+            continue;
+          }
+          final mySubs = cg.findSubGroupsForTeacher(
+            teacherId,
+            teacherName: detailTeacherName,
+          );
+          if (mySubs.isEmpty || cg.targetClassIds.isEmpty) continue;
+          final mySubGroup = mySubs.first;
+          final defaultClubClassName = mySubGroup.classroomName.isNotEmpty
+              ? mySubGroup.classroomName
+              : (cg.name.isNotEmpty ? cg.name : 'Kulüp');
+
+          final Set<String> clubPlacedKeys = {};
+          for (int i = 0; i < cg.targetClassIds.length; i += 10) {
+            final targetBatch = cg.targetClassIds.skip(i).take(10).toList();
+            final clubScheduleSnap = await FirebaseFirestore.instance
+                .collection('classSchedules')
+                .where('classId', whereIn: targetBatch)
+                .where('periodId', isEqualTo: widget.activePeriodId)
+                .where('isActive', isEqualTo: true)
+                .get();
+
+            for (final doc in clubScheduleSnap.docs) {
+              final data = doc.data();
+              final slotLessonId = (data['lessonId'] ?? '').toString();
+              final slotLessonName = (data['lessonName'] ?? '').toString();
+              final matchesLesson =
+                  (cg.lessonId.isNotEmpty && slotLessonId == cg.lessonId) ||
+                  CourseTrackResolver.lessonMatches(
+                    cg.lessonName,
+                    slotLessonName,
+                  );
+              if (!matchesLesson) continue;
+
+              final day = data['day'] as String?;
+              final hourIndex = data['hourIndex'] as int?;
+              if (day == null || hourIndex == null) continue;
+
+              final key = '${day}_$hourIndex';
+              scheduleData[key] = {
+                ...data,
+                'id': doc.id,
+                'lessonName': mySubGroup.name,
+                'teacherId': teacherId,
+                'className': defaultClubClassName,
+                'classIds': List<String>.from(cg.targetClassIds),
+                'courseGroupId': cg.id,
+                'courseGroupName': cg.name,
+                'subGroupId': mySubGroup.id,
+                'subGroupName': mySubGroup.name,
+                'isClubSlot': true,
+              };
+              clubPlacedKeys.add(key);
+            }
+          }
+
+          if (clubPlacedKeys.isNotEmpty &&
+              !teacherAssignments.any(
+                (a) =>
+                    (a['lessonId'] ?? '').toString() == cg.lessonId &&
+                    cg.lessonId.isNotEmpty,
+              )) {
+            teacherAssignments.add({
+              'id': 'club_${cg.id}_${mySubGroup.id}',
+              'classId': cg.targetClassIds.first,
+              'lessonId': cg.lessonId,
+              'className': defaultClubClassName,
+              'lessonName': mySubGroup.name,
+              'weeklyHours': clubPlacedKeys.length,
+              'placedHours': clubPlacedKeys.length,
+              'isPlaced': true,
+              'isClubAssignment': true,
+            });
+          }
+        }
+
+        // KURLU DERS (Kurs Listesi - Mobil Detay Görünümü)
+        final trackGroups = await DynamicGroupService().fetchGroups(
+          institutionId: widget.institutionId,
+          schoolTypeId: widget.schoolTypeId,
+          type: DynamicCourseGroupType.track,
+        );
+        for (final tg in trackGroups) {
+          final tgPeriod = (tg.periodId ?? tg.subTermId ?? '').trim();
+          if (tgPeriod.isNotEmpty && tgPeriod != widget.activePeriodId) {
+            continue;
+          }
+          final myTrackSubs = tg.findSubGroupsForTeacher(
+            teacherId,
+            teacherName: detailTeacherName,
+          );
+          if (myTrackSubs.isEmpty || tg.targetClassIds.isEmpty) continue;
+          final mySub = myTrackSubs.first;
+          final trackLabel = mySub.name.replaceAll(RegExp(r'\s+'), ' ').trim();
+          final trackClassName = mySub.classroomName.isNotEmpty
+              ? mySub.classroomName
+              : trackLabel;
+
+          final Set<String> trackPlacedKeys = {};
+          for (int i = 0; i < tg.targetClassIds.length; i += 10) {
+            final targetBatch = tg.targetClassIds.skip(i).take(10).toList();
+            final snap = await FirebaseFirestore.instance
+                .collection('classSchedules')
+                .where('classId', whereIn: targetBatch)
+                .where('periodId', isEqualTo: widget.activePeriodId)
+                .where('isActive', isEqualTo: true)
+                .get();
+
+            for (final doc in snap.docs) {
+              final data = doc.data();
+              final slotLessonId = (data['lessonId'] ?? '').toString();
+              final slotLessonName = (data['lessonName'] ?? '').toString();
+              final matches =
+                  (tg.lessonId.isNotEmpty && slotLessonId == tg.lessonId) ||
+                  CourseTrackResolver.lessonMatches(
+                    tg.lessonName,
+                    slotLessonName,
+                  );
+              if (!matches) continue;
+              final day = data['day'] as String?;
+              final hourIndex = data['hourIndex'] as int?;
+              if (day == null || hourIndex == null) continue;
+
+              final key = '${day}_$hourIndex';
+              scheduleData[key] = {
+                ...data,
+                'id': doc.id,
+                'lessonName': '${tg.lessonName} • Kur $trackLabel',
+                'teacherId': teacherId,
+                'className': trackClassName,
+                'classNames': [trackClassName],
+                'classIds': List<String>.from(tg.targetClassIds),
+                'scheduleDocIds': [doc.id],
+                'assignmentIds': <String>[],
+                'courseGroupId': tg.id,
+                'courseGroupName': tg.name,
+                'subGroupId': mySub.id,
+                'subGroupName': mySub.name,
+                'isTrackSlot': true,
+              };
+              trackPlacedKeys.add(key);
+            }
+          }
+
+          if (trackPlacedKeys.isNotEmpty) {
+            bool updatedExisting = false;
+            for (final a in teacherAssignments) {
+              final aClassId = (a['classId'] ?? '').toString();
+              final aLessonId = (a['lessonId'] ?? '').toString();
+              final aLessonName = (a['lessonName'] ?? '').toString();
+              if (tg.targetClassIds.contains(aClassId) &&
+                  ((tg.lessonId.isNotEmpty && aLessonId == tg.lessonId) ||
+                      CourseTrackResolver.lessonMatches(
+                        tg.lessonName,
+                        aLessonName,
+                      ))) {
+                a['className'] = trackClassName;
+                a['lessonName'] = '${tg.lessonName} • Kur $trackLabel';
+                a['placedHours'] = trackPlacedKeys.length;
+                a['isPlaced'] = true;
+                updatedExisting = true;
+              }
+            }
+            if (!updatedExisting) {
+              teacherAssignments.add({
+                'id': 'track_${tg.id}_${mySub.id}',
+                'classId': tg.targetClassIds.first,
+                'lessonId': tg.lessonId,
+                'className': trackClassName,
+                'lessonName': '${tg.lessonName} • Kur $trackLabel',
+                'weeklyHours': trackPlacedKeys.length,
+                'placedHours': trackPlacedKeys.length,
+                'isPlaced': true,
+                'isTrackAssignment': true,
+              });
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('⚠️ Mobil kulüp/kur dersleri yüklenemedi: $e');
       }
 
       // GEÇİCİ ATAMALARI YÜKLE (SUBSTITUTE / ABSENCE)
@@ -5045,6 +5663,7 @@ class _TeacherScheduleDetailViewState
         final Set<String> consumedMatchKeys = {};
 
         for (var assignment in teacherAssignments) {
+          if (assignment['isClubAssignment'] == true) continue;
           final docId = (assignment['id'] ?? '').toString();
           final cid = (assignment['classId'] ?? '').toString();
           final lid = (assignment['lessonId'] ?? '').toString();
@@ -5167,11 +5786,11 @@ class _TeacherScheduleDetailViewState
           });
         }
       } catch (e) {
-        print('Geçici atama yükleme hatası: $e');
+        debugPrint('Geçici atama yükleme hatası: $e');
         setState(() => _isLoading = false);
       }
     } catch (e) {
-      print('Program yükleme hatası: $e');
+      debugPrint('Program yükleme hatası: $e');
       setState(() => _isLoading = false);
     }
   }
@@ -5244,7 +5863,7 @@ class _TeacherScheduleDetailViewState
                   _teacherAssignments.removeWhere((a) => a['id'] == docId);
                 });
 
-                ScaffoldMessenger.of(context).showSnackBar(
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text('Ders ataması başarıyla iptal edildi.'),
                     backgroundColor: Colors.green,
@@ -5253,7 +5872,7 @@ class _TeacherScheduleDetailViewState
 
                 await _loadSchedule();
               } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text('Atama iptal edilirken hata oluştu: $e'),
                     backgroundColor: Colors.red,
@@ -5344,7 +5963,7 @@ class _TeacherScheduleDetailViewState
         _teacherAssignments.removeWhere((a) => a['isPlaced'] == false);
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Boştaki ders atamaları başarıyla temizlendi.'),
           backgroundColor: Colors.green,
@@ -5354,7 +5973,7 @@ class _TeacherScheduleDetailViewState
       await _loadSchedule();
     } catch (e) {
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Temizleme sırasında hata oluştu: $e'),
           backgroundColor: Colors.red,
@@ -5374,7 +5993,7 @@ class _TeacherScheduleDetailViewState
             borderRadius: BorderRadius.circular(24),
             boxShadow: [
               BoxShadow(
-                color: Colors.blue.shade900.withOpacity(0.04),
+                color: Colors.blue.shade900.withValues(alpha: 0.04),
                 blurRadius: 20,
                 offset: const Offset(0, 8),
               ),
@@ -5430,7 +6049,7 @@ class _TeacherScheduleDetailViewState
           margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
-            color: Colors.blue.shade50.withOpacity(0.7),
+            color: Colors.blue.shade50.withValues(alpha: 0.7),
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: Colors.blue.shade100),
           ),
@@ -5488,7 +6107,7 @@ class _TeacherScheduleDetailViewState
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.blue.shade900.withOpacity(0.04),
+                      color: Colors.blue.shade900.withValues(alpha: 0.04),
                       blurRadius: 8,
                       offset: const Offset(0, 4),
                     ),
@@ -5619,7 +6238,7 @@ class _TeacherScheduleDetailViewState
       margin: EdgeInsets.symmetric(vertical: 8, horizontal: 16),
       padding: EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: Colors.blue.withOpacity(0.08),
+        color: Colors.blue.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
@@ -5646,7 +6265,7 @@ class _TeacherScheduleDetailViewState
           boxShadow: isSelected
               ? [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
+                    color: Colors.black.withValues(alpha: 0.05),
                     blurRadius: 4,
                     offset: Offset(0, 2),
                   ),
@@ -5737,7 +6356,7 @@ class _TeacherScheduleDetailViewState
         border: Border.all(color: Colors.blue.shade50),
         boxShadow: [
           BoxShadow(
-            color: Colors.blue.shade900.withOpacity(0.04),
+            color: Colors.blue.shade900.withValues(alpha: 0.04),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -6121,7 +6740,7 @@ class _TeacherScheduleDetailViewState
                               borderRadius: BorderRadius.circular(16),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black.withOpacity(0.02),
+                                  color: Colors.black.withValues(alpha: 0.02),
                                   blurRadius: 10,
                                   offset: const Offset(0, 4),
                                 ),
@@ -6275,7 +6894,7 @@ class _TeacherScheduleDetailViewState
                     color: Colors.white,
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
+                        color: Colors.black.withValues(alpha: 0.05),
                         blurRadius: 10,
                         offset: const Offset(0, -5),
                       ),
@@ -6735,7 +7354,7 @@ class _TeacherScheduleDetailViewState
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
+                    color: Colors.black.withValues(alpha: 0.05),
                     blurRadius: 10,
                     offset: Offset(0, 4),
                   ),
@@ -6779,7 +7398,7 @@ class _TeacherScheduleDetailViewState
                             vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
+                            color: Colors.white.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(

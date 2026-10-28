@@ -104,7 +104,7 @@ class _AnnouncementCardState extends State<AnnouncementCard> {
     // Icon Configuration
     IconData iconData = Icons.campaign_outlined;
     Color iconColor = Theme.of(context).primaryColor;
-    Color iconBgColor = Theme.of(context).primaryColor.withOpacity(0.08);
+    Color iconBgColor = Theme.of(context).primaryColor.withValues(alpha: 0.08);
 
     if (widget.isSurvey) {
       iconData = Icons.poll_outlined;
@@ -123,7 +123,7 @@ class _AnnouncementCardState extends State<AnnouncementCard> {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 15,
             offset: const Offset(0, 4),
           ),

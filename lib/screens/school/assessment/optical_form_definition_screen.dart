@@ -343,7 +343,7 @@ class _OpticalFormDefinitionState extends State<OpticalFormDefinition> {
             ),
             SizedBox(height: 16),
             DropdownButtonFormField<String>(
-              value: _selectedExamTypeId,
+              initialValue: _selectedExamTypeId,
               decoration: InputDecoration(
                 labelText: 'Uygulanacak Sınav Türü',
                 border: OutlineInputBorder(

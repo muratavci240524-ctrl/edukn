@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -116,7 +116,7 @@ class _ClassPromotionScreenState extends State<ClassPromotionScreen> {
         _isLoading = false;
       });
     } catch (e) {
-      print('Sınıf atlatma verileri yüklenirken hata: $e');
+      debugPrint('Sınıf atlatma verileri yüklenirken hata: $e');
       setState(() => _isLoading = false);
     }
   }
@@ -338,7 +338,7 @@ class _ClassPromotionScreenState extends State<ClassPromotionScreen> {
         Navigator.pop(context);
       }
     } catch (e) {
-      print('Sınıf atlatılırken hata: $e');
+      debugPrint('Sınıf atlatılırken hata: $e');
       setState(() => _isProcessing = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -373,7 +373,7 @@ class _ClassPromotionScreenState extends State<ClassPromotionScreen> {
                         border: Border.all(color: Colors.indigo.shade50),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.indigo.withOpacity(0.04),
+                            color: Colors.indigo.withValues(alpha: 0.04),
                             blurRadius: 10,
                             offset: const Offset(0, 4),
                           ),
@@ -402,7 +402,7 @@ class _ClassPromotionScreenState extends State<ClassPromotionScreen> {
                               themeColor,
                               helperText: 'Öğrencilerin kopyalanacağı gelecek okul dönemi.',
                             ),
-                            value: _targetTermId,
+                            initialValue: _targetTermId,
                             items: _terms.map((t) {
                               return DropdownMenuItem(
                                 value: t['id'] as String,
@@ -459,7 +459,7 @@ class _ClassPromotionScreenState extends State<ClassPromotionScreen> {
                                     Icons.grade_rounded,
                                     themeColor,
                                   ),
-                                  value: _selectedLevelFilter,
+                                  initialValue: _selectedLevelFilter,
                                   items: [
                                     const DropdownMenuItem(value: null, child: Text('Tüm Seviyeler')),
                                     ..._availableClassLevels.map((lvl) {
@@ -483,7 +483,7 @@ class _ClassPromotionScreenState extends State<ClassPromotionScreen> {
                                     Icons.filter_alt_outlined,
                                     themeColor,
                                   ),
-                                  value: _selectedClassFilterId,
+                                  initialValue: _selectedClassFilterId,
                                   items: [
                                     const DropdownMenuItem(value: null, child: Text('Tüm Şubeler')),
                                     ..._classes.map((c) {
@@ -745,7 +745,7 @@ class _StudentTransferScreenState extends State<StudentTransferScreen> {
         _updateTargetClassLevels();
       });
     } catch (e) {
-      print('Nakil verileri yüklenirken hata: $e');
+      debugPrint('Nakil verileri yüklenirken hata: $e');
       setState(() => _isLoading = false);
     }
   }
@@ -904,7 +904,7 @@ class _StudentTransferScreenState extends State<StudentTransferScreen> {
         Navigator.pop(context);
       }
     } catch (e) {
-      print('Nakil edilirken hata: $e');
+      debugPrint('Nakil edilirken hata: $e');
       setState(() => _isProcessing = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -939,7 +939,7 @@ class _StudentTransferScreenState extends State<StudentTransferScreen> {
                         border: Border.all(color: Colors.teal.shade50),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.teal.withOpacity(0.04),
+                            color: Colors.teal.withValues(alpha: 0.04),
                             blurRadius: 10,
                             offset: const Offset(0, 4),
                           ),
@@ -968,7 +968,7 @@ class _StudentTransferScreenState extends State<StudentTransferScreen> {
                               themeColor,
                               helperText: 'Öğrencilerin nakledileceği okul türü (örn: İlkokuldan Ortaokula).',
                             ),
-                            value: _targetSchoolTypeId,
+                            initialValue: _targetSchoolTypeId,
                             items: _schoolTypes.map((st) {
                               final name = st['schoolTypeName'] ?? st['typeName'] ?? '';
                               return DropdownMenuItem(
@@ -994,7 +994,7 @@ class _StudentTransferScreenState extends State<StudentTransferScreen> {
                                     themeColor,
                                     helperText: 'Öğrencilerin kopyalanacağı gelecek okul dönemi.',
                                   ),
-                                  value: _targetTermId,
+                                  initialValue: _targetTermId,
                                   items: _terms.map((t) {
                                     return DropdownMenuItem(
                                       value: t['id'] as String,
@@ -1015,7 +1015,7 @@ class _StudentTransferScreenState extends State<StudentTransferScreen> {
                                     themeColor,
                                     helperText: 'Yeni okul türünde başlayacağı sınıf seviyesi (örn: Lise için 9. Sınıf).',
                                   ),
-                                  value: _targetClassLevel,
+                                  initialValue: _targetClassLevel,
                                   items: _getCurrentTargetClassLevels().map((lvl) {
                                     return DropdownMenuItem(
                                       value: lvl,
@@ -1051,7 +1051,7 @@ class _StudentTransferScreenState extends State<StudentTransferScreen> {
                                     Icons.grade_rounded,
                                     themeColor,
                                   ),
-                                  value: _selectedLevelFilter,
+                                  initialValue: _selectedLevelFilter,
                                   items: [
                                     const DropdownMenuItem(value: null, child: Text('Tüm Seviyeler')),
                                     ..._availableClassLevels.map((lvl) {
@@ -1075,7 +1075,7 @@ class _StudentTransferScreenState extends State<StudentTransferScreen> {
                                     Icons.filter_alt_outlined,
                                     themeColor,
                                   ),
-                                  value: _selectedClassFilterId,
+                                  initialValue: _selectedClassFilterId,
                                   items: [
                                     const DropdownMenuItem(value: null, child: Text('Tüm Şubeler')),
                                     ..._classes.map((c) {

@@ -1,9 +1,8 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
-import '../../services/financial_report_service.dart';
 
 class ParentAccountingScreen extends StatefulWidget {
   final String institutionId;
@@ -87,7 +86,7 @@ class _ParentAccountingScreenState extends State<ParentAccountingScreen> {
                   dueDate = DateTime(int.parse(parts[2]), int.parse(parts[1]), int.parse(parts[0]));
                 }
               }
-            } catch (_) {}
+            } catch (silentError) { debugPrint('[parent_accounting_screen] hata yutuldu: $silentError'); }
 
             if (dueDate != null && dueDate.isBefore(today)) {
               overdue += amt;
@@ -275,7 +274,7 @@ class _ParentAccountingScreenState extends State<ParentAccountingScreen> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 6)],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6)],
       ),
       child: Row(
         children: [
@@ -317,7 +316,7 @@ class _ParentAccountingScreenState extends State<ParentAccountingScreen> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10)],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10)],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -434,7 +433,7 @@ class _ParentAccountingScreenState extends State<ParentAccountingScreen> {
                     dueDate = DateTime(int.parse(parts[2]), int.parse(parts[1]), int.parse(parts[0]));
                   }
                 }
-              } catch (_) {}
+              } catch (silentError) { debugPrint('[parent_accounting_screen] hata yutuldu: $silentError'); }
 
               final isOverdue = !isPaid && dueDate != null && dueDate.isBefore(today);
 

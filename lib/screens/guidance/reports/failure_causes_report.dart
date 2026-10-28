@@ -42,7 +42,7 @@ class _FailureCausesReportState extends State<FailureCausesReport>
   // Data for filters
   bool _isLoadingFilterData = false;
   List<Map<String, dynamic>> _branches = [];
-  Map<String, Map<String, dynamic>> _userDetails =
+  final Map<String, Map<String, dynamic>> _userDetails =
       {}; // userId -> {branch: '...', schoolType: '...'}
 
   Future<void> _loadFilterData() async {
@@ -85,7 +85,7 @@ class _FailureCausesReportState extends State<FailureCausesReport>
         };
       }
     } catch (e) {
-      print('Filter data load error: $e');
+      debugPrint('Filter data load error: $e');
     }
     if (mounted) setState(() => _isLoadingFilterData = false);
   }
@@ -131,7 +131,7 @@ class _FailureCausesReportState extends State<FailureCausesReport>
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.05),
+                color: Colors.black.withValues(alpha: 0.05),
                 blurRadius: 10,
                 offset: Offset(0, 4),
               ),
@@ -661,7 +661,7 @@ class _FailureCausesReportState extends State<FailureCausesReport>
                       return Container(
                         height: 35,
                         alignment: Alignment.center,
-                        color: isSelected ? Colors.red.withOpacity(0.1) : null,
+                        color: isSelected ? Colors.red.withValues(alpha: 0.1) : null,
                         child: isSelected
                             ? Icon(Icons.close, color: Colors.red, size: 16)
                             : null,
@@ -846,7 +846,7 @@ class _FailureCausesReportState extends State<FailureCausesReport>
             headerStyle;
       }
 
-      final totalRespondents = filteredResponses.length == 0
+      final totalRespondents = filteredResponses.isEmpty
           ? 1
           : filteredResponses.length;
       for (int i = 0; i < options.length; i++) {
@@ -893,12 +893,12 @@ class _FailureCausesReportState extends State<FailureCausesReport>
           mimeType: MimeType.microsoftExcel,
         );
 
-        ScaffoldMessenger.of(
+        if (mounted) ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Excel başarıyla indirildi.')));
       }
     } catch (e) {
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata: $e')));
     }
@@ -909,7 +909,7 @@ class _FailureCausesReportState extends State<FailureCausesReport>
     String questionId,
     List<Map<String, dynamic>> dataSources,
   ) {
-    final totalRespondents = dataSources.length == 0 ? 1 : dataSources.length;
+    final totalRespondents = dataSources.isEmpty ? 1 : dataSources.length;
 
     return ListView(
       padding: EdgeInsets.all(16),
@@ -931,7 +931,7 @@ class _FailureCausesReportState extends State<FailureCausesReport>
                     ],
                   ),
                   child: DataTable(
-                    headingRowColor: MaterialStateProperty.all(
+                    headingRowColor: WidgetStateProperty.all(
                       Colors.indigo.shade50,
                     ),
                     dataRowMaxHeight: 60,

@@ -67,16 +67,14 @@ class _MatchedStudentsDialogState extends State<MatchedStudentsDialog>
       }
     }
 
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      backgroundColor: Colors.white,
-      insetPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+    // Alttan açılan menü (bottom sheet) içeriği
+    return Material(
+      color: Colors.white,
       child: Column(
-        mainAxisSize: MainAxisSize.min,
         children: [
           // Header
           Container(
-            padding: EdgeInsets.fromLTRB(24, 20, 24, 0),
+            padding: EdgeInsets.fromLTRB(24, 8, 24, 0),
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
@@ -131,12 +129,9 @@ class _MatchedStudentsDialogState extends State<MatchedStudentsDialog>
           ),
 
           // Content
-          Flexible(
+          Expanded(
             child: Container(
               color: Colors.grey.shade50,
-              constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(context).size.height * 0.65,
-              ),
               child: TabBarView(controller: _tabController, children: tabViews),
             ),
           ),

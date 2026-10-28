@@ -205,7 +205,7 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
                 elevation: 4,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
-                  side: BorderSide(color: Colors.white.withOpacity(0.2), width: 1.5),
+                  side: BorderSide(color: Colors.white.withValues(alpha: 0.2), width: 1.5),
                 ),
                 child: const Icon(Icons.add, color: Colors.white, size: 28),
               ),
@@ -330,7 +330,7 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
                   return Container(
                     padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.3),
+                      color: Colors.white.withValues(alpha: 0.3),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
@@ -355,7 +355,7 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
               hintStyle: TextStyle(color: Colors.white70),
               prefixIcon: Icon(Icons.search, size: 20, color: Colors.white70),
               filled: true,
-              fillColor: Colors.white.withOpacity(0.2),
+              fillColor: Colors.white.withValues(alpha: 0.2),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(25),
                 borderSide: BorderSide.none,
@@ -380,7 +380,7 @@ class _TrialExamListScreenState extends State<TrialExamListScreen> {
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.white : Colors.white.withOpacity(0.2),
+          color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.2),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Text(

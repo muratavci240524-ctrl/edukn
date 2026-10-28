@@ -335,7 +335,7 @@ class _ExamTypeFormState extends State<ExamTypeForm> {
                 SizedBox(width: 16),
                 Expanded(
                   child: DropdownButtonFormField<int>(
-                    value: _optionCount,
+                    initialValue: _optionCount,
                     decoration: InputDecoration(
                       labelText: 'Şık Sayısı',
                       border: OutlineInputBorder(
@@ -470,7 +470,7 @@ class _ExamTypeFormState extends State<ExamTypeForm> {
                       borderRadius: BorderRadius.circular(12),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.02),
+                          color: Colors.black.withValues(alpha: 0.02),
                           blurRadius: 4,
                           offset: Offset(0, 2),
                         ),

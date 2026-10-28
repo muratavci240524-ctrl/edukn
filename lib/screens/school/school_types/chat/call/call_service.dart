@@ -64,7 +64,7 @@ class CallService {
           return null;
         }
       }
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[call_service] hata yutuldu: $silentError'); }
 
     final uid = currentUserId ?? 'local_user';
 

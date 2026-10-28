@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../../../../models/assessment/outcome_list_model.dart';
 import '../../../../services/assessment_service.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
@@ -98,36 +98,216 @@ class _OutcomeMatchingScreenState extends State<OutcomeMatchingScreen> {
     _autoSelectMasterListForCurrentBranch();
   }
 
+  String _normBranch(String s) {
+    return s
+        .trim()
+        .toLowerCase()
+        .replaceAll('ı', 'i')
+        .replaceAll('İ', 'i')
+        .replaceAll('ü', 'u')
+        .replaceAll('ö', 'o')
+        .replaceAll('ş', 's')
+        .replaceAll('ç', 'c')
+        .replaceAll('ğ', 'g')
+        .replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  String _extractGrade(String? s) {
+    if (s == null || s.trim().isEmpty) return '';
+    final match = RegExp(r'\b([1-9]|1[0-2])\b').firstMatch(s);
+    if (match != null) return match.group(1)!;
+    final lower = s.toLowerCase();
+    if (lower.contains('hazırlık') || lower.contains('hazirlik')) return 'hazirlik';
+    if (lower.contains('mezun')) return 'mezun';
+    return '';
+  }
+
+  bool _areBranchAliases(String b1, String b2) {
+    final aliases = [
+      {'turkce', 'turkce ve edebiyat', 'edebiyat', 'turk dili ve edebiyati'},
+      {'matematik', 'mat', 'geometri'},
+      {'fen', 'fen bilimleri', 'fen bilgisi', 'fizik', 'kimya', 'biyoloji'},
+      {'sosyal', 'sosyal bilgiler', 'tarih', 'cografya', 'inkilap', 'tc inkilap tarihi ve ataturkculuk'},
+      {'din', 'din kulturu', 'din kulturu ve ahlak bilgisi', 'dinkulturu'},
+      {'ingilizce', 'ing', 'yabanci dil'},
+      {'almanca', 'alm'},
+      {'fransizca', 'fra'},
+    ];
+    for (var set in aliases) {
+      bool has1 = set.any((s) => b1 == s || b1.contains(s) || s.contains(b1));
+      bool has2 = set.any((s) => b2 == s || b2.contains(s) || s.contains(b2));
+      if (has1 && has2) return true;
+    }
+    return false;
+  }
+
   void _autoSelectMasterListForCurrentBranch() {
     if (_availableLists.isEmpty) return;
 
-    // Try to find a default match for the current branch
-    OutcomeList? bestMatch;
-    try {
-      bestMatch = _availableLists.firstWhere(
-        (list) =>
-            list.classLevel == widget.classLevel &&
-            list.branchName == _currentBranch,
-      );
-    } catch (_) {}
+    final targetNormBranch = _normBranch(_currentBranch);
+    final targetGrade = _extractGrade(widget.classLevel);
+    final currentUploaded = widget.allOutcomes[_currentBranch] ?? [];
 
-    if (bestMatch == null) {
+    OutcomeList? bestMatch;
+    double highestScore = -999999;
+
+    for (final list in _availableLists) {
+      double score = 0;
+      final listNormBranch = _normBranch(list.branchName);
+      final listNormName = _normBranch(list.name);
+      final listGradeFromLevel = _extractGrade(list.classLevel);
+      final listGradeFromName = _extractGrade(list.name);
+      final effectiveListGrade = listGradeFromLevel.isNotEmpty
+          ? listGradeFromLevel
+          : listGradeFromName;
+
+      // ── 1. Branş Uyumu Kontrolü ──
+      bool branchMatches = false;
+      if (listNormBranch == targetNormBranch) {
+        score += 300;
+        branchMatches = true;
+      } else if (listNormBranch.contains(targetNormBranch) ||
+          targetNormBranch.contains(listNormBranch)) {
+        score += 200;
+        branchMatches = true;
+      } else if (listNormName.contains(targetNormBranch)) {
+        score += 150;
+        branchMatches = true;
+      } else if (_areBranchAliases(targetNormBranch, listNormBranch) ||
+          _areBranchAliases(targetNormBranch, listNormName)) {
+        score += 180;
+        branchMatches = true;
+      }
+
+      // Branş eşleşmiyorsa bu liste doğrudan elenir
+      if (!branchMatches) continue;
+
+      // ── 2. Sınavın Tanımlandığı Sınıf Seviyesi Önceliği (Kritik) ──
+      if (targetGrade.isNotEmpty) {
+        if (effectiveListGrade == targetGrade) {
+          // Sınav sınıfı ile tam eşleşen liste (ör: 7. Sınıf)
+          score += 1000;
+          if (listGradeFromLevel == targetGrade) score += 200;
+        } else if (effectiveListGrade.isNotEmpty && effectiveListGrade != targetGrade) {
+          // Yanlış sınıf seviyesi (ör: 7. sınıf sınavı için 8. sınıf listesi)
+          score -= 5000;
+        }
+      }
+
+      // ── 3. Yüklenen Soruları / Kazanımları Tarama (K12, Kod, Metin) ──
+      if (currentUploaded.isNotEmpty && list.outcomes.isNotEmpty) {
+        final listK12Set = <String>{};
+        final listCodeSet = <String>{};
+        final listCleanDescs = <String>{};
+
+        for (final o in list.outcomes) {
+          if (o.k12Code.trim().isNotEmpty) listK12Set.add(o.k12Code.trim());
+          final normCode = _normalizeKodu(o.code);
+          if (normCode.isNotEmpty) listCodeSet.add(normCode);
+          final cleanDesc = _normalizeText(_stripCode(o.description));
+          if (cleanDesc.length > 5) listCleanDescs.add(cleanDesc);
+        }
+
+        int matchedCount = 0;
+        for (final item in currentUploaded) {
+          if (item.k12Code.trim().isNotEmpty &&
+              listK12Set.contains(item.k12Code.trim())) {
+            score += 80;
+            matchedCount++;
+            continue;
+          }
+
+          final itemCleanDesc = _normalizeText(_stripCode(item.description));
+          if (itemCleanDesc.length > 5 && listCleanDescs.contains(itemCleanDesc)) {
+            score += 50;
+            matchedCount++;
+            continue;
+          }
+
+          final itemNormCode = _normalizeKodu(item.code);
+          if (itemNormCode.isNotEmpty && listCodeSet.contains(itemNormCode)) {
+            score += 30;
+            matchedCount++;
+            continue;
+          }
+        }
+
+        if (matchedCount > 0) {
+          double matchRatio = matchedCount / currentUploaded.length;
+          score += (matchRatio * 500);
+        }
+      }
+
+      if (score > highestScore) {
+        highestScore = score;
+        bestMatch = list;
+      }
+    }
+
+    // Fallback: Hedef branşa ait herhangi bir liste varsa seç
+    if (bestMatch == null || highestScore < -4000) {
       try {
         bestMatch = _availableLists.firstWhere(
-          (list) => list.branchName == _currentBranch,
+          (l) => _normBranch(l.branchName) == targetNormBranch,
         );
-      } catch (_) {}
+      } catch (silentError) { debugPrint('[outcome_matching_screen] hata yutuldu: $silentError'); }
     }
 
     if (bestMatch != null) {
       _onMasterListChanged(bestMatch.id);
     } else {
-      // Prepare blank state if no list found (though we might keep previous if appropriate, but safer to clear)
       setState(() {
         _selectedListId = null;
         _masterOutcomes = [];
       });
     }
+  }
+
+  bool _isRecommendedList(OutcomeList list) {
+    final targetNormBranch = _normBranch(_currentBranch);
+    final targetGrade = _extractGrade(widget.classLevel);
+    final listNormBranch = _normBranch(list.branchName);
+    final listNormName = _normBranch(list.name);
+    final listGrade = _extractGrade(list.classLevel).isNotEmpty
+        ? _extractGrade(list.classLevel)
+        : _extractGrade(list.name);
+
+    bool branchMatch = listNormBranch == targetNormBranch ||
+        listNormName.contains(targetNormBranch) ||
+        _areBranchAliases(targetNormBranch, listNormBranch);
+
+    if (!branchMatch) return false;
+    if (targetGrade.isNotEmpty && listGrade == targetGrade) return true;
+    return false;
+  }
+
+  List<OutcomeList> _getSortedDropdownLists() {
+    final targetNormBranch = _normBranch(_currentBranch);
+    final targetGrade = _extractGrade(widget.classLevel);
+
+    final sorted = List<OutcomeList>.from(_availableLists);
+    sorted.sort((a, b) {
+      int scoreA = 0;
+      int scoreB = 0;
+
+      final aBranch = _normBranch(a.branchName);
+      final bBranch = _normBranch(b.branchName);
+      final aGrade = _extractGrade(a.classLevel).isNotEmpty ? _extractGrade(a.classLevel) : _extractGrade(a.name);
+      final bGrade = _extractGrade(b.classLevel).isNotEmpty ? _extractGrade(b.classLevel) : _extractGrade(b.name);
+
+      if (aBranch == targetNormBranch || _areBranchAliases(targetNormBranch, aBranch)) scoreA += 10;
+      if (bBranch == targetNormBranch || _areBranchAliases(targetNormBranch, bBranch)) scoreB += 10;
+
+      if (targetGrade.isNotEmpty) {
+        if (aGrade == targetGrade) scoreA += 20;
+        if (bGrade == targetGrade) scoreB += 20;
+      }
+
+      if (scoreA != scoreB) return scoreB.compareTo(scoreA);
+      return a.name.compareTo(b.name);
+    });
+
+    return sorted;
   }
 
   void _onMasterListChanged(String? listId) {
@@ -160,7 +340,34 @@ class _OutcomeMatchingScreenState extends State<OutcomeMatchingScreen> {
 
       bool matched = false;
 
-      // 1. PRIORITY: Description Similarity Match (>= 80%)
+      // 1. EN YÜKSEK ÖNCELİK: Birebir K12 Kod Eşleşmesi (Resmi Sistem Kodu)
+      if (current.k12Code.trim().isNotEmpty) {
+        try {
+          final masterMatch = _masterOutcomes.firstWhere(
+            (m) => m.k12Code.trim() == current.k12Code.trim(),
+          );
+          branchMatches[i] = masterMatch;
+          matched = true;
+        } catch (silentError) { debugPrint('[outcome_matching_screen] hata yutuldu: $silentError'); }
+      }
+
+      if (matched) continue;
+
+      // 2. ÖNCELİK: Birebir Metin Eşleşmesi (Temizlenmiş Metin)
+      String curClean = _normalizeText(_stripCode(current.description));
+      if (curClean.isNotEmpty) {
+        try {
+          final masterMatch = _masterOutcomes.firstWhere(
+            (m) => _normalizeText(_stripCode(m.description)) == curClean,
+          );
+          branchMatches[i] = masterMatch;
+          matched = true;
+        } catch (silentError) { debugPrint('[outcome_matching_screen] hata yutuldu: $silentError'); }
+      }
+
+      if (matched) continue;
+
+      // 3. ÖNCELİK: Açıklama Benzerlik Eşleşmesi (>= 80%)
       double bestScore = 0;
       OutcomeItem? bestMaster;
 
@@ -179,20 +386,7 @@ class _OutcomeMatchingScreenState extends State<OutcomeMatchingScreen> {
 
       if (matched) continue;
 
-      // 2. PRIORITY: K12 Code Match
-      if (current.k12Code.isNotEmpty) {
-        try {
-          final masterMatch = _masterOutcomes.firstWhere(
-            (m) => m.k12Code == current.k12Code,
-          );
-          branchMatches[i] = masterMatch;
-          matched = true;
-        } catch (_) {}
-      }
-
-      if (matched) continue;
-
-      // 3. PRIORITY: Kazanım Kodu Match (Greedy Parent Match)
+      // 4. ÖNCELİK: Kazanım Kodu Eşleşmesi (Greedy Parent Match)
       if (current.code.isNotEmpty) {
         String currentNorm = _normalizeKodu(current.code);
         if (currentNorm.isNotEmpty) {
@@ -206,7 +400,7 @@ class _OutcomeMatchingScreenState extends State<OutcomeMatchingScreen> {
               branchMatches[i] = masterMatch;
               matched = true;
               break;
-            } catch (_) {}
+            } catch (silentError) { debugPrint('[outcome_matching_screen] hata yutuldu: $silentError'); }
             parts.removeLast();
           }
         }
@@ -806,15 +1000,31 @@ class _OutcomeMatchingScreenState extends State<OutcomeMatchingScreen> {
                       value: _selectedListId,
                       hint: Text('Referans Liste Seçiniz'),
                       onChanged: _onMasterListChanged,
-                      items: _availableLists.map((list) {
+                      items: _getSortedDropdownLists().map((list) {
+                        final isRecommended = _isRecommendedList(list);
                         return DropdownMenuItem<String>(
                           value: list.id,
-                          child: Text(
-                            list.name.isNotEmpty
-                                ? list.name
-                                : '${list.classLevel} - ${list.branchName}',
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(fontSize: 14),
+                          child: Row(
+                            children: [
+                              if (isRecommended)
+                                const Padding(
+                                  padding: EdgeInsets.only(right: 6),
+                                  child: Icon(Icons.star, size: 16, color: Colors.amber),
+                                ),
+                              Expanded(
+                                child: Text(
+                                  list.name.isNotEmpty
+                                      ? list.name
+                                      : '${list.classLevel} - ${list.branchName}',
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: isRecommended ? FontWeight.bold : FontWeight.normal,
+                                    color: isRecommended ? Colors.teal.shade800 : Colors.black87,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         );
                       }).toList(),
@@ -890,10 +1100,10 @@ class _OutcomeMatchingScreenState extends State<OutcomeMatchingScreen> {
                                     vertical: 4,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: scoreColor.withOpacity(0.1),
+                                    color: scoreColor.withValues(alpha: 0.1),
                                     borderRadius: BorderRadius.circular(4),
                                     border: Border.all(
-                                      color: scoreColor.withOpacity(0.3),
+                                      color: scoreColor.withValues(alpha: 0.3),
                                     ),
                                   ),
                                   child: Text(

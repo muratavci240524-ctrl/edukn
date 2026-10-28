@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -105,7 +105,7 @@ class _MentorReportsScreenState extends State<MentorReportsScreen> {
       // Set of student IDs who have interview log in the last 14 days
       Set<String> studentsWithRecentLogs = {};
       for (var doc in interviewsQuery.docs) {
-        final data = doc.data() as Map<String, dynamic>;
+        final data = doc.data();
         final dateStamp = data['date'] as Timestamp?;
         if (dateStamp != null && dateStamp.toDate().isBefore(fourteenDaysAgo)) {
           continue;
@@ -301,9 +301,9 @@ class _MentorReportsScreenState extends State<MentorReportsScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
+        color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -379,7 +379,7 @@ class _MentorReportsScreenState extends State<MentorReportsScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: statusColor.withOpacity(0.1),
+                      color: statusColor.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Row(

@@ -19,7 +19,6 @@ import 'screens/school/student_registration_screen.dart';
 import 'screens/school/parent_student_selection_screen.dart';
 import 'screens/school/terms_screen.dart';
 import 'screens/hr/hr_home_screen.dart';
-import 'screens/announcements/announcements_screen.dart';
 import 'screens/school/school_types/school_type_announcements_screen.dart';
 import 'package:edukn/screens/support_services/support_services_hub_screen.dart';
 import 'screens/school/settings/permission_definition_screen.dart';
@@ -34,12 +33,10 @@ import 'screens/school/accounting/accounting_dashboard_screen.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_options.dart'; // FlutterFire CLI'nin oluşturduğu dosya
-import 'services/term_service.dart';
 import 'services/notification_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'screens/school/school_types/chat/call/call_service.dart';
 import 'screens/school/school_types/chat/call/call_screen_dialog.dart';
-import 'screens/school/school_types/chat/call/call_models.dart';
 import 'services/pwa_update_service.dart';
 // --- BİTTİ ---
 
@@ -50,11 +47,11 @@ void main() async {
   await initializeDateFormatting('tr_TR', null);
 
   try {
-    print('🔥 Firebase başlatılıyor...');
+    debugPrint('🔥 Firebase başlatılıyor...');
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-    print('✅ Firebase başarıyla başlatıldı!');
+    debugPrint('✅ Firebase başarıyla başlatıldı!');
 
     if (kIsWeb) {
       try {
@@ -63,9 +60,9 @@ void main() async {
           persistenceEnabled: true,
           cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
         );
-        print('✅ Firestore Web ayarları uygulandı (persistence=true, cache=UNLIMITED).');
+        debugPrint('✅ Firestore Web ayarları uygulandı (persistence=true, cache=UNLIMITED).');
       } catch (e) {
-        print('⚠️ Firestore Settings hatası: $e');
+        debugPrint('⚠️ Firestore Settings hatası: $e');
       }
     }
 
@@ -81,15 +78,15 @@ void main() async {
         androidProvider: AndroidProvider.debug,
         appleProvider: AppleProvider.debug,
       ).then((_) {
-        print('✅ App Check aktif!');
+        debugPrint('✅ App Check aktif!');
       }).catchError((e) {
-        print('⚠️ App Check aktifleştirilemedi: $e');
+        debugPrint('⚠️ App Check aktifleştirilemedi: $e');
       });
     } else {
-      print('ℹ️ Debug modunda App Check devre dışı bırakıldı.');
+      debugPrint('ℹ️ Debug modunda App Check devre dışı bırakıldı.');
     }
   } catch (e) {
-    print('❌ Firebase başlatma hatası: $e');
+    debugPrint('❌ Firebase başlatma hatası: $e');
     if (!e.toString().toLowerCase().contains('duplicate')) {
       rethrow; // Duplicate dışındaki hataları fırlat
     }
@@ -103,15 +100,15 @@ void _verifyAuthTokenInBackground() async {
   try {
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser != null) {
-      print('🔄 Mevcut kullanıcı bulundu, Auth Token arka planda doğrulanıyor...');
+      debugPrint('🔄 Mevcut kullanıcı bulundu, Auth Token arka planda doğrulanıyor...');
       await currentUser.getIdTokenResult(true);
-      print('✅ Auth Token başarıyla doğrulandı.');
+      debugPrint('✅ Auth Token başarıyla doğrulandı.');
     }
   } catch (e) {
-    print('❌ Auth Token yenileme hatası! Oturum geçersiz. Çıkış yapılıyor: $e');
+    debugPrint('❌ Auth Token yenileme hatası! Oturum geçersiz. Çıkış yapılıyor: $e');
     try {
       await FirebaseAuth.instance.signOut();
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[main] hata yutuldu: $silentError'); }
   }
 }
 
@@ -126,6 +123,8 @@ class MyApp extends StatelessWidget {
   // Global Navigator Key
   static final GlobalKey<NavigatorState> navigatorKey =
       GlobalKey<NavigatorState>();
+
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -418,7 +417,7 @@ class __GlobalKeyboardUnfocusWrapperState
           FocusManager.instance.primaryFocus?.unfocus();
         }
       }
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[main] hata yutuldu: $silentError'); }
   }
 
   @override

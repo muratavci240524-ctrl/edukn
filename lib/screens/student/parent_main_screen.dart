@@ -191,7 +191,7 @@ class _ParentMainScreenState extends State<ParentMainScreen> {
       _studentNumber = newNo;
     });
 
-    ScaffoldMessenger.of(context).showSnackBar(
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('✓ Aktif öğrenci değiştirildi: $newName'),
         backgroundColor: Colors.indigo,

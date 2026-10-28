@@ -390,7 +390,7 @@ class _SchoolTypesScreenState extends State<SchoolTypesScreen> {
           .doc(id)
           .delete();
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('🗑️ Okul türü silindi!'),
           backgroundColor: Colors.orange,
@@ -747,7 +747,7 @@ class _SchoolTypeCardState extends State<_SchoolTypeCard> {
           borderRadius: BorderRadius.circular(24),
           boxShadow: [
             BoxShadow(
-              color: theme.primary.withOpacity(_isHovered ? 0.15 : 0.05),
+              color: theme.primary.withValues(alpha: _isHovered ? 0.15 : 0.05),
               blurRadius: _isHovered ? 20 : 10,
               offset: Offset(0, _isHovered ? 8 : 4),
             ),
@@ -776,7 +776,7 @@ class _SchoolTypeCardState extends State<_SchoolTypeCard> {
                   height: 100,
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
-                      colors: [theme.gradient[0].withOpacity(0.85), theme.gradient[1]],
+                      colors: [theme.gradient[0].withValues(alpha: 0.85), theme.gradient[1]],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
@@ -790,7 +790,7 @@ class _SchoolTypeCardState extends State<_SchoolTypeCard> {
                         child: Icon(
                           theme.icon,
                           size: 90,
-                          color: Colors.white.withOpacity(0.15),
+                          color: Colors.white.withValues(alpha: 0.15),
                         ),
                       ),
                       Padding(
@@ -805,7 +805,7 @@ class _SchoolTypeCardState extends State<_SchoolTypeCard> {
                                 borderRadius: BorderRadius.circular(16),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: Colors.black.withOpacity(0.05),
+                                    color: Colors.black.withValues(alpha: 0.05),
                                     blurRadius: 8,
                                     offset: Offset(0, 4),
                                   )
@@ -818,7 +818,7 @@ class _SchoolTypeCardState extends State<_SchoolTypeCard> {
                               Container(
                                 padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.9),
+                                  color: Colors.white.withValues(alpha: 0.9),
                                   borderRadius: BorderRadius.circular(20),
                                 ),
                                 child: Text('PASİF', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Colors.red.shade700, letterSpacing: 0.5)),
@@ -827,7 +827,7 @@ class _SchoolTypeCardState extends State<_SchoolTypeCard> {
                               Container(
                                 margin: EdgeInsets.only(left: 8),
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.2),
+                                  color: Colors.white.withValues(alpha: 0.2),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 width: 36,
@@ -866,7 +866,7 @@ class _SchoolTypeCardState extends State<_SchoolTypeCard> {
                           decoration: BoxDecoration(
                             color: theme.light,
                             borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: theme.primary.withOpacity(0.2)),
+                            border: Border.all(color: theme.primary.withValues(alpha: 0.2)),
                           ),
                           child: Text(
                             schoolType.toUpperCase(),
@@ -1025,7 +1025,7 @@ class _SchoolTypeCardState extends State<_SchoolTypeCard> {
         Container(
           padding: EdgeInsets.all(6),
           decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
+            color: color.withValues(alpha: 0.1),
             shape: BoxShape.circle,
           ),
           child: Icon(icon, size: 16, color: color),
@@ -1065,8 +1065,8 @@ class _ModernSchoolTypeFormState extends State<_ModernSchoolTypeForm> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _nameController;
   late TextEditingController _capacityController;
-  Map<String, bool> _selectedModules = {};
-  Map<String, bool> _selectedGrades = {};
+  final Map<String, bool> _selectedModules = {};
+  final Map<String, bool> _selectedGrades = {};
   bool _isSaving = false;
 
   // Okul türü seçenekleri ve icon'ları
@@ -1118,7 +1118,7 @@ class _ModernSchoolTypeFormState extends State<_ModernSchoolTypeForm> {
     _selectedSchoolType = widget.initialData?['schoolType'];
 
     // Modülleri başlat - SchoolTypeModules'den al
-    SchoolTypeModules.allModuleKeys.forEach((key) {
+    for (var key in SchoolTypeModules.allModuleKeys) {
       if (widget.initialData != null) {
         List<dynamic> activeModules =
             widget.initialData!['activeModules'] ?? [];
@@ -1126,7 +1126,7 @@ class _ModernSchoolTypeFormState extends State<_ModernSchoolTypeForm> {
       } else {
         _selectedModules[key] = true; // Varsayılan hepsi seçili
       }
-    });
+    }
 
     // Sınıf/Yaş seçeneklerini başlat
     if (_selectedSchoolType != null &&
@@ -1272,7 +1272,7 @@ class _ModernSchoolTypeFormState extends State<_ModernSchoolTypeForm> {
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
       );
     } finally {
@@ -1378,7 +1378,7 @@ class _ModernSchoolTypeFormState extends State<_ModernSchoolTypeForm> {
                       ),
                       SizedBox(height: 8),
                       DropdownButtonFormField<String>(
-                        value: _selectedSchoolType,
+                        initialValue: _selectedSchoolType,
                         decoration: InputDecoration(
                           hintText: 'Okul türü seçin',
                           filled: true,
@@ -1686,12 +1686,12 @@ class _ModernSchoolTypeFormState extends State<_ModernSchoolTypeForm> {
                           margin: EdgeInsets.only(bottom: 12),
                           decoration: BoxDecoration(
                             color: isSelected
-                                ? (moduleInfo?.color.withOpacity(0.05) ?? Colors.indigo.shade50)
+                                ? (moduleInfo?.color.withValues(alpha: 0.05) ?? Colors.indigo.shade50)
                                 : Colors.grey.shade50,
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
                               color: isSelected
-                                  ? (moduleInfo?.color.withOpacity(0.3) ?? Colors.indigo.shade200)
+                                  ? (moduleInfo?.color.withValues(alpha: 0.3) ?? Colors.indigo.shade200)
                                   : Colors.grey.shade200,
                               width: 1,
                             ),
@@ -1765,7 +1765,7 @@ class _ModernSchoolTypeFormState extends State<_ModernSchoolTypeForm> {
                                       borderRadius: BorderRadius.circular(20),
                                       boxShadow: isSelected ? [
                                         BoxShadow(
-                                          color: (moduleInfo?.color ?? Colors.indigo).withOpacity(0.3),
+                                          color: (moduleInfo?.color ?? Colors.indigo).withValues(alpha: 0.3),
                                           blurRadius: 8,
                                           offset: Offset(0, 4),
                                         )

@@ -1,6 +1,5 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
-import '../../../../models/assessment/assessment_action_plan_model.dart';
 import '../../../../services/assessment_service.dart';
 import '../../../../widgets/edukn_logo.dart';
 import '../action_plan/assessment_action_plan_screen.dart';
@@ -60,7 +59,7 @@ class _ReinforcementDashboardScreenState extends State<ReinforcementDashboardScr
         }
       });
     } catch (e) {
-      print('Dashboard Error: $e');
+      debugPrint('Dashboard Error: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -81,9 +80,9 @@ class _ReinforcementDashboardScreenState extends State<ReinforcementDashboardScr
         leading: const BackButton(color: Colors.white),
         bottom: TabBar(
           controller: _tabController,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white.withOpacity(0.6),
-          indicatorColor: Colors.white,
+          labelColor: Colors.indigo.shade900,
+          unselectedLabelColor: Colors.indigo.shade300,
+          indicatorColor: Colors.indigo.shade700,
           indicatorWeight: 3,
           labelStyle: const TextStyle(fontWeight: FontWeight.bold),
           tabs: const [
@@ -178,15 +177,15 @@ class _ReinforcementDashboardScreenState extends State<ReinforcementDashboardScr
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        gradient: LinearGradient(colors: [color.withOpacity(0.05), Colors.white]),
+        gradient: LinearGradient(colors: [color.withValues(alpha: 0.05), Colors.white]),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.1)),
+        border: Border.all(color: color.withValues(alpha: 0.1)),
       ),
       child: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
+            decoration: BoxDecoration(color: color.withValues(alpha: 0.1), shape: BoxShape.circle),
             child: Icon(icon, color: color, size: 28),
           ),
           const SizedBox(width: 16),
@@ -211,7 +210,7 @@ class _ReinforcementDashboardScreenState extends State<ReinforcementDashboardScr
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4))],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 10, offset: const Offset(0, 4))],
       ),
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -291,7 +290,7 @@ class _ReinforcementDashboardScreenState extends State<ReinforcementDashboardScr
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4))],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 10, offset: const Offset(0, 4))],
       ),
       child: Row(
         children: [

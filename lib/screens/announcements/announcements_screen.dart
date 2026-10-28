@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/custom_date_range_picker.dart';
-import 'package:intl/intl.dart';
-import 'package:syncfusion_flutter_datepicker/datepicker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -224,7 +222,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen>
     }
   }
 
-  bool _showFilters = false;
+  final bool _showFilters = false;
 
   @override
   Widget build(BuildContext context) {
@@ -262,7 +260,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen>
                         'Genel Haberleşme',
                         style: GoogleFonts.inter(
                           fontSize: 12,
-                          color: Colors.white.withOpacity(0.8),
+                          color: Colors.white.withValues(alpha: 0.8),
                         ),
                       ),
                     ],
@@ -404,7 +402,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen>
               // Calendar Button
               Material(
                 color: _range != null
-                    ? Colors.indigo.withOpacity(0.1)
+                    ? Colors.indigo.withValues(alpha: 0.1)
                     : const Color(0xFFF1F5F9),
                 borderRadius: BorderRadius.circular(12),
                 child: InkWell(
@@ -505,7 +503,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen>
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
           color: isSelected
-              ? primaryColor.withOpacity(0.1)
+              ? primaryColor.withValues(alpha: 0.1)
               : Colors.white,
           borderRadius: BorderRadius.circular(30),
           border: Border.all(

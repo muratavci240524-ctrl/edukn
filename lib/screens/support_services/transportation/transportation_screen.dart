@@ -1,4 +1,4 @@
-﻿import 'package:edukn/services/user_permission_service.dart';
+import 'package:edukn/services/user_permission_service.dart';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -211,7 +211,7 @@ class _TransportationScreenState extends State<TransportationScreen>
     if (vehicleNoCtrl.text.isEmpty ||
         plateCtrl.text.isEmpty ||
         driverCtrl.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Araç No, Plaka ve Sürücü zorunludur!'),
           backgroundColor: Colors.red,
@@ -675,7 +675,7 @@ class _VehicleDetailScreenState extends State<_VehicleDetailScreen> {
         .toList();
 
     if (otherVehicles.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Transfer edilecek başka araç bulunamadı.')),
       );
       return;
@@ -1462,7 +1462,7 @@ class _VehicleStudentSelectionScreenState
         .doc(widget.vehicleId)
         .update({'passengers': _localPassengers});
 
-    Navigator.pop(context);
+    if (mounted) Navigator.pop(context);
   }
 
   void _toggleStudent(String id, bool? morning, bool? evening) {
@@ -1981,7 +1981,7 @@ class _TakeAttendanceViewState extends State<_TakeAttendanceView>
 
                     return Card(
                       key: ValueKey(
-                        '${s['id']}_${_period}_${status}_${dotColor.value}',
+                        '${s['id']}_${_period}_${status}_${dotColor.toARGB32()}',
                       ),
                       child: ListTile(
                         leading: Stack(
@@ -2225,9 +2225,9 @@ class _StatCard extends StatelessWidget {
       child: Container(
         padding: EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
+          color: color.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: color.withOpacity(0.3)),
+          border: Border.all(color: color.withValues(alpha: 0.3)),
         ),
         child: Column(
           children: [
@@ -2394,7 +2394,7 @@ class _UsageStatisticsViewState extends State<_UsageStatisticsView> {
         });
       }
     } catch (e) {
-      print('Usage stats fetch error: $e');
+      debugPrint('Usage stats fetch error: $e');
       if (mounted) {
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(

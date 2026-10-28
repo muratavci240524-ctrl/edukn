@@ -8,6 +8,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import '../school/assessment/evaluation_models.dart';
 import '../school/assessment/student_report_card_dialog.dart';
+import '../school/assessment/exam_report_card_service.dart';
 import '../../models/assessment/lgs_data.dart';
 
 import 'dart:convert';
@@ -17,6 +18,7 @@ import '../../services/assessment_service.dart';
 import '../../models/assessment/trial_exam_model.dart';
 import '../../models/assessment/exam_type_model.dart';
 import 'dart:async';
+import 'dart:ui' show PointerDeviceKind;
 import 'topic_analysis_detail_screen.dart';
 import '../school/guidance/study_program_printing_helper.dart';
 import '../../models/school/book_model.dart';
@@ -28,7 +30,6 @@ import '../guidance/reports/development_report_pdf_helper.dart';
 import 'portfolio_guide_page.dart';
 import 'portfolio_report_dialog.dart';
 import '../../services/term_service.dart';
-import '../school/guidance/demand/demand_dashboard_screen.dart';
 import '../school/guidance/demand/create_demand_dialog.dart';
 import '../../models/guidance/demand_model.dart';
 import '../../services/guidance/demand_service.dart';
@@ -36,8 +37,10 @@ import '../../services/guidance_service.dart';
 import '../student/student_homework_stats_screen.dart';
 import '../student/student_attendance_stats_screen.dart';
 import '../student/student_etut_stats_screen.dart';
-import '../student/student_exam_stats_screen.dart';import 'package:edukn/widgets/safe_stream_builder.dart';
+import '../student/student_exam_stats_screen.dart';
+import 'package:edukn/widgets/safe_stream_builder.dart';
 import '../../services/user_permission_service.dart';
+import '../../services/course_track_resolver.dart';
 
 
 class PortfolioScreen extends StatefulWidget {
@@ -77,8 +80,80 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   String _statusFilter = 'active'; // 'active', 'inactive', 'all'
 
   // Drops
+  List<String> _schoolTypeGrades = [];
   List<String> _classLevels = [];
   List<String> _classes = [];
+
+  String? _extractLevelKey(String? raw) {
+    if (raw == null) return null;
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty || trimmed.toLowerCase() == 'null') return null;
+
+    final lower = trimmed.toLowerCase();
+    if (lower.contains('mezun')) return 'Mezun';
+    if (lower.contains('hazırlık') || lower.contains('hazirlik')) return 'Hazırlık';
+    if (lower.contains('anaokul') || lower.contains('anasınıf') || lower.contains('anasinif')) {
+      return 'Anaokulu';
+    }
+
+    // Doğrudan "5", "7. Sınıf", "12.Sınıf" vb.
+    final directGrade = RegExp(
+      r'^(1[0-2]|[1-9])\s*(?:\.\s*s[ıi]n[ıi]f.*)?$',
+      caseSensitive: false,
+    ).firstMatch(trimmed);
+    if (directGrade != null) {
+      return directGrade.group(1)!;
+    }
+
+    // 4 haneli şube kodu: 1001, 1102, 1201 -> 10, 11, 12
+    final m4 = RegExp(r'^(1[0-2])\d{2}\b').firstMatch(trimmed);
+    if (m4 != null) return m4.group(1)!;
+
+    // 3 haneli şube kodu: 501, 607, 708, 804 -> 5, 6, 7, 8
+    final m3 = RegExp(r'^([1-9])\d{2}\b').firstMatch(trimmed);
+    if (m3 != null) return m3.group(1)!;
+
+    // Tireli/harfli şube kodu: 7-A, 7/B, 7A, 12-A -> 7, 12
+    final mSep = RegExp(r'^(1[0-2]|[1-9])(?:\s*[-/.\s]\s*|[A-Za-zÇĞİÖŞÜçğıöşü])').firstMatch(trimmed);
+    if (mSep != null) return mSep.group(1)!;
+
+    return null;
+  }
+
+  String _formatLevelLabel(String levelKey) {
+    if (int.tryParse(levelKey) != null) {
+      return '$levelKey. Sınıf';
+    }
+    return levelKey;
+  }
+
+  String? _getStudentLevelKey(Map<String, dynamic> s) {
+    final rawLevel = (s['classLevel'] ?? s['grade'] ?? s['level'] ?? '').toString().trim();
+    final fromLevel = _extractLevelKey(rawLevel);
+    if (fromLevel != null && fromLevel.isNotEmpty) return fromLevel;
+
+    final rawClass = (s['className'] ?? s['branch'] ?? '').toString().trim();
+    return _extractLevelKey(rawClass);
+  }
+
+  String? _getClassLevelKey(String className) {
+    final direct = _extractLevelKey(className);
+    if (direct != null && direct.isNotEmpty) return direct;
+
+    for (final s in _allStudents) {
+      if ((s['className'] ?? '').toString().trim() == className.trim()) {
+        final k = _getStudentLevelKey(s);
+        if (k != null && k.isNotEmpty) return k;
+      }
+    }
+    return null;
+  }
+
+  List<String> get _filteredClassesForSelectedLevel {
+    final selectedKey = _extractLevelKey(_filterClassLevel);
+    if (selectedKey == null) return _classes;
+    return _classes.where((c) => _getClassLevelKey(c) == selectedKey).toList();
+  }
 
   // Scroll
   final ScrollController _studentListScrollController = ScrollController();
@@ -107,12 +182,11 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   Future<void> _loadActiveFilterData() async {
     try {
       if (widget.showAllSchoolTypes) {
-        // Load all active grades from all school types of the institution
         final snapshot = await FirebaseFirestore.instance
             .collection('schoolTypes')
             .where('institutionId', isEqualTo: widget.institutionId)
             .get();
-        
+
         final Set<String> allGrades = {};
         for (var doc in snapshot.docs) {
           final data = doc.data();
@@ -120,11 +194,10 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
             allGrades.addAll(List<String>.from(data['activeGrades'].map((e) => e.toString())));
           }
         }
-        
+
         if (mounted) {
-          setState(() {
-            _classLevels = allGrades.toList();
-          });
+          _schoolTypeGrades = allGrades.toList();
+          _extractFilterData();
         }
       } else {
         final doc = await FirebaseFirestore.instance
@@ -137,23 +210,21 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
             final grades = List<String>.from(
               data['activeGrades'].map((e) => e.toString()),
             );
+            final stName = (data['name'] ?? widget.schoolTypeName)
+                .toString()
+                .toLowerCase();
+            if (stName.contains('lise') && !grades.contains('Mezun')) {
+              grades.add('Mezun');
+            }
             if (mounted) {
-              setState(() {
-                _classLevels = grades;
-                // Add 'Mezun' if it's a high school
-                final stName = (data['name'] ?? widget.schoolTypeName)
-                    .toString()
-                    .toLowerCase();
-                if (stName.contains('lise') && !_classLevels.contains('Mezun')) {
-                  _classLevels.add('Mezun');
-                }
-              });
+              _schoolTypeGrades = grades;
+              _extractFilterData();
             }
           }
         }
       }
     } catch (e) {
-      print('Error loading active filter data: $e');
+      debugPrint('Error loading active filter data: $e');
     }
   }
 
@@ -170,7 +241,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
         });
       }
     } catch (e) {
-      print('Error loading report context: $e');
+      debugPrint('Error loading report context: $e');
     }
   }
 
@@ -234,7 +305,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
           if (widget.initialStudentId != null) {
             try {
               _selectedStudent = _allStudents.firstWhere((s) => s['id'] == widget.initialStudentId);
-            } catch (_) {}
+            } catch (silentError) { debugPrint('[portfolio_screen] hata yutuldu: $silentError'); }
           }
           _isLoading = false;
         });
@@ -246,7 +317,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
         }
       }
     } catch (e) {
-      print('Error loading students: $e');
+      debugPrint('Error loading students: $e');
       if (mounted) {
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -259,40 +330,56 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   }
 
   void _extractFilterData() {
-    // Extract class names (sections like 12-A, 11-B) from the current student list
+    // Öğrencilerden mevcut şube adlarını çıkar (501, 708, 12-A vb.)
     final classes = _allStudents
-        .where((s) => s['className'] != null)
-        .map((s) => s['className'].toString())
+        .map((s) => (s['className'] ?? '').toString().trim())
+        .where((c) => c.isNotEmpty && c.toLowerCase() != 'null')
         .toSet()
         .toList();
-    classes.sort();
+    classes.sort((a, b) {
+      final ia = int.tryParse(a);
+      final ib = int.tryParse(b);
+      if (ia != null && ib != null) return ia.compareTo(ib);
+      final ka = int.tryParse(_extractLevelKey(a) ?? '');
+      final kb = int.tryParse(_extractLevelKey(b) ?? '');
+      if (ka != null && kb != null && ka != kb) return ka.compareTo(kb);
+      return a.compareTo(b);
+    });
 
-    // Extract levels from actual students in this list
-    final levelsFound = _allStudents
-        .where((s) => s['classLevel'] != null)
-        .map((s) => s['classLevel'].toString())
-        .toSet()
-        .toList();
+    // Hem schoolType.activeGrades hem de öğrencilerden (classLevel veya className üzerinden) sınıf seviyelerini çıkar
+    final Set<String> levelKeys = {};
+    for (final g in _schoolTypeGrades) {
+      final k = _extractLevelKey(g);
+      if (k != null && k.isNotEmpty) levelKeys.add(k);
+    }
+    for (final s in _allStudents) {
+      final k = _getStudentLevelKey(s);
+      if (k != null && k.isNotEmpty) levelKeys.add(k);
+    }
 
-    setState(() {
-      _classes = classes;
-
-      // Update _classLevels with levels found in students, while keeping existing ones from school_types
-      for (var level in levelsFound) {
-        if (!_classLevels.contains(level)) {
-          _classLevels.add(level);
-        }
-      }
-
-      // Sort levels: numeric first, then alpha
-      _classLevels.sort((a, b) {
-        int? ia = int.tryParse(a);
-        int? ib = int.tryParse(b);
+    final sortedKeys = levelKeys.toList()
+      ..sort((a, b) {
+        final ia = int.tryParse(a);
+        final ib = int.tryParse(b);
         if (ia != null && ib != null) return ia.compareTo(ib);
         if (ia != null) return -1;
         if (ib != null) return 1;
         return a.compareTo(b);
       });
+
+    final formattedLevels = sortedKeys.map(_formatLevelLabel).toList();
+
+    setState(() {
+      _classes = classes;
+      _classLevels = formattedLevels;
+      if (_filterClassLevel != null && !_classLevels.contains(_filterClassLevel)) {
+        final key = _extractLevelKey(_filterClassLevel);
+        final match = key != null ? _formatLevelLabel(key) : null;
+        _filterClassLevel = (match != null && _classLevels.contains(match)) ? match : null;
+      }
+      if (_filterClass != null && !_filteredClassesForSelectedLevel.contains(_filterClass)) {
+        _filterClass = null;
+      }
     });
   }
 
@@ -319,7 +406,8 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   }
 
   void _filterStudents() {
-    final query = _searchController.text.toLowerCase();
+    final query = _searchController.text.trim().toLowerCase();
+    final targetLevelKey = _extractLevelKey(_filterClassLevel);
 
     setState(() {
       _filteredStudents = _allStudents.where((s) {
@@ -329,18 +417,19 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
         if (_statusFilter == 'inactive' && isActive) return false;
 
         // Class Level Filter
-        if (_filterClassLevel != null) {
-          if (s['classLevel'].toString() != _filterClassLevel) return false;
+        if (targetLevelKey != null) {
+          final studentLevelKey = _getStudentLevelKey(s);
+          if (studentLevelKey != targetLevelKey) return false;
         }
 
-        // Class Filter
+        // Class (Branch) Filter
         if (_filterClass != null) {
-          if (s['className'] != _filterClass) return false;
+          if ((s['className'] ?? '').toString().trim() != _filterClass!.trim()) return false;
         }
 
         // Search Filter
         if (query.isNotEmpty) {
-          final fullName = (s['fullName'] ?? '').toLowerCase();
+          final fullName = (s['fullName'] ?? s['name'] ?? '').toString().toLowerCase();
           final number = (s['studentNumber'] ?? '').toString();
           final tc = (s['tcNo'] ?? '').toString();
           return fullName.contains(query) ||
@@ -513,10 +602,16 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
               Expanded(
                 child: _buildDropdown(
                   hint: 'Sınıf Seviyesi',
-                  value: _filterClassLevel,
+                  value: _classLevels.contains(_filterClassLevel) ? _filterClassLevel : null,
                   items: _classLevels,
                   onChanged: (val) => setState(() {
                     _filterClassLevel = val;
+                    if (val == null) {
+                      _filterClass = null;
+                    } else if (_filterClass != null &&
+                        _getClassLevelKey(_filterClass!) != _extractLevelKey(val)) {
+                      _filterClass = null;
+                    }
                     _filterStudents();
                   }),
                   allLabel: 'Tüm Seviyeler',
@@ -526,10 +621,21 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
               Expanded(
                 child: _buildDropdown(
                   hint: 'Sınıf',
-                  value: _filterClass,
-                  items: _classes,
+                  value: _filteredClassesForSelectedLevel.contains(_filterClass)
+                      ? _filterClass
+                      : null,
+                  items: _filteredClassesForSelectedLevel,
                   onChanged: (val) => setState(() {
                     _filterClass = val;
+                    if (val != null) {
+                      final levelKey = _getClassLevelKey(val);
+                      if (levelKey != null) {
+                        final formatted = _formatLevelLabel(levelKey);
+                        if (_classLevels.contains(formatted)) {
+                          _filterClassLevel = formatted;
+                        }
+                      }
+                    }
                     _filterStudents();
                   }),
                   allLabel: 'Tüm Sınıflar',
@@ -805,9 +911,12 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
   Set<String> _availableExamTypes = {};
   String _selectedGraphSubject = 'Tümü';
   String? _expandedExamId;
+  String? _selectedTopicExamId;
+  Set<String> _selectedTopicExamIds = {};
+  String _selectedTopicSubjectFilter = 'Tümü';
   Set<String> _availableSubjects = {'Tümü'};
   String _graphMetric = 'score'; // Default to score ('net' or 'score')
-  String _selectedLgsYear = '2025'; // Default to latest LGS year
+  String _selectedLgsYear = '2026'; // Default to latest LGS year
   String _selectedWrittenSubject = 'Tümü';
   String _selectedHomeworkSubject = 'Tümü';
   int? _touchedIndex;
@@ -819,6 +928,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
   // Store full ExamType objects (examTypeId -> ExamType)
   Map<String, ExamType> _examTypesMap = {};
   StreamSubscription? _examTypesSubscription;
+  CourseTrackResolver _courseTracks = CourseTrackResolver.empty;
 
   // Streams
   late Stream<List<TrialExam>> _trialExamsStream;
@@ -835,6 +945,16 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
   @override
   void initState() {
     super.initState();
+    CourseTrackResolver.load(
+      institutionId: widget.institutionId,
+      schoolTypeId: (widget.student['schoolTypeId'] ?? '').toString(),
+    ).then((tracks) {
+      if (mounted) {
+        setState(() {
+          _courseTracks = tracks;
+        });
+      }
+    });
     _allTabs = [
       _PortfolioTabConfig('portfolyo_genel_bilgiler', 'Genel Bilgiler', _buildGeneralInfoTab),
       _PortfolioTabConfig('portfolyo_deneme_sinavlari', 'Deneme Sınavları', _buildTrialExamsTab),
@@ -1131,7 +1251,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
               borderRadius: BorderRadius.circular(16),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.indigo.withOpacity(0.3),
+                  color: Colors.indigo.withValues(alpha: 0.3),
                   blurRadius: 12,
                   offset: Offset(0, 6),
                 ),
@@ -1296,11 +1416,11 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
           }, orElse: () => null);
         }
 
-        print(
+        debugPrint(
           "DEBUG REPORT CARD: StudentID: $studentId, Match Found: ${match != null}",
         );
         if (match == null) {
-          print(
+          debugPrint(
             "DEBUG REPORT CARD: Available IDs in results: ${allResults.map((e) => e['studentId'] ?? e['id']).toList()}",
           );
         }
@@ -1350,15 +1470,29 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
             resultsJson: res['resultsJson'],
           );
 
+          List<String>? definedOrder;
+          final etId = res['examTypeId'];
+          if (etId != null && _examTypesMap.containsKey(etId)) {
+            definedOrder = _examTypesMap[etId]!
+                .subjects
+                .map((s) => s.branchName)
+                .toList();
+          }
+          final sortedSubjects = ExamReportCardService.sortSubjectsList(
+            resultObj.subjects.keys.toList(),
+            definedOrder: definedOrder,
+          );
+
           Navigator.push(
             context,
             MaterialPageRoute(
               builder: (context) => StudentReportCardDialog(
                 student: resultObj,
                 examName: res['examName'],
-                subjects: resultObj.subjects.keys.toList(),
+                subjects: sortedSubjects,
                 outcomes: dummyExam.outcomes,
                 totalStudents: 0,
+                isRankingVisible: res['isRankingVisible'] != false,
                 trialExamId: res['examId'],
               ),
             ),
@@ -1370,7 +1504,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
         SnackBar(content: Text("Sınav detaylarına şu an ulaşılamıyor.")),
       );
     } catch (e) {
-      print("Error showing report card: $e");
+      debugPrint("Error showing report card: $e");
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text("Hata: $e")));
@@ -1407,7 +1541,8 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
     double avgScore = totalScore / results.length;
     double avgNet = totalNet / results.length;
 
-    bool isLgs = _selectedExamType == 'LGS';
+    bool isLgs = _selectedExamType != null &&
+        _selectedExamType!.toUpperCase().contains('LGS');
     String estimatedPercentile = '-';
     String percentileRange = '-';
 
@@ -1449,7 +1584,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
               border: Border.all(color: Colors.purple.shade100),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.purple.withOpacity(0.05),
+                  color: Colors.purple.withValues(alpha: 0.05),
                   blurRadius: 10,
                   offset: Offset(0, 4),
                 ),
@@ -1508,7 +1643,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                           builder: (c) => AlertDialog(
                             title: Text("Bilgilendirme"),
                             content: Text(
-                              "LGS'de yüzdelik dilimler sadece puana değil, o yıl sınava giren öğrenci sayısına ve standart sapmaya da bağlıdır. Bu veriler 'genel ortalamaları' yansıtır.\\n\\nSistem, öğrenciye bu sonuçları gösterirken her zaman 'Tahmini Referans Değerleridir' ibaresini eklemelidir.",
+                              "LGS'de yüzdelik dilimler sadece puana değil, o yıl sınava giren öğrenci sayısına ve standart sapmaya da bağlıdır. Bu veriler MEB 2024, 2025 ve 2026 LGS yerleştirme istatistiklerine dayalı 'genel ortalamaları' yansıtır.\n\nSistem, öğrenciye bu sonuçları gösterirken her zaman 'Tahmini Referans Değerleridir' ibaresini baz alır.",
                             ),
                             actions: [
                               TextButton(
@@ -1564,7 +1699,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Row(
-                    children: ['2023', '2024', '2025'].map((y) {
+                    children: ['2024', '2025', '2026'].map((y) {
                       bool isSel = _selectedLgsYear == y;
                       return Expanded(
                         child: GestureDetector(
@@ -1610,113 +1745,1146 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
     );
   }
 
-  Widget _buildTopicAnalysis(List<Map<String, dynamic>> results) {
-    if (results.isEmpty) return SizedBox.shrink();
+  String _normOutcomeText(String input) {
+    return input
+        .trim()
+        .toLowerCase()
+        .replaceAll('i̇', 'i')
+        .replaceAll('ı', 'i')
+        .replaceAll('ğ', 'g')
+        .replaceAll('ü', 'u')
+        .replaceAll('ş', 's')
+        .replaceAll('ö', 'o')
+        .replaceAll('ç', 'c')
+        .replaceAll(RegExp(r'[^\w\s]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
 
-    // Calculate topic stats for each subject
+  String _canonicalTopicSubject(String rawSubject) {
+    final clean = rawSubject.trim();
+    if (clean.isEmpty) return 'Genel';
+    final n = _normOutcomeText(clean);
+
+    if (n.contains('edebiyat') || n.contains('turk dili')) {
+      return 'Türk Dili ve Edebiyatı';
+    }
+    if (n.contains('turkce') || n == 'trk' || n == 'tur') {
+      return 'Türkçe';
+    }
+    if (n.contains('geometri')) {
+      return 'Geometri';
+    }
+    if (n.contains('matematik') || n == 'mat' || n == 'mtm') {
+      return 'Matematik';
+    }
+    if (n.contains('fen') || n == 'fb') {
+      return 'Fen Bilimleri';
+    }
+    if (n.contains('inkilap')) {
+      return 'T.C. İnkılap Tarihi ve Atatürkçülük';
+    }
+    if (n.contains('sosyal') || n == 'sb' || n == 'sos') {
+      return 'Sosyal Bilgiler';
+    }
+    if (n.contains('din') || n.contains('dkab') || n.contains('ahlak')) {
+      return 'Din Kültürü ve Ahlak Bilgisi';
+    }
+    if (n.contains('ingilizce') ||
+        n.contains('english') ||
+        n.contains('yabanci dil') ||
+        n.contains('main course') ||
+        n == 'ing') {
+      return 'İngilizce';
+    }
+    if (n.contains('fizik')) return 'Fizik';
+    if (n.contains('kimya')) return 'Kimya';
+    if (n.contains('biyoloji')) return 'Biyoloji';
+    if (n.contains('tarih')) return 'Tarih';
+    if (n.contains('cografya')) return 'Coğrafya';
+    if (n.contains('felsefe')) return 'Felsefe';
+
+    return clean;
+  }
+
+  ({String code, String normBody, String display}) _parseOutcomeIdentity(String rawTopic) {
+    var trimmed = rawTopic.trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (trimmed.isEmpty) {
+      return (code: '', normBody: 'genel', display: 'Genel');
+    }
+
+    // MEB kazanım kodu: örn. "M.7.1.1.1.", "T.7.3.5 -", "F.8.4.1.2:", "SB.7.1.2", "E7.1.R1"
+    final codeRegex = RegExp(
+      r'^([A-ZÇĞİÖŞÜa-zçğıöşü]{1,5}\s*\.\s*\d+(?:\s*\.\s*[A-Za-z0-9]+){1,5})\s*[-:.)\s]*\s*(.*)$',
+    );
+    final match = codeRegex.firstMatch(trimmed);
+    String code = '';
+    String body = trimmed;
+
+    if (match != null) {
+      code = match.group(1)!.replaceAll(RegExp(r'\s+'), '').toUpperCase();
+      final rest = match.group(2)!.trim();
+      if (rest.isNotEmpty) {
+        body = rest;
+      }
+    }
+
+    final normBody = _normOutcomeText(body);
+    return (
+      code: code,
+      normBody: normBody.isNotEmpty ? normBody : _normOutcomeText(trimmed),
+      display: trimmed,
+    );
+  }
+
+  Map<String, Map<String, Map<String, double>>> _calculateTopicStatsForResults(
+    List<Map<String, dynamic>> results,
+  ) {
     Map<String, Map<String, Map<String, double>>> allSubjectStats = {};
-    Set<String> availableSubjects = {};
+    // subject -> { displayTopic -> {code, normBody, examIds} }
+    final Map<String, Map<String, ({String code, String normBody, Set<String> examIds})>>
+        subjectTopicMeta = {};
 
-    for (var res in results) {
+    for (int rIdx = 0; rIdx < results.length; rIdx++) {
+      final res = results[rIdx];
+      final examId = (res['examId'] ?? res['id'] ?? 'exam_$rIdx').toString();
       final outcomes = res['examOutcomes'];
-      final answerKeys = res['examAnswerKeys'];
-      final studentAnswers = res['studentAnswers'];
+      if (outcomes is! Map || outcomes.isEmpty) continue;
 
-      if (outcomes is! Map || answerKeys is! Map || studentAnswers is! Map)
-        continue;
+      final studentAnswers = (res['studentAnswers'] as Map?)?.map(
+            (k, v) => MapEntry(k.toString(), v.toString()),
+          ) ??
+          {};
+      final correctAnswers = (res['correctAnswers'] as Map?)?.map(
+            (k, v) => MapEntry(k.toString(), v.toString()),
+          ) ??
+          {};
+      final answerKeys =
+          res['examAnswerKeys'] is Map ? (res['examAnswerKeys'] as Map) : null;
 
-      var booklet = res['booklet']?.toString() ?? 'A';
-      var outcomesMap = (outcomes as Map?)?[booklet];
-      var answerKeysMap = (answerKeys as Map?)?[booklet];
+      if (studentAnswers.isEmpty && correctAnswers.isEmpty) continue;
 
-      // Fallback logic
-      if (outcomesMap == null && outcomes.isNotEmpty) {
-        outcomesMap = outcomes['A'] ?? outcomes.values.first;
-        booklet = outcomes.keys.firstWhere(
-          (k) => outcomes[k] == outcomesMap,
-          orElse: () => 'A',
-        );
-        answerKeysMap = answerKeys[booklet];
+      String lookupBooklet = (res['booklet'] ?? 'A').toString().trim();
+      if (!outcomes.containsKey(lookupBooklet)) {
+        if (lookupBooklet.length > 1 &&
+            outcomes.containsKey(lookupBooklet[0])) {
+          lookupBooklet = lookupBooklet[0];
+        }
       }
-      if (answerKeysMap == null && answerKeys.isNotEmpty) {
-        answerKeysMap = answerKeys['A'] ?? answerKeys.values.first;
+      if (!outcomes.containsKey(lookupBooklet)) {
+        lookupBooklet = outcomes.containsKey('A')
+            ? 'A'
+            : (outcomes.isNotEmpty ? outcomes.keys.first.toString() : '');
       }
 
-      if (outcomesMap is! Map || answerKeysMap is! Map) continue;
+      var outcomesMap = outcomes[lookupBooklet] is Map
+          ? (outcomes[lookupBooklet] as Map)
+          : null;
+      if (outcomesMap == null || outcomesMap.isEmpty) continue;
 
-      outcomesMap.forEach((subject, outcomeList) {
-        if (outcomeList is! List) return;
+      // Fallback answerKeys if correctAnswers map is missing
+      Map? fallbackAnswerKeys;
+      if (answerKeys != null) {
+        if (answerKeys.containsKey(lookupBooklet) &&
+            answerKeys[lookupBooklet] is Map) {
+          fallbackAnswerKeys = answerKeys[lookupBooklet] as Map;
+        } else if (answerKeys.containsKey('A') && answerKeys['A'] is Map) {
+          fallbackAnswerKeys = answerKeys['A'] as Map;
+        } else if (answerKeys.isNotEmpty && answerKeys.values.first is Map) {
+          fallbackAnswerKeys = answerKeys.values.first as Map;
+        }
+      }
 
-        availableSubjects.add(subject.toString());
+      String _findInMap(Map map, String key) {
+        if (map.containsKey(key)) return map[key]?.toString() ?? '';
+        final lowerKey = key.trim().toLowerCase();
+        for (var k in map.keys) {
+          if (k.toString().trim().toLowerCase() == lowerKey) {
+            return map[k]?.toString() ?? '';
+          }
+        }
+        final canonTarget = _canonicalTopicSubject(key);
+        for (var k in map.keys) {
+          if (_canonicalTopicSubject(k.toString()) == canonTarget) {
+            return map[k]?.toString() ?? '';
+          }
+        }
+        for (var k in map.keys) {
+          final kStr = k.toString().trim().toLowerCase();
+          if (kStr.contains(lowerKey) || lowerKey.contains(kStr)) {
+            return map[k]?.toString() ?? '';
+          }
+        }
+        return '';
+      }
 
-        // Find matching answer key
-        String? validSubjectKey;
-        final subjectKeyRaw = subject.toString().trim();
+      outcomesMap.forEach((subjectKey, outcomeList) {
+        if (outcomeList is! List || outcomeList.isEmpty) return;
+        final rawSubject = subjectKey.toString().trim();
+        final subject = _canonicalTopicSubject(rawSubject);
 
-        if (answerKeysMap.containsKey(subjectKeyRaw)) {
-          validSubjectKey = subjectKeyRaw;
-        } else {
-          validSubjectKey = answerKeysMap.keys.firstWhere(
-            (k) =>
-                k.toString().trim().toLowerCase() ==
-                subjectKeyRaw.toLowerCase(),
-            orElse: () => '',
-          );
+        final studentAns = _findInMap(studentAnswers, rawSubject);
+        String correctAns = _findInMap(correctAnswers, rawSubject);
+        if (correctAns.isEmpty && fallbackAnswerKeys != null) {
+          correctAns = _findInMap(fallbackAnswerKeys, rawSubject);
         }
 
-        if (validSubjectKey == null || validSubjectKey.isEmpty) return;
+        if (correctAns.isEmpty && studentAns.isEmpty) return;
 
-        final correctKey = answerKeysMap[validSubjectKey]?.toString() ?? '';
-        final studentAns = studentAnswers[validSubjectKey]?.toString() ?? '';
+        allSubjectStats.putIfAbsent(subject, () => {});
+        subjectTopicMeta.putIfAbsent(subject, () => {});
 
-        if (correctKey.isEmpty || studentAns.isEmpty) return;
+        int len = correctAns.length;
+        if (outcomeList.length < len) len = outcomeList.length;
 
-        // Initialize subject stats if needed
-        if (!allSubjectStats.containsKey(subject.toString())) {
-          allSubjectStats[subject.toString()] = {};
-        }
+        for (int i = 0; i < len; i++) {
+          String rawTopic = outcomeList[i]?.toString().trim() ?? '';
+          if (rawTopic.isEmpty) rawTopic = 'Genel';
 
-        // Process each question/topic
-        for (int i = 0; i < outcomeList.length; i++) {
-          if (i >= correctKey.length || i >= studentAns.length) break;
+          final parsed = _parseOutcomeIdentity(rawTopic);
+          final metaMap = subjectTopicMeta[subject]!;
+          final statsMap = allSubjectStats[subject]!;
 
-          // outcomeList is a list of strings (topics), not maps
-          final topic = outcomeList[i]?.toString() ?? 'Diğer';
+          // Mevcut kazanımlar arasında aynı kazanım kodu veya aynı normalize metin var mı kontrol et
+          String? matchedDisplayKey;
+          for (final entry in metaMap.entries) {
+            final existing = entry.value;
+            final sameBody = parsed.normBody.isNotEmpty &&
+                existing.normBody == parsed.normBody;
+            final sameCode = parsed.code.isNotEmpty &&
+                existing.code.isNotEmpty &&
+                existing.code == parsed.code;
+            if (sameBody || sameCode) {
+              matchedDisplayKey = entry.key;
+              break;
+            }
+          }
 
-          // Initialize topic stats if needed
-          allSubjectStats[subject.toString()]!.putIfAbsent(
-            topic,
-            () => {'correct': 0, 'wrong': 0, 'empty': 0},
-          );
-
-          final c = correctKey[i].toUpperCase();
-          final s = studentAns[i].toUpperCase();
-
-          if (s == c) {
-            allSubjectStats[subject.toString()]![topic]!['correct'] =
-                (allSubjectStats[subject.toString()]![topic]!['correct']! + 1);
-          } else if (s == ' ' || s.isEmpty) {
-            allSubjectStats[subject.toString()]![topic]!['empty'] =
-                (allSubjectStats[subject.toString()]![topic]!['empty']! + 1);
+          String activeKey;
+          if (matchedDisplayKey != null) {
+            activeKey = matchedDisplayKey;
+            final oldMeta = metaMap[activeKey]!;
+            // Eğer yeni gelen kazanımda MEB kodu da varsa ve eskisinde yoksa başlığı zenginleştir
+            if (oldMeta.code.isEmpty &&
+                parsed.code.isNotEmpty &&
+                parsed.display.length > activeKey.length) {
+              final existingStats = statsMap.remove(activeKey)!;
+              metaMap.remove(activeKey);
+              activeKey = parsed.display;
+              statsMap[activeKey] = existingStats;
+              metaMap[activeKey] = (
+                code: parsed.code,
+                normBody: oldMeta.normBody,
+                examIds: oldMeta.examIds..add(examId),
+              );
+            } else {
+              oldMeta.examIds.add(examId);
+            }
           } else {
-            allSubjectStats[subject.toString()]![topic]!['wrong'] =
-                (allSubjectStats[subject.toString()]![topic]!['wrong']! + 1);
+            activeKey = parsed.display;
+            statsMap[activeKey] = {
+              'correct': 0,
+              'wrong': 0,
+              'empty': 0,
+              'examCount': 1,
+            };
+            metaMap[activeKey] = (
+              code: parsed.code,
+              normBody: parsed.normBody,
+              examIds: {examId},
+            );
+          }
+
+          statsMap[activeKey]!['examCount'] =
+              metaMap[activeKey]!.examIds.length.toDouble();
+
+          final c = correctAns[i];
+          final s = (i < studentAns.length) ? studentAns[i] : ' ';
+
+          final status = TrialExam.evaluateAnswer(s, c);
+          if (status == AnswerStatus.correct) {
+            statsMap[activeKey]!['correct'] =
+                statsMap[activeKey]!['correct']! + 1;
+          } else if (status == AnswerStatus.empty) {
+            statsMap[activeKey]!['empty'] =
+                statsMap[activeKey]!['empty']! + 1;
+          } else {
+            statsMap[activeKey]!['wrong'] =
+                statsMap[activeKey]!['wrong']! + 1;
           }
         }
       });
     }
 
-    if (allSubjectStats.isEmpty) {
-      return SizedBox.shrink();
+    return allSubjectStats;
+  }
+
+  int _topicSubjectOrderIndex(String subject) {
+    final s = subject
+        .trim()
+        .toLowerCase()
+        .replaceAll('İ', 'i')
+        .replaceAll('I', 'ı');
+    // 1. Türkçe
+    if (s.contains('türkçe') ||
+        s.contains('turkce') ||
+        s.contains('edebiyat') ||
+        s.contains('türk dili')) {
+      return 10;
+    }
+    // 2. Sosyal Bilgiler / T.C. İnkılap Tarihi ve Atatürkçülük
+    if (s.contains('sosyal') ||
+        s.contains('inkılap') ||
+        s.contains('inkilap') ||
+        s.contains('tarih') ||
+        s.contains('coğrafya') ||
+        s.contains('cografya') ||
+        s.contains('felsefe')) {
+      return 20;
+    }
+    // 3. Din Kültürü ve Ahlak Bilgisi
+    if (s.contains('din')) {
+      return 30;
+    }
+    // 4. İngilizce / Yabancı Dil
+    if (s.contains('ingilizce') ||
+        s.contains('yabancı') ||
+        s.contains('yabanci') ||
+        s.contains('almanca') ||
+        s.contains('fransızca')) {
+      return 40;
+    }
+    // 5. Matematik
+    if (s.contains('matematik') || s.contains('geometri')) {
+      return 50;
+    }
+    // 6. Fen Bilimleri
+    if (s.contains('fen') ||
+        s.contains('fizik') ||
+        s.contains('kimya') ||
+        s.contains('biyoloji')) {
+      return 60;
+    }
+    return 999;
+  }
+
+  List<Map<String, dynamic>> _sortExamResultsNewestFirst(
+    List<Map<String, dynamic>> pool,
+  ) {
+    final copy = List<Map<String, dynamic>>.from(pool);
+    copy.sort((a, b) {
+      final da = a['date'] is DateTime
+          ? (a['date'] as DateTime)
+          : DateTime.fromMillisecondsSinceEpoch(0);
+      final db = b['date'] is DateTime
+          ? (b['date'] as DateTime)
+          : DateTime.fromMillisecondsSinceEpoch(0);
+      return db.compareTo(da);
+    });
+    return copy;
+  }
+
+  Future<void> _showTopicExamSelectorDialog(
+    List<Map<String, dynamic>> allResultsPool,
+    List<Map<String, dynamic>> currentTypeResults,
+  ) async {
+    final newestFirstPool = _sortExamResultsNewestFirst(allResultsPool);
+    final allIds = newestFirstPool
+        .map((r) => (r['examId'] ?? r['id']).toString())
+        .toSet();
+
+    Set<String> tempSelected;
+    String activePreset = _selectedTopicExamId ?? 'ALL';
+    if (activePreset == 'ALL') {
+      tempSelected = Set<String>.from(allIds);
+    } else if (activePreset == 'LAST_1') {
+      tempSelected = newestFirstPool
+          .take(1)
+          .map((r) => (r['examId'] ?? r['id']).toString())
+          .toSet();
+    } else if (activePreset == 'LAST_3') {
+      tempSelected = newestFirstPool
+          .take(3)
+          .map((r) => (r['examId'] ?? r['id']).toString())
+          .toSet();
+    } else if (activePreset == 'LAST_5') {
+      tempSelected = newestFirstPool
+          .take(5)
+          .map((r) => (r['examId'] ?? r['id']).toString())
+          .toSet();
+    } else if (activePreset == 'LAST_10') {
+      tempSelected = newestFirstPool
+          .take(10)
+          .map((r) => (r['examId'] ?? r['id']).toString())
+          .toSet();
+    } else if (activePreset == 'CURRENT_TYPE') {
+      tempSelected = currentTypeResults
+          .map((r) => (r['examId'] ?? r['id']).toString())
+          .toSet();
+    } else if (activePreset == 'CUSTOM' && _selectedTopicExamIds.isNotEmpty) {
+      tempSelected = Set<String>.from(_selectedTopicExamIds)..retainAll(allIds);
+    } else {
+      tempSelected = {activePreset}..retainAll(allIds);
+    }
+    if (tempSelected.isEmpty) {
+      tempSelected = Set<String>.from(allIds);
     }
 
-    // Flatten all topics across all subjects for summary
+    String searchQuery = '';
+    String selectedTypeTab = 'Tümü';
+    final examTypes = <String>{
+      'Tümü',
+      ...newestFirstPool
+          .map((r) => (r['typeName'] ?? '').toString().trim())
+          .where((t) => t.isNotEmpty),
+    }.toList();
+
+    final quickPresets = <Map<String, dynamic>>[
+      {
+        'id': 'ALL',
+        'label': 'Tüm Sınavlar',
+        'icon': Icons.all_inclusive_rounded,
+      },
+      {
+        'id': 'LAST_1',
+        'label': 'Son Sınav',
+        'icon': Icons.looks_one_outlined,
+      },
+      {
+        'id': 'LAST_3',
+        'label': 'Son 3 Sınav',
+        'icon': Icons.looks_3_outlined,
+      },
+      {
+        'id': 'LAST_5',
+        'label': 'Son 5 Sınav',
+        'icon': Icons.looks_5_outlined,
+      },
+      {
+        'id': 'LAST_10',
+        'label': 'Son 10 Sınav',
+        'icon': Icons.filter_9_plus_outlined,
+      },
+    ];
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            final filteredList = newestFirstPool.where((r) {
+              final eName = (r['examName'] ?? '').toString().toLowerCase();
+              final eType = (r['typeName'] ?? '').toString().trim();
+              if (selectedTypeTab != 'Tümü' && eType != selectedTypeTab) {
+                return false;
+              }
+              if (searchQuery.isNotEmpty) {
+                final q = searchQuery.toLowerCase();
+                return eName.contains(q) || eType.toLowerCase().contains(q);
+              }
+              return true;
+            }).toList();
+
+            final screenHeight = MediaQuery.of(ctx).size.height;
+            final isMobileSheet = MediaQuery.of(ctx).size.width < 600;
+
+            return Align(
+              alignment: Alignment.bottomCenter,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: 720,
+                  maxHeight: screenHeight * 0.85,
+                ),
+                child: Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.vertical(
+                      top: Radius.circular(24),
+                    ),
+                  ),
+                  padding: EdgeInsets.only(
+                    left: isMobileSheet ? 16 : 24,
+                    right: isMobileSheet ? 16 : 24,
+                    top: 12,
+                    bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Üst tutamaç çizgisi (Bottom Sheet handle)
+                      Center(
+                        child: Container(
+                          width: 44,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade300,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.indigo.shade50,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Icon(
+                              Icons.layers_rounded,
+                              color: Colors.indigo.shade700,
+                              size: 22,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Kazanım Analizi Sınav Seçimi',
+                                  style: TextStyle(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                                Text(
+                                  'Hızlı seçim yapabilir veya istediğiniz sınavları işaretleyerek ortak kazanımları birleştirebilirsiniz.',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            icon: const Icon(Icons.close),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      // Hızlı Seçim (Son Sınav, Son 3 Sınav, Son 5 Sınav, Son 10 Sınav, Tüm Sınavlar)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.indigo.shade50.withValues(alpha: 0.45),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: Colors.indigo.shade100),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.bolt_rounded,
+                                  size: 16,
+                                  color: Colors.indigo.shade700,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Hızlı Seçim',
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.indigo.shade900,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            ScrollConfiguration(
+                              behavior: ScrollConfiguration.of(ctx).copyWith(
+                                dragDevices: {
+                                  PointerDeviceKind.touch,
+                                  PointerDeviceKind.mouse,
+                                  PointerDeviceKind.trackpad,
+                                },
+                              ),
+                              child: SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                physics: const BouncingScrollPhysics(
+                                  parent: AlwaysScrollableScrollPhysics(),
+                                ),
+                                child: Row(
+                                  children: quickPresets.map((preset) {
+                                    final pId = preset['id'] as String;
+                                    final pLabel = preset['label'] as String;
+                                    final pIcon = preset['icon'] as IconData;
+                                    final isSelectedPreset =
+                                        activePreset == pId;
+
+                                    return Padding(
+                                      padding: const EdgeInsets.only(right: 8),
+                                      child: InkWell(
+                                        borderRadius: BorderRadius.circular(10),
+                                        onTap: () {
+                                          Set<String> newIds;
+                                          if (pId == 'ALL') {
+                                            newIds = Set<String>.from(allIds);
+                                          } else {
+                                            final count = int.tryParse(
+                                                  pId.replaceFirst('LAST_', ''),
+                                                ) ??
+                                                1;
+                                            newIds = newestFirstPool
+                                                .take(count)
+                                                .map(
+                                                  (r) => (r['examId'] ?? r['id'])
+                                                      .toString(),
+                                                )
+                                                .toSet();
+                                          }
+                                          setState(() {
+                                            _selectedTopicExamIds = newIds;
+                                            _selectedTopicExamId = pId;
+                                          });
+                                          Navigator.pop(ctx);
+                                        },
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                            vertical: 7,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: isSelectedPreset
+                                                ? Colors.indigo.shade600
+                                                : Colors.white,
+                                            borderRadius:
+                                                BorderRadius.circular(10),
+                                            border: Border.all(
+                                              color: isSelectedPreset
+                                                  ? Colors.indigo.shade600
+                                                  : Colors.indigo.shade200,
+                                            ),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                pIcon,
+                                                size: 15,
+                                                color: isSelectedPreset
+                                                    ? Colors.white
+                                                    : Colors.indigo.shade700,
+                                              ),
+                                              const SizedBox(width: 6),
+                                              Text(
+                                                pLabel,
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  fontWeight: isSelectedPreset
+                                                      ? FontWeight.bold
+                                                      : FontWeight.w600,
+                                                  color: isSelectedPreset
+                                                      ? Colors.white
+                                                      : Colors.indigo.shade900,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  }).toList(),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      // Arama ve Tümünü Seç / Temizle Satırı
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              onChanged: (v) =>
+                                  setSheetState(() => searchQuery = v.trim()),
+                              decoration: InputDecoration(
+                                hintText: 'Sınav adı veya sınav türü ara...',
+                                hintStyle: const TextStyle(fontSize: 13),
+                                prefixIcon: const Icon(Icons.search, size: 18),
+                                isDense: true,
+                                filled: true,
+                                fillColor: Colors.grey.shade100,
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 10,
+                                ),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: BorderSide.none,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          TextButton.icon(
+                            onPressed: () {
+                              setSheetState(() {
+                                activePreset = 'CUSTOM';
+                                for (final r in filteredList) {
+                                  tempSelected.add(
+                                    (r['examId'] ?? r['id']).toString(),
+                                  );
+                                }
+                              });
+                            },
+                            icon: const Icon(Icons.select_all, size: 16),
+                            label: const Text(
+                              'Tümünü Seç',
+                              style: TextStyle(fontSize: 12),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              setSheetState(() {
+                                activePreset = 'CUSTOM';
+                                tempSelected.clear();
+                              });
+                            },
+                            child: Text(
+                              'Temizle',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.red.shade600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (examTypes.length > 2) ...[
+                        const SizedBox(height: 10),
+                        ScrollConfiguration(
+                          behavior: ScrollConfiguration.of(ctx).copyWith(
+                            dragDevices: {
+                              PointerDeviceKind.touch,
+                              PointerDeviceKind.mouse,
+                              PointerDeviceKind.trackpad,
+                            },
+                          ),
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            physics: const BouncingScrollPhysics(
+                              parent: AlwaysScrollableScrollPhysics(),
+                            ),
+                            child: Row(
+                              children: examTypes.map((typeLabel) {
+                                final isSel = selectedTypeTab == typeLabel;
+                                final count = typeLabel == 'Tümü'
+                                    ? newestFirstPool.length
+                                    : newestFirstPool
+                                        .where(
+                                          (r) =>
+                                              (r['typeName'] ?? '')
+                                                  .toString()
+                                                  .trim() ==
+                                              typeLabel,
+                                        )
+                                        .length;
+                                return Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: ChoiceChip(
+                                    label: Text('$typeLabel ($count)'),
+                                    selected: isSel,
+                                    selectedColor: Colors.indigo.shade100,
+                                    labelStyle: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: isSel
+                                          ? FontWeight.bold
+                                          : FontWeight.w500,
+                                      color: isSel
+                                          ? Colors.indigo.shade900
+                                          : Colors.grey.shade700,
+                                    ),
+                                    onSelected: (_) {
+                                      setSheetState(() {
+                                        selectedTypeTab = typeLabel;
+                                      });
+                                    },
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 10),
+                      const Divider(height: 1),
+                      const SizedBox(height: 8),
+                       Flexible(
+                        child: filteredList.isEmpty
+                            ? Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 32),
+                                child: Center(
+                                  child: Text(
+                                    'Arama kriterine uygun sınav bulunamadı.',
+                                    style:
+                                        TextStyle(color: Colors.grey.shade500),
+                                  ),
+                                ),
+                              )
+                            : ListView.separated(
+                                shrinkWrap: true,
+                                itemCount: filteredList.length,
+                                separatorBuilder: (_, __) =>
+                                    const SizedBox(height: 6),
+                                itemBuilder: (ctx, idx) {
+                                  final r = filteredList[idx];
+                                  final eId =
+                                      (r['examId'] ?? r['id']).toString();
+                                  final eName = (r['examName'] ?? 'Deneme Sınavı')
+                                      .toString();
+                                  final eType =
+                                      (r['typeName'] ?? '').toString().trim();
+                                  final eDate = r['date'] is DateTime
+                                      ? DateFormat('dd.MM.yyyy')
+                                          .format(r['date'] as DateTime)
+                                      : '';
+                                  final eNet = (r['net'] as num?)?.toDouble();
+                                  final isChecked = tempSelected.contains(eId);
+
+                                  return InkWell(
+                                    borderRadius: BorderRadius.circular(12),
+                                    onTap: () {
+                                      setSheetState(() {
+                                        activePreset = 'CUSTOM';
+                                        if (isChecked) {
+                                          tempSelected.remove(eId);
+                                        } else {
+                                          tempSelected.add(eId);
+                                        }
+                                      });
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 10,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: isChecked
+                                            ? Colors.indigo.shade50
+                                                .withValues(alpha: 0.6)
+                                            : Colors.grey.shade50,
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: isChecked
+                                              ? Colors.indigo.shade300
+                                              : Colors.grey.shade200,
+                                          width: isChecked ? 1.5 : 1,
+                                        ),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Checkbox(
+                                            value: isChecked,
+                                            activeColor: Colors.indigo,
+                                            visualDensity:
+                                                VisualDensity.compact,
+                                            onChanged: (v) {
+                                              setSheetState(() {
+                                                activePreset = 'CUSTOM';
+                                                if (v == true) {
+                                                  tempSelected.add(eId);
+                                                } else {
+                                                  tempSelected.remove(eId);
+                                                }
+                                              });
+                                            },
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  eName,
+                                                  style: TextStyle(
+                                                    fontSize: 13.5,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: isChecked
+                                                        ? Colors.indigo.shade900
+                                                        : Colors.black87,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 4),
+                                                Wrap(
+                                                  spacing: 8,
+                                                  runSpacing: 4,
+                                                  crossAxisAlignment:
+                                                      WrapCrossAlignment.center,
+                                                  children: [
+                                                    if (eType.isNotEmpty)
+                                                      Container(
+                                                        padding:
+                                                            const EdgeInsets
+                                                                .symmetric(
+                                                          horizontal: 7,
+                                                          vertical: 2,
+                                                        ),
+                                                        decoration:
+                                                            BoxDecoration(
+                                                          color: Colors
+                                                              .indigo.shade100
+                                                              .withValues(
+                                                                  alpha: 0.6),
+                                                          borderRadius:
+                                                              BorderRadius
+                                                                  .circular(6),
+                                                        ),
+                                                        child: Text(
+                                                          eType,
+                                                          style: TextStyle(
+                                                            fontSize: 10.5,
+                                                            fontWeight:
+                                                                FontWeight.w600,
+                                                            color: Colors
+                                                                .indigo.shade800,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    if (eDate.isNotEmpty)
+                                                      Text(
+                                                        eDate,
+                                                        style: TextStyle(
+                                                          fontSize: 11.5,
+                                                          color: Colors
+                                                              .grey.shade600,
+                                                        ),
+                                                      ),
+                                                    if (eNet != null)
+                                                      Text(
+                                                        '• ${eNet.toStringAsFixed(1)} Net',
+                                                        style: TextStyle(
+                                                          fontSize: 11.5,
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                          color: Colors
+                                                              .teal.shade700,
+                                                        ),
+                                                      ),
+                                                  ],
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          OutlinedButton(
+                                            onPressed: () {
+                                              setState(() {
+                                                _selectedTopicExamIds = {eId};
+                                                _selectedTopicExamId = eId;
+                                              });
+                                              Navigator.pop(ctx);
+                                            },
+                                            style: OutlinedButton.styleFrom(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                horizontal: 10,
+                                                vertical: 6,
+                                              ),
+                                              minimumSize: Size.zero,
+                                              tapTargetSize:
+                                                  MaterialTapTargetSize
+                                                      .shrinkWrap,
+                                              side: BorderSide(
+                                                color: Colors.indigo.shade200,
+                                              ),
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                              ),
+                                            ),
+                                            child: Text(
+                                              'Sadece Bu',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w600,
+                                                color: Colors.indigo.shade700,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            '${tempSelected.length} / ${newestFirstPool.length} sınav seçildi',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.indigo.shade900,
+                            ),
+                          ),
+                          Row(
+                            children: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx),
+                                child: const Text('İptal'),
+                              ),
+                              const SizedBox(width: 8),
+                              ElevatedButton.icon(
+                                onPressed: tempSelected.isEmpty
+                                    ? null
+                                    : () {
+                                        setState(() {
+                                          if (tempSelected.length ==
+                                              allIds.length) {
+                                            _selectedTopicExamIds = {};
+                                            _selectedTopicExamId = 'ALL';
+                                          } else if (tempSelected.length == 1) {
+                                            _selectedTopicExamIds =
+                                                Set<String>.from(tempSelected);
+                                            _selectedTopicExamId =
+                                                tempSelected.first;
+                                          } else {
+                                            _selectedTopicExamIds =
+                                                Set<String>.from(tempSelected);
+                                            _selectedTopicExamId = 'CUSTOM';
+                                          }
+                                        });
+                                        Navigator.pop(ctx);
+                                      },
+                                icon: const Icon(Icons.check_rounded, size: 18),
+                                label: Text(
+                                  tempSelected.length > 1
+                                      ? 'Seçilen ${tempSelected.length} Sınavı Birleştir'
+                                      : 'Seçili Sınavı Göster',
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.indigo,
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildTopicAnalysis(
+    List<Map<String, dynamic>> results, {
+    List<Map<String, dynamic>>? allStudentResults,
+  }) {
+    final allResultsPool =
+        (allStudentResults != null && allStudentResults.isNotEmpty)
+            ? allStudentResults
+            : results;
+    if (allResultsPool.isEmpty) return SizedBox.shrink();
+
+    final newestFirstPool = _sortExamResultsNewestFirst(allResultsPool);
+    final bool hasMultipleExamTypes =
+        allResultsPool.length > results.length && _availableExamTypes.length > 1;
+
+    // Geçerli seçimi belirle (varsayılan: tüm sınav türlerini birleştiren 'ALL')
+    String effectiveSelection = _selectedTopicExamId ?? 'ALL';
+
+    List<Map<String, dynamic>> targetResults;
+    if (effectiveSelection == 'ALL') {
+      targetResults = newestFirstPool;
+    } else if (effectiveSelection == 'LAST_1') {
+      targetResults = newestFirstPool.take(1).toList();
+    } else if (effectiveSelection == 'LAST_3') {
+      targetResults = newestFirstPool.take(3).toList();
+    } else if (effectiveSelection == 'LAST_5') {
+      targetResults = newestFirstPool.take(5).toList();
+    } else if (effectiveSelection == 'LAST_10') {
+      targetResults = newestFirstPool.take(10).toList();
+    } else if (effectiveSelection == 'CURRENT_TYPE') {
+      targetResults = results;
+    } else if (effectiveSelection == 'CUSTOM' &&
+        _selectedTopicExamIds.isNotEmpty) {
+      targetResults = newestFirstPool
+          .where(
+            (r) => _selectedTopicExamIds.contains(
+              (r['examId'] ?? r['id']).toString(),
+            ),
+          )
+          .toList();
+      if (targetResults.isEmpty) {
+        targetResults = newestFirstPool;
+        effectiveSelection = 'ALL';
+        _selectedTopicExamId = 'ALL';
+      }
+    } else {
+      targetResults = newestFirstPool
+          .where(
+            (r) => (r['examId'] ?? r['id']).toString() == effectiveSelection,
+          )
+          .toList();
+      if (targetResults.isEmpty) {
+        targetResults = newestFirstPool;
+        effectiveSelection = 'ALL';
+        _selectedTopicExamId = 'ALL';
+      }
+    }
+
+    final allSubjectStats = _calculateTopicStatsForResults(targetResults);
+
+    // Ders filtre çipleri için sınav sırasına göre sıralanmış mevcut ders listesi:
+    // 1. Türkçe -> 2. Sosyal Bilgiler -> 3. Din Kültürü -> 4. İngilizce -> 5. Matematik -> 6. Fen Bilimleri
+    final sortedSubjectKeys = allSubjectStats.keys.toList()
+      ..sort((a, b) {
+        final cmp =
+            _topicSubjectOrderIndex(a).compareTo(_topicSubjectOrderIndex(b));
+        if (cmp != 0) return cmp;
+        return a.compareTo(b);
+      });
+    final availableTopicSubjects = <String>[
+      'Tümü',
+      ...sortedSubjectKeys,
+    ];
+    if (!availableTopicSubjects.contains(_selectedTopicSubjectFilter)) {
+      _selectedTopicSubjectFilter = 'Tümü';
+    }
+
+    // Flatten topics (seçili ders filtresine göre)
     List<Map<String, dynamic>> allTopics = [];
-    allSubjectStats.forEach((subject, topicsMap) {
+    int mergedMultiExamTopicCount = 0;
+    for (final subject in sortedSubjectKeys) {
+      final topicsMap = allSubjectStats[subject]!;
       topicsMap.forEach((topic, stats) {
-        double corr = stats['correct']!;
-        double wrng = stats['wrong']!;
-        double empty = stats['empty']!;
+        double corr = stats['correct'] ?? 0;
+        double wrng = stats['wrong'] ?? 0;
+        double empty = stats['empty'] ?? 0;
+        double examCnt = stats['examCount'] ?? 1;
+        if (examCnt > 1) mergedMultiExamTopicCount++;
+        if (_selectedTopicSubjectFilter != 'Tümü' &&
+            subject != _selectedTopicSubjectFilter) {
+          return;
+        }
         double total = corr + wrng + empty;
         double pct = total > 0 ? (corr / total) * 100 : 0;
 
@@ -1727,27 +2895,92 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
           'wrong': wrng.toInt(),
           'empty': empty.toInt(),
           'total': total.toInt(),
+          'examCount': examCnt.toInt(),
           'success': pct,
         });
       });
-    });
+    }
 
-    // Sort by success percentage
-    allTopics.sort(
-      (a, b) => (b['success'] as double).compareTo(a['success'] as double),
-    );
+    // En Başarılı Konular: Başarı % yüksekten düşüğe (eşitlikte soru sayısı yüksek olan önce)
+    final sortedByBest = List<Map<String, dynamic>>.from(allTopics)
+      ..sort((a, b) {
+        final cmp = (b['success'] as double).compareTo(a['success'] as double);
+        if (cmp != 0) return cmp;
+        return (b['total'] as int).compareTo(a['total'] as int);
+      });
+    final topTopics = sortedByBest
+        .where((t) => (t['success'] as double) >= 50.0)
+        .take(3)
+        .toList();
+    final topKeys = topTopics
+        .map((t) => '${t['subject']}_${t['topic']}')
+        .toSet();
 
-    final topTopics = allTopics.take(3).toList();
-    final worstTopics = allTopics.reversed.take(3).toList().reversed.toList();
+    // Geliştirilmesi Gerekenler: Sadece %100'ün altında olanlar (en düşük başarıdan başlayarak)
+    final sortedByWorst = allTopics
+        .where(
+          (t) =>
+              (t['success'] as double) < 100.0 &&
+              !topKeys.contains('${t['subject']}_${t['topic']}'),
+        )
+        .toList()
+      ..sort((a, b) {
+        final cmp = (a['success'] as double).compareTo(b['success'] as double);
+        if (cmp != 0) return cmp;
+        return (b['wrong'] as int).compareTo(a['wrong'] as int);
+      });
+    final worstTopics = sortedByWorst.take(3).toList();
+
+    // Seçili durum başlığı ve alt etiketi
+    String selectorTitle;
+    String? selectorSubtitle;
+    if (effectiveSelection == 'ALL') {
+      selectorTitle = hasMultipleExamTypes
+          ? 'Tüm Sınav Türleri Birleşik'
+          : 'Tüm Sınavlar Birleşik';
+      selectorSubtitle = '${allResultsPool.length} sınav dahil edildi';
+    } else if (effectiveSelection == 'LAST_1') {
+      final selExam = targetResults.first;
+      selectorTitle = 'Son Sınav';
+      selectorSubtitle = (selExam['examName'] ?? 'Deneme Sınavı').toString();
+    } else if (effectiveSelection == 'LAST_3') {
+      selectorTitle = 'Son 3 Sınav Birleşik';
+      selectorSubtitle = '${targetResults.length} sınav dahil edildi';
+    } else if (effectiveSelection == 'LAST_5') {
+      selectorTitle = 'Son 5 Sınav Birleşik';
+      selectorSubtitle = '${targetResults.length} sınav dahil edildi';
+    } else if (effectiveSelection == 'LAST_10') {
+      selectorTitle = 'Son 10 Sınav Birleşik';
+      selectorSubtitle = '${targetResults.length} sınav dahil edildi';
+    } else if (effectiveSelection == 'CURRENT_TYPE') {
+      selectorTitle = _selectedExamType ?? 'Seçili Sınav Türü';
+      selectorSubtitle = '${results.length} sınav dahil edildi';
+    } else if (effectiveSelection == 'CUSTOM') {
+      selectorTitle = 'Özel Sınav Seçimi';
+      selectorSubtitle = '${targetResults.length} sınav birleştirildi';
+    } else {
+      final selExam = targetResults.first;
+      selectorTitle = (selExam['examName'] ?? 'Deneme Sınavı').toString();
+      final sType = (selExam['typeName'] ?? '').toString().trim();
+      final sDate = selExam['date'] is DateTime
+          ? DateFormat('dd.MM.yyyy').format(selExam['date'] as DateTime)
+          : '';
+      selectorSubtitle = [
+        if (sType.isNotEmpty) sType,
+        if (sDate.isNotEmpty) sDate,
+      ].join(' • ');
+    }
+
+    final isMobile = MediaQuery.of(context).size.width < 600;
 
     return Container(
-      padding: EdgeInsets.all(24),
+      padding: EdgeInsets.all(isMobile ? 16 : 24),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 12,
             offset: Offset(0, 4),
           ),
@@ -1756,89 +2989,363 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Konu Bazlı Analiz',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
+          // Üst Başlık ve Sağa Yaslı Sınav Seçici Kart (Mobilde sadece ikon)
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Genel Kazanım ve Konu Analizi',
+                      style: TextStyle(
+                        fontSize: isMobile ? 16 : 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      targetResults.length > 1
+                          ? '${targetResults.length} sınavdaki ortak kazanımlar birleştirildi'
+                              '${mergedMultiExamTopicCount > 0 ? ' ($mergedMultiExamTopicCount ortak kazanım)' : ''}'
+                          : 'Tekil sınav kazanım analizi ($selectorTitle)',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              if (isMobile)
+                Tooltip(
+                  message: selectorSubtitle != null &&
+                          selectorSubtitle.isNotEmpty
+                      ? '$selectorTitle ($selectorSubtitle)'
+                      : selectorTitle,
+                  child: InkWell(
+                    onTap: () => _showTopicExamSelectorDialog(
+                      allResultsPool,
+                      results,
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.indigo.shade50.withValues(alpha: 0.85),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.indigo.shade200),
+                      ),
+                      child: Icon(
+                        effectiveSelection == 'ALL' ||
+                                effectiveSelection.startsWith('LAST_') ||
+                                effectiveSelection == 'CUSTOM' ||
+                                effectiveSelection == 'CURRENT_TYPE'
+                            ? Icons.layers_rounded
+                            : Icons.description_outlined,
+                        color: Colors.indigo.shade700,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                )
+              else
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (effectiveSelection != 'ALL') ...[
+                      ActionChip(
+                        avatar: Icon(
+                          Icons.merge_type_rounded,
+                          size: 16,
+                          color: Colors.indigo.shade700,
+                        ),
+                        label: Text(
+                          'Tümünü Birleştir (${allResultsPool.length})',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.indigo.shade800,
+                          ),
+                        ),
+                        backgroundColor: Colors.indigo.shade50,
+                        side: BorderSide(color: Colors.indigo.shade100),
+                        onPressed: () {
+                          setState(() {
+                            _selectedTopicExamIds = {};
+                            _selectedTopicExamId = 'ALL';
+                          });
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    InkWell(
+                      onTap: () => _showTopicExamSelectorDialog(
+                        allResultsPool,
+                        results,
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        constraints: const BoxConstraints(maxWidth: 320),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.indigo.shade50.withValues(alpha: 0.7),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.indigo.shade200),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Icon(
+                                effectiveSelection == 'ALL' ||
+                                        effectiveSelection.startsWith('LAST_') ||
+                                        effectiveSelection == 'CUSTOM' ||
+                                        effectiveSelection == 'CURRENT_TYPE'
+                                    ? Icons.layers_rounded
+                                    : Icons.description_outlined,
+                                color: Colors.indigo.shade700,
+                                size: 16,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Flexible(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    selectorTitle,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.indigo.shade900,
+                                    ),
+                                  ),
+                                  if (selectorSubtitle != null &&
+                                      selectorSubtitle.isNotEmpty)
+                                    Text(
+                                      selectorSubtitle,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.indigo.shade600,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 7,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.indigo.shade700,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    'Seç',
+                                    style: TextStyle(
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                  SizedBox(width: 2),
+                                  Icon(
+                                    Icons.keyboard_arrow_down_rounded,
+                                    color: Colors.white,
+                                    size: 14,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+            ],
           ),
+          // Ders (Branş) Hızlı Filtre Çipleri (Mouse ile sağa-sola kaydırılabilir ve sınav sırasına göre)
+          if (availableTopicSubjects.length > 1) ...[
+            const SizedBox(height: 14),
+            ScrollConfiguration(
+              behavior: ScrollConfiguration.of(context).copyWith(
+                dragDevices: {
+                  PointerDeviceKind.touch,
+                  PointerDeviceKind.mouse,
+                  PointerDeviceKind.trackpad,
+                },
+              ),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(
+                  parent: AlwaysScrollableScrollPhysics(),
+                ),
+                child: Row(
+                  children: availableTopicSubjects.map((subj) {
+                    final isSel = _selectedTopicSubjectFilter == subj;
+                    final count = subj == 'Tümü'
+                        ? allSubjectStats.values
+                            .fold<int>(0, (sum, m) => sum + m.length)
+                        : (allSubjectStats[subj]?.length ?? 0);
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ChoiceChip(
+                        label: Text('$subj ($count)'),
+                        selected: isSel,
+                        selectedColor: Colors.indigo.shade600,
+                        backgroundColor: Colors.grey.shade100,
+                        showCheckmark: false,
+                        labelStyle: TextStyle(
+                          fontSize: 12,
+                          fontWeight: isSel ? FontWeight.bold : FontWeight.w500,
+                          color: isSel ? Colors.white : Colors.grey.shade800,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          side: BorderSide(
+                            color: isSel
+                                ? Colors.indigo.shade600
+                                : Colors.grey.shade300,
+                          ),
+                        ),
+                        onSelected: (_) {
+                          setState(() {
+                            _selectedTopicSubjectFilter = subj;
+                          });
+                        },
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ),
+          ],
           SizedBox(height: 16),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final isNarrow = constraints.maxWidth < 600;
-              return isNarrow
-                  ? Column(
-                      children: [
-                        _buildTopicSummaryCard(
-                          "En Başarılı Konular",
-                          topTopics,
-                          Colors.green,
-                          Icons.trending_up,
-                        ),
-                        SizedBox(height: 12),
-                        _buildTopicSummaryCard(
-                          "Geliştirilmesi Gerekenler",
-                          worstTopics,
-                          Colors.red,
-                          Icons.trending_down,
-                        ),
-                      ],
-                    )
-                  : Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: _buildTopicSummaryCard(
+          if (allSubjectStats.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 20),
+              child: Center(
+                child: Text(
+                  'Bu sınav(lar) için konu analiz verisi bulunamadı.',
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                ),
+              ),
+            )
+          else ...[
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final isNarrow = constraints.maxWidth < 600;
+                return isNarrow
+                    ? Column(
+                        children: [
+                          _buildTopicSummaryCard(
                             "En Başarılı Konular",
                             topTopics,
                             Colors.green,
                             Icons.trending_up,
                           ),
-                        ),
-                        SizedBox(width: 16),
-                        Expanded(
-                          child: _buildTopicSummaryCard(
+                          SizedBox(height: 12),
+                          _buildTopicSummaryCard(
                             "Geliştirilmesi Gerekenler",
                             worstTopics,
                             Colors.red,
                             Icons.trending_down,
                           ),
-                        ),
-                      ],
-                    );
-            },
-          ),
-          SizedBox(height: 20),
-          Center(
-            child: ElevatedButton.icon(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => TopicAnalysisDetailScreen(
-                      allSubjectStats: allSubjectStats,
-                      studentName:
-                          widget.student['fullName'] ??
-                          widget.student['name'] ??
-                          'Öğrenci',
-                    ),
-                  ),
-                );
+                        ],
+                      )
+                    : Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: _buildTopicSummaryCard(
+                              "En Başarılı Konular",
+                              topTopics,
+                              Colors.green,
+                              Icons.trending_up,
+                            ),
+                          ),
+                          SizedBox(width: 16),
+                          Expanded(
+                            child: _buildTopicSummaryCard(
+                              "Geliştirilmesi Gerekenler",
+                              worstTopics,
+                              Colors.red,
+                              Icons.trending_down,
+                            ),
+                          ),
+                        ],
+                      );
               },
-              icon: Icon(Icons.analytics_outlined),
-              label: Text('Konu Analiz Raporunu Gör'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.indigo,
-                foregroundColor: Colors.white,
-                padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+            ),
+            SizedBox(height: 20),
+            Center(
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  List<String>? definedOrder;
+                  if (targetResults.isNotEmpty) {
+                    final etId = targetResults.first['examTypeId'];
+                    if (etId != null && _examTypesMap.containsKey(etId)) {
+                      definedOrder = _examTypesMap[etId]!
+                          .subjects
+                          .map((s) => _canonicalTopicSubject(s.branchName))
+                          .toList();
+                    }
+                  }
+
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => TopicAnalysisDetailScreen(
+                        allSubjectStats: allSubjectStats,
+                        studentName: widget.student['fullName'] ??
+                            widget.student['name'] ??
+                            'Öğrenci',
+                        definedSubjectOrder: definedOrder,
+                        analyzedExamCount: targetResults.length,
+                        initialSubject: _selectedTopicSubjectFilter != 'Tümü'
+                            ? _selectedTopicSubjectFilter
+                            : null,
+                      ),
+                    ),
+                  );
+                },
+                icon: Icon(Icons.analytics_outlined),
+                label: Text('Birleşik Kazanım Analiz Raporunu Gör'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.indigo,
+                  foregroundColor: Colors.white,
+                  padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -1856,10 +3363,10 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: accentColor.withOpacity(0.2)),
+        border: Border.all(color: accentColor.withValues(alpha: 0.2)),
         boxShadow: [
           BoxShadow(
-            color: accentColor.withOpacity(0.05),
+            color: accentColor.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: Offset(0, 4),
           ),
@@ -1892,7 +3399,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
               ),
             ],
           ),
-          Divider(color: accentColor.withOpacity(0.1), height: 24),
+          Divider(color: accentColor.withValues(alpha: 0.1), height: 24),
           Expanded(
             child: topics.isEmpty
                 ? Center(
@@ -1945,7 +3452,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                                 vertical: 2,
                               ),
                               decoration: BoxDecoration(
-                                color: scoreColor.withOpacity(0.1),
+                                color: scoreColor.withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Text(
@@ -2107,7 +3614,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                         border: Border.all(color: Colors.grey.shade300),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.05),
+                            color: Colors.black.withValues(alpha: 0.05),
                             blurRadius: 4,
                             offset: Offset(0, 2),
                           ),
@@ -2157,7 +3664,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                         border: Border.all(color: Colors.grey.shade300),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.05),
+                            color: Colors.black.withValues(alpha: 0.05),
                             blurRadius: 4,
                             offset: Offset(0, 2),
                           ),
@@ -2215,7 +3722,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.indigo.withOpacity(0.08),
+                      color: Colors.indigo.withValues(alpha: 0.08),
                       blurRadius: 15,
                       offset: Offset(0, 5),
                     ),
@@ -2373,7 +3880,10 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
               _buildSummaryStats(filteredRes),
               SizedBox(height: 24),
 
-              _buildTopicAnalysis(studentRes),
+              _buildTopicAnalysis(
+                filteredRes,
+                allStudentResults: studentRes,
+              ),
               SizedBox(height: 24),
 
               Column(
@@ -2405,7 +3915,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                 return Card(
                   margin: EdgeInsets.only(bottom: 16),
                   elevation: 2,
-                  shadowColor: Colors.black.withOpacity(0.1),
+                  shadowColor: Colors.black.withValues(alpha: 0.1),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
                   ),
@@ -2442,7 +3952,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Text(
-                            "${(res['score'] as num).toStringAsFixed(0)}",
+                            (res['score'] as num).toStringAsFixed(0),
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 16,
@@ -2559,7 +4069,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                                   sortedKeys.sort();
                                 }
                               } catch (e) {
-                                print("Error sorting subjects: $e");
+                                debugPrint("Error sorting subjects: $e");
                                 sortedKeys.sort();
                               }
 
@@ -2757,13 +4267,53 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                                   }).toList(),
                                   SizedBox(height: 16),
                                   Divider(),
-                                  TextButton.icon(
-                                    onPressed: () => _showReportCard(res),
-                                    icon: Icon(Icons.sticky_note_2_outlined),
-                                    label: Text("Sınav Karnesini Görüntüle"),
-                                    style: TextButton.styleFrom(
-                                      foregroundColor: Colors.indigo,
-                                    ),
+                                  Wrap(
+                                    spacing: 12,
+                                    alignment: WrapAlignment.center,
+                                    children: [
+                                      TextButton.icon(
+                                        onPressed: () => _showReportCard(res),
+                                        icon: Icon(Icons.sticky_note_2_outlined),
+                                        label: Text("Sınav Karnesini Görüntüle"),
+                                        style: TextButton.styleFrom(
+                                          foregroundColor: Colors.indigo,
+                                        ),
+                                      ),
+                                      TextButton.icon(
+                                        onPressed: () {
+                                          final singleStats =
+                                              _calculateTopicStatsForResults([res]);
+                                          List<String>? definedOrder;
+                                          final etId = res['examTypeId'];
+                                          if (etId != null &&
+                                              _examTypesMap.containsKey(etId)) {
+                                            definedOrder = _examTypesMap[etId]!
+                                                .subjects
+                                                .map((s) => s.branchName)
+                                                .toList();
+                                          }
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (context) =>
+                                                  TopicAnalysisDetailScreen(
+                                                allSubjectStats: singleStats,
+                                                studentName:
+                                                    widget.student['fullName'] ??
+                                                        widget.student['name'] ??
+                                                        'Öğrenci',
+                                                definedSubjectOrder: definedOrder,
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                        icon: Icon(Icons.analytics_outlined),
+                                        label: Text("Konu Analizini Gör"),
+                                        style: TextButton.styleFrom(
+                                          foregroundColor: Colors.indigo,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ],
                               );
@@ -2927,8 +4477,8 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
             show: true,
             gradient: LinearGradient(
               colors: [
-                Colors.indigo.withOpacity(0.3),
-                Colors.indigo.withOpacity(0.0),
+                Colors.indigo.withValues(alpha: 0.3),
+                Colors.indigo.withValues(alpha: 0.0),
               ],
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
@@ -2973,7 +4523,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.indigo.shade900.withOpacity(0.85),
+        color: Colors.indigo.shade900.withValues(alpha: 0.85),
         // Flat strip aligned with the graph base
       ),
       child: Row(
@@ -3045,22 +4595,18 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
         }
 
         // 2. Match by Student ID
-        if (match == null) {
-          match = allResults.firstWhere((r) {
+        match ??= allResults.firstWhere((r) {
             return r['studentId'].toString() == studentId ||
                 r['id'].toString() == studentId;
           }, orElse: () => null);
-        }
 
         // 3. Match by Name (Fuzzy)
-        if (match == null) {
-          match = allResults.firstWhere((r) {
+        match ??= allResults.firstWhere((r) {
             final rName = (r['name'] ?? r['studentName'] ?? '')
                 .toString()
                 .toLowerCase();
             return rName.contains(studentName);
           }, orElse: () => null);
-        }
 
         if (match != null) {
           // Calculate total net if missing or 0
@@ -3080,6 +4626,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
           }
 
           results.add({
+            'id': exam.id,
             'examId': exam.id,
             'examTypeId': exam.examTypeId, // Added for sorting lookup
             'examName': exam.name,
@@ -3090,11 +4637,14 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                     .toDouble(),
             'net': totalNet,
             'subjects': localSubjects,
+            'isRankingVisible': exam.sharingSettings['isRankingVisible'] ?? true,
             'rank': match['rank'],
             'institutionRank': match['institutionRank'],
             'classRank': match['classRank'],
             'generalRank': match['generalRank'],
             'studentAnswers': match['answers'],
+            'correctAnswers': match['correctAnswers'],
+            'studentResult': match,
             'examOutcomes': exam.outcomes,
             'examAnswerKeys': exam.answerKeys,
             'resultsJson':
@@ -3103,7 +4653,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
           });
         }
       } catch (e) {
-        print("Error parsing exam ${exam.id}: $e");
+        debugPrint("Error parsing exam ${exam.id}: $e");
       }
     }
     return results;
@@ -4030,7 +5580,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                           ),
                           child: ListTile(
                             leading: CircleAvatar(
-                              backgroundColor: statusColor.withOpacity(0.1),
+                              backgroundColor: statusColor.withValues(alpha: 0.1),
                               child: Icon(
                                 Icons.event_busy,
                                 color: statusColor,
@@ -4051,7 +5601,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                                 vertical: 4,
                               ),
                               decoration: BoxDecoration(
-                                color: statusColor.withOpacity(0.1),
+                                color: statusColor.withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Text(
@@ -4212,7 +5762,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                           ),
                           child: ListTile(
                             leading: CircleAvatar(
-                              backgroundColor: statusColor.withOpacity(0.1),
+                              backgroundColor: statusColor.withValues(alpha: 0.1),
                               child: Icon(
                                 Icons.school,
                                 color: statusColor,
@@ -4235,7 +5785,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                                 vertical: 4,
                               ),
                               decoration: BoxDecoration(
-                                color: statusColor.withOpacity(0.1),
+                                color: statusColor.withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Text(
@@ -4260,6 +5810,42 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
   );
   }
 
+  String _normEylem(String s) => s
+      .replaceAll('İ', 'i')
+      .replaceAll('I', 'i')
+      .replaceAll('ı', 'i')
+      .toLowerCase()
+      .replaceAll('i̇', 'i')
+      .replaceAll('ı', 'i')
+      .replaceAll('ğ', 'g')
+      .replaceAll('ü', 'u')
+      .replaceAll('ş', 's')
+      .replaceAll('ö', 'o')
+      .replaceAll('ç', 'c')
+      .replaceAll(RegExp(r'[^a-z0-9]'), '');
+
+  int _eylemSubjectOrder(String subject) {
+    final s = _normEylem(subject);
+    if (s.contains('turkce')) return 1;
+    if (s.contains('sosyal') || s.contains('tarih') || s.contains('inkilap')) return 2;
+    if (s.contains('din')) return 3;
+    if (s.contains('ingilizce') || s.contains('english') || s.contains('yabancidil')) return 4;
+    if (s.contains('matematik')) return 5;
+    if (s.contains('fen')) return 6;
+    return 99;
+  }
+
+  Color _eylemSubjectColor(String subject) {
+    final s = _normEylem(subject);
+    if (s.contains('turkce')) return const Color(0xFFE53935);
+    if (s.contains('matematik')) return const Color(0xFF1E88E5);
+    if (s.contains('fen')) return const Color(0xFF43A047);
+    if (s.contains('sosyal') || s.contains('inkilap') || s.contains('tarih')) return const Color(0xFFFB8C00);
+    if (s.contains('ingilizce') || s.contains('english')) return const Color(0xFF8E24AA);
+    if (s.contains('din')) return const Color(0xFF00897B);
+    return Colors.indigo;
+  }
+
   Widget _buildEylemPlanlariTab() {
     return SafeStreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
@@ -4276,195 +5862,1056 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
         }
 
         final docs = snapshot.data?.docs ?? [];
-        
-        // Filter plans where this student has assigned tasks or is targeted
-        final myPlans = <Map<String, dynamic>>[];
-        
-        final sId = widget.student['id']?.toString().toLowerCase().trim() ?? '';
-        final sNum = widget.student['studentNumber']?.toString().toLowerCase().trim() ?? '';
-        final sName = (widget.student['fullName'] ?? widget.student['name'] ?? '').toString().toLowerCase().trim();
-        
-        for (var doc in docs) {
-          final data = doc.data() as Map<String, dynamic>;
-          final tasks = data['studentTasks'] as Map<String, dynamic>? ?? {};
-          
-          // Check if any key in tasks maps matches this student
-          bool isTargeted = false;
-          final myTasks = <String, List<dynamic>>{}; // branch_subject -> tasks
-          
-          tasks.forEach((key, value) {
-            // key structure: branch_subject_studentId (or studentNumber / studentName)
-            final parts = key.split('_');
-            if (parts.length >= 3) {
-              final lastPart = parts.last.toLowerCase().trim();
-              final matchesStudent = (sId.isNotEmpty && lastPart == sId) ||
-                                     (sNum.isNotEmpty && lastPart == sNum) ||
-                                     (sName.isNotEmpty && lastPart == sName);
-              
-              if (matchesStudent) {
-                isTargeted = true;
-                final branch = parts[0];
-                final subject = parts[1];
-                myTasks['$branch - $subject'] = value as List<dynamic>;
+
+        final sId = (widget.student['id'] ?? '').toString().trim();
+        final sNum = (widget.student['studentNumber'] ??
+                widget.student['studentNo'] ??
+                widget.student['number'] ??
+                '')
+            .toString()
+            .trim();
+        final sName = (widget.student['fullName'] ?? widget.student['name'] ?? '').toString().trim();
+        final sBranchRaw = (widget.student['className'] ?? widget.student['branch'] ?? '').toString().trim();
+        final sClassLevel = (widget.student['classLevel'] ?? '').toString().trim();
+        final sTc = (widget.student['tcNo'] ?? '').toString().trim();
+
+        String cleanBranchCode(String raw) {
+          var b = raw.trim();
+          if (b.contains('•')) {
+            b = b.split('•').last.trim();
+          }
+          b = b.replaceAll(RegExp(r'\s+Kur$', caseSensitive: false), '').trim();
+          return b;
+        }
+
+        final String realBranch = cleanBranchCode(sBranchRaw);
+        final String normRealBranch = _normEylem(realBranch);
+
+        final normId = _normEylem(sId);
+        final normNum = _normEylem(sNum);
+        final normName = _normEylem(sName);
+
+        bool matchesThisStudent(String token) {
+          final t = token.trim();
+          if (t.isEmpty) return false;
+          final nt = _normEylem(t);
+          if (sId.isNotEmpty && (t.toLowerCase() == sId.toLowerCase() || (normId.isNotEmpty && nt == normId))) {
+            return true;
+          }
+          if (sNum.isNotEmpty && (t.toLowerCase() == sNum.toLowerCase() || (normNum.isNotEmpty && nt == normNum))) {
+            return true;
+          }
+          if (normName.isNotEmpty && nt == normName) {
+            return true;
+          }
+          return false;
+        }
+
+        bool isCourseSubject(String subject) {
+          if (!_courseTracks.isEmpty) {
+            return _courseTracks.hasTrackForBranchOrLevel(
+              subject,
+              rawBranch: realBranch,
+              classLevel: sClassLevel,
+            );
+          }
+          final ns = _normEylem(subject);
+          return ns.contains('ingilizce') || ns.contains('english') || ns.contains('maincourse');
+        }
+
+        // Öğrencinin kurs derslerindeki kur şubesi (ders -> kur şube kodu, örn. 'İngilizce' -> '706')
+        final Map<String, String> studentCourseBranches = {};
+        if (!_courseTracks.isEmpty) {
+          for (final g in _courseTracks.groups) {
+            final lesson = g.lessonName.isNotEmpty ? g.lessonName : g.name;
+            final slot = _courseTracks.slotForStudent(
+              studentId: sId,
+              studentNo: sNum,
+              tcNo: sTc,
+              studentName: sName,
+              subject: lesson,
+              rawBranch: realBranch,
+              classLevel: sClassLevel,
+            );
+            if (slot != null) {
+              final cb = cleanBranchCode(slot.subGroupName);
+              if (cb.isNotEmpty) {
+                final ns = _normEylem(lesson);
+                final displayLesson = (ns.contains('ingilizce') || ns.contains('english') || ns.contains('maincourse'))
+                    ? 'İngilizce'
+                    : lesson;
+                studentCourseBranches[displayLesson] = cb;
               }
             }
+          }
+        }
+
+        final myPlans = <Map<String, dynamic>>[];
+        int globalTotalTasks = 0;
+        int globalDoneTasks = 0;
+        int globalBranchActions = 0;
+
+        for (final doc in docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          final tasksRaw = data['studentTasks'] as Map<String, dynamic>? ?? {};
+          final infoRaw = data['studentInfo'] as Map<String, dynamic>? ?? {};
+          final notifiedRaw = data['parentNotified'] as Map<String, dynamic>? ?? {};
+          final branchPlansRaw = data['branchActionPlans'] as Map<String, dynamic>? ?? {};
+          final outcomeStatsRaw = data['outcomeStats'] as Map<String, dynamic>? ?? {};
+
+          // Bu planda kurs dersi için öğrencinin kur şubesini döndürür (yalnızca kurs dersleri için!)
+          String? courseBranchForSubject(String subject) {
+            if (!isCourseSubject(subject)) return null;
+            if (!_courseTracks.isEmpty) {
+              final slot = _courseTracks.slotForStudent(
+                studentId: sId,
+                studentNo: sNum,
+                tcNo: sTc,
+                studentName: sName,
+                subject: subject,
+                rawBranch: realBranch,
+                classLevel: sClassLevel,
+              );
+              if (slot != null) {
+                final cb = cleanBranchCode(slot.subGroupName);
+                if (cb.isNotEmpty) return cb;
+              }
+              for (final entry in studentCourseBranches.entries) {
+                if (CourseTrackResolver.lessonMatches(entry.key, subject)) {
+                  return entry.value;
+                }
+              }
+            }
+            // Yedek: _courseTracks henüz boşsa yalnızca bu kurs dersi için outcomeStats içinde öğrencinin bulunduğu şubeye bak
+            for (final bEntry in outcomeStatsRaw.entries) {
+              final subjectsVal = bEntry.value;
+              if (subjectsVal is! Map) continue;
+              final cleanB = cleanBranchCode(bEntry.key.toString());
+              for (final sEntry in subjectsVal.entries) {
+                if (!CourseTrackResolver.lessonMatches(sEntry.key.toString(), subject)) continue;
+                final outcomesVal = sEntry.value;
+                if (outcomesVal is! Map) continue;
+                for (final oVal in outcomesVal.values) {
+                  if (oVal is! Map) continue;
+                  final stList = oVal['students'];
+                  if (stList is List) {
+                    for (final st in stList) {
+                      if (st is Map) {
+                        final stNo = (st['no'] ?? '').toString();
+                        final stName = (st['name'] ?? '').toString();
+                        if (matchesThisStudent(stNo) || matchesThisStudent(stName)) {
+                          if (cleanB.isNotEmpty) return cleanB;
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            return null;
+          }
+
+          // branch_subject -> {branch, subject, tasks, success, notified}
+          final Map<String, Map<String, dynamic>> studentSubjectsMap = {};
+
+          void mergeStudentEntry({
+            required String branch,
+            required String subject,
+            List<Map<String, dynamic>> tasks = const [],
+            double? success,
+            bool notified = false,
+          }) {
+            final cleanSubj = subject.trim();
+            if (cleanSubj.isEmpty) return;
+
+            final bool isCourse = isCourseSubject(cleanSubj);
+            String displayBranch;
+            if (isCourse) {
+              final trackB = courseBranchForSubject(cleanSubj) ?? cleanBranchCode(branch);
+              if (trackB.isEmpty) return;
+              displayBranch = '$trackB Kur';
+            } else {
+              // Normal derslerde her zaman öğrencinin gerçek şubesi baz alınır
+              displayBranch = realBranch.isNotEmpty ? realBranch : cleanBranchCode(branch);
+            }
+            if (displayBranch.isEmpty) return;
+
+            final mapKey = '${_normEylem(displayBranch)}_${_normEylem(cleanSubj)}';
+            final cur = studentSubjectsMap.putIfAbsent(mapKey, () => {
+              'branch': displayBranch,
+              'subject': cleanSubj,
+              'tasks': <Map<String, dynamic>>[],
+              'success': null,
+              'notified': false,
+            });
+
+            if (success != null && cur['success'] == null) {
+              cur['success'] = success;
+            }
+            if (notified) {
+              cur['notified'] = true;
+            }
+            final existingTasks = cur['tasks'] as List<Map<String, dynamic>>;
+            for (final t in tasks) {
+              final type = (t['type'] ?? '').toString();
+              final label = (t['label'] ?? '').toString();
+              if (label.isEmpty) continue;
+              final idx = existingTasks.indexWhere(
+                (et) => (type.isNotEmpty && et['type'] == type) || et['label'] == label,
+              );
+              if (idx >= 0) {
+                if (t['done'] == true) existingTasks[idx]['done'] = true;
+              } else {
+                existingTasks.add({
+                  'type': type,
+                  'label': label,
+                  'done': t['done'] == true,
+                });
+              }
+            }
+          }
+
+          // 1. studentTasks taraması
+          tasksRaw.forEach((key, value) {
+            if (value is! List || value.isEmpty) return;
+            final parts = key.split('_');
+            if (parts.length < 3) return;
+            final studentToken = parts.sublist(2).join('_');
+            if (!matchesThisStudent(studentToken)) return;
+
+            final inf = infoRaw[key];
+            if (inf is Map) {
+              final infName = (inf['name'] ?? '').toString().trim();
+              if (infName.isNotEmpty && normName.isNotEmpty && _normEylem(infName) != normName) {
+                return;
+              }
+            }
+
+            final branch = parts[0];
+            final subject = parts[1];
+            final parsedTasks = value
+                .whereType<Map>()
+                .map((m) => Map<String, dynamic>.from(m))
+                .toList();
+            final notified = notifiedRaw[key] == true;
+            double? success;
+            if (inf is Map && inf['success'] is num) {
+              success = (inf['success'] as num).toDouble();
+            }
+            mergeStudentEntry(
+              branch: branch,
+              subject: subject,
+              tasks: parsedTasks,
+              success: success,
+              notified: notified,
+            );
           });
-          
-          if (isTargeted) {
+
+          // 2. studentInfo taraması (görev atanmış veya velisi bilgilendirilmiş öğrencilerin başarı yüzdesini tamamlamak için)
+          infoRaw.forEach((key, val) {
+            if (val is! Map) return;
+            final parts = key.split('_');
+            final tokenFromKey = parts.length >= 3 ? parts.sublist(2).join('_') : '';
+            final vNo = (val['no'] ?? '').toString();
+            final vName = (val['name'] ?? '').toString().trim();
+            if (vName.isNotEmpty && normName.isNotEmpty && _normEylem(vName) != normName) {
+              return;
+            }
+            final isMatch = matchesThisStudent(tokenFromKey) ||
+                matchesThisStudent(vNo) ||
+                matchesThisStudent(vName);
+            if (!isMatch) return;
+
+            final branch = (val['branch'] ?? (parts.isNotEmpty ? parts[0] : '')).toString();
+            final subject = (val['subject'] ?? (parts.length >= 2 ? parts[1] : '')).toString();
+            final success = val['success'] is num ? (val['success'] as num).toDouble() : null;
+            final notified = notifiedRaw[key] == true;
+
+            mergeStudentEntry(
+              branch: branch,
+              subject: subject,
+              success: success,
+              notified: notified,
+            );
+          });
+
+          // 3. parentNotified taraması (studentTasks veya studentInfo'da olmasa bile veli bilgilendirmesi yapılanlar)
+          notifiedRaw.forEach((key, val) {
+            if (val != true) return;
+            final parts = key.split('_');
+            if (parts.length < 3) return;
+            final studentToken = parts.sublist(2).join('_');
+            if (!matchesThisStudent(studentToken)) return;
+            final branch = parts[0];
+            final subject = parts[1];
+            mergeStudentEntry(
+              branch: branch,
+              subject: subject,
+              notified: true,
+            );
+          });
+
+          // 4. Öğrencinin gerçek şubesine (normal dersler) ve kurs şubesindeki kurs dersine ait girilmiş Şube Eylem Planlarını topla
+          final List<Map<String, dynamic>> myBranchPlans = [];
+
+          branchPlansRaw.forEach((key, val) {
+            if (val is! Map) return;
+            final problem = (val['problemSource'] ?? '').toString().trim();
+            final action = (val['actionPlan'] ?? '').toString().trim();
+            final status = (val['status'] ?? 'Planlandı').toString().trim();
+            if (problem.isEmpty && action.isEmpty) return;
+
+            String rawBranch = '';
+            String subject = '';
+            String outcome = '';
+
+            final parts = key.split('_');
+            if (parts.length >= 3) {
+              rawBranch = parts[0].trim();
+              subject = parts[1].trim();
+              outcome = parts.sublist(2).join('_').trim();
+            }
+            final cleanB = cleanBranchCode(rawBranch);
+            if (cleanB.isEmpty || subject.isEmpty) return;
+
+            final bool isCourse = isCourseSubject(subject);
+            String displayBranch;
+
+            if (isCourse) {
+              // Kurs derslerinde SADECE öğrencinin o kurs dersindeki kur şubesi baz alınır
+              final String? trackB = courseBranchForSubject(subject);
+              if (trackB == null || trackB.isEmpty) return;
+              if (_normEylem(cleanB) != _normEylem(trackB)) return;
+              displayBranch = '$trackB Kur';
+            } else {
+              // Normal derslerde SADECE öğrencinin gerçek şubesi baz alınır
+              if (normRealBranch.isEmpty || _normEylem(cleanB) != normRealBranch) return;
+              displayBranch = realBranch;
+            }
+
+            // Kazanım başarı yüzdesini outcomeStats'tan bul
+            double? outcomeSuccess;
+            Map? bStats = (outcomeStatsRaw[cleanB] ?? outcomeStatsRaw['$cleanB Kur'] ?? outcomeStatsRaw[rawBranch]) as Map?;
+            if (bStats == null) {
+              for (final bEntry in outcomeStatsRaw.entries) {
+                if (_normEylem(cleanBranchCode(bEntry.key.toString())) == _normEylem(cleanB) && bEntry.value is Map) {
+                  final candidate = bEntry.value as Map;
+                  if (candidate.containsKey(subject)) {
+                    bStats = candidate;
+                    break;
+                  }
+                  bStats ??= candidate;
+                }
+              }
+            }
+            if (bStats != null) {
+              final sStats = bStats[subject];
+              if (sStats is Map) {
+                final oStat = sStats[outcome];
+                if (oStat is Map) {
+                  final total = (oStat['total'] ?? 0) as num;
+                  final correct = (oStat['correct'] ?? 0) as num;
+                  if (total > 0) {
+                    outcomeSuccess = (correct / total) * 100.0;
+                  }
+                }
+              }
+            }
+
+            myBranchPlans.add({
+              'branch': displayBranch,
+              'subject': subject,
+              'outcome': outcome,
+              'problemSource': problem,
+              'actionPlan': action,
+              'status': status,
+              'success': outcomeSuccess,
+            });
+          });
+
+          // Yalnızca gerçekten görev atanmış veya velisi bilgilendirilmiş öğrenci bazlı eylem planı satırlarını dahil et ve sırala
+          final studentItems = studentSubjectsMap.values
+              .where((item) => (item['tasks'] as List).isNotEmpty || item['notified'] == true)
+              .toList()
+            ..sort((a, b) {
+              final oa = _eylemSubjectOrder(a['subject'] as String);
+              final ob = _eylemSubjectOrder(b['subject'] as String);
+              if (oa != ob) return oa.compareTo(ob);
+              return (a['subject'] as String).compareTo(b['subject'] as String);
+            });
+
+          myBranchPlans.sort((a, b) {
+            final oa = _eylemSubjectOrder(a['subject'] as String);
+            final ob = _eylemSubjectOrder(b['subject'] as String);
+            if (oa != ob) return oa.compareTo(ob);
+            final sCmp = (a['subject'] as String).compareTo(b['subject'] as String);
+            if (sCmp != 0) return sCmp;
+            return (a['outcome'] as String).compareTo(b['outcome'] as String);
+          });
+
+          if (studentItems.isNotEmpty || myBranchPlans.isNotEmpty) {
+            int planTotalTasks = 0;
+            int planDoneTasks = 0;
+            for (final item in studentItems) {
+              final tList = item['tasks'] as List<Map<String, dynamic>>;
+              planTotalTasks += tList.length;
+              planDoneTasks += tList.where((t) => t['done'] == true).length;
+            }
+            globalTotalTasks += planTotalTasks;
+            globalDoneTasks += planDoneTasks;
+            globalBranchActions += myBranchPlans.length;
+
+            final selectedExams = List<String>.from(data['selectedExamNames'] ?? []);
+            final rawNote = (data['realizationNotes'] ?? '').toString().trim();
+            final String realizationNotes = (rawNote.toLowerCase() == 'results are reviewed.' ||
+                    rawNote.toLowerCase() == 'results are reviewed')
+                ? 'Sonuçlar incelendi ve değerlendirildi.'
+                : rawNote;
+            if (rawNote != realizationNotes && doc.id.isNotEmpty) {
+              FirebaseFirestore.instance
+                  .collection('assessment_action_plans')
+                  .doc(doc.id)
+                  .update({'realizationNotes': realizationNotes})
+                  .catchError((_) {});
+            }
+
+            // Başlık ve açıklama için gerçek şube + varsa kurs şubesi özeti
+            final List<String> courseSummaryParts = [];
+            studentCourseBranches.forEach((lessonName, cb) {
+              courseSummaryParts.add('$lessonName: $cb Kur');
+            });
+
             myPlans.add({
               'id': doc.id,
-              'title': data['title'] ?? 'Eylem Planı',
+              'title': (data['title'] ?? 'Eylem Planı').toString(),
               'date': (data['date'] as Timestamp?)?.toDate() ?? DateTime.now(),
-              'creatorName': data['creatorName'] ?? 'Sistem Yöneticisi',
-              'isRealized': data['isRealized'] ?? false,
-              'tasks': myTasks,
+              'isRealized': data['isRealized'] == true,
+              'selectedExams': selectedExams,
+              'realizationNotes': realizationNotes,
+              'studentItems': studentItems,
+              'branchPlans': myBranchPlans,
+              'totalTasks': planTotalTasks,
+              'doneTasks': planDoneTasks,
+              'realBranch': realBranch,
+              'courseSummary': courseSummaryParts.join(', '),
             });
           }
         }
-        
+
         if (myPlans.isEmpty) {
           return _buildEmptyState('Öğrenciye tanımlanmış bir eylem planı bulunmuyor.');
         }
 
-        // Sort plans by date descending
+        // Tarihe göre yeniden eskiye sırala
         myPlans.sort((a, b) => (b['date'] as DateTime).compareTo(a['date'] as DateTime));
 
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: myPlans.length,
-          itemBuilder: (context, index) {
-            final plan = myPlans[index];
-            final DateTime date = plan['date'];
-            final isRealized = plan['isRealized'] as bool;
-            final creator = plan['creatorName'];
-            final tasksMap = plan['tasks'] as Map<String, List<dynamic>>;
-            
-            return Card(
-              margin: const EdgeInsets.only(bottom: 16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              elevation: 2,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+          children: [
+            // ── Minimalist Üst Özet Çubuğu ──
+            Container(
+              margin: const EdgeInsets.only(bottom: 14),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.indigo.shade50),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.indigo.withValues(alpha: 0.03),
+                    blurRadius: 10,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Wrap(
+                spacing: 20,
+                runSpacing: 8,
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(7),
+                        decoration: BoxDecoration(
+                          color: Colors.indigo.shade50,
+                          borderRadius: BorderRadius.circular(9),
+                        ),
+                        child: Icon(Icons.track_changes_rounded, size: 16, color: Colors.indigo.shade700),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        'Deneme Eylem Planı Takibi',
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.indigo.shade900,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: [
+                      _buildMinimalSummaryChip(
+                        Icons.description_outlined,
+                        '${myPlans.length} Deneme Planı',
+                        Colors.indigo,
+                      ),
+                      if (globalTotalTasks > 0)
+                        _buildMinimalSummaryChip(
+                          Icons.task_alt_rounded,
+                          '$globalDoneTasks/$globalTotalTasks Bireysel Görev',
+                          globalDoneTasks == globalTotalTasks ? Colors.green : Colors.blue,
+                        ),
+                      if (globalBranchActions > 0)
+                        _buildMinimalSummaryChip(
+                          Icons.groups_2_outlined,
+                          '$globalBranchActions Şube Kazanım Eylemi',
+                          Colors.deepPurple,
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            // ── Deneme Bazlı Açılır/Kapanır (Dropdown) Eylem Planı Kartları ──
+            ...List.generate(myPlans.length, (index) {
+              final plan = myPlans[index];
+              return _buildActionPlanDropdownCard(plan, initiallyExpanded: index == 0);
+            }),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildMinimalSummaryChip(IconData icon, String label, MaterialColor color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.shade50,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.shade100),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: color.shade700),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: color.shade800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionPlanDropdownCard(Map<String, dynamic> plan, {required bool initiallyExpanded}) {
+    final DateTime date = plan['date'] as DateTime;
+    final bool isRealized = plan['isRealized'] as bool;
+    final List<Map<String, dynamic>> studentItems = plan['studentItems'] as List<Map<String, dynamic>>;
+    final List<Map<String, dynamic>> branchPlans = plan['branchPlans'] as List<Map<String, dynamic>>;
+    final List<String> selectedExams = plan['selectedExams'] as List<String>;
+    final String realizationNotes = plan['realizationNotes'] as String;
+    final int totalTasks = plan['totalTasks'] as int;
+    final int doneTasks = plan['doneTasks'] as int;
+    final String realBranch = (plan['realBranch'] ?? '').toString();
+    final String courseSummary = (plan['courseSummary'] ?? '').toString();
+
+    final String branchHeaderText = [
+      if (realBranch.isNotEmpty) '$realBranch Şubesi',
+      if (courseSummary.isNotEmpty) courseSummary,
+    ].join(' • ');
+
+    final String branchDescText = courseSummary.isNotEmpty
+        ? 'Öğrencinin gerçek şubesi ($realBranch) ve kurs şubesi ($courseSummary) baz alınarak, baraj altında kalan kazanımlar için ders bazında planlanan sınıf içi destek ve telafi çalışmaları aşağıda özetlenmiştir:'
+        : 'Öğrencinin gerçek şubesi ($realBranch) baz alınarak, baraj altında kalan kazanımlar için ders bazında planlanan sınıf içi destek ve telafi çalışmaları aşağıda özetlenmiştir:';
+
+    final bool allStudentTasksDone = totalTasks > 0 && doneTasks == totalTasks;
+    final bool isCompleted = isRealized || allStudentTasksDone;
+
+    // Şube eylem planlarını ders bazında grupla
+    final Map<String, List<Map<String, dynamic>>> groupedBranchPlans = {};
+    for (final bp in branchPlans) {
+      final key = '${bp['subject']} (${bp['branch']})';
+      groupedBranchPlans.putIfAbsent(key, () => []).add(bp);
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.025),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          initiallyExpanded: initiallyExpanded,
+          tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          leading: Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: isCompleted ? Colors.green.shade50 : Colors.indigo.shade50,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
+              isCompleted ? Icons.fact_check_rounded : Icons.analytics_outlined,
+              size: 19,
+              color: isCompleted ? Colors.green.shade700 : Colors.indigo.shade700,
+            ),
+          ),
+          title: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  plan['title'] as String,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                    color: Colors.grey.shade900,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: isCompleted ? Colors.green.shade50 : Colors.amber.shade50,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: isCompleted ? Colors.green.shade200 : Colors.amber.shade200,
+                  ),
+                ),
+                child: Text(
+                  isCompleted ? 'Tamamlandı' : 'Uygulanıyor',
+                  style: TextStyle(
+                    color: isCompleted ? Colors.green.shade800 : Colors.amber.shade900,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 10.5,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Wrap(
+              spacing: 10,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(
+                  DateFormat('dd.MM.yyyy').format(date),
+                  style: TextStyle(fontSize: 11.5, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
+                ),
+                if (selectedExams.isNotEmpty)
+                  Text(
+                    '• ${selectedExams.join(', ')}',
+                    style: TextStyle(fontSize: 11.5, color: Colors.grey.shade500),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                if (studentItems.isNotEmpty)
+                  Text(
+                    '• ${studentItems.length} Ders Destek ($doneTasks/$totalTasks Görev)',
+                    style: TextStyle(fontSize: 11.5, color: Colors.indigo.shade600, fontWeight: FontWeight.w600),
+                  ),
+                if (branchPlans.isNotEmpty)
+                  Text(
+                    '• ${branchPlans.length} Şube Eylemi',
+                    style: TextStyle(fontSize: 11.5, color: Colors.deepPurple.shade600, fontWeight: FontWeight.w600),
+                  ),
+              ],
+            ),
+          ),
+          children: [
+            Divider(height: 1, color: Colors.grey.shade100),
+            const SizedBox(height: 12),
+
+            // ── 1. ÖĞRENCİ BAZLI KAZANIM DESTEK ÇALIŞMALARI (MİNİMALİST LİSTE) ──
+            if (studentItems.isNotEmpty) ...[
+              Row(
+                children: [
+                  Icon(Icons.person_pin_circle_outlined, size: 15, color: Colors.indigo.shade600),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Öğrenci Bazlı Kazanım Destek Çalışmaları',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12.5,
+                      color: Colors.grey.shade800,
+                    ),
+                  ),
+                  const Spacer(),
+                  if (totalTasks > 0)
+                    Text(
+                      '$doneTasks / $totalTasks tamamlandı',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: doneTasks == totalTasks ? Colors.green.shade700 : Colors.grey.shade500,
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFAFBFF),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.indigo.shade50),
+                ),
+                child: Column(
+                  children: List.generate(studentItems.length, (i) {
+                    final item = studentItems[i];
+                    final branch = item['branch'] as String;
+                    final subject = item['subject'] as String;
+                    final tasksList = item['tasks'] as List<Map<String, dynamic>>;
+                    final double? success = item['success'] as double?;
+                    final bool notified = item['notified'] == true;
+                    final subjColor = _eylemSubjectColor(subject);
+
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        border: i < studentItems.length - 1
+                            ? Border(bottom: BorderSide(color: Colors.grey.shade200, width: 0.7))
+                            : null,
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Container(
+                            width: 7,
+                            height: 7,
+                            decoration: BoxDecoration(color: subjColor, shape: BoxShape.circle),
+                          ),
+                          const SizedBox(width: 8),
+                          SizedBox(
+                            width: 190,
+                            child: Wrap(
+                              spacing: 6,
+                              runSpacing: 4,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
+                                Text(
+                                  subject,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 12,
+                                    color: Colors.grey.shade900,
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey.shade200,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    branch,
+                                    style: TextStyle(
+                                      fontSize: 9.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.grey.shade700,
+                                    ),
+                                  ),
+                                ),
+                                if (success != null)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                    decoration: BoxDecoration(
+                                      color: Colors.red.shade50,
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      '%${success.toStringAsFixed(0)}',
+                                      style: TextStyle(
+                                        fontSize: 9.5,
+                                        fontWeight: FontWeight.w700,
+                                        color: Colors.red.shade700,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Wrap(
+                              spacing: 6,
+                              runSpacing: 5,
+                              children: tasksList.isEmpty
+                                  ? [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
+                                        decoration: BoxDecoration(
+                                          color: Colors.amber.shade50,
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(
+                                            color: Colors.amber.shade200,
+                                            width: 0.8,
+                                          ),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              Icons.schedule_rounded,
+                                              size: 12,
+                                              color: Colors.amber.shade800,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              'Bireysel Destek / Telafi Takibi',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.amber.shade900,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ]
+                                  : tasksList.map((t) {
+                                      final isDone = t['done'] == true;
+                                      return Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
+                                        decoration: BoxDecoration(
+                                          color: isDone ? Colors.green.shade50 : Colors.white,
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(
+                                            color: isDone ? Colors.green.shade200 : Colors.grey.shade300,
+                                            width: 0.8,
+                                          ),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              isDone ? Icons.check_circle_rounded : Icons.schedule_rounded,
+                                              size: 12,
+                                              color: isDone ? Colors.green.shade700 : Colors.grey.shade500,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              (t['label'] ?? '').toString(),
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: isDone ? Colors.green.shade800 : Colors.grey.shade800,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    }).toList(),
+                            ),
+                          ),
+                          if (notified) ...[
+                            const SizedBox(width: 8),
+                            Tooltip(
+                              message: 'Veli Bilgilendirildi',
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+                                decoration: BoxDecoration(
+                                  color: Colors.teal.shade50,
+                                  borderRadius: BorderRadius.circular(5),
+                                  border: Border.all(color: Colors.teal.shade100),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.family_restroom_rounded, size: 11, color: Colors.teal.shade700),
+                                    const SizedBox(width: 3),
+                                    Text(
+                                      'Veli Bilgi',
+                                      style: TextStyle(
+                                        fontSize: 9.5,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.teal.shade800,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                  }),
+                ),
+              ),
+            ],
+
+            // ── 2. ŞUBE EYLEM PLANLARI (METİN OLARAK AÇIKLAMA) ──
+            if (groupedBranchPlans.isNotEmpty) ...[
+              if (studentItems.isNotEmpty) const SizedBox(height: 14),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.grey.shade200),
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       children: [
-                        CircleAvatar(
-                          backgroundColor: isRealized ? Colors.green.shade50 : Colors.orange.shade50,
-                          child: Icon(
-                            Icons.playlist_add_check_rounded,
-                            color: isRealized ? Colors.green : Colors.orange,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
+                        Icon(Icons.menu_book_rounded, size: 15, color: Colors.deepPurple.shade600),
+                        const SizedBox(width: 6),
                         Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                plan['title'],
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.indigo),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '${DateFormat('dd.MM.yyyy').format(date)} • Hazırlayan: $creator',
-                                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: isRealized ? Colors.green.shade50 : Colors.orange.shade50,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: isRealized ? Colors.green.shade200 : Colors.orange.shade200),
-                          ),
                           child: Text(
-                            isRealized ? 'Tamamlandı' : 'Uygulanıyor',
+                            branchHeaderText.isNotEmpty
+                                ? 'Şube Eylem Planları ($branchHeaderText)'
+                                : 'Şube Eylem Planları',
                             style: TextStyle(
-                              color: isRealized ? Colors.green.shade800 : Colors.orange.shade800,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12.5,
+                              color: Colors.grey.shade800,
                             ),
                           ),
                         ),
+                        Text(
+                          '${branchPlans.length} kazanım eylemi',
+                          style: TextStyle(fontSize: 11, color: Colors.grey.shade500, fontWeight: FontWeight.w500),
+                        ),
                       ],
                     ),
-                    if (tasksMap.isNotEmpty) ...[
-                      const Divider(height: 24),
-                      const Text(
-                        'Kazanım Destek Çalışmaları',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87),
-                      ),
-                      const SizedBox(height: 8),
-                      ...tasksMap.entries.map((entry) {
-                        final subjectName = entry.key;
-                        final tasksList = entry.value;
-                        
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade50,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Colors.grey.shade200),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                subjectName,
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.indigo),
-                              ),
-                              const SizedBox(height: 8),
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: tasksList.map((t) {
-                                  final isDone = t['done'] == true;
-                                  return Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                    decoration: BoxDecoration(
-                                      color: isDone ? Colors.green.shade50 : Colors.white,
-                                      borderRadius: BorderRadius.circular(20),
-                                      border: Border.all(color: isDone ? Colors.green.shade200 : Colors.grey.shade300),
+                    const SizedBox(height: 6),
+                    Text(
+                      branchDescText,
+                      style: TextStyle(fontSize: 11.5, color: Colors.grey.shade600, height: 1.35),
+                    ),
+                    const SizedBox(height: 10),
+                    ...groupedBranchPlans.entries.map((entry) {
+                      final subjHeader = entry.key;
+                      final items = entry.value;
+                      final subjColor = _eylemSubjectColor(subjHeader);
+
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  width: 6,
+                                  height: 6,
+                                  decoration: BoxDecoration(color: subjColor, shape: BoxShape.circle),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  subjHeader,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 11.5,
+                                    color: Colors.indigo.shade900,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            ...items.map((bp) {
+                              final outcome = (bp['outcome'] ?? '').toString();
+                              final problem = (bp['problemSource'] ?? '').toString();
+                              final action = (bp['actionPlan'] ?? '').toString();
+                              final status = (bp['status'] ?? '').toString();
+                              final double? rate = bp['success'] as double?;
+
+                              final rateText = rate != null ? ' (%${rate.toStringAsFixed(0)} başarı)' : '';
+                              final problemText = problem.isNotEmpty ? 'Sorun kaynağı: $problem. ' : '';
+                              final actionText = action.isNotEmpty ? 'Eylem planı: $action.' : '';
+                              final statusText = status.isNotEmpty && status != 'Belirlenmedi' ? ' [$status]' : '';
+
+                              return Padding(
+                                padding: const EdgeInsets.only(left: 12, bottom: 3),
+                                child: RichText(
+                                  text: TextSpan(
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      color: Colors.grey.shade800,
+                                      height: 1.4,
                                     ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          isDone ? Icons.check_circle : Icons.radio_button_unchecked,
-                                          size: 14,
-                                          color: isDone ? Colors.green : Colors.grey,
-                                        ),
-                                        const SizedBox(width: 6),
-                                        Text(
-                                          t['label'] ?? '',
+                                    children: [
+                                      const TextSpan(
+                                        text: '• ',
+                                        style: TextStyle(fontWeight: FontWeight.bold),
+                                      ),
+                                      TextSpan(
+                                        text: '$outcome$rateText: ',
+                                        style: const TextStyle(fontWeight: FontWeight.w600),
+                                      ),
+                                      TextSpan(text: '$problemText$actionText'),
+                                      if (statusText.isNotEmpty)
+                                        TextSpan(
+                                          text: statusText,
                                           style: TextStyle(
-                                            fontSize: 11,
-                                            color: isDone ? Colors.green.shade800 : Colors.grey.shade700,
-                                            fontWeight: FontWeight.w500,
+                                            fontSize: 10.5,
+                                            fontWeight: FontWeight.w600,
+                                            color: status == 'Tamamlandı'
+                                                ? Colors.green.shade700
+                                                : Colors.indigo.shade600,
                                           ),
                                         ),
-                                      ],
-                                    ),
-                                  );
-                                }).toList(),
-                              ),
-                            ],
-                          ),
-                        );
-                      }).toList(),
-                    ],
+                                    ],
+                                  ),
+                                ),
+                              );
+                            }),
+                          ],
+                        ),
+                      );
+                    }),
                   ],
                 ),
               ),
-            );
-          },
-        );
-      },
+            ],
+
+            if (realizationNotes.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade50.withValues(alpha: 0.6),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.amber.shade200),
+                ),
+                child: Text(
+                  'İzleme Notu: $realizationNotes',
+                  style: TextStyle(fontSize: 11.5, color: Colors.amber.shade900),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
@@ -4707,7 +7154,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
             boxShadow: isSelected
                 ? [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
+                      color: Colors.black.withValues(alpha: 0.05),
                       blurRadius: 10,
                       offset: const Offset(0, 4),
                     ),
@@ -4945,12 +7392,12 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.indigo.withOpacity(0.05),
+                    color: Colors.indigo.withValues(alpha: 0.05),
                     blurRadius: 15,
                     offset: Offset(0, 5),
                   ),
                 ],
-                border: Border.all(color: Colors.indigo.withOpacity(0.05)),
+                border: Border.all(color: Colors.indigo.withValues(alpha: 0.05)),
               ),
               child: Theme(
                 data: Theme.of(
@@ -4974,7 +7421,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                     ),
                   ),
                   title: Text(
-                    "${report.term}",
+                    report.term,
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 16,
@@ -5024,7 +7471,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                     ],
                   ),
                   children: [
-                    Divider(height: 1, color: Colors.grey.withOpacity(0.1)),
+                    Divider(height: 1, color: Colors.grey.withValues(alpha: 0.1)),
                     Padding(
                       padding: const EdgeInsets.all(20.0),
                       child: DevelopmentReportContent(
@@ -5047,7 +7494,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
@@ -5134,19 +7581,19 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
             int done = 0;
             int incomplete = 0;
 
-            executionStatus.values.forEach((list) {
+            for (var list in executionStatus.values) {
               if (list is List) {
                 total += list.length;
                 done += list.where((s) => s == 1).length;
                 incomplete += list.where((s) => s == 2).length;
               }
-            });
+            }
 
             // Fallback total from schedule if executionStatus is empty
             if (total == 0) {
-              schedule.values.forEach((list) {
+              for (var list in schedule.values) {
                 if (list is List) total += list.length;
-              });
+              }
             }
 
             final percentage = total > 0
@@ -5163,7 +7610,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                 borderRadius: BorderRadius.circular(12),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
+                    color: Colors.black.withValues(alpha: 0.05),
                     blurRadius: 10,
                     offset: Offset(0, 4),
                   ),
@@ -5179,7 +7626,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                 collapsedShape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
-                backgroundColor: Colors.indigo.shade50.withOpacity(0.05),
+                backgroundColor: Colors.indigo.shade50.withValues(alpha: 0.05),
                 leading: CircleAvatar(
                   backgroundColor: Colors.orange.shade50,
                   child: Icon(Icons.schedule, color: Colors.orange, size: 20),
@@ -5410,7 +7857,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                                       margin: const EdgeInsets.only(bottom: 12),
                                       padding: const EdgeInsets.all(12),
                                       decoration: BoxDecoration(
-                                        color: isPriority ? Colors.red.shade50.withOpacity(0.3) : Colors.white,
+                                        color: isPriority ? Colors.red.shade50.withValues(alpha: 0.3) : Colors.white,
                                         borderRadius: BorderRadius.circular(10),
                                         border: Border.all(
                                           color: isPriority ? Colors.red.shade200 : Colors.grey.shade100,
@@ -5418,7 +7865,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
                                         ),
                                         boxShadow: [
                                           BoxShadow(
-                                            color: Colors.black.withOpacity(0.01),
+                                            color: Colors.black.withValues(alpha: 0.01),
                                             blurRadius: 4,
                                             offset: const Offset(0, 2),
                                           ),
@@ -5812,10 +8259,10 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withOpacity(0.3)),
+          border: Border.all(color: color.withValues(alpha: 0.3)),
           boxShadow: [
             BoxShadow(
-              color: color.withOpacity(0.05),
+              color: color.withValues(alpha: 0.05),
               blurRadius: 10,
               offset: Offset(0, 4),
             ),
@@ -5996,7 +8443,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
     Color c = status == DemandStatus.completed ? Colors.green : Colors.orange;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(color: c.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
+      decoration: BoxDecoration(color: c.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4)),
       child: Text(status.name, style: TextStyle(color: c, fontSize: 10, fontWeight: FontWeight.bold)),
     );
   }
@@ -6052,7 +8499,7 @@ class _PortfolioDetailViewState extends State<PortfolioDetailView>
           Container(
             padding: EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
+              color: color.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(icon, color: color, size: 20),
@@ -6199,7 +8646,7 @@ class _FullScreenTrialChartPageState extends State<FullScreenTrialChartPage> {
             left: 10,
             child: SafeArea(
               child: CircleAvatar(
-                backgroundColor: Colors.black.withOpacity(0.05),
+                backgroundColor: Colors.black.withValues(alpha: 0.05),
                 child: IconButton(
                   icon: const Icon(Icons.close, color: Colors.black87),
                   onPressed: () => Navigator.pop(context),
@@ -6305,7 +8752,7 @@ class _FullScreenTrialChartPageState extends State<FullScreenTrialChartPage> {
           belowBarData: BarAreaData(
             show: true,
             gradient: LinearGradient(
-              colors: [Colors.indigo.withOpacity(0.3), Colors.indigo.withOpacity(0.0)],
+              colors: [Colors.indigo.withValues(alpha: 0.3), Colors.indigo.withValues(alpha: 0.0)],
               begin: Alignment.topCenter, end: Alignment.bottomCenter,
             ),
           ),
@@ -6348,7 +8795,7 @@ class _FullScreenTrialChartPageState extends State<FullScreenTrialChartPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.indigo.shade900.withOpacity(0.85),
+        color: Colors.indigo.shade900.withValues(alpha: 0.85),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,

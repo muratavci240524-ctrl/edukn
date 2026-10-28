@@ -45,7 +45,7 @@ class _CreateAnnouncementScreenV2State extends State<CreateAnnouncementScreenV2>
   bool _sendSms = false;
   bool _isAnonymous = false;
   bool _schedulePublish = false;
-  List<Map<String, dynamic>> _reminders = [];
+  final List<Map<String, dynamic>> _reminders = [];
   bool _isSaving = false;
 
   late AnimationController _saveAnimController;
@@ -254,7 +254,7 @@ class _CreateAnnouncementScreenV2State extends State<CreateAnnouncementScreenV2>
         }
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Row(
             children: [
@@ -270,7 +270,7 @@ class _CreateAnnouncementScreenV2State extends State<CreateAnnouncementScreenV2>
           duration: const Duration(seconds: 2),
         ),
       );
-      Navigator.pop(context, true);
+      if (mounted) Navigator.pop(context, true);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

@@ -354,7 +354,7 @@ class _ExternalExamAttendanceScreenState
                     Text(
                       'Salon: ${_selectedRoom!.classroomName}',
                       style: GoogleFonts.inter(
-                        color: Colors.white.withOpacity(0.85),
+                        color: Colors.white.withValues(alpha: 0.85),
                         fontSize: 13,
                       ),
                     ),
@@ -374,7 +374,7 @@ class _ExternalExamAttendanceScreenState
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.2),
+        color: Colors.white.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
@@ -471,7 +471,7 @@ class _ExternalExamAttendanceScreenState
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                             decoration: BoxDecoration(
-                              color: _primaryColor.withOpacity(0.1),
+                              color: _primaryColor.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: Text(
@@ -522,7 +522,7 @@ class _ExternalExamAttendanceScreenState
                   width: 44,
                   height: 44,
                   decoration: BoxDecoration(
-                    color: _primaryColor.withOpacity(0.1),
+                    color: _primaryColor.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Icon(Icons.meeting_room_rounded, color: _primaryColor, size: 22),
@@ -811,7 +811,7 @@ class _ExternalExamAttendanceScreenState
         color: Colors.white,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.08),
+            color: Colors.black.withValues(alpha: 0.08),
             blurRadius: 16,
             offset: const Offset(0, -4),
           ),
@@ -974,9 +974,9 @@ class _ExternalExamAttendanceScreenState
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
+        color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
       child: Column(
         children: [
@@ -1058,7 +1058,7 @@ class _AnimatedLoadingViewState extends State<_AnimatedLoadingView> with SingleT
             child: Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: const Color(0xFFF57C00).withOpacity(0.1),
+                color: const Color(0xFFF57C00).withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
               child: const Icon(Icons.fact_check_rounded, size: 64, color: Color(0xFFF57C00)),

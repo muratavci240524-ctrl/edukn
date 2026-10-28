@@ -229,7 +229,7 @@ class _NoiseMeterHubScreenState extends State<NoiseMeterHubScreen>
         try {
           final amp = await _audioRecorder.getAmplitude();
           _processAmplitude(amp.current);
-        } catch (_) {}
+        } catch (silentError) { debugPrint('[noise_meter_hub_screen] hata yutuldu: $silentError'); }
       });
 
       if (mounted) {
@@ -261,7 +261,7 @@ class _NoiseMeterHubScreenState extends State<NoiseMeterHubScreen>
       if (await _audioRecorder.isRecording()) {
         await _audioRecorder.stop();
       }
-    } catch (_) {}
+    } catch (silentError) { debugPrint('[noise_meter_hub_screen] hata yutuldu: $silentError'); }
 
     if (mounted) {
       setState(() {
@@ -451,7 +451,7 @@ class _NoiseMeterHubScreenState extends State<NoiseMeterHubScreen>
         } else {
           SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
         }
-      } catch (_) {}
+      } catch (silentError) { debugPrint('[noise_meter_hub_screen] hata yutuldu: $silentError'); }
     }
 
     setState(() {

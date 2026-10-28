@@ -238,7 +238,7 @@ class _OpticalFormListScreenState extends State<OpticalFormListScreen> {
                   return Container(
                     padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.3),
+                      color: Colors.white.withValues(alpha: 0.3),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
@@ -263,7 +263,7 @@ class _OpticalFormListScreenState extends State<OpticalFormListScreen> {
               hintStyle: TextStyle(color: Colors.white70),
               prefixIcon: Icon(Icons.search, size: 20, color: Colors.white70),
               filled: true,
-              fillColor: Colors.white.withOpacity(0.2),
+              fillColor: Colors.white.withValues(alpha: 0.2),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(25),
                 borderSide: BorderSide.none,
@@ -309,7 +309,7 @@ class _OpticalFormListScreenState extends State<OpticalFormListScreen> {
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.white : Colors.white.withOpacity(0.2),
+          color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.2),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Text(

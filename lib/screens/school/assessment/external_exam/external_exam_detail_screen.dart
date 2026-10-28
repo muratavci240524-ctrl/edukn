@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/services.dart';
 // dart:html kaldırıldı – mobil uyumlu navigasyon kullanılıyor
@@ -119,10 +119,10 @@ class _ExternalExamDetailScreenState extends State<ExternalExamDetailScreen>
         bottom: TabBar(
               controller: _tabController,
               isScrollable: true,
-              indicatorColor: Colors.white,
+              indicatorColor: Colors.indigo.shade700,
               indicatorWeight: 3,
-              labelColor: Colors.white,
-              unselectedLabelColor: Colors.white.withOpacity(0.65),
+              labelColor: Colors.indigo.shade900,
+              unselectedLabelColor: Colors.indigo.shade300,
               labelStyle: GoogleFonts.inter(
                   fontWeight: FontWeight.bold, fontSize: 13),
               unselectedLabelStyle:
@@ -476,7 +476,7 @@ class _ExternalExamDetailScreenState extends State<ExternalExamDetailScreen>
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.04),
+              color: Colors.black.withValues(alpha: 0.04),
               blurRadius: 12,
               offset: const Offset(0, 4),
             ),
@@ -598,7 +598,7 @@ class _ExternalExamDetailScreenState extends State<ExternalExamDetailScreen>
     if (match.isNotEmpty) {
       final reg = match.first;
       if (reg.isScanned) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${reg.fullName} zaten okutulmuş!'), backgroundColor: Colors.orange));
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${reg.fullName} zaten okutulmuş!'), backgroundColor: Colors.orange));
       } else {
         // 1) isScanned flag'i güncelle
         await _service.markAsScanned(reg.id!, true);
@@ -648,10 +648,10 @@ class _ExternalExamDetailScreenState extends State<ExternalExamDetailScreen>
           }
         }
 
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${reg.fullName} başarıyla okutuldu!'), backgroundColor: Colors.green));
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${reg.fullName} başarıyla okutuldu!'), backgroundColor: Colors.green));
       }
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Kayıt bulunamadı! Lütfen geçerli bir belge okutun.'), backgroundColor: Colors.red));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Kayıt bulunamadı! Lütfen geçerli bir belge okutun.'), backgroundColor: Colors.red));
     }
   }
 }

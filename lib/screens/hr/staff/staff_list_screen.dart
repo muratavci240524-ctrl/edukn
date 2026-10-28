@@ -179,7 +179,7 @@ class _StaffListScreenState extends State<StaffListScreen>
         });
       }
     } catch (e) {
-      print('❌ Personel listesi yüklenirken hata: $e');
+      debugPrint('❌ Personel listesi yüklenirken hata: $e');
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -294,7 +294,7 @@ class _StaffListScreenState extends State<StaffListScreen>
               canonicalDoc = doc;
               break;
             }
-          } catch (_) {}
+          } catch (silentError) { debugPrint('[staff_list_screen] hata yutuldu: $silentError'); }
 
           if (canonicalDoc == null) {
             try {
@@ -307,7 +307,7 @@ class _StaffListScreenState extends State<StaffListScreen>
                 canonicalDoc = doc;
                 break;
               }
-            } catch (_) {}
+            } catch (silentError) { debugPrint('[staff_list_screen] hata yutuldu: $silentError'); }
           }
         }
 
@@ -356,7 +356,7 @@ class _StaffListScreenState extends State<StaffListScreen>
             for (final csDoc in csDupSnap.docs) {
               await csDoc.reference.update({'teacherId': canonicalId});
             }
-          } catch (_) {}
+          } catch (silentError) { debugPrint('[staff_list_screen] hata yutuldu: $silentError'); }
 
           // Klon dokümanı Firestore'dan sil
           await FirebaseFirestore.instance.collection('users').doc(dupId).delete();
@@ -767,7 +767,7 @@ class _StaffListScreenState extends State<StaffListScreen>
       if (errorCount > 0) msg += ' $errorCount satır eksik veri.';
       if (skipCount > 0) msg += ' $skipCount mükerrer atlandı.';
       
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(msg),
           backgroundColor: Colors.green,
@@ -775,7 +775,7 @@ class _StaffListScreenState extends State<StaffListScreen>
       );
       _loadStaff();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Yükleme hatası: $e'), backgroundColor: Colors.red),
       );
     } finally {
@@ -1233,8 +1233,17 @@ class _StaffListScreenState extends State<StaffListScreen>
             await _loadStaff();
           }
         },
-        icon: const Icon(Icons.person_add),
-        label: const Text('Yeni Personel'),
+        backgroundColor: Colors.indigo,
+        foregroundColor: Colors.white,
+        elevation: 3,
+        icon: const Icon(Icons.person_add, color: Colors.white),
+        label: const Text(
+          'Yeni Personel',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
       ),
       body: Padding(
         padding: const EdgeInsets.all(12),

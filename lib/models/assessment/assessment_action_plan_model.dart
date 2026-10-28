@@ -24,6 +24,9 @@ class AssessmentActionPlan {
   final Map<String, dynamic> studentTasks;
   final Map<String, dynamic> parentNotified;
   final Map<String, dynamic> studentStatus;
+
+  /// 'branch_subject_studentKey' -> {name, no, branch, subject, success}
+  final Map<String, dynamic> studentInfo;
   
   final bool isActive;
   final bool isRealized;
@@ -47,6 +50,7 @@ class AssessmentActionPlan {
     this.studentTasks = const {},
     this.parentNotified = const {},
     this.studentStatus = const {},
+    this.studentInfo = const {},
     this.isActive = true,
     this.isRealized = false,
     this.realizationNotes = '',
@@ -71,11 +75,22 @@ class AssessmentActionPlan {
       'studentTasks': studentTasks,
       'parentNotified': parentNotified,
       'studentStatus': studentStatus,
+      'studentInfo': studentInfo,
       'isActive': isActive,
       'isRealized': isRealized,
       'realizationNotes': realizationNotes,
       'realizedDate': realizedDate != null ? Timestamp.fromDate(realizedDate!) : null,
     };
+  }
+
+  static String normalizeRealizationNote(String? raw) {
+    final note = (raw ?? '').trim();
+    if (note.isEmpty) return '';
+    final lower = note.toLowerCase();
+    if (lower == 'results are reviewed.' || lower == 'results are reviewed') {
+      return 'Sonuçlar incelendi ve değerlendirildi.';
+    }
+    return note;
   }
 
   factory AssessmentActionPlan.fromMap(Map<String, dynamic> map, String docId) {
@@ -96,9 +111,10 @@ class AssessmentActionPlan {
       studentTasks: Map<String, dynamic>.from(map['studentTasks'] ?? {}),
       parentNotified: Map<String, dynamic>.from(map['parentNotified'] ?? {}),
       studentStatus: Map<String, dynamic>.from(map['studentStatus'] ?? {}),
+      studentInfo: Map<String, dynamic>.from(map['studentInfo'] ?? {}),
       isActive: map['isActive'] ?? true,
       isRealized: map['isRealized'] ?? false,
-      realizationNotes: map['realizationNotes'] ?? '',
+      realizationNotes: normalizeRealizationNote(map['realizationNotes']?.toString()),
       realizedDate: map['realizedDate'] != null ? (map['realizedDate'] as Timestamp).toDate() : null,
     );
   }

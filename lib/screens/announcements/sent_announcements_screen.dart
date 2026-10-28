@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -25,22 +25,22 @@ class _SentAnnouncementsScreenState extends State<SentAnnouncementsScreen> {
   Stream<QuerySnapshot> _getSentAnnouncements() async* {
     try {
       final schoolId = await _announcementService.getSchoolId();
-      print('School ID: $schoolId');
+      debugPrint('School ID: $schoolId');
 
       if (schoolId == null) {
-        print('School ID null, boş stream döndürülüyor');
+        debugPrint('School ID null, boş stream döndürülüyor');
         yield* Stream.empty();
         return;
       }
 
       final currentUser = FirebaseAuth.instance.currentUser;
       if (currentUser == null) {
-        print('Kullanıcı null, boş stream döndürülüyor');
+        debugPrint('Kullanıcı null, boş stream döndürülüyor');
         yield* Stream.empty();
         return;
       }
 
-      print('Gönderilen duyurular yükleniyor: ${currentUser.email}');
+      debugPrint('Gönderilen duyurular yükleniyor: ${currentUser.email}');
 
       // Sadece kullanıcının kendi gönderdiği duyuruları getir
       // Bellekte sıralama yapacağımız için orderBy ifadesini kaldırarak index gereksinimini gideriyoruz
@@ -51,8 +51,8 @@ class _SentAnnouncementsScreenState extends State<SentAnnouncementsScreen> {
           .where('createdBy', isEqualTo: currentUser.email)
           .snapshots();
     } catch (e, stackTrace) {
-      print('Gönderilen duyurular alınırken hata: $e');
-      print('Stack trace: $stackTrace');
+      debugPrint('Gönderilen duyurular alınırken hata: $e');
+      debugPrint('Stack trace: $stackTrace');
       yield* Stream.empty();
     }
   }
@@ -457,7 +457,7 @@ class _SentAnnouncementsScreenState extends State<SentAnnouncementsScreen> {
                                         vertical: 6,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: statusColor.withOpacity(0.1),
+                                        color: statusColor.withValues(alpha: 0.1),
                                         borderRadius: BorderRadius.circular(12),
                                         border: Border.all(color: statusColor),
                                       ),
@@ -490,7 +490,7 @@ class _SentAnnouncementsScreenState extends State<SentAnnouncementsScreen> {
                                             await _announcementService
                                                 .getSchoolId();
                                         if (schoolId != null && mounted) {
-                                          Navigator.push(
+                                          if (mounted) Navigator.push(
                                             context,
                                             MaterialPageRoute(
                                               builder: (ctx) =>

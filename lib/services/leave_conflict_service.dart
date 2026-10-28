@@ -122,13 +122,13 @@ class LeaveConflictService {
         final Map<int, QueryDocumentSnapshot> schedulesByHour = {};
 
         for (var doc in teacherSchedulesQuery1.docs) {
-          final data = doc.data() as Map<String, dynamic>;
+          final data = doc.data();
           final hourIdx = data['hourIndex'] as int;
           schedulesByHour[hourIdx] = doc;
         }
 
         for (var doc in teacherSchedulesQuery2.docs) {
-          final data = doc.data() as Map<String, dynamic>;
+          final data = doc.data();
           final hourIdx = data['hourIndex'] as int;
           schedulesByHour[hourIdx] = doc; // Will override if duplicate
         }

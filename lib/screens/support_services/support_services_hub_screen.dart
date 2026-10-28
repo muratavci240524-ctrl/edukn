@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'cafeteria/cafeteria_screen.dart';
 import 'transportation/transportation_screen.dart';
@@ -143,7 +143,7 @@ class _ServiceCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: item.color.withOpacity(0.1),
+                  color: item.color.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(item.icon, size: 28, color: item.color),

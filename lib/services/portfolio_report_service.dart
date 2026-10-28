@@ -252,9 +252,9 @@ class PortfolioReportService {
     List<Map<String, dynamic>> studentResults = [];
 
     for (var doc in query.docs) {
-      final Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+      final Map<String, dynamic> data = doc.data();
       final String? resultsJson = data['resultsJson'];
-      if (resultsJson != null && resultsJson is String) {
+      if (resultsJson != null) {
         // Performance Optimization: Quick string search before JSON decode
         bool mightContain = resultsJson.contains(sId);
         if (!mightContain && sNo.isNotEmpty) mightContain = resultsJson.contains(sNo);
@@ -361,7 +361,7 @@ class PortfolioReportService {
     
     List<Map<String, dynamic>> results = [];
     for (var doc in query.docs) {
-      final Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+      final Map<String, dynamic> data = doc.data();
       final scores = data['scores'] as Map? ?? data['grades'] as Map?;
       if (scores != null && scores.containsKey(id)) {
         results.add({
@@ -423,11 +423,11 @@ class PortfolioReportService {
         .get();
 
     return query.docs.where((d) {
-        final data = d.data() as Map<String, dynamic>;
+        final data = d.data();
         final statuses = data['studentStatuses'] as Map? ?? {};
         return statuses.containsKey(id);
     }).map((d) {
-        final data = d.data() as Map<String, dynamic>;
+        final data = d.data();
         data['id'] = d.id;
         return data;
     }).toList();
@@ -441,7 +441,7 @@ class PortfolioReportService {
         .where('status', isEqualTo: 'Approved')
         .get();
     return query.docs.map((d) {
-        final data = d.data() as Map<String, dynamic>;
+        final data = d.data();
         data['id'] = d.id;
         return data;
     }).toList();
@@ -453,7 +453,7 @@ class PortfolioReportService {
         .where('institutionId', isEqualTo: inst)
         .where('studentId', isEqualTo: id)
         .get();
-    return query.docs.map((d) => d.data() as Map<String, dynamic>).toList();
+    return query.docs.map((d) => d.data()).toList();
   }
 
   Future<List<Map<String, dynamic>>> _fetchInterviews(String id, String inst, String term) async {
@@ -462,7 +462,7 @@ class PortfolioReportService {
         .where('institutionId', isEqualTo: inst)
         .where('participants', arrayContains: id)
         .get();
-    return query.docs.map((d) => d.data() as Map<String, dynamic>).toList();
+    return query.docs.map((d) => d.data()).toList();
   }
 
   Future<List<Map<String, dynamic>>> _fetchDevelopmentReports(String id, String inst, String term) async {
@@ -471,7 +471,7 @@ class PortfolioReportService {
         .where('institutionId', isEqualTo: inst)
         .where('studentId', isEqualTo: id)
         .get();
-    return query.docs.map((d) => d.data() as Map<String, dynamic>).toList();
+    return query.docs.map((d) => d.data()).toList();
   }
 
   Future<List<Map<String, dynamic>>> _fetchStudyPrograms(String id, String inst, String term) async {
@@ -482,7 +482,7 @@ class PortfolioReportService {
         .where('studentId', isEqualTo: id)
         .get();
     return query.docs.map((d) {
-      final data = d.data() as Map<String, dynamic>;
+      final data = d.data();
       return {
         'name': data['title'] ?? data['name'] ?? 'Çalışma Programı',
         'date': _parseDate(data['createdAt']),
@@ -496,7 +496,7 @@ class PortfolioReportService {
         .collection('applied_tests')
         .where('studentId', isEqualTo: id)
         .get();
-    return query.docs.map((d) => d.data() as Map<String, dynamic>).toList();
+    return query.docs.map((d) => d.data()).toList();
   }
 
   Future<List<Map<String, dynamic>>> _fetchActivities(String id, String inst, String term) async {
@@ -504,7 +504,7 @@ class PortfolioReportService {
         .collection('activity_reports')
         .where('studentId', isEqualTo: id)
         .get();
-    return query.docs.map((d) => d.data() as Map<String, dynamic>).toList();
+    return query.docs.map((d) => d.data()).toList();
   }
 
   Uint8List generateZip(List<Map<String, dynamic>> files) {

@@ -163,7 +163,7 @@ class _ClubEvaluationScreenState extends State<ClubEvaluationScreen> {
                       _evaluationsByStudentId[sId] = data;
                     });
 
-                    Navigator.pop(context);
+                    if (mounted) Navigator.pop(context);
                   },
                   child: const Text('Kaydet'),
                 ),

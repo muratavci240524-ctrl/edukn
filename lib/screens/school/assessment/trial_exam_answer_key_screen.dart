@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
@@ -12,6 +12,7 @@ import 'outcome_matching_screen.dart';
 class TrialExamAnswerKeyScreen extends StatefulWidget {
   final int bookletCount;
   final ExamType examType;
+  final String? classLevel;
   final Map<String, Map<String, String>> initialAnswerKeys;
   final Map<String, Map<String, List<String>>> initialOutcomes;
   final Map<String, Map<String, String>> initialMapping;
@@ -20,6 +21,7 @@ class TrialExamAnswerKeyScreen extends StatefulWidget {
     Key? key,
     required this.bookletCount,
     required this.examType,
+    this.classLevel,
     required this.initialAnswerKeys,
     required this.initialOutcomes,
     this.initialMapping = const {},
@@ -69,11 +71,9 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
       widget.initialOutcomes.forEach((booklet, subjects) {
         _outcomes[booklet.toString()] = {};
         subjects.forEach((subject, value) {
-          if (value is List) {
-            _outcomes[booklet.toString()]![subject.toString()] = value
-                .map((e) => e.toString())
-                .toList();
-          }
+          _outcomes[booklet.toString()]![subject.toString()] = value
+              .map((e) => e.toString())
+              .toList();
         });
       });
     }
@@ -287,6 +287,10 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
         ? widget.examType.subjects.first.branchName
         : '';
 
+    final effectiveClassLevel = (widget.classLevel != null && widget.classLevel!.trim().isNotEmpty)
+        ? widget.classLevel!.trim()
+        : widget.examType.gradeLevel.trim();
+
     final result = await Navigator.push<Map<String, List<OutcomeItem>>>(
       context,
       MaterialPageRoute(
@@ -294,7 +298,7 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
           allOutcomes: outcomesMap,
           orderedBranchNames: widget.examType.subjects.map((s) => s.branchName).toList(),
           institutionId: widget.examType.institutionId,
-          classLevel: widget.examType.gradeLevel,
+          classLevel: effectiveClassLevel,
           initialBranchName: initialBranch,
         ),
       ),
@@ -349,7 +353,7 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
         });
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Eşleşmeler tüm kitapçıklara uygulandı.')),
       );
     }
@@ -412,7 +416,7 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
           );
         }
       } catch (e) {
-        print('Save error: $e');
+        debugPrint('Save error: $e');
         if (mounted) {
           ScaffoldMessenger.of(
             context,
@@ -435,7 +439,7 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
         if (result.files.single.bytes != null) {
           bytes = result.files.single.bytes!;
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Dosya okunamadı (Bytes null).')),
           );
           return;
@@ -621,7 +625,7 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
           if (notFoundSubjects.isNotEmpty) {
             msg += '\nEşleşmeyen Dersler: ${notFoundSubjects.join(", ")}';
           }
-          ScaffoldMessenger.of(context).showSnackBar(
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(msg),
               backgroundColor: notFoundSubjects.isNotEmpty
@@ -646,7 +650,7 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
         }
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Excel yükleme hatası: $e'),
           backgroundColor: Colors.red,
@@ -660,10 +664,10 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
     return Scaffold(
       appBar: EduknAppBar(
         title: 'Cevap Anahtarı ve Kazanımlar',
-        leading: const BackButton(color: Colors.white),
         actions: [
           PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert, color: Colors.white),
+            icon: Icon(Icons.more_vert, color: Colors.indigo.shade700),
+            tooltip: 'Menü',
             onSelected: (value) {
               if (value == 'download') _downloadExampleExcel();
               if (value == 'upload') _uploadExcel();
@@ -713,14 +717,15 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
         ],
         bottom: TabBar(
           controller: _tabController,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white70,
-          indicatorColor: Colors.white,
+          labelColor: Colors.indigo.shade900,
+          unselectedLabelColor: Colors.indigo.shade300,
+          indicatorColor: Colors.indigo.shade700,
+          indicatorWeight: 3,
           tabs: List.generate(widget.bookletCount, (index) {
             return Tab(
               child: Text(
                 '${String.fromCharCode(65 + index)} Kitapçığı',
-                style: const TextStyle(color: Colors.white),
+                style: const TextStyle(fontWeight: FontWeight.bold),
               ),
             );
           }),
@@ -1193,7 +1198,7 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
                               vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: color.withOpacity(0.1),
+                              color: color.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Text(
@@ -1404,19 +1409,19 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
 
       if (updated) {
         if (!silent) {
-          ScaffoldMessenger.of(context).showSnackBar(
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Kazanım metinleri başarıyla güncellendi.'), backgroundColor: Colors.green),
           );
         }
       } else if (!silent) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('K12 kodlarıyla eşleşen yeni metin bulunamadı.')),
         );
       }
     } catch (e) {
-      print('Auto-fetch error: $e');
+      debugPrint('Auto-fetch error: $e');
       if (!silent) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Hata oluştu: $e'), backgroundColor: Colors.red),
         );
       }
@@ -1444,7 +1449,7 @@ class _TrialExamAnswerKeyScreenState extends State<TrialExamAnswerKeyScreen>
         }
       }
     } catch (e) {
-      print('Lookup error: $e');
+      debugPrint('Lookup error: $e');
     }
   }
 }

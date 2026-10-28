@@ -1,0 +1,103 @@
+                // Kartlar: ekran yüksekliğine göre eşit dağıtılır, ortalanır, kaymaz
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final entries = <Widget Function(double)>[
+                        if (_hasSubModuleAccess('haberlesme', 'genel_duyurular'))
+                          (h) => _buildCommCard(
+                                height: h,
+                                title: 'Duyurular',
+                                description: schoolTypeId.isEmpty
+                                    ? 'Tüm okul türlerinin duyurularını görüntüleyin ve yönetin.'
+                                    : 'Okul ve kurum içi güncel duyuruları takip edin.',
+                                icon: Icons.campaign_rounded,
+                                color: Colors.orange,
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => SchoolTypeAnnouncementsScreen(
+                                        schoolTypeId: schoolTypeId,
+                                        schoolTypeName: schoolTypeName.isEmpty ? 'Tüm Okul Türleri' : schoolTypeName,
+                                        institutionId: institutionId,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                        if (_hasSubModuleAccess('haberlesme', 'sosyal_medya'))
+                          (h) => _buildCommCard(
+                                height: h,
+                                title: 'Sosyal Medya',
+                                description: schoolTypeId.isEmpty
+                                    ? 'Okulun global sosyal medya paylaşımlarını inceleyin.'
+                                    : 'Okulun sosyal medya paylaşımlarını inceleyin.',
+                                icon: Icons.share_rounded,
+                                color: Colors.blue,
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => SchoolTypeSocialMediaScreen(
+                                        schoolTypeId: schoolTypeId,
+                                        schoolTypeName: schoolTypeName.isEmpty ? 'Tüm Okul Türleri' : schoolTypeName,
+                                        institutionId: institutionId,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                        if (_hasSubModuleAccess('haberlesme', 'mesajlar'))
+                          (h) => _buildCommCard(
+                                height: h,
+                                title: 'Mesajlar',
+                                description: schoolTypeId.isEmpty
+                                    ? 'Tüm kullanıcılara ve okul türlerine mesajlaşın.'
+                                    : 'Öğrenciler, veliler ve personelle mesajlaşın.',
+                                icon: Icons.forum_rounded,
+                                color: Colors.green,
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => ChatScreen(
+                                        schoolTypeId: schoolTypeId,
+                                        schoolTypeName: schoolTypeName.isEmpty ? 'Tüm Okul Türleri' : schoolTypeName,
+                                        institutionId: institutionId,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                      ];
+                      if (entries.isEmpty) return const SizedBox.shrink();
+
+                      // Alttaki yüzen menü için boşluk bırak, kalan yüksekliği kartlara paylaştır
+                      const gap = 14.0;
+                      const bottomReserve = 96.0;
+                      const vPad = 8.0;
+                      final avail = constraints.maxHeight - bottomReserve - vPad * 2;
+                      final raw = (avail - gap * (entries.length - 1)) / entries.length;
+                      final cardH = raw.clamp(84.0, 150.0).toDouble();
+
+                      return Padding(
+                        padding: EdgeInsets.only(left: 20, right: 20, top: vPad, bottom: bottomReserve),
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 560),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                for (int i = 0; i < entries.length; i++) ...[
+                                  if (i > 0) const SizedBox(height: gap),
+                                  entries[i](cardH),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),

@@ -35,7 +35,7 @@ class _OutcomeListFormState extends State<OutcomeListForm> {
 
   List<OutcomeItem> _outcomes = [];
   List<String> _availableBranches = [];
-  List<String> _classLevels = [
+  final List<String> _classLevels = [
     '1. Sınıf',
     '2. Sınıf',
     '3. Sınıf',
@@ -283,18 +283,18 @@ class _OutcomeListFormState extends State<OutcomeListForm> {
             setState(() {
               _outcomes.addAll(newOutcomes);
             });
-            ScaffoldMessenger.of(context).showSnackBar(
+            if (mounted) ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('${newOutcomes.length} kazanım eklendi.')),
             );
           } else {
-            ScaffoldMessenger.of(context).showSnackBar(
+            if (mounted) ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('Dosyadan okunacak veri bulunamadı.')),
             );
           }
         }
       }
     } catch (e) {
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata: $e')));
     } finally {
@@ -317,9 +317,14 @@ class _OutcomeListFormState extends State<OutcomeListForm> {
         name = '$_selectedClassLevel - $_selectedBranch Kazanımları';
       }
 
+      final instId = (widget.outcomeList != null &&
+              widget.outcomeList!.institutionId.isNotEmpty)
+          ? widget.outcomeList!.institutionId
+          : widget.institutionId;
+
       final list = OutcomeList(
         id: widget.outcomeList?.id ?? '',
-        institutionId: widget.institutionId,
+        institutionId: instId,
         name: name,
         branchName: _selectedBranch!,
         classLevel: _selectedClassLevel!,
@@ -532,7 +537,7 @@ class _OutcomeListFormState extends State<OutcomeListForm> {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.teal.withOpacity(0.1),
+                    color: Colors.teal.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(Icons.info_outline, color: Colors.teal),
@@ -551,7 +556,7 @@ class _OutcomeListFormState extends State<OutcomeListForm> {
             Divider(height: 32),
             if (isMobile) ...[
               DropdownButtonFormField<String>(
-                value: _selectedClassLevel,
+                initialValue: _selectedClassLevel,
                 decoration: _inputDecoration('Sınıf Seviyesi'),
                 items: _classLevels
                     .map((l) => DropdownMenuItem(value: l, child: Text(l)))
@@ -561,7 +566,7 @@ class _OutcomeListFormState extends State<OutcomeListForm> {
               ),
               SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                value: _selectedBranch,
+                initialValue: _selectedBranch,
                 decoration: _inputDecoration('Ders (Branş)'),
                 isExpanded: true,
                 items: _availableBranches
@@ -581,7 +586,7 @@ class _OutcomeListFormState extends State<OutcomeListForm> {
                 children: [
                   Expanded(
                     child: DropdownButtonFormField<String>(
-                      value: _selectedClassLevel,
+                      initialValue: _selectedClassLevel,
                       decoration: _inputDecoration('Sınıf Seviyesi'),
                       items: _classLevels
                           .map(
@@ -595,7 +600,7 @@ class _OutcomeListFormState extends State<OutcomeListForm> {
                   SizedBox(width: 16),
                   Expanded(
                     child: DropdownButtonFormField<String>(
-                      value: _selectedBranch,
+                      initialValue: _selectedBranch,
                       decoration: _inputDecoration('Ders (Branş)'),
                       isExpanded: true,
                       items: _availableBranches
@@ -642,7 +647,7 @@ class _OutcomeListFormState extends State<OutcomeListForm> {
                 Container(
                   padding: EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.teal.withOpacity(0.1),
+                    color: Colors.teal.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(Icons.list_alt, color: Colors.teal),
@@ -837,7 +842,7 @@ class _OutcomeListFormState extends State<OutcomeListForm> {
     Widget depthDropdown = SizedBox(
       width: 80,
       child: DropdownButtonFormField<int>(
-        value: outcome.depth,
+        initialValue: outcome.depth,
         decoration: _inputDecoration('Tip').copyWith(
           contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 12),
         ),
@@ -908,7 +913,7 @@ class _OutcomeListFormState extends State<OutcomeListForm> {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 4,
             offset: Offset(0, 2),
           ),
@@ -1055,7 +1060,7 @@ List<OutcomeItem> _parseExcelContent(List<int> bytes) {
         );
       }
     } catch (e) {
-      print("Row parse error: $e");
+      debugPrint("Row parse error: $e");
     }
   }
   return newOutcomes;

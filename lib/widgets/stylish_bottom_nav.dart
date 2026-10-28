@@ -97,7 +97,7 @@ class StylishBottomNav extends StatelessWidget {
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.blue.withOpacity(0.4),
+                      color: Colors.blue.withValues(alpha: 0.4),
                       blurRadius: 10,
                       offset: const Offset(0, 5),
                     ),
@@ -133,7 +133,7 @@ class StylishBottomNav extends StatelessWidget {
             boxShadow: isSelected
                 ? [
                     BoxShadow(
-                      color: color.withOpacity(0.4),
+                      color: color.withValues(alpha: 0.4),
                       blurRadius: 8,
                       offset: const Offset(0, 3),
                     )
@@ -156,7 +156,7 @@ class StylishBottomNav extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: isSelected ? FontWeight.w900 : FontWeight.bold,
-                    color: color.withOpacity(0.9),
+                    color: color.withValues(alpha: 0.9),
                   ),
                 ),
               ),
@@ -165,7 +165,7 @@ class StylishBottomNav extends StatelessWidget {
                 subtitle,
                 style: TextStyle(
                   fontSize: 10,
-                  color: color.withOpacity(0.6),
+                  color: color.withValues(alpha: 0.6),
                   height: 1.1,
                 ),
                 maxLines: 1,
@@ -211,13 +211,13 @@ class _CurvedPainter extends CustomPainter {
     canvas.drawPath(
       leftPath,
       Paint()
-        ..color = Colors.indigo.withOpacity(0.05)
+        ..color = Colors.indigo.withValues(alpha: 0.05)
         ..style = PaintingStyle.fill,
     );
     canvas.drawPath(
       leftPath,
       Paint()
-        ..color = Colors.indigo.withOpacity(0.15)
+        ..color = Colors.indigo.withValues(alpha: 0.15)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.5,
     );
@@ -226,13 +226,13 @@ class _CurvedPainter extends CustomPainter {
     canvas.drawPath(
       rightPath,
       Paint()
-        ..color = Colors.purple.withOpacity(0.05)
+        ..color = Colors.purple.withValues(alpha: 0.05)
         ..style = PaintingStyle.fill,
     );
     canvas.drawPath(
       rightPath,
       Paint()
-        ..color = Colors.purple.withOpacity(0.15)
+        ..color = Colors.purple.withValues(alpha: 0.15)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.5,
     );

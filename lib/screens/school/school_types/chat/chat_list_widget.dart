@@ -96,7 +96,7 @@ class ChatListWidget extends StatelessWidget {
                 displayTitle = user.name;
                 displayImage ??= user.avatarUrl;
               }
-            } catch (_) {}
+            } catch (silentError) { debugPrint('[chat_list_widget] hata yutuldu: $silentError'); }
           }
         }
 

@@ -379,7 +379,7 @@ class _GuidanceTestCatalogScreenState extends State<GuidanceTestCatalogScreen> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.indigo.withOpacity(0.3),
+            color: Colors.indigo.withValues(alpha: 0.3),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -393,7 +393,7 @@ class _GuidanceTestCatalogScreenState extends State<GuidanceTestCatalogScreen> {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
+                  color: Colors.white.withValues(alpha: 0.2),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
@@ -420,7 +420,7 @@ class _GuidanceTestCatalogScreenState extends State<GuidanceTestCatalogScreen> {
                   vertical: 4,
                 ),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
+                  color: Colors.white.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
@@ -438,7 +438,7 @@ class _GuidanceTestCatalogScreenState extends State<GuidanceTestCatalogScreen> {
           Text(
             'Bu katalog, öğrencilerimizin akademik, duygusal ve sosyal gelişimlerini takip etmek için profesyonelce hazırlanmış ölçekleri içerir. Bu testler tanı koyma amacı taşımaz.',
             style: GoogleFonts.inter(
-              color: Colors.white.withOpacity(0.9),
+              color: Colors.white.withValues(alpha: 0.9),
               fontSize: isMobile ? 12 : 13,
               height: 1.4,
             ),
@@ -572,12 +572,12 @@ class _GuidanceTestCatalogScreenState extends State<GuidanceTestCatalogScreen> {
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: color.withOpacity(0.1),
+              color: color.withValues(alpha: 0.1),
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
           ],
-          border: Border.all(color: color.withOpacity(0.2), width: 1),
+          border: Border.all(color: color.withValues(alpha: 0.2), width: 1),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -585,7 +585,7 @@ class _GuidanceTestCatalogScreenState extends State<GuidanceTestCatalogScreen> {
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
+                color: color.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
               child: Icon(cat['icon'], color: color, size: 24),

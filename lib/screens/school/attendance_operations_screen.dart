@@ -1,4 +1,4 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 
@@ -708,7 +708,7 @@ class _AttendanceOperationsScreenState
                           border: Border.all(color: Colors.grey.shade200),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.04),
+                              color: Colors.black.withValues(alpha: 0.04),
                               blurRadius: 10,
                               offset: Offset(0, 6),
                             ),
@@ -746,8 +746,8 @@ class _AttendanceOperationsScreenState
                                                 vertical: 12,
                                               ),
                                               decoration: BoxDecoration(
-                                                color: Colors.blue.withOpacity(
-                                                  0.08,
+                                                color: Colors.blue.withValues(
+                                                  alpha: 0.08,
                                                 ),
                                                 borderRadius:
                                                     BorderRadius.circular(14),
@@ -841,8 +841,8 @@ class _AttendanceOperationsScreenState
                                                     color: selected
                                                         ? Colors.purple.shade700
                                                         : Colors.purple
-                                                              .withOpacity(
-                                                                0.08,
+                                                              .withValues(
+                                                                alpha: 0.08,
                                                               ),
                                                     borderRadius:
                                                         BorderRadius.circular(
@@ -923,24 +923,24 @@ class _AttendanceOperationsScreenState
                                         padding: EdgeInsets.all(14),
                                         decoration: BoxDecoration(
                                           color: taken
-                                              ? Colors.green.withOpacity(0.10)
+                                              ? Colors.green.withValues(alpha: 0.10)
                                               : (lessonName != null
                                                     ? Colors.white
-                                                    : Colors.orange.withOpacity(
-                                                        0.03,
+                                                    : Colors.orange.withValues(
+                                                        alpha: 0.03,
                                                       )), // Slight tint for unscheduled
                                           borderRadius: BorderRadius.circular(
                                             16,
                                           ),
                                           border: Border.all(
                                             color: taken
-                                                ? Colors.green.withOpacity(0.25)
+                                                ? Colors.green.withValues(alpha: 0.25)
                                                 : Colors.grey.shade200,
                                           ),
                                           boxShadow: [
                                             BoxShadow(
-                                              color: Colors.black.withOpacity(
-                                                0.03,
+                                              color: Colors.black.withValues(
+                                                alpha: 0.03,
                                               ),
                                               blurRadius: 10,
                                               offset: Offset(0, 6),
@@ -951,8 +951,8 @@ class _AttendanceOperationsScreenState
                                           children: [
                                             CircleAvatar(
                                               backgroundColor: taken
-                                                  ? Colors.green.withOpacity(
-                                                      0.15,
+                                                  ? Colors.green.withValues(
+                                                      alpha: 0.15,
                                                     )
                                                   : (lessonName != null
                                                         ? Colors.blue.shade50
@@ -1147,7 +1147,7 @@ class _AttendanceOperationsScreenState
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
         decoration: BoxDecoration(
-          color: Colors.orange.withOpacity(0.10),
+          color: Colors.orange.withValues(alpha: 0.10),
           borderRadius: BorderRadius.circular(14),
         ),
         child: Row(

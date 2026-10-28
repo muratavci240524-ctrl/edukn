@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:edukn/widgets/edukn_app_bar.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../models/survey_model.dart';
@@ -192,7 +192,7 @@ class _CreateSurveyScreenState extends State<CreateSurveyScreen> {
         border: Border.all(color: Colors.grey.shade200),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 10,
             offset: Offset(0, 4),
           ),
@@ -235,7 +235,7 @@ class _CreateSurveyScreenState extends State<CreateSurveyScreen> {
                 borderSide: BorderSide(color: Colors.indigo, width: 2),
               ),
               filled: true,
-              fillColor: Colors.indigo.withOpacity(0.02),
+              fillColor: Colors.indigo.withValues(alpha: 0.02),
               prefixIcon: Icon(Icons.title, color: Colors.indigo.shade300),
             ),
           ),
@@ -261,7 +261,7 @@ class _CreateSurveyScreenState extends State<CreateSurveyScreen> {
                 borderSide: BorderSide(color: Colors.indigo, width: 2),
               ),
               filled: true,
-              fillColor: Colors.indigo.withOpacity(0.02),
+              fillColor: Colors.indigo.withValues(alpha: 0.02),
               prefixIcon: Icon(
                 Icons.description,
                 color: Colors.indigo.shade300,
@@ -269,7 +269,7 @@ class _CreateSurveyScreenState extends State<CreateSurveyScreen> {
             ),
           ),
           SizedBox(height: 20),
-          Divider(color: Colors.indigo.withOpacity(0.1)),
+          Divider(color: Colors.indigo.withValues(alpha: 0.1)),
           SizedBox(height: 20),
           RecipientSelectorField(
             selectedRecipients: _selectedRecipients,
@@ -344,7 +344,7 @@ class _CreateSurveyScreenState extends State<CreateSurveyScreen> {
         border: Border.all(color: Colors.blue.shade100, width: 1),
         boxShadow: [
           BoxShadow(
-            color: Colors.blue.withOpacity(0.05),
+            color: Colors.blue.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: Offset(0, 4),
           ),
@@ -498,10 +498,10 @@ class _CreateSurveyScreenState extends State<CreateSurveyScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.indigo.withOpacity(0.1)),
+        border: Border.all(color: Colors.indigo.withValues(alpha: 0.1)),
         boxShadow: [
           BoxShadow(
-            color: Colors.indigo.withOpacity(0.04),
+            color: Colors.indigo.withValues(alpha: 0.04),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -515,7 +515,7 @@ class _CreateSurveyScreenState extends State<CreateSurveyScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
             decoration: BoxDecoration(
-              color: Colors.indigo.withOpacity(0.03),
+              color: Colors.indigo.withValues(alpha: 0.03),
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(16),
               ),
@@ -659,7 +659,7 @@ class _CreateSurveyScreenState extends State<CreateSurveyScreen> {
                                 vertical: 6,
                               ),
                               decoration: BoxDecoration(
-                                color: Colors.indigo.withOpacity(0.05),
+                                color: Colors.indigo.withValues(alpha: 0.05),
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Text(
@@ -983,7 +983,7 @@ class _QuestionEditorState extends State<QuestionEditor> {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.indigo.withOpacity(0.1),
+                    color: Colors.indigo.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(Icons.quiz, color: Colors.indigo),
@@ -1071,7 +1071,7 @@ class _QuestionEditorState extends State<QuestionEditor> {
                 borderSide: BorderSide(color: Colors.indigo, width: 2),
               ),
               filled: true,
-              fillColor: Colors.indigo.withOpacity(0.02),
+              fillColor: Colors.indigo.withValues(alpha: 0.02),
             ),
             maxLines: 2,
           ),
@@ -1086,7 +1086,7 @@ class _QuestionEditorState extends State<QuestionEditor> {
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<SurveyQuestionType>(
-            value: type,
+            initialValue: type,
             isExpanded: true,
             elevation: 8,
             icon: const Icon(
@@ -1102,7 +1102,7 @@ class _QuestionEditorState extends State<QuestionEditor> {
                 vertical: 12,
               ),
               filled: true,
-              fillColor: Colors.indigo.withOpacity(0.02),
+              fillColor: Colors.indigo.withValues(alpha: 0.02),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide(color: Colors.indigo.shade100),
@@ -1156,7 +1156,7 @@ class _QuestionEditorState extends State<QuestionEditor> {
                   borderSide: BorderSide(color: Colors.indigo.shade100),
                 ),
                 filled: true,
-                fillColor: Colors.indigo.withOpacity(0.02),
+                fillColor: Colors.indigo.withValues(alpha: 0.02),
               ),
               maxLines: 2,
             ),

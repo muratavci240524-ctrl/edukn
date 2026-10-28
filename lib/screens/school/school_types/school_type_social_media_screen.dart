@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -8,10 +9,8 @@ import 'dart:convert';
 import 'dart:math' as math;
 // ignore: avoid_web_libraries_in_flutter
 import 'dart:html' as html;
-import '../../../services/announcement_service.dart';
 import '../../../services/user_permission_service.dart';
 import '../../../services/term_service.dart';
-import 'package:url_launcher/url_launcher.dart';
 // ignore: avoid_web_libraries_in_flutter
 import 'dart:ui_web' as ui;
 import '../../../widgets/user_avatar.dart';
@@ -49,6 +48,103 @@ class _SchoolTypeSocialMediaScreenState
 
   // --- View Mode State ('new' = Okunmayanlar / Yeni, 'past' = Okunanlar / Geçmiş) ---
   String _viewMode = 'new';
+
+  // --- Arama & Tarih filtresi ---
+  final TextEditingController _searchController = TextEditingController();
+  String _searchText = '';
+  DateTimeRange? _range;
+
+  bool get _isSearching => _searchText.isNotEmpty || _range != null;
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickRange() async {
+    final now = DateTime.now();
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(now.year - 3),
+      lastDate: DateTime(now.year + 1),
+      initialDateRange: _range,
+      locale: const Locale('tr', 'TR'),
+    );
+    if (picked != null) setState(() => _range = picked);
+  }
+
+  Widget _buildSearchBar() {
+    final df = DateFormat('dd.MM.yy');
+    return SizedBox(
+      height: 40,
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _searchController,
+              onChanged: (v) => setState(() => _searchText = v.trim().toLowerCase()),
+              style: GoogleFonts.inter(fontSize: 13),
+              decoration: InputDecoration(
+                hintText: 'Medya paylaşımı ara...',
+                hintStyle: GoogleFonts.inter(fontSize: 13, color: Colors.blueGrey.shade400),
+                prefixIcon: const Icon(Icons.search_rounded, size: 20, color: Colors.indigo),
+                suffixIcon: _searchText.isEmpty
+                    ? null
+                    : IconButton(
+                        icon: const Icon(Icons.close_rounded, size: 18),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _searchText = '');
+                        },
+                      ),
+                contentPadding: EdgeInsets.zero,
+                filled: true,
+                fillColor: Colors.grey.shade100,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          InkWell(
+            onTap: _pickRange,
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              height: 40,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              decoration: BoxDecoration(
+                color: _range != null ? Colors.indigo : Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.date_range_rounded,
+                      size: 20, color: _range != null ? Colors.white : Colors.indigo),
+                  if (_range != null) ...[
+                    const SizedBox(width: 6),
+                    Text(
+                      '${df.format(_range!.start)} - ${df.format(_range!.end)}',
+                      style: GoogleFonts.inter(
+                          fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white),
+                    ),
+                    const SizedBox(width: 4),
+                    GestureDetector(
+                      onTap: () => setState(() => _range = null),
+                      child: const Icon(Icons.close_rounded, size: 16, color: Colors.white),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -260,7 +356,7 @@ class _SchoolTypeSocialMediaScreenState
                       Text(
                         'Sosyal Medya & Paylaşımlar',
                         style: GoogleFonts.inter(
-                          color: Colors.white.withOpacity(0.85),
+                          color: Colors.white.withValues(alpha: 0.85),
                           fontSize: 12,
                         ),
                       ),
@@ -275,8 +371,8 @@ class _SchoolTypeSocialMediaScreenState
             SliverPersistentHeader(
               pinned: true,
               delegate: _SliverAppBarDelegate(
-                minHeight: _shouldShowSchoolTypeFilter ? 115.0 : 65.0,
-                maxHeight: _shouldShowSchoolTypeFilter ? 115.0 : 65.0,
+                minHeight: _shouldShowSchoolTypeFilter ? 167.0 : 117.0,
+                maxHeight: _shouldShowSchoolTypeFilter ? 167.0 : 117.0,
                 child: Container(
                   color: Colors.white,
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -312,9 +408,9 @@ class _SchoolTypeSocialMediaScreenState
                                 borderSide: const BorderSide(color: Colors.indigo, width: 2),
                               ),
                               filled: true,
-                              fillColor: Colors.indigo.withOpacity(0.02),
+                              fillColor: Colors.indigo.withValues(alpha: 0.02),
                             ),
-                            value: _selectedFilterSchoolTypeId == 'GENEL' && _isTeacher && _schoolTypes.isNotEmpty
+                            initialValue: _selectedFilterSchoolTypeId == 'GENEL' && _isTeacher && _schoolTypes.isNotEmpty
                                 ? _schoolTypes.first['id']
                                 : _selectedFilterSchoolTypeId,
                             hint: Text(
@@ -356,6 +452,9 @@ class _SchoolTypeSocialMediaScreenState
                         const SizedBox(height: 8),
                       ],
 
+                      _buildSearchBar(),
+                      const SizedBox(height: 8),
+
                       // View Mode Switcher: Yeni Paylaşımlar vs Okunanlar / Geçmiş (TÜM PAYLAŞIMLAR KALDIRILDI)
                       Container(
                         height: 40,
@@ -376,7 +475,7 @@ class _SchoolTypeSocialMediaScreenState
                             Expanded(
                               child: _buildViewModeTab(
                                 key: 'past',
-                                label: 'Okunanlar / Geçmiş',
+                                label: 'Geçmiş (3 gün+)',
                                 icon: Icons.history_rounded,
                               ),
                             ),
@@ -451,17 +550,27 @@ class _SchoolTypeSocialMediaScreenState
                   return false;
                 }
 
-                // Read / Past Filter Logic
-                final readByList = List<String>.from(data['readBy'] ?? []);
-                final isReadInDb = currentUserEmail.isNotEmpty && readByList.contains(currentUserEmail);
-                final wasUnreadAtStart = _sessionUnreadDocIds.contains(doc.id);
+                // Yeni / Geçmiş: paylaşım tarihinden itibaren 3 gün 'Yeni', sonrası 'Geçmiş'
+                // Arama (baslik, aciklama, paylasan) ve tarih araligi filtresi
+                if (_searchText.isNotEmpty) {
+                  final hay = ("${data['title'] ?? ''} ${data['caption'] ?? ''} ${data['creatorName'] ?? ''}").toLowerCase();
+                  if (!hay.contains(_searchText)) return false;
+                }
+                if (_range != null) {
+                  final ts = data['createdAt'] as Timestamp?;
+                  if (ts == null) return false;
+                  final dt = ts.toDate();
+                  final end = DateTime(_range!.end.year, _range!.end.month, _range!.end.day, 23, 59, 59);
+                  if (dt.isBefore(_range!.start) || dt.isAfter(end)) return false;
+                }
 
-                // Kullanıcı oturumu açıkken okuduğunda gönderi ekrandan aniden kaybolmaz;
-                // ancak sayfa kapatılıp tekrar açıldığında Geçmiş sekmesine aktarılır.
-                if (_viewMode == 'new' && isReadInDb && !wasUnreadAtStart) {
+                final createdTs = data['createdAt'] as Timestamp?;
+                final isRecent = createdTs == null ||
+                    DateTime.now().difference(createdTs.toDate()).inDays < 3;
+                if (!_isSearching && _viewMode == 'new' && !isRecent) {
                   return false;
                 }
-                if (_viewMode == 'past' && !isReadInDb) {
+                if ((_viewMode == 'past' && isRecent && !_isSearching)) {
                   return false;
                 }
 
@@ -485,9 +594,9 @@ class _SchoolTypeSocialMediaScreenState
                       const SizedBox(height: 16),
                       Text(
                         _viewMode == 'new'
-                            ? 'Henüz okunmamış yeni paylaşım yok'
+                            ? 'Son 3 gün içinde yeni paylaşım yok'
                             : (_viewMode == 'past'
-                                ? 'Okunmuş geçmiş paylaşım bulunmuyor'
+                                ? 'Geçmiş paylaşım bulunmuyor'
                                 : 'Henüz paylaşım bulunmuyor'),
                         style: GoogleFonts.inter(
                           fontSize: 16,
@@ -604,7 +713,7 @@ class _SchoolTypeSocialMediaScreenState
           boxShadow: isSelected
               ? [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.06),
+                    color: Colors.black.withValues(alpha: 0.06),
                     blurRadius: 4,
                     offset: const Offset(0, 2),
                   )
@@ -664,6 +773,7 @@ class _PostCardState extends State<PostCard> {
   final PageController _pageController = PageController();
   int _currentImageIndex = 0;
   bool _isPlaying = false;
+  bool _videoCover = false;
   bool _canManage = false;
 
   @override
@@ -738,7 +848,7 @@ class _PostCardState extends State<PostCard> {
           .collection('social_media_posts')
           .doc(widget.postId)
           .update({'isPinned': !currentStatus});
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             currentStatus ? 'Sabitleme kaldırıldı' : 'Gönderi sabitlendi',
@@ -757,24 +867,29 @@ class _PostCardState extends State<PostCard> {
           .collection('social_media_posts')
           .doc(widget.postId)
           .delete();
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Gönderi silindi', style: GoogleFonts.inter())));
     } catch (e) {
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata: $e', style: GoogleFonts.inter())));
     }
   }
 
   void _editPost() {
-    showDialog(
-      context: context,
-      builder: (ctx) => _EditPostModal(
-        postId: widget.postId,
-        initialCaption: widget.data['caption'],
-        initialRecipients: List<String>.from(widget.data['recipients'] ?? []),
-        schoolTypeId: widget.schoolTypeId,
+    final d = widget.data;
+    final stId = (d['schoolTypeId'] ?? widget.schoolTypeId).toString();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CreateSocialMediaPostScreen(
+          schoolTypeId: stId,
+          schoolTypeName: _getSchoolTypeName(stId),
+          institutionId: (d['institutionId'] ?? '').toString(),
+          postId: widget.postId,
+          initialData: d,
+        ),
       ),
     );
   }
@@ -800,21 +915,22 @@ class _PostCardState extends State<PostCard> {
             ),
           ),
           const SizedBox(height: 16),
-          ListTile(
-            leading: Icon(
-              isPinned ? Icons.push_pin_outlined : Icons.push_pin,
-              color: Colors.indigo,
+          if (_canManage)
+            ListTile(
+              leading: Icon(
+                isPinned ? Icons.push_pin_outlined : Icons.push_pin,
+                color: Colors.indigo,
+              ),
+              title: Text(
+                isPinned ? 'Sabitlemeyi Kaldır' : 'Gönderiyi Sabitle',
+                style: GoogleFonts.inter(),
+              ),
+              onTap: () {
+                Navigator.pop(context);
+                _togglePin(isPinned);
+              },
             ),
-            title: Text(
-              isPinned ? 'Sabitlemeyi Kaldır' : 'Gönderiyi Sabitle',
-              style: GoogleFonts.inter(),
-            ),
-            onTap: () {
-              Navigator.pop(context);
-              _togglePin(isPinned);
-            },
-          ),
-          if (isOwner) ...[
+          if (isOwner || _canManage) ...[
             const Divider(),
             ListTile(
               leading: const Icon(Icons.edit, color: Colors.blue),
@@ -916,7 +1032,7 @@ class _PostCardState extends State<PostCard> {
       if (uri.host.contains('youtu.be') && uri.pathSegments.isNotEmpty) {
         return uri.pathSegments.last;
       }
-    } catch (e) {}
+    } catch (silentError) { debugPrint('[school_type_social_media_screen] hata yutuldu: $silentError'); }
 
     RegExp regExp = RegExp(
       r'.*(?:(?:youtu\.be\/|v\/|vi\/|u\/\w\/|embed\/|e\/)|(?:(?:watch)?\?v(?:i)?=|\&v(?:i)?=))([^#\&\?]*).*',
@@ -961,6 +1077,26 @@ class _PostCardState extends State<PostCard> {
     return url;
   }
 
+  /// Videoyu 16:9 oranını koruyarak ilgili alana ortalayıp sığdırır
+  /// (alan daraldıkça küçülür, genişledikçe büyür; kalan boşluk siyah kalır).
+  Widget _fitVideoBox(Widget child) {
+    return Container(
+      color: Colors.black,
+      alignment: Alignment.center,
+      child: LayoutBuilder(
+        builder: (context, c) {
+          var w = c.maxWidth;
+          var h = w * 9 / 16;
+          if (c.maxHeight.isFinite && h > c.maxHeight) {
+            h = c.maxHeight;
+            w = h * 16 / 9;
+          }
+          return SizedBox(width: w, height: h, child: ClipRect(child: child));
+        },
+      ),
+    );
+  }
+
   Widget _buildVideoPlaceholder(String url) {
     if (_isPlaying) {
       final String? embedUrl = _getEmbedUrl(url);
@@ -970,21 +1106,95 @@ class _PostCardState extends State<PostCard> {
         try {
           // ignore: undefined_prefixed_name
           ui.platformViewRegistry.registerViewFactory(viewId, (int viewId) {
-            final element = html.IFrameElement()
+            // Sarmalayıcı kutu Flutter'ın verdiği 16:9 alanı doldurur; iframe sabit
+            // bir tasarım boyutunda (min 640px) çizilip alana orantılı ölçeklenir.
+            final wrapper = html.DivElement()
+              ..style.width = '100%'
+              ..style.height = '100%'
+              ..style.overflow = 'hidden'
+              ..style.position = 'relative'
+              ..style.backgroundColor = 'black';
+            final iframe = html.IFrameElement()
               ..src = embedUrl
               ..style.border = 'none'
+              ..style.position = 'absolute'
+              ..style.left = '0'
+              ..style.top = '0'
+              ..style.transformOrigin = '0 0'
               ..allow =
                   'autoplay; fullscreen; picture-in-picture; encrypted-media';
-            return element;
-          });
-        } catch (e) {}
+            iframe.setAttribute('allowfullscreen', 'true');
+            wrapper.append(iframe);
 
-        return AspectRatio(
-          aspectRatio: 16 / 9,
-          child: Stack(
+            void fit() {
+              final w = wrapper.clientWidth.toDouble();
+              final h = wrapper.clientHeight.toDouble();
+              if (w <= 0 || h <= 0) return;
+              // Mobil/dokunmatik modda oynatıcı kendi dokunmatik (büyük) arayüzünü
+              // açar; bunu daha geniş bir tasarım boyutunda çizip küçülterek
+              // masaüstü görünümüne yaklaştırıyoruz.
+              final ua = html.window.navigator.userAgent.toLowerCase();
+              final touchMode = ua.contains('mobile') ||
+                  ua.contains('android') ||
+                  ua.contains('iphone') ||
+                  (html.window.navigator.maxTouchPoints ?? 0) > 0;
+              final base = touchMode ? 960.0 : 640.0;
+              if (w >= base) {
+                iframe.style
+                  ..width = '${w}px'
+                  ..height = '${h}px'
+                  ..transform = 'none';
+              } else {
+                final s = w / base;
+                iframe.style
+                  ..width = '${base}px'
+                  ..height = '${h / s}px'
+                  ..transform = 'scale($s)';
+              }
+            }
+
+            fit();
+            var wasAttached = false;
+            Timer.periodic(const Duration(milliseconds: 250), (t) {
+              final attached = wrapper.isConnected ?? false;
+              if (attached) {
+                wasAttached = true;
+                fit();
+              } else if (wasAttached) {
+                t.cancel();
+              }
+            });
+            return wrapper;
+          });
+        } catch (silentError) { debugPrint('[school_type_social_media_screen] hata yutuldu: $silentError'); }
+
+        return _fitVideoBox(
+          Stack(
             children: [
-              HtmlElementView(viewType: viewId),
-              Positioned(top: 8, right: 8, child: _buildCloseButton()),
+              Positioned.fill(child: HtmlElementView(viewType: viewId)),
+              // Başlangıçtaki geçici büyük kontrol arayüzünü gizleyen perde
+              Positioned.fill(
+                child: IgnorePointer(
+                  ignoring: !_videoCover,
+                  child: AnimatedOpacity(
+                    opacity: _videoCover ? 1 : 0,
+                    duration: const Duration(milliseconds: 450),
+                    child: Container(
+                      color: Colors.black,
+                      alignment: Alignment.center,
+                      child: const SizedBox(
+                        width: 28,
+                        height: 28,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          color: Colors.white70,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(top: 6, left: 6, child: _buildCloseButton()),
             ],
           ),
         );
@@ -999,11 +1209,16 @@ class _PostCardState extends State<PostCard> {
     return GestureDetector(
       onTap: () {
         _autoMarkRead();
-        setState(() => _isPlaying = true);
+        setState(() {
+          _isPlaying = true;
+          _videoCover = true;
+        });
+        Future.delayed(const Duration(milliseconds: 3500), () {
+          if (mounted) setState(() => _videoCover = false);
+        });
       },
-      child: AspectRatio(
-        aspectRatio: 16 / 9,
-        child: Stack(
+      child: _fitVideoBox(
+        Stack(
           alignment: Alignment.center,
           children: [
             thumbnailUrl.isNotEmpty
@@ -1064,7 +1279,7 @@ class _PostCardState extends State<PostCard> {
       child: Container(
         padding: const EdgeInsets.all(4),
         decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.6),
+          color: Colors.black.withValues(alpha: 0.6),
           shape: BoxShape.circle,
         ),
         child: const Icon(Icons.close, color: Colors.white, size: 24),
@@ -1121,13 +1336,13 @@ class _PostCardState extends State<PostCard> {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.08),
+            color: Colors.grey.withValues(alpha: 0.08),
             blurRadius: 15,
             spreadRadius: 2,
             offset: const Offset(0, 4),
           ),
         ],
-        border: Border.all(color: Colors.grey.withOpacity(0.12)),
+        border: Border.all(color: Colors.grey.withValues(alpha: 0.12)),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -1209,7 +1424,7 @@ class _PostCardState extends State<PostCard> {
                           borderRadius: BorderRadius.circular(8),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.amber.withOpacity(0.3),
+                              color: Colors.amber.withValues(alpha: 0.3),
                               blurRadius: 4,
                               offset: const Offset(0, 2),
                             ),
@@ -1273,7 +1488,10 @@ class _PostCardState extends State<PostCard> {
                         ],
                       ),
                     ),
-                    if (_canManage)
+                    if (_canManage ||
+                        (widget.currentUserEmail != null &&
+                            widget.currentUserEmail!.isNotEmpty &&
+                            widget.currentUserEmail == creatorEmail))
                       IconButton(
                         icon: const Icon(Icons.more_horiz, size: 20),
                         onPressed: () => _showPostOptions(isPinned, creatorEmail),
@@ -1471,6 +1689,20 @@ class _PostCardState extends State<PostCard> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if ((widget.data['title'] ?? '').toString().trim().isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 3),
+                    child: Text(
+                      widget.data['title'].toString().trim(),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.inter(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                        color: Colors.indigo.shade900,
+                      ),
+                    ),
+                  ),
                 if (caption.isNotEmpty)
                   Text.rich(
                     TextSpan(
@@ -1626,214 +1858,6 @@ class _FullScreenImageViewerState extends State<_FullScreenImageViewer> {
               ),
             ),
         ],
-      ),
-    );
-  }
-}
-
-class _EditPostModal extends StatefulWidget {
-  final String postId;
-  final String initialCaption;
-  final List<String> initialRecipients;
-  final String schoolTypeId;
-
-  const _EditPostModal({
-    Key? key,
-    required this.postId,
-    required this.initialCaption,
-    required this.initialRecipients,
-    required this.schoolTypeId,
-  }) : super(key: key);
-
-  @override
-  State<_EditPostModal> createState() => _EditPostModalState();
-}
-
-class _EditPostModalState extends State<_EditPostModal> {
-  late TextEditingController _captionController;
-  late List<String> _recipients;
-  bool _isPublic = false;
-  final AnnouncementService _announcementService = AnnouncementService();
-
-  List<Map<String, dynamic>> _classes = [];
-  String? _selectedClass;
-  bool _isLoadingClasses = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _captionController = TextEditingController(text: widget.initialCaption);
-    _recipients = List.from(widget.initialRecipients);
-    _isPublic = _recipients.isEmpty;
-    _loadClasses();
-  }
-
-  Future<void> _loadClasses() async {
-    setState(() => _isLoadingClasses = true);
-    try {
-      final classes = await _announcementService.getClasses(
-        widget.schoolTypeId,
-      );
-      if (mounted) setState(() => _classes = classes);
-    } catch (e) {
-      debugPrint("Error loading classes: $e");
-    } finally {
-      if (mounted) setState(() => _isLoadingClasses = false);
-    }
-  }
-
-  void _addRecipient(String id) {
-    if (!_recipients.contains(id)) {
-      setState(() {
-        _recipients.add(id);
-        _isPublic = false;
-      });
-    }
-  }
-
-  void _removeRecipient(String id) {
-    setState(() {
-      _recipients.remove(id);
-      if (_recipients.isEmpty) _isPublic = true;
-    });
-  }
-
-  void _addClassRecipients() {
-    if (_selectedClass == null) return;
-    _addRecipient('class:${widget.schoolTypeId}_$_selectedClass');
-    setState(() => _selectedClass = null);
-  }
-
-  Future<void> _save() async {
-    try {
-      await FirebaseFirestore.instance
-          .collection('social_media_posts')
-          .doc(widget.postId)
-          .update({
-            'caption': _captionController.text.trim(),
-            'recipients': _isPublic ? [] : _recipients,
-            'isPublic': _isPublic,
-          });
-      Navigator.pop(context);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Gönderi güncellendi', style: GoogleFonts.inter())));
-    } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Hata: $e', style: GoogleFonts.inter())));
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: Container(
-        width: 500,
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              "Gönderiyi Düzenle",
-              style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _captionController,
-              style: GoogleFonts.inter(),
-              decoration: InputDecoration(
-                labelText: "Açıklama",
-                labelStyle: GoogleFonts.inter(),
-                border: const OutlineInputBorder(),
-              ),
-              maxLines: 4,
-            ),
-            const SizedBox(height: 16),
-
-            Text(
-              "Hedef Kitle",
-              style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            SwitchListTile(
-              title: Text("Herkese Açık", style: GoogleFonts.inter()),
-              subtitle: Text("Tüm okul ve veliler görebilir", style: GoogleFonts.inter(fontSize: 12)),
-              value: _isPublic,
-              onChanged: (val) {
-                setState(() {
-                  _isPublic = val;
-                  if (val) _recipients.clear();
-                });
-              },
-            ),
-
-            if (!_isPublic) ...[
-              const Divider(),
-              Row(
-                children: [
-                  Expanded(
-                    child: _isLoadingClasses
-                        ? const LinearProgressIndicator()
-                        : DropdownButtonFormField<String>(
-                            value: _selectedClass,
-                            hint: Text("Sınıf Seç", style: GoogleFonts.inter()),
-                            isExpanded: true,
-                            items: _classes.map<DropdownMenuItem<String>>((c) {
-                              final val = c['name'].toString();
-                              return DropdownMenuItem<String>(
-                                value: val,
-                                child: Text(val, style: GoogleFonts.inter()),
-                              );
-                            }).toList(),
-                            onChanged: (val) =>
-                                setState(() => _selectedClass = val),
-                          ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    icon: const Icon(Icons.add_circle, color: Colors.indigo),
-                    onPressed: _addClassRecipients,
-                    tooltip: "Sınıf Ekle",
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                children: _recipients.map((r) {
-                  String label = r;
-                  if (r.startsWith('class:')) label = r.split('_').last;
-                  return Chip(
-                    label: Text(label, style: GoogleFonts.inter()),
-                    onDeleted: () => _removeRecipient(r),
-                  );
-                }).toList(),
-              ),
-            ],
-
-            const SizedBox(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: Text("İptal", style: GoogleFonts.inter()),
-                ),
-                const SizedBox(width: 8),
-                ElevatedButton(
-                  onPressed: _save,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.indigo,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: Text("Kaydet", style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
-                ),
-              ],
-            ),
-          ],
-        ),
       ),
     );
   }

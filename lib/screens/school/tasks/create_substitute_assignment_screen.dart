@@ -91,7 +91,7 @@ class _CreateSubstituteAssignmentScreenState
         }).toList();
       });
     } catch (e) {
-      print('Error loading teachers: $e');
+      debugPrint('Error loading teachers: $e');
     }
   }
 
@@ -146,10 +146,10 @@ class _CreateSubstituteAssignmentScreenState
 
                       // Reason
                       DropdownButtonFormField<String>(
-                        value: _selectedReasonType,
+                        initialValue: _selectedReasonType,
                         decoration: InputDecoration(
                           labelText: 'Mazeret Durumu',
-                          fillColor: const Color(0xFFFFFF),
+                          fillColor: const Color(0x00ffffff),
                           filled: true,
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
@@ -176,7 +176,7 @@ class _CreateSubstituteAssignmentScreenState
                           controller: _customReasonController,
                           decoration: InputDecoration(
                             labelText: 'Açıklama Giriniz',
-                            fillColor: const Color(0xFFFFFF),
+                            fillColor: const Color(0x00ffffff),
                             filled: true,
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(16),
@@ -203,7 +203,7 @@ class _CreateSubstituteAssignmentScreenState
                           'Öğretmenin o günkü tüm derslerine atama yapılır.',
                         ),
                         value: _isFullDay,
-                        activeColor: const Color(0xFF4F46E5),
+                        activeThumbColor: const Color(0xFF4F46E5),
                         onChanged: (val) {
                           setState(() {
                             _isFullDay = val;
@@ -481,7 +481,7 @@ class _CreateSubstituteAssignmentScreenState
         assignedCount++;
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('$assignedCount ders için otomatik atama yapıldı.'),
         ),
@@ -492,7 +492,7 @@ class _CreateSubstituteAssignmentScreenState
         _loadTeacherSchedule(_selectedAbsentTeacher!['id']);
       }
     } catch (e) {
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata: $e')));
     } finally {
@@ -549,8 +549,8 @@ class _CreateSubstituteAssignmentScreenState
     }
     final sortedHours = uniqueHourIndices.toList()..sort();
 
-    print('DEBUG: _teacherSchedule has ${_teacherSchedule.length} lessons');
-    print('DEBUG: Unique hour indices: $sortedHours');
+    debugPrint('DEBUG: _teacherSchedule has ${_teacherSchedule.length} lessons');
+    debugPrint('DEBUG: Unique hour indices: $sortedHours');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -739,7 +739,7 @@ class _CreateSubstituteAssignmentScreenState
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
+                color: color.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(icon, color: color, size: 22),
@@ -813,7 +813,7 @@ class _CreateSubstituteAssignmentScreenState
     // We only use this for selecting ABSENT teacher now, since substitute is selected via list
     if (isSubstitute) return;
 
-    showDialog(
+    if (mounted) showDialog(
       context: context,
       builder: (dialogContext) {
         return _TeacherSelectDialog(
@@ -890,9 +890,9 @@ class _CreateSubstituteAssignmentScreenState
           }
           return false;
         });
-        print('DEBUG: Found Period matching selected date: ${periodDoc.id}');
+        debugPrint('DEBUG: Found Period matching selected date: ${periodDoc.id}');
       } catch (_) {
-        print(
+        debugPrint(
           'DEBUG: No specific period found for date $_selectedDate, falling back to selection',
         );
       }
@@ -904,9 +904,9 @@ class _CreateSubstituteAssignmentScreenState
           final selectedId = await TermService().getSelectedTermId();
           final activeId = await TermService().getActiveTermId();
           targetTermId = selectedId ?? activeId;
-          print('DEBUG: Target Term ID (from TermService): $targetTermId');
+          debugPrint('DEBUG: Target Term ID (from TermService): $targetTermId');
         } catch (e) {
-          print('Error fetching term ID: $e');
+          debugPrint('Error fetching term ID: $e');
         }
 
         // 2. Find matching period by termId field (NOT doc.id)
@@ -928,11 +928,11 @@ class _CreateSubstituteAssignmentScreenState
                 periodDoc = periodSnapshot.docs.firstWhere(
                   (d) => d.id == targetTermId,
                 );
-              } catch (_) {}
+              } catch (silentError) { debugPrint('[create_substitute_assignment_screen] hata yutuldu: $silentError'); }
             }
           }
           if (periodDoc != null) {
-            print('DEBUG: Found period by termId match: ${periodDoc!.id}');
+            debugPrint('DEBUG: Found period by termId match: ${periodDoc.id}');
           }
         }
       }
@@ -966,24 +966,24 @@ class _CreateSubstituteAssignmentScreenState
           final dayLessons = periodData['lessonHours']['lessonTimes'][dayName];
           if (dayLessons is List) {
             dailyLimit = dayLessons.length;
-            print(
+            debugPrint(
               'DEBUG: Using period lessonTimes count: $dailyLimit lessons for $dayName',
             );
           }
         } else {
-          print(
+          debugPrint(
             'DEBUG: No lessonTimes found, using default limit: $dailyLimit',
           );
         }
       } catch (e) {
-        print('Error parsing lesson times: $e');
+        debugPrint('Error parsing lesson times: $e');
       }
 
-      print('DEBUG: Loading Schedule');
-      print('DEBUG: PeriodID: $periodId');
-      print('DEBUG: DayName: $dayName');
-      print('DEBUG: DailyLimit: $dailyLimit');
-      print('DEBUG: TeacherID: $teacherId');
+      debugPrint('DEBUG: Loading Schedule');
+      debugPrint('DEBUG: PeriodID: $periodId');
+      debugPrint('DEBUG: DayName: $dayName');
+      debugPrint('DEBUG: DailyLimit: $dailyLimit');
+      debugPrint('DEBUG: TeacherID: $teacherId');
 
       // Fetch classes to resolve names properly
       final classSnap = await FirebaseFirestore.instance
@@ -1057,7 +1057,7 @@ class _CreateSubstituteAssignmentScreenState
       // We fetch ALL schedules for the day and filter client-side to ensure maximum robustness
       // and avoid issues with missing indexes or type mismatches (String vs Int) for teacherId.
 
-      print(
+      debugPrint(
         'DEBUG: Fetching ALL schedules for day $dayName to filter locally...',
       );
 
@@ -1068,14 +1068,14 @@ class _CreateSubstituteAssignmentScreenState
           .where('isActive', isEqualTo: true) // Added safety check
           .get();
 
-      print(
+      debugPrint(
         'DEBUG: Fetched ${dayAllSnap.docs.length} total slots for the day.',
       );
 
       // Debug: Log all hourIndex values from query
       for (var doc in dayAllSnap.docs) {
         final data = doc.data();
-        print(
+        debugPrint(
           'DEBUG: Raw query result: hourIdx=${data['hourIndex']}, isActive=${data['isActive']}, teacherId=${data['teacherId']}',
         );
       }
@@ -1158,13 +1158,13 @@ class _CreateSubstituteAssignmentScreenState
           if (hourIdx != null && classId != null) {
             final compositeKey = '${hourIdx}_$classId';
             uniqueSlots[compositeKey] = data;
-            print(
+            debugPrint(
               'DEBUG: Added to uniqueSlots: hourIdx=$hourIdx, classId=$classId, compositeKey=$compositeKey',
             );
           }
         }
       }
-      print(
+      debugPrint(
         'DEBUG: Found ${uniqueSlots.length} matching slots after client-side filter.',
       );
 
@@ -1177,7 +1177,7 @@ class _CreateSubstituteAssignmentScreenState
         return aIdx.compareTo(bIdx);
       });
 
-      print(
+      debugPrint(
         'DEBUG: Showing all ${foundSlots.length} lessons (no dailyLimit filter)',
       );
 
@@ -1205,7 +1205,7 @@ class _CreateSubstituteAssignmentScreenState
         }
       });
     } catch (e) {
-      print('Schedule Load Error: $e');
+      debugPrint('Schedule Load Error: $e');
       setState(() {
         _teacherSchedule = [];
         _isLoadingSchedule = false;
@@ -1421,7 +1421,7 @@ class _SubstituteAssignmentCardState extends State<SubstituteAssignmentCard> {
         _isLoading = false;
       });
     } catch (e) {
-      print('Load Sub Error: $e');
+      debugPrint('Load Sub Error: $e');
       setState(() => _isLoading = false);
     }
   }
@@ -1493,7 +1493,7 @@ class _SubstituteAssignmentCardState extends State<SubstituteAssignmentCard> {
 
       widget.onAssignmentChanged();
     } catch (e) {
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata: $e')));
     }
@@ -1508,7 +1508,7 @@ class _SubstituteAssignmentCardState extends State<SubstituteAssignmentCard> {
           .delete();
       widget.onAssignmentChanged();
     } catch (e) {
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata: $e')));
     }
@@ -1531,7 +1531,7 @@ class _SubstituteAssignmentCardState extends State<SubstituteAssignmentCard> {
         boxShadow: [
           if (!isAssigned)
             BoxShadow(
-              color: Colors.black.withOpacity(0.03),
+              color: Colors.black.withValues(alpha: 0.03),
               blurRadius: 4,
               offset: const Offset(0, 2),
             ),
@@ -1710,7 +1710,7 @@ class _SubstituteAssignmentCardState extends State<SubstituteAssignmentCard> {
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.02),
+                              color: Colors.black.withValues(alpha: 0.02),
                               blurRadius: 4,
                               offset: const Offset(0, 2),
                             ),
@@ -1921,7 +1921,7 @@ class _TeacherSelectDialogState extends State<_TeacherSelectDialog> {
           borderRadius: BorderRadius.circular(24),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.15),
+              color: Colors.black.withValues(alpha: 0.15),
               blurRadius: 30,
               offset: const Offset(0, 10),
             ),
@@ -1986,7 +1986,7 @@ class _TeacherSelectDialogState extends State<_TeacherSelectDialog> {
                   border: Border.all(color: const Color(0xFFE2E8F0)),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF4F46E5).withOpacity(0.04),
+                      color: const Color(0xFF4F46E5).withValues(alpha: 0.04),
                       blurRadius: 8,
                       offset: const Offset(0, 2),
                     ),
@@ -2107,7 +2107,7 @@ class _TeacherSelectDialogState extends State<_TeacherSelectDialog> {
                                   Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                     decoration: BoxDecoration(
-                                      color: branchColor.withOpacity(0.1),
+                                      color: branchColor.withValues(alpha: 0.1),
                                       borderRadius: BorderRadius.circular(10),
                                     ),
                                     child: Text(
@@ -2158,8 +2158,8 @@ class _TeacherSelectDialogState extends State<_TeacherSelectDialog> {
                                                 begin: Alignment.topLeft,
                                                 end: Alignment.bottomRight,
                                                 colors: [
-                                                  branchColor.withOpacity(0.15),
-                                                  branchColor.withOpacity(0.05),
+                                                  branchColor.withValues(alpha: 0.15),
+                                                  branchColor.withValues(alpha: 0.05),
                                                 ],
                                               ),
                                               borderRadius: BorderRadius.circular(12),
@@ -2194,7 +2194,7 @@ class _TeacherSelectDialogState extends State<_TeacherSelectDialog> {
                                                   branch,
                                                   style: TextStyle(
                                                     fontSize: 12,
-                                                    color: branchColor.withOpacity(0.8),
+                                                    color: branchColor.withValues(alpha: 0.8),
                                                   ),
                                                 ),
                                               ],

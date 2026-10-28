@@ -33,9 +33,9 @@ class _StudentBulkUploadDialogState extends State<StudentBulkUploadDialog> {
   List<Map<String, dynamic>> _parsedStudents =
       []; // Excel'den okunan ham veriler
   List<Map<String, dynamic>> _classList = []; // Esnek arama için liste
-  Map<String, String> _existingStudentsMap =
+  final Map<String, String> _existingStudentsMap =
       {}; // TC -> docId (Var olanları kontrol için)
-  Set<String> _existingStudentNos =
+  final Set<String> _existingStudentNos =
       {}; // Okul Numaraları (Unique kontrolü için)
 
   // Stats
@@ -57,9 +57,7 @@ class _StudentBulkUploadDialogState extends State<StudentBulkUploadDialog> {
   Future<void> _loadClasses() async {
     try {
       String? termId = widget.termId;
-      if (termId == null) {
-        termId = await TermService().getActiveTermId();
-      }
+      termId ??= await TermService().getActiveTermId();
       if (termId == null) return;
 
       final snapshot = await FirebaseFirestore.instance
@@ -221,12 +219,12 @@ class _StudentBulkUploadDialogState extends State<StudentBulkUploadDialog> {
           ext: 'xlsx',
           mimeType: MimeType.microsoftExcel,
         );
-        ScaffoldMessenger.of(
+        if (mounted) ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('✅ Şablon indirildi.')));
       }
     } catch (e) {
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Hata: $e')));
     }
@@ -445,7 +443,7 @@ class _StudentBulkUploadDialogState extends State<StudentBulkUploadDialog> {
         });
       }
     } catch (e) {
-      ScaffoldMessenger.of(
+      if (mounted) ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Dosya okuma hatası: $e')));
     } finally {

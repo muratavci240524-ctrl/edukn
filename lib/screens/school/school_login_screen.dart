@@ -65,7 +65,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
 
       if (signUpResponse.statusCode == 200) {
         final data = json.decode(signUpResponse.body);
-        print('✅ Yeni Auth hesabı oluşturuldu: $email');
+        debugPrint('✅ Yeni Auth hesabı oluşturuldu: $email');
         return data['localId'] as String;
       }
 
@@ -79,10 +79,10 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
           await FirebaseFunctions.instance
               .httpsCallable('updateUserCredentials')
               .call({'email': email, 'newPassword': password});
-          print('✅ Cloud Function ile şifre güncellendi: $email');
+          debugPrint('✅ Cloud Function ile şifre güncellendi: $email');
           return null;
         } catch (cfErr) {
-          print('⚠️ Cloud Function başarısız: $cfErr');
+          debugPrint('⚠️ Cloud Function başarısız: $cfErr');
         }
 
         // 3. Bilinen eski şifrelerle REST API üzerinden güncelle
@@ -105,7 +105,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
 
             if (signInResponse.statusCode == 200) {
               final signInData = json.decode(signInResponse.body);
-              print('✅ REST sign-in başarılı ($tryPass): $email');
+              debugPrint('✅ REST sign-in başarılı ($tryPass): $email');
 
               // Eski şifre farklıysa güncelle
               if (tryPass != password) {
@@ -120,21 +120,21 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                     'returnSecureToken': true,
                   }),
                 );
-                print('✅ Auth şifresi güncellendi: $email');
+                debugPrint('✅ Auth şifresi güncellendi: $email');
               }
               // NOT: signOut YAPMA — REST API SDK auth state'i etkilemez
               return signInData['localId'] as String;
             }
-          } catch (_) {}
+          } catch (silentError) { debugPrint('[school_login_screen] hata yutuldu: $silentError'); }
         }
-        print('ℹ️ Mevcut hesap, şifre değiştirilmedi: $email');
+        debugPrint('ℹ️ Mevcut hesap, şifre değiştirilmedi: $email');
       } else {
-        print('⚠️ REST SignUp hatası: $msg ($email)');
+        debugPrint('⚠️ REST SignUp hatası: $msg ($email)');
       }
 
       return null;
     } catch (e) {
-      print('❌ Auth oluşturma/güncelleme hatası: $e');
+      debugPrint('❌ Auth oluşturma/güncelleme hatası: $e');
       return null;
     }
   }
@@ -189,12 +189,12 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
               .authStateChanges()
               .first
               .timeout(const Duration(milliseconds: 600), onTimeout: () => null);
-        } catch (_) {}
+        } catch (silentError) { debugPrint('[school_login_screen] hata yutuldu: $silentError'); }
         user ??= FirebaseAuth.instance.currentUser;
       }
       
       if (user != null) {
-        print('✅ Mevcut oturum bulundu: ${user.email}');
+        debugPrint('✅ Mevcut oturum bulundu: ${user.email}');
         // Token'ı yenile (geçerliliği kontrol et)
         await user.reload();
         if (!mounted) return;
@@ -220,7 +220,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
             activePortal == 'student';
 
         if (isStudentOrParent) {
-          Navigator.pushReplacement(
+          if (mounted) Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (context) => ParentMainScreen(institutionId: instId)),
           );
@@ -247,7 +247,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
               role.contains('yonetici'));
 
         if (isTeacher || (activePortal == 'teacher' && (role.contains('ogretmen') || role.contains('teacher') || role.contains('öğretmen')))) {
-          Navigator.pushReplacement(
+          if (mounted) Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (context) => TeacherMainScreen(institutionId: instId)),
           );
@@ -255,15 +255,15 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         }
         
         // Direkt dashboard'a git
-        Navigator.pushReplacementNamed(context, '/school-dashboard');
+        if (mounted) Navigator.pushReplacementNamed(context, '/school-dashboard');
         return;
       }
     } catch (e) {
       // Token süresi dolmuş veya hesap silinmiş — giriş ekranını göster
-      print('⚠️ Oturum geçersiz, giriş ekranı gösteriliyor: $e');
+      debugPrint('⚠️ Oturum geçersiz, giriş ekranı gösteriliyor: $e');
       try {
         await FirebaseAuth.instance.signOut();
-      } catch (_) {}
+      } catch (silentError) { debugPrint('[school_login_screen] hata yutuldu: $silentError'); }
     }
     if (mounted) {
       setState(() => _checkingSession = false);
@@ -300,12 +300,12 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
     if (!instIdsToTry.contains(inputInstitutionId)) instIdsToTry.add(inputInstitutionId);
 
     try {
-      print('🔍 Giriş denemesi: User=$inputUser, Inst=$institutionId');
+      debugPrint('🔍 Giriş denemesi: User=$inputUser, Inst=$institutionId');
 
       // ── Önceki oturumu temizle (Çıkış sonrası kalan kalıntıları engelle) ──
       try {
         await FirebaseAuth.instance.signOut();
-      } catch (_) {}
+      } catch (silentError) { debugPrint('[school_login_screen] hata yutuldu: $silentError'); }
       UserPermissionService.clearCache();
 
       final List<String> candidateEmails = [];
@@ -419,7 +419,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
             break;
           }
         } catch (e) {
-          print('⚠️ users sorgu hatası: $e');
+          debugPrint('⚠️ users sorgu hatası: $e');
         }
       }
 
@@ -489,7 +489,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
             }
             if (pQuery.docs.isNotEmpty) { matchedParentDoc = pQuery.docs.first; break; }
           } catch (e) {
-            print('⚠️ student/parent sorgu hatası: $e');
+            debugPrint('⚠️ student/parent sorgu hatası: $e');
           }
         }
 
@@ -530,7 +530,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       final uniqueEmails = candidateEmails.toSet().toList();
       final passwordsToTry = <String>[password, if (tempPass != null && tempPass.isNotEmpty) tempPass];
 
-      print('📧 Aday e-postalar: $uniqueEmails');
+      debugPrint('📧 Aday e-postalar: $uniqueEmails');
 
       UserCredential? userCredential;
       String? successEmail;
@@ -542,15 +542,15 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         for (final tryPass in passwordsToTry) {
           if (loginSuccess || rateLimited) break;
           try {
-            print('🔐 Deneniyor: $tryEmail');
+            debugPrint('🔐 Deneniyor: $tryEmail');
             userCredential = await FirebaseAuth.instance
                 .signInWithEmailAndPassword(email: tryEmail, password: tryPass)
                 .timeout(const Duration(seconds: 15));
-            print('✅ Giriş başarılı: $tryEmail');
+            debugPrint('✅ Giriş başarılı: $tryEmail');
             successEmail = tryEmail;
             loginSuccess = true;
           } on FirebaseAuthException catch (authErr) {
-            print('⚠️ Başarısız: $tryEmail [${authErr.code}]');
+            debugPrint('⚠️ Başarısız: $tryEmail [${authErr.code}]');
             if (authErr.code == 'too-many-requests') {
               rateLimited = true;
               break;
@@ -561,7 +561,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
             // Diğer denemeler arasında kısa bir bekleme ekle (rate limit'i önlemek için)
             await Future.delayed(const Duration(milliseconds: 300));
           } catch (otherErr) {
-            print('⚠️ Diğer hata: $otherErr');
+            debugPrint('⚠️ Diğer hata: $otherErr');
           }
         }
         if (loginSuccess || rateLimited) break;
@@ -570,7 +570,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
       // ── ADIM 4: Giriş başarısızsa → Senkronize et ve tekrar dene ──
       // Rate limit durumunda Firebase'e ek istek göndermekten kaçın
       if (!loginSuccess && !rateLimited && (foundUserData != null || isAdminLogin)) {
-        print('🔄 Giriş başarısız, Auth senkronizasyonu deneniyor...');
+        debugPrint('🔄 Giriş başarısız, Auth senkronizasyonu deneniyor...');
         
         // Senkronize edilecek birincil e-posta
         String? syncEmail;
@@ -596,8 +596,8 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                   .timeout(const Duration(seconds: 10));
               successEmail = tryEmail;
               loginSuccess = true;
-              print('✅ Senkronizasyon sonrası giriş başarılı: $tryEmail');
-            } catch (_) {}
+              debugPrint('✅ Senkronizasyon sonrası giriş başarılı: $tryEmail');
+            } catch (silentError) { debugPrint('[school_login_screen] hata yutuldu: $silentError'); }
           }
         }
       }
@@ -632,10 +632,10 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                 .collection('users')
                 .doc(foundUserData['id'])
                 .set(updates, SetOptions(merge: true));
-            print('✅ Orijinal kullanıcı dokümanı authUserId ile bağlandı: ${foundUserData['id']}');
+            debugPrint('✅ Orijinal kullanıcı dokümanı authUserId ile bağlandı: ${foundUserData['id']}');
           }
         } catch (e) {
-          print('⚠️ Orijinal doküman güncelleme hatası: $e');
+          debugPrint('⚠️ Orijinal doküman güncelleme hatası: $e');
         }
 
         // 2. Eğer daha önce oluşturulmuş bir klon / mükerrer /users/{uid} varsa temizle (Asla mükerrer hesap olmasın!)
@@ -644,9 +644,9 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
             final oldMirror = await FirebaseFirestore.instance.collection('users').doc(uid).get();
             if (oldMirror.exists) {
               await oldMirror.reference.delete();
-              print('🧹 Mükerrer /users/$uid dokümanı temizlendi.');
+              debugPrint('🧹 Mükerrer /users/$uid dokümanı temizlendi.');
             }
-          } catch (_) {}
+          } catch (silentError) { debugPrint('[school_login_screen] hata yutuldu: $silentError'); }
         }
       }
 
@@ -670,7 +670,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
             userData = userDoc.data();
             userData?['id'] = userDoc.id;
           }
-        } catch (_) {}
+        } catch (silentError) { debugPrint('[school_login_screen] hata yutuldu: $silentError'); }
 
         if (userData == null && successEmail != null) {
           for (final instId in instIdsToTry) {
@@ -686,7 +686,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                 userData = fallbackQuery.docs.first.data();
                 userData['id'] = fallbackQuery.docs.first.id;
               }
-            } catch (_) {}
+            } catch (silentError) { debugPrint('[school_login_screen] hata yutuldu: $silentError'); }
           }
         }
       }
@@ -712,7 +712,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         // userData'da institutionId eksikse ekle
         userData['institutionId'] ??= institutionId;
         UserPermissionService.setCachedUserData(userData);
-        print('📌 Kullanıcı cache hazırlandı: ${userData['fullName'] ?? userData['username']} / $institutionId');
+        debugPrint('📌 Kullanıcı cache hazırlandı: ${userData['fullName'] ?? userData['username']} / $institutionId');
       }
 
       // ── Rol şablonunu yükle (yetkilendirme sistemi için) ──
@@ -726,7 +726,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
         } else {
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString('active_portal', 'manager');
-          Navigator.pushReplacementNamed(context, '/school-dashboard');
+          if (mounted) Navigator.pushReplacementNamed(context, '/school-dashboard');
         }
       }
     } catch (e) {
@@ -783,7 +783,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
           return;
         }
       } catch (e) {
-        print('⚠️ Öğrenci kaydı araması hatası: $e');
+        debugPrint('⚠️ Öğrenci kaydı araması hatası: $e');
       }
       _navigateToPortal('parent', userData, institutionId, []);
       return;
@@ -804,7 +804,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
           students = studentsQuery.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
         }
       } catch (e) {
-        print('❌ Redirection parent check error: $e');
+        debugPrint('❌ Redirection parent check error: $e');
       }
     }
 
@@ -906,7 +906,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF4C59BC).withOpacity(0.08),
+                      color: const Color(0xFF4C59BC).withValues(alpha: 0.08),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(
@@ -948,16 +948,16 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                         child: Container(
                           padding: const EdgeInsets.all(18),
                           decoration: BoxDecoration(
-                            border: Border.all(color: color.withOpacity(0.2), width: 1.5),
+                            border: Border.all(color: color.withValues(alpha: 0.2), width: 1.5),
                             borderRadius: BorderRadius.circular(20),
-                            color: color.withOpacity(0.02),
+                            color: color.withValues(alpha: 0.02),
                           ),
                           child: Row(
                             children: [
                               Container(
                                 padding: const EdgeInsets.all(10),
                                 decoration: BoxDecoration(
-                                  color: color.withOpacity(0.1),
+                                  color: color.withValues(alpha: 0.1),
                                   shape: BoxShape.circle,
                                 ),
                                 child: Icon(portal['icon'] as IconData, color: color, size: 24),
@@ -1058,7 +1058,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
               }
             }
           } catch (e) {
-            print('Error fetching school type details on login redirect: $e');
+            debugPrint('Error fetching school type details on login redirect: $e');
           }
         }
         
@@ -1067,9 +1067,9 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
           return;
         }
       }
-      Navigator.pushReplacementNamed(context, '/school-dashboard');
+      if (mounted) Navigator.pushReplacementNamed(context, '/school-dashboard');
     } else if (portalId == 'teacher') {
-      Navigator.pushReplacement(
+      if (mounted) Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => TeacherMainScreen(institutionId: institutionId)),
       );
@@ -1086,13 +1086,13 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
               .get();
           students = sQ.docs.map((d) => {...d.data(), 'id': d.id}).toList();
         } catch (e) {
-          print('⚠️ Veli çocukları sorgulanamadı: $e');
+          debugPrint('⚠️ Veli çocukları sorgulanamadı: $e');
         }
       }
 
       // Birden fazla çocuk varsa -> Hangi öğrenciye girmek istediğini sor!
       if (students.length > 1) {
-        Navigator.pushReplacement(
+        if (mounted) Navigator.pushReplacement(
           context,
           MaterialPageRoute(
             builder: (context) => ParentStudentSelectionScreen(
@@ -1107,7 +1107,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
           await prefs.setString('selected_student_id', students[0]['id']);
           await prefs.setString('selected_student_name', students[0]['fullName'] ?? '');
         }
-        Navigator.pushReplacement(
+        if (mounted) Navigator.pushReplacement(
           context,
           MaterialPageRoute(
             builder: (context) => ParentMainScreen(institutionId: institutionId),
@@ -1165,7 +1165,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                       Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF4C59BC).withOpacity(0.1),
+                          color: const Color(0xFF4C59BC).withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(14),
                         ),
                         child: Icon(
@@ -1506,7 +1506,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
 
       if (user != null && user.email != null) {
         final googleEmail = user.email!.trim().toLowerCase();
-        print('🔍 Google ile giriş yapan mail: $googleEmail. Sistemde aranıyor...');
+        debugPrint('🔍 Google ile giriş yapan mail: $googleEmail. Sistemde aranıyor...');
 
         // 1. users, students ve parents koleksiyonlarında e-posta arama
         final searchResults = await Future.wait([
@@ -1636,7 +1636,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(24),
                 border: Border.all(color: Colors.indigo.shade50, width: 2),
-                boxShadow: [BoxShadow(color: Colors.indigo.shade100.withOpacity(0.3), blurRadius: 40)],
+                boxShadow: [BoxShadow(color: Colors.indigo.shade100.withValues(alpha: 0.3), blurRadius: 40)],
               ),
               child: Image.network('https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=edukn_login_session_demo_12345', width: 200, height: 200),
             ),
@@ -1706,9 +1706,9 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      Colors.white.withOpacity(0.85),
-                      Colors.white.withOpacity(0.4),
-                      Colors.white.withOpacity(0.85),
+                      Colors.white.withValues(alpha: 0.85),
+                      Colors.white.withValues(alpha: 0.4),
+                      Colors.white.withValues(alpha: 0.85),
                     ],
                   ),
                 ),
@@ -1872,11 +1872,11 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.15),
+                            color: Colors.white.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: Colors.white.withOpacity(0.25)),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
                           ),
-                          child: Text('Eğitim Yönetim Sistemi', style: GoogleFonts.inter(color: Colors.white.withOpacity(0.9), fontSize: 12, fontWeight: FontWeight.w600)),
+                          child: Text('Eğitim Yönetim Sistemi', style: GoogleFonts.inter(color: Colors.white.withValues(alpha: 0.9), fontSize: 12, fontWeight: FontWeight.w600)),
                         ),
 
                         // Center: Title + Stats
@@ -1888,7 +1888,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                             const SizedBox(height: 16),
                             Text(
                               'Öğrenci kayıttan bordro yönetimine,\nokul türü yönetiminden rehberlik\nraporlarına kadar tüm süreçler tek platformda.',
-                              style: GoogleFonts.inter(color: Colors.white.withOpacity(0.75), fontSize: 14, height: 1.6),
+                              style: GoogleFonts.inter(color: Colors.white.withValues(alpha: 0.75), fontSize: 14, height: 1.6),
                             ),
                             const SizedBox(height: 20),
                             Row(children: [
@@ -1903,9 +1903,9 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
 
                         // Bottom: KVKK
                         Row(children: [
-                          Icon(Icons.verified_rounded, color: Colors.white.withOpacity(0.6), size: 15),
+                          Icon(Icons.verified_rounded, color: Colors.white.withValues(alpha: 0.6), size: 15),
                           const SizedBox(width: 8),
-                          Text('Güvenli & KVKK Uyumlu Platform', style: GoogleFonts.inter(color: Colors.white.withOpacity(0.6), fontSize: 11, fontWeight: FontWeight.w500)),
+                          Text('Güvenli & KVKK Uyumlu Platform', style: GoogleFonts.inter(color: Colors.white.withValues(alpha: 0.6), fontSize: 11, fontWeight: FontWeight.w500)),
                         ]),
                       ],
                     ),
@@ -1925,7 +1925,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text(value, style: GoogleFonts.inter(color: Colors.white, fontSize: 32, fontWeight: FontWeight.w900)),
       const SizedBox(height: 2),
-      Text(label, style: GoogleFonts.inter(color: Colors.white.withOpacity(0.6), fontSize: 12, fontWeight: FontWeight.w500)),
+      Text(label, style: GoogleFonts.inter(color: Colors.white.withValues(alpha: 0.6), fontSize: 12, fontWeight: FontWeight.w500)),
     ]);
   }
 
@@ -1944,7 +1944,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [Colors.white.withOpacity(0.85), Colors.white.withOpacity(0.4), Colors.white.withOpacity(0.85)],
+                  colors: [Colors.white.withValues(alpha: 0.85), Colors.white.withValues(alpha: 0.4), Colors.white.withValues(alpha: 0.85)],
                 ),
               ),
             ),
@@ -1978,7 +1978,7 @@ class _SchoolLoginScreenState extends State<SchoolLoginScreen> {
                             decoration: BoxDecoration(
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(24),
-                              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 40, offset: const Offset(0, 20))],
+                              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 40, offset: const Offset(0, 20))],
                             ),
                             child: Padding(
                               padding: const EdgeInsets.all(24),

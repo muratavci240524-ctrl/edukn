@@ -207,7 +207,7 @@ class _ClubSelectionSurveyDialogState extends State<ClubSelectionSurveyDialog> {
     required ValueChanged<String?> onChanged,
   }) {
     return DropdownButtonFormField<String>(
-      value: value,
+      initialValue: value,
       decoration: InputDecoration(
         labelText: label,
         labelStyle: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 13),

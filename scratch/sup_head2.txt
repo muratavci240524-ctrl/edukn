@@ -1,0 +1,88 @@
+  static pw.Widget _buildSupervisorHeader(
+    ExamDistribution distribution,
+    ExamRoom room,
+    pw.Font font,
+    pw.Font fontBold,
+  ) {
+    final examTitle = _getExamTitle(distribution);
+    final pct = room.totalCapacity == 0 ? 0.0 : (room.seatedStudentCount / room.totalCapacity).clamp(0.0, 1.0);
+
+    return pw.Container(
+      padding: const pw.EdgeInsets.fromLTRB(14, 9, 14, 9),
+      decoration: pw.BoxDecoration(
+        gradient: const pw.LinearGradient(colors: [PdfColors.indigo900, PdfColors.indigo600]),
+        borderRadius: pw.BorderRadius.circular(10),
+      ),
+      child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.center,
+        children: [
+          pw.Container(
+            width: 62,
+            height: 42,
+            alignment: pw.Alignment.center,
+            decoration: pw.BoxDecoration(
+              color: PdfColors.amber400,
+              borderRadius: pw.BorderRadius.circular(8),
+            ),
+            child: pw.Text(
+              room.classroomName,
+              maxLines: 1,
+              style: pw.TextStyle(font: fontBold, fontSize: 17, color: PdfColors.indigo900),
+            ),
+          ),
+          pw.SizedBox(width: 12),
+          pw.Expanded(
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text(
+                  'SALON OTURMA KROKİSİ',
+                  style: pw.TextStyle(font: fontBold, fontSize: 8, color: PdfColors.amber300, letterSpacing: 1.2),
+                ),
+                pw.SizedBox(height: 2),
+                pw.Text(
+                  '${distribution.schoolTypeName} • $examTitle',
+                  maxLines: 1,
+                  style: pw.TextStyle(font: fontBold, fontSize: 14, color: PdfColors.white),
+                ),
+              ],
+            ),
+          ),
+          pw.SizedBox(width: 10),
+          pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.end,
+            children: [
+              pw.Text(
+                '${room.seatedStudentCount}',
+                style: pw.TextStyle(font: fontBold, fontSize: 22, color: PdfColors.white),
+              ),
+              pw.Text(
+                'öğrenci / ${room.totalCapacity} kapasite',
+                style: pw.TextStyle(font: font, fontSize: 7.5, color: PdfColors.indigo100),
+              ),
+              pw.SizedBox(height: 3),
+              pw.Container(
+                width: 90,
+                height: 4,
+                decoration: pw.BoxDecoration(
+                  color: PdfColors.indigo300,
+                  borderRadius: pw.BorderRadius.circular(2),
+                ),
+                child: pw.Align(
+                  alignment: pw.Alignment.centerLeft,
+                  child: pw.Container(
+                    width: 90 * pct,
+                    height: 4,
+                    decoration: pw.BoxDecoration(
+                      color: PdfColors.amber400,
+                      borderRadius: pw.BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
